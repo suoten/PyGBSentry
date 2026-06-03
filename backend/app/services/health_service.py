@@ -460,16 +460,27 @@ class HealthService:
                         self.clear_degraded("zlm_down")
                         return
                 except Exception as e:
-                    logger.warning(f"Error: {e}")
+                    logger.debug(f"Error detecting external media nodes: {e}")
         except Exception as e:
-            logger.warning(f"Error: {e}")
+            logger.debug(f"Error in ZLM health check pre-conditions: {e}")
         if not await media_manager.is_running():
             if media_manager.embedded_deploy_known_failed():
                 self.mark_degraded("zlm_down")
                 return
+            # FIXED: 避免每 30 秒重复尝试重启和刷屏警告
+            # 5 分钟内只尝试重启一次，避免资源浪费
+            now = datetime.datetime.now(datetime.timezone.utc)
+            _restart_cooldown = getattr(self, "_zlm_last_restart_at", None)
+            if _restart_cooldown and (now - _restart_cooldown).total_seconds() < 300:
+                self.mark_degraded("zlm_down")
+                return
+            self._zlm_last_restart_at = now
             logger.warning("ZLMediaKit is not running! Attempting restart...")
             self.mark_degraded("zlm_down")
-            await media_manager.start()
+            try:
+                await media_manager.start()
+            except Exception as e:
+                logger.error(f"ZLMediaKit restart failed: {e}")
             # Re-check after restart attempt
             if await media_manager.is_running():
                 self.clear_degraded("zlm_down")

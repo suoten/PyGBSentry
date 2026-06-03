@@ -126,7 +126,7 @@ def _detect_lan_ip() -> str | None:
             try:
                 s.close()
             except Exception as e:
-                logger.warning(f"Error: {e}")
+                logger.debug(f"socket close error: {e}")
     except Exception:
         return None
     return None
@@ -309,7 +309,8 @@ async def get_all_media_from_nodes(nodes: list[RuntimeMediaNode]) -> list[dict[s
                 if isinstance(item, dict):
                     items.append({**item, "node_id": node.id})
         except Exception as e:
-            logger.warning(f"Error: {e}")
+            # FIXED: 包含节点信息便于排障，降低为 debug 避免刷屏（ZLM 未启动时属预期情况）
+            logger.debug(f"getMediaList failed for node {node.id} ({node.host}:{node.http_port}): {e}")
         return items
 
     results = await asyncio.gather(*[_fetch(n) for n in nodes])
@@ -370,7 +371,7 @@ async def _async_get_stream_count(node: RuntimeMediaNode) -> tuple[RuntimeMediaN
                         net_out = float(sys_info.get("NetTotalOut") or 0)
                         net_mbps = (net_in + net_out) / (1024 * 1024)
             except Exception as e:
-                logger.warning(f"Error: {e}")
+                logger.debug(f"getStatistic failed for node {node.id} ({node.host}:{node.http_port}): {e}")
 
         return node, count, is_alive, cpu, mem, net_mbps
     except Exception:
@@ -393,7 +394,7 @@ async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = No
         if db_nodes:
             nodes = [_to_runtime(n) for n in db_nodes]
     except Exception as e:
-        logger.warning(f"Error: {e}")
+        logger.debug(f"select_best_db_node: failed to query non-embedded nodes: {e}")
 
     if exclude_node_ids:
         nodes = [n for n in nodes if n.id not in exclude_node_ids]

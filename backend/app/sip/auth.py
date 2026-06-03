@@ -46,8 +46,7 @@ class DigestAuth:
         global _md5_warned
         effective_algo = algorithm.upper() if algorithm else "MD5"
         if effective_algo == "MD5" and not _md5_warned:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "SIP digest auth using MD5 algorithm. "
                 "MD5 is cryptographically broken. Consider enabling SHA-256 when devices support it."
             )

@@ -272,12 +272,69 @@ async def lifespan(app: FastAPI):
     # Schema migration: use Alembic if USE_ALEMBIC=true, otherwise legacy schema_upgrade
     use_alembic = getattr(app_settings, 'USE_ALEMBIC', False)
     if use_alembic:
+        import subprocess
+        _backend_dir = os.path.dirname(os.path.dirname(__file__))
+
+        # FIXED-P0: 检测数据库是否已有表但无 alembic_version 记录
+        # 当数据库由 ensure_business_schema 创建时，表已存在但 alembic 不知道，
+        # 导致 alembic upgrade head 尝试 CREATE TABLE 失败（SQLite 不支持 IF NOT EXISTS）
+        # 解决方案：检测到已有表时先 stamp head，再 upgrade（此时为 no-op）
+        _need_stamp = False
+        try:
+            async with engine.connect() as conn:
+                _dialect_name = (getattr(engine.dialect, "name", None) or "").lower()
+                if _dialect_name == "sqlite":
+                    _av_result = await conn.execute(text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+                    ))
+                    if not _av_result.first():
+                        _bt_result = await conn.execute(text(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')"
+                        ))
+                        if _bt_result.fetchall():
+                            _need_stamp = True
+                elif _dialect_name == "postgresql":
+                    _av_result = await conn.execute(text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
+                    ))
+                    if not _av_result.scalar():
+                        _bt_result = await conn.execute(text(
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version'))"
+                        ))
+                        if _bt_result.scalar():
+                            _need_stamp = True
+                elif _dialect_name == "mysql":
+                    _av_result = await conn.execute(text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
+                    ))
+                    if not _av_result.scalar():
+                        _bt_result = await conn.execute(text(
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))"
+                        ))
+                        if _bt_result.scalar():
+                            _need_stamp = True
+        except Exception as _stamp_check_err:
+            logger.debug(f"alembic stamp pre-check error: {_stamp_check_err}")
+
+        if _need_stamp:
+            logger.info("Startup step: stamping alembic version (database has tables but no alembic_version)...")
+            try:
+                _stamp_result = subprocess.run(
+                    [sys.executable, "-m", "alembic", "stamp", "head"],
+                    cwd=_backend_dir,
+                    capture_output=True, text=True, timeout=30,
+                )
+                if _stamp_result.returncode == 0:
+                    logger.info("Startup step: alembic stamp head done.")
+                else:
+                    logger.warning(f"alembic stamp head failed: {_stamp_result.stderr[-300:]}")
+            except Exception as _stamp_err:
+                logger.warning(f"alembic stamp head error: {_stamp_err}")
+
         logger.info("Startup step: alembic upgrade head...")
         # FIXED-P0: 使用 subprocess 调用 alembic CLI，而非 import alembic.env
         # alembic/env.py 中 `from alembic import context` 引用第三方库，
         # 本地 alembic/ 目录会导致命名冲突，无论用 import 还是 importlib 都无法避免
-        import subprocess
-        _backend_dir = os.path.dirname(os.path.dirname(__file__))
         try:
             _result = subprocess.run(
                 [sys.executable, "-m", "alembic", "upgrade", "head"],

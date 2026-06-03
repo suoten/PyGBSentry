@@ -25,14 +25,81 @@ async def phase_schema_migration():
     """Phase 1: Run database schema migration (Alembic or legacy)."""
     use_alembic = getattr(settings, 'USE_ALEMBIC', False)
     if use_alembic:
+        import subprocess
+        import sys
+        import os
+        _backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+        # FIXED-P0: 与 main.py 保持一致，使用 subprocess 调用 alembic CLI
+        # 直接 import alembic 会与本地 alembic/ 目录产生命名冲突
+        # 检测数据库是否已有表但无 alembic_version 记录（由 ensure_business_schema 创建）
+        _need_stamp = False
+        try:
+            async with engine.connect() as conn:
+                _dialect_name = (getattr(engine.dialect, "name", None) or "").lower()
+                if _dialect_name == "sqlite":
+                    _av_result = await conn.execute(text(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
+                    ))
+                    if not _av_result.first():
+                        _bt_result = await conn.execute(text(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')"
+                        ))
+                        if _bt_result.fetchall():
+                            _need_stamp = True
+                elif _dialect_name == "postgresql":
+                    _av_result = await conn.execute(text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
+                    ))
+                    if not _av_result.scalar():
+                        _bt_result = await conn.execute(text(
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version'))"
+                        ))
+                        if _bt_result.scalar():
+                            _need_stamp = True
+                elif _dialect_name == "mysql":
+                    _av_result = await conn.execute(text(
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
+                    ))
+                    if not _av_result.scalar():
+                        _bt_result = await conn.execute(text(
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))"
+                        ))
+                        if _bt_result.scalar():
+                            _need_stamp = True
+        except Exception as _stamp_check_err:
+            logger.debug(f"alembic stamp pre-check error: {_stamp_check_err}")
+
+        if _need_stamp:
+            logger.info("Startup step: stamping alembic version (database has tables but no alembic_version)...")
+            try:
+                _stamp_result = subprocess.run(
+                    [sys.executable, "-m", "alembic", "stamp", "head"],
+                    cwd=_backend_dir,
+                    capture_output=True, text=True, timeout=30,
+                )
+                if _stamp_result.returncode == 0:
+                    logger.info("Startup step: alembic stamp head done.")
+                else:
+                    logger.warning(f"alembic stamp head failed: {_stamp_result.stderr[-300:]}")
+            except Exception as _stamp_err:
+                logger.warning(f"alembic stamp head error: {_stamp_err}")
+
         logger.info("Startup step: alembic upgrade head...")
-        from alembic.config import Config as AlembicConfig
-        from alembic import command as alembic_command
-        alembic_cfg = AlembicConfig()
-        alembic_cfg.set_main_option("script_location", "alembic")
-        alembic_cfg.set_main_option("sqlalchemy.url", settings.SQLALCHEMY_DATABASE_URI)
-        alembic_command.upgrade(alembic_cfg, "head")
-        logger.info("Startup step: alembic upgrade head done.")
+        try:
+            _result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=_backend_dir,
+                capture_output=True, text=True, timeout=120,
+            )
+            if _result.returncode == 0:
+                logger.info("Startup step: alembic upgrade head done.")
+            else:
+                logger.error(f"alembic upgrade head failed (exit {_result.returncode}): {_result.stderr[-500:]}")
+        except subprocess.TimeoutExpired:
+            logger.error("alembic upgrade head timed out (120s)")
+        except Exception as _alembic_err:
+            logger.error(f"alembic upgrade head error: {_alembic_err}")
     else:
         logger.info("Startup step: ensure_business_schema...")
         from app.services.schema_upgrade import ensure_business_schema

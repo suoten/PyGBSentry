@@ -58,6 +58,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -66,7 +67,13 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection):
     """同步迁移执行（在 async 上下文中被调用）"""
-    context.configure(connection=connection, target_metadata=target_metadata)
+    # FIXED: render_as_batch=True 支持 SQLite（SQLite 不支持 ALTER TABLE，
+    # batch 模式通过"创建新表→复制数据→删除旧表→重命名"实现等价效果）
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        render_as_batch=True,
+    )
     with context.begin_transaction():
         context.run_migrations()
 
