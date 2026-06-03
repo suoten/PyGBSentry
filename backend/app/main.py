@@ -273,19 +273,25 @@ async def lifespan(app: FastAPI):
     use_alembic = getattr(app_settings, 'USE_ALEMBIC', False)
     if use_alembic:
         logger.info("Startup step: alembic upgrade head...")
-        # FIXED-P0: 使用 importlib 动态导入 alembic/env.py，避免与 alembic 第三方库的命名冲突
-        # alembic/env.py 中 `from alembic import context` 引用的是第三方库，
-        # 如果将 alembic/ 目录变成 Python 包（添加 __init__.py），会导致名称冲突
-        import importlib.util
-        _alembic_env_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "alembic", "env.py")
-        if os.path.isfile(_alembic_env_path):
-            _spec = importlib.util.spec_from_file_location("alembic_env", _alembic_env_path)
-            _alembic_env = importlib.util.module_from_spec(_spec)
-            _spec.loader.exec_module(_alembic_env)
-            await _alembic_env.run_async_migrations()
-        else:
-            logger.warning(f"alembic/env.py not found at {_alembic_env_path}, skipping migration.")
-        logger.info("Startup step: alembic upgrade head done.")
+        # FIXED-P0: 使用 subprocess 调用 alembic CLI，而非 import alembic.env
+        # alembic/env.py 中 `from alembic import context` 引用第三方库，
+        # 本地 alembic/ 目录会导致命名冲突，无论用 import 还是 importlib 都无法避免
+        import subprocess
+        _backend_dir = os.path.dirname(os.path.dirname(__file__))
+        try:
+            _result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                cwd=_backend_dir,
+                capture_output=True, text=True, timeout=120,
+            )
+            if _result.returncode == 0:
+                logger.info("Startup step: alembic upgrade head done.")
+            else:
+                logger.error(f"alembic upgrade head failed (exit {_result.returncode}): {_result.stderr[-500:]}")
+        except subprocess.TimeoutExpired:
+            logger.error("alembic upgrade head timed out (120s)")
+        except Exception as _alembic_err:
+            logger.error(f"alembic upgrade head error: {_alembic_err}")
     else:
         logger.info("Startup step: ensure_business_schema...")
         await ensure_business_schema()
