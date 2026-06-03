@@ -3,6 +3,7 @@ from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.responses import FileResponse
 import asyncio
+import logging  # FIXED-P0: logging.Handler 基类需要导入 logging 模块
 from loguru import logger
 from collections import deque
 from app.api import deps  # S-06-03 日志HTTP接口添加认证依赖
