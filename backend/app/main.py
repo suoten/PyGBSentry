@@ -277,7 +277,7 @@ async def lifespan(app: FastAPI):
 
         # FIXED-P0: 检测数据库是否已有表但无 alembic_version 记录
         # 当数据库由 ensure_business_schema 创建时，表已存在但 alembic 不知道，
-        # 导致 alembic upgrade head 尝试 CREATE TABLE 失败（SQLite 不支持 IF NOT EXISTS）
+        # 导致 alembic upgrade head 尝试 CREATE TABLE 失败
         # 解决方案：检测到已有表时先 stamp head，再 upgrade（此时为 no-op）
         _need_stamp = False
         try:
@@ -294,15 +294,30 @@ async def lifespan(app: FastAPI):
                         if _bt_result.fetchall():
                             _need_stamp = True
                 elif _dialect_name == "postgresql":
+                    # 检查 alembic_version 表是否存在且是否有版本记录
                     _av_result = await conn.execute(text(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
+                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='alembic_version')"
                     ))
-                    if not _av_result.scalar():
+                    _av_exists = _av_result.scalar()
+                    if not _av_exists:
+                        # 无 alembic_version 表，检查是否有其他业务表
                         _bt_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version'))"
+                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
                         ))
                         if _bt_result.scalar():
                             _need_stamp = True
+                    else:
+                        # alembic_version 表存在但可能为空（之前部分运行）
+                        _ver_result = await conn.execute(text(
+                            "SELECT EXISTS (SELECT 1 FROM alembic_version)"
+                        ))
+                        if not _ver_result.scalar():
+                            # 有表但无版本记录，检查是否有业务表
+                            _bt_result = await conn.execute(text(
+                                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
+                            ))
+                            if _bt_result.scalar():
+                                _need_stamp = True
                 elif _dialect_name == "mysql":
                     _av_result = await conn.execute(text(
                         "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
@@ -344,7 +359,25 @@ async def lifespan(app: FastAPI):
             if _result.returncode == 0:
                 logger.info("Startup step: alembic upgrade head done.")
             else:
-                logger.error(f"alembic upgrade head failed (exit {_result.returncode}): {_result.stderr[-500:]}")
+                _stderr = _result.stderr or ""
+                logger.error(f"alembic upgrade head failed (exit {_result.returncode}): {_stderr[-500:]}")
+                # FIXED-P0: upgrade 失败且错误是"表已存在"时，自动 stamp head
+                # 场景：alembic_version 有旧版本号，但表已由 ensure_business_schema 创建
+                _dup_keywords = ("already exists", "DuplicateTable", "DuplicateColumn", "DuplicateObject")
+                if any(kw.lower() in _stderr.lower() for kw in _dup_keywords):
+                    logger.warning("Detected 'already exists' error — stamping alembic to head and continuing...")
+                    try:
+                        _stamp_result = subprocess.run(
+                            [sys.executable, "-m", "alembic", "stamp", "head"],
+                            cwd=_backend_dir,
+                            capture_output=True, text=True, timeout=30,
+                        )
+                        if _stamp_result.returncode == 0:
+                            logger.info("Startup step: alembic stamp head done (after duplicate error).")
+                        else:
+                            logger.warning(f"alembic stamp head failed: {_stamp_result.stderr[-300:]}")
+                    except Exception as _stamp_err:
+                        logger.warning(f"alembic stamp head error: {_stamp_err}")
         except subprocess.TimeoutExpired:
             logger.error("alembic upgrade head timed out (120s)")
         except Exception as _alembic_err:
