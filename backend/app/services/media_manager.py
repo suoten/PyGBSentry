@@ -235,6 +235,7 @@ class MediaManager:
                 self.config_path = ""
         # 避免与 async def is_running(self) 同名冲突
         self._running = False
+        self._stopped = False
         self._stdout_thread: threading.Thread | None = None
         self._stdout_stop = threading.Event()
         self._embed_zlm_deploy_exhausted = False
@@ -1358,8 +1359,11 @@ class MediaManager:
         """
         Start ZLMediaKit process
         """
-        # N-07 monitor重启前检查_running标志，防止与stop()竞态
-        if not self._running:
+        # FIXED-P0: 原逻辑 `if not self._running: return` 导致首次 start() 直接退出
+        # 因为 __init__ 中 self._running = False，首次调用 start() 时条件成立直接 return，
+        # ZLM 永远不会启动。改为：仅当已被 stop() 明确停止后才跳过（_stopped 标志）。
+        if getattr(self, '_stopped', False):
+            logger.debug("Embedded ZLM start skipped: service has been explicitly stopped.")
             return
         if not bool(getattr(settings, "EMBEDDED_ZLM_ENABLED", True)):
             logger.info("Embedded ZLMediaKit is disabled by config (EMBEDDED_ZLM_ENABLED=false). Skipping start.")
@@ -1634,8 +1638,8 @@ class MediaManager:
                 except Exception as e:
                     logger.warning(f"Failed to set stdout stop event: {e}")
                 await asyncio.sleep(delay)
-                # N-07 monitor重启前检查_running标志，防止与stop()竞态
-                if not self._running:
+                # FIXED: 检查 _stopped 标志（stop() 已被调用），防止重启
+                if self._stopped:
                     return
                 try:
                     await self.start()
