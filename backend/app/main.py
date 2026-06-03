@@ -382,6 +382,18 @@ async def lifespan(app: FastAPI):
             logger.error("alembic upgrade head timed out (120s)")
         except Exception as _alembic_err:
             logger.error(f"alembic upgrade head error: {_alembic_err}")
+
+        # FIXED-P0: alembic stamp head 只标记版本号，不创建缺失的表
+        # 当数据库由 ensure_business_schema 部分创建时，某些表（如 ip_blacklist）
+        # 可能不在 ensure_business_schema 的 SQL 列表中但存在于 ORM 模型中
+        # 用 Base.metadata.create_all 兜底补建所有缺失的表
+        try:
+            from app.models.model_registry import Base
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Startup step: ensure all ORM tables exist (create_all fallback) done.")
+        except Exception as _create_all_err:
+            logger.warning(f"Startup step: create_all fallback error: {_create_all_err}")
     else:
         logger.info("Startup step: ensure_business_schema...")
         await ensure_business_schema()
