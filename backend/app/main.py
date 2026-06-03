@@ -388,7 +388,9 @@ async def lifespan(app: FastAPI):
         # 可能不在 ensure_business_schema 的 SQL 列表中但存在于 ORM 模型中
         # 用 Base.metadata.create_all 兜底补建所有缺失的表
         try:
-            from app.models.model_registry import Base
+            from app.db.model_registry import ensure_model_registry_loaded
+            from app.db.base import Base
+            ensure_model_registry_loaded()
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             logger.info("Startup step: ensure all ORM tables exist (create_all fallback) done.")
