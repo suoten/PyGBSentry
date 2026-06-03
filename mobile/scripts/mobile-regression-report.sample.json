@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-04-18T12:00:00Z",
+  "provider": "cloud-device-farm",
+  "results": [
+    { "device_tier": "android_mid", "network_profile": "lan", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3100 },
+    { "device_tier": "android_mid", "network_profile": "4g", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3500 },
+    { "device_tier": "android_mid", "network_profile": "weak_net_loss5_jitter120", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3900 },
+    { "device_tier": "android_high", "network_profile": "lan", "attempts": 3, "success_rate": 100, "avg_startup_ms": 2500 },
+    { "device_tier": "android_high", "network_profile": "4g", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3000 },
+    { "device_tier": "android_high", "network_profile": "weak_net_loss5_jitter120", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3300 },
+    { "device_tier": "ios_mainstream", "network_profile": "lan", "attempts": 3, "success_rate": 100, "avg_startup_ms": 2300 },
+    { "device_tier": "ios_mainstream", "network_profile": "4g", "attempts": 3, "success_rate": 100, "avg_startup_ms": 2800 },
+    { "device_tier": "ios_mainstream", "network_profile": "weak_net_loss5_jitter120", "attempts": 3, "success_rate": 100, "avg_startup_ms": 3200 }
+  ]
+}

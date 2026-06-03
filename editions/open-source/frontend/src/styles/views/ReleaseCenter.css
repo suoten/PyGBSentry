@@ -1,0 +1,11 @@
+.release-tabs {
+  margin-top: var(--ds-space-4);
+}
+
+.release-tabs :deep(.el-tabs__header) {
+  margin: 0 0 var(--ds-space-4) 0;
+}
+
+.release-tabs :deep(.el-tabs__content) {
+  padding-top: 0;
+}

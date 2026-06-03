@@ -1,0 +1,12 @@
+{
+  "events": [
+    {
+      "at": "2026-04-18T11:30:24.436Z",
+      "policy_env": "dev",
+      "reason_code": "OK",
+      "review_due_at": "2026-07-17T00:00:00.000Z",
+      "review_days_until_due": 89.52,
+      "owner": "mobile-regression-ops"
+    }
+  ]
+}

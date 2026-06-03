@@ -1,0 +1,49 @@
+{
+  "version": "v1.0.0",
+  "owner": "mobile-regression-ops",
+  "approvers": [
+    "qa.lead",
+    "security.owner"
+  ],
+  "review_cycle_days": 90,
+  "last_reviewed_at": "2026-04-18T00:00:00Z",
+  "change_control": {
+    "approver_group": "mobile-regression-owners",
+    "rollback_runbook_id": "runbook-mobile-closeout-alert-policy-rollback-v1",
+    "rollback_checklist_id": "checklist-mobile-closeout-alert-policy-rollback-v1"
+  },
+  "env_defaults": {
+    "prod": {
+      "risk_reason_codes": [
+        "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW",
+        "CLOSEOUT_WINDOW_INVALID",
+        "CLOSEOUT_WINDOW_ORDER_INVALID",
+        "CLOSEOUT_SIGNOFF_AT_INVALID",
+        "CLOSEOUT_INFO_MISSING"
+      ],
+      "mute_reason_codes": [],
+      "dedupe_window_sec_map": {
+        "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW": 900,
+        "CLOSEOUT_WINDOW_INVALID": 900,
+        "CLOSEOUT_WINDOW_ORDER_INVALID": 1200,
+        "CLOSEOUT_SIGNOFF_AT_INVALID": 1200,
+        "CLOSEOUT_INFO_MISSING": 1800
+      }
+    },
+    "canary": {
+      "risk_reason_codes": [
+        "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW",
+        "CLOSEOUT_WINDOW_INVALID",
+        "CLOSEOUT_INFO_MISSING"
+      ],
+      "mute_reason_codes": [
+        "CLOSEOUT_INFO_MISSING"
+      ],
+      "dedupe_window_sec_map": {
+        "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW": 3600,
+        "CLOSEOUT_WINDOW_INVALID": 3600,
+        "CLOSEOUT_INFO_MISSING": 7200
+      }
+    }
+  }
+}

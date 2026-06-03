@@ -1,0 +1,33 @@
+name: Open-source backend CI
+
+on:
+  pull_request:
+    paths:
+      - "editions/open-source/backend/**"
+      - ".github/workflows/open-source-backend-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "editions/open-source/backend/**"
+      - ".github/workflows/open-source-backend-ci.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editions/open-source/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: editions/open-source/backend/requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v

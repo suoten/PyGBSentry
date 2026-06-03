@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyGBSentry 图标预览 - 时空之门 2.0</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            padding: 40px;
+        }
+        .container {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(20px);
+            border-radius: 24px;
+            padding: 60px 80px;
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 100px rgba(0, 255, 255, 0.1);
+        }
+        h1 {
+            font-size: 36px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #00ffff, #00d4ff, #0080ff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 14px;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            margin-bottom: 50px;
+        }
+        .logo-showcase {
+            width: 240px;
+            height: 240px;
+            margin: 0 auto 50px;
+            position: relative;
+        }
+        .logo-showcase::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(0, 255, 255, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            animation: breathe 3s ease-in-out infinite;
+        }
+        @keyframes breathe {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+            50% { transform: translate(-50%, -50%) scale(1.1); opacity: 0.8; }
+        }
+        .logo-showcase svg {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            z-index: 1;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+            max-width: 700px;
+            margin: 0 auto;
+        }
+        .feature {
+            background: rgba(0, 255, 255, 0.05);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid rgba(0, 255, 255, 0.1);
+            text-align: left;
+        }
+        .feature h3 {
+            font-size: 13px;
+            color: #00ffff;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .feature p {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+            line-height: 1.5;
+        }
+        .comparison {
+            margin-top: 50px;
+            display: flex;
+            gap: 60px;
+            justify-content: center;
+        }
+        .comparison-item {
+            text-align: center;
+        }
+        .comparison-item h4 {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-bottom: 16px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+        .icon-box {
+            width: 100px;
+            height: 100px;
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid rgba(0, 255, 255, 0.1);
+        }
+        .icon-box svg {
+            width: 64px;
+            height: 64px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PyGBSentry</h1>
+        <p class="subtitle">时空之门 · 视觉升级版</p>
+        
+        <div class="logo-showcase">
+            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <radialGradient id="deepSpace" cx="30%" cy="30%" r="70%">
+                        <stop offset="0%" stop-color="#2a3f5f"/>
+                        <stop offset="40%" stop-color="#1a2542"/>
+                        <stop offset="100%" stop-color="#0a0f1a"/>
+                    </radialGradient>
+                    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#00ffff"/>
+                        <stop offset="50%" stop-color="#00d4ff"/>
+                        <stop offset="100%" stop-color="#0080ff"/>
+                    </linearGradient>
+                    <filter id="multiGlow" x="-100%" y="-100%" width="300%" height="300%">
+                        <feGaussianBlur stdDeviation="2" result="blur1"/>
+                        <feGaussianBlur stdDeviation="4" result="blur2"/>
+                        <feGaussianBlur stdDeviation="8" result="blur3"/>
+                        <feMerge>
+                            <feMergeNode in="blur3"/>
+                            <feMergeNode in="blur2"/>
+                            <feMergeNode in="blur1"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                    <filter id="pulseGlow">
+                        <feGaussianBlur stdDeviation="3" result="blur"/>
+                        <feMerge>
+                            <feMergeNode in="blur"/>
+                            <feMergeNode in="SourceGraphic"/>
+                        </feMerge>
+                    </filter>
+                </defs>
+                
+                <rect width="32" height="32" rx="14" fill="url(#deepSpace)"/>
+                
+                <g opacity="0.3">
+                    <circle cx="6" cy="6" r="0.5" fill="#00ffff"/>
+                    <circle cx="12" cy="4" r="0.5" fill="#00ffff"/>
+                    <circle cx="20" cy="5" r="0.5" fill="#00ffff"/>
+                    <circle cx="26" cy="8" r="0.5" fill="#00ffff"/>
+                    <circle cx="4" cy="14" r="0.5" fill="#00ffff"/>
+                    <circle cx="28" cy="16" r="0.5" fill="#00ffff"/>
+                    <circle cx="7" cy="26" r="0.5" fill="#00ffff"/>
+                    <circle cx="16" cy="28" r="0.5" fill="#00ffff"/>
+                    <circle cx="25" cy="25" r="0.5" fill="#00ffff"/>
+                </g>
+                
+                <circle cx="16" cy="16" r="14" fill="none" stroke="rgba(0,255,255,0.08)" stroke-width="0.5" stroke-dasharray="6 3"/>
+                <circle cx="16" cy="16" r="12" fill="none" stroke="rgba(0,255,255,0.15)" stroke-width="0.8" stroke-dasharray="12 6"/>
+                
+                <circle cx="16" cy="16" r="9" fill="none" stroke="url(#neonGrad)" stroke-width="1.5" filter="url(#multiGlow)" opacity="0.9">
+                    <animate attributeName="r" values="9;9.5;9" dur="2s" repeatCount="indefinite"/>
+                    <animate attributeName="opacity" values="0.9;0.6;0.9" dur="2s" repeatCount="indefinite"/>
+                </circle>
+                
+                <circle cx="16" cy="16" r="6" fill="none" stroke="rgba(0,255,255,0.4)" stroke-width="1"/>
+                
+                <path d="M10 7L26 16L10 25Z" fill="none" stroke="url(#neonGrad)" stroke-width="2" filter="url(#multiGlow)"/>
+                <path d="M11 8L24 16L11 24Z" fill="url(#neonGrad)" filter="url(#pulseGlow)" opacity="0.9"/>
+                <path d="M13 10L21 16L13 22Z" fill="#0a0f1a"/>
+                <path d="M14 11.5L19 16L14 20.5Z" fill="#00ffff" filter="url(#multiGlow)"/>
+                
+                <g opacity="0.7">
+                    <line x1="26" y1="16" x2="31" y2="16" stroke="#00ffff" stroke-width="1.5" stroke-linecap="round"/>
+                    <line x1="25" y1="12" x2="30" y2="9" stroke="#00d4ff" stroke-width="1" stroke-linecap="round"/>
+                    <line x1="25" y1="20" x2="30" y2="23" stroke="#00d4ff" stroke-width="1" stroke-linecap="round"/>
+                    <line x1="24" y1="10" x2="28" y2="6" stroke="#0080ff" stroke-width="0.5" stroke-linecap="round"/>
+                    <line x1="24" y1="22" x2="28" y2="26" stroke="#0080ff" stroke-width="0.5" stroke-linecap="round"/>
+                </g>
+                
+                <circle cx="16" cy="16" r="1" fill="#ffffff" filter="url(#multiGlow)">
+                    <animate attributeName="r" values="1;1.3;1" dur="1.5s" repeatCount="indefinite"/>
+                </circle>
+            </svg>
+        </div>
+
+        <div class="features">
+            <div class="feature">
+                <h3>✨ 粒子星空</h3>
+                <p>背景点缀9颗微光粒子，营造宇宙深邃感</p>
+            </div>
+            <div class="feature">
+                <h3>🌀 双环星轨</h3>
+                <p>外层双虚线设计，像旋转的星系轨道</p>
+            </div>
+            <div class="feature">
+                <h3>💫 脉冲能量</h3>
+                <p>能量环带呼吸动画，持续脉动发光</p>
+            </div>
+            <div class="feature">
+                <h3>🚪 立体门扉</h3>
+                <p>三角形带外框描边，更有立体感</p>
+            </div>
+            <div class="feature">
+                <h3>⚡ 放射射线</h3>
+                <p>5条速度线从门中射出，动感十足</p>
+            </div>
+            <div class="feature">
+                <h3>🌟 中心星辰</h3>
+                <p>白色星点呼吸闪烁，视觉焦点</p>
+            </div>
+        </div>
+
+        <div class="comparison">
+            <div class="comparison-item">
+                <h4>全新设计</h4>
+                <div class="icon-box">
+                    <svg viewBox="0 0 32 32" fill="none">
+                        <rect width="32" height="32" rx="14" fill="#0a0f1a"/>
+                        <circle cx="16" cy="16" r="12" fill="none" stroke="rgba(0,255,255,0.2)" stroke-width="0.5" stroke-dasharray="12 6"/>
+                        <circle cx="16" cy="16" r="9" fill="none" stroke="#00d4ff" stroke-width="1.5" opacity="0.8"/>
+                        <path d="M11 8L24 16L11 24Z" fill="#00d4ff" opacity="0.9"/>
+                        <path d="M13 10L21 16L13 22Z" fill="#0a0f1a"/>
+                        <path d="M14 11.5L19 16L14 20.5Z" fill="#00ffff"/>
+                    </svg>
+                </div>
+            </div>
+            <div class="comparison-item">
+                <h4>原版设计</h4>
+                <div class="icon-box">
+                    <svg viewBox="0 0 32 32" fill="none">
+                        <defs>
+                            <linearGradient id="og" x1="4" y1="4" x2="28" y2="28">
+                                <stop stop-color="#409eff"/>
+                                <stop offset="1" stop-color="#337ecc"/>
+                            </linearGradient>
+                        </defs>
+                        <rect width="32" height="32" rx="6" fill="url(#og)"/>
+                        <path d="M10 22V15c0-3 2-5.5 5.5-5.5H22v12.5c0 2-1.5 3.5-3.5 3.5h-5c-2 0-3.5-1.5-3.5-3.5Z" fill="rgba(255,255,255,0.9)"/>
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

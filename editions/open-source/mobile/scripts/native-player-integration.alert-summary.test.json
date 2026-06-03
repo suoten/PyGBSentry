@@ -1,0 +1,11 @@
+{
+  "at": "2026-04-18T08:00:27.568Z",
+  "notified": false,
+  "deduped": false,
+  "level": "error",
+  "reason_code": "HTTP_ERROR",
+  "fetch_outcome": "failure",
+  "gate_outcome": "failure",
+  "targets": 0,
+  "message": "webhook url not configured"
+}

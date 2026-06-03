@@ -1,0 +1,849 @@
+name: Frontend static checks
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "editions/open-source/frontend/**"
+      - "editions/open-source/mobile/**"
+      - "editions/server/frontend/**"
+      - ".github/workflows/frontend-static-checks.yml"
+  push:
+    branches: [main]
+    paths:
+      - "editions/open-source/frontend/**"
+      - "editions/open-source/mobile/**"
+      - "editions/server/frontend/**"
+      - ".github/workflows/frontend-static-checks.yml"
+
+jobs:
+  open-source-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editions/open-source/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: editions/open-source/frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Mirror / TS-JS conflict check
+        run: npm run check:no-js-mirrors
+      - name: No raw axios response.data.detail
+        run: npm run check:no-raw-axios-detail
+      - name: Typecheck (vue-tsc, incremental)
+        run: npm run typecheck:ci
+
+  server-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editions/server/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: editions/server/frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: No raw axios response.data.detail
+        run: npm run check:no-raw-axios-detail
+      - name: Typecheck (vue-tsc)
+        run: npm run typecheck
+
+  open-source-mobile:
+    runs-on: ubuntu-latest
+    env:
+      MOBILE_REGRESSION_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      MOBILE_REGRESSION_REPORT_PATH: "scripts/mobile-regression-report.json"
+      MOBILE_REGRESSION_FETCH_STATUS_PATH: "scripts/mobile-regression.fetch-status.json"
+      MOBILE_REGRESSION_REPORT_API_URL: ${{ secrets.MOBILE_REGRESSION_REPORT_API_URL }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN: ${{ secrets.MOBILE_REGRESSION_REPORT_API_TOKEN }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_EXPIRES_AT: ${{ vars.MOBILE_REGRESSION_REPORT_API_TOKEN_EXPIRES_AT }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_EXPIRES_SOON_SEC: "86400"
+      MOBILE_REGRESSION_REPORT_API_TOKEN_MIN_LENGTH: "20"
+      MOBILE_REGRESSION_REPORT_API_TOKEN_SOURCE: "secrets"
+      MOBILE_REGRESSION_REPORT_API_TOKEN_SOURCE_ALLOWED: ${{ vars.MOBILE_REGRESSION_REPORT_API_TOKEN_SOURCE_ALLOWED || 'secrets' }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_SCOPES: ${{ vars.MOBILE_REGRESSION_REPORT_API_TOKEN_SCOPES }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_REQUIRED_SCOPES: ${{ vars.MOBILE_REGRESSION_REPORT_API_TOKEN_REQUIRED_SCOPES || 'mobile-regression.read' }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_FORBIDDEN_SCOPES: ${{ vars.MOBILE_REGRESSION_REPORT_API_TOKEN_FORBIDDEN_SCOPES || 'admin,write:*' }}
+      MOBILE_REGRESSION_REPORT_API_TOKEN_ENFORCE_MIN_PRIVILEGE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      MOBILE_REGRESSION_REPORT_TOKEN_MIN_TTL_SEC: "604800"
+      MOBILE_REGRESSION_POLICY_ENV: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'prod' || 'canary' }}
+      MOBILE_REGRESSION_POLICY_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      MOBILE_REGRESSION_POLICY_STATUS_PATH: "scripts/mobile-regression.policy-status.json"
+      MOBILE_REGRESSION_ROTATION_DRILL_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      MOBILE_REGRESSION_ROTATION_LAST_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_LAST_AT }}
+      MOBILE_REGRESSION_ROTATION_MAX_AGE_DAYS: "30"
+      MOBILE_REGRESSION_ROTATION_RUNBOOK_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_RUNBOOK_ID }}
+      MOBILE_REGRESSION_ROTATION_TICKET_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_TICKET_ID }}
+      MOBILE_REGRESSION_ROTATION_STATUS_PATH: "scripts/mobile-regression.rotation-drill-status.json"
+      MOBILE_REGRESSION_ROTATION_HISTORY_PATH: "scripts/mobile-regression.rotation-history.json"
+      MOBILE_REGRESSION_ROTATION_HISTORY_MAX_ENTRIES: "500"
+      MOBILE_REGRESSION_ROTATION_REPORT_JSON_PATH: "scripts/mobile-regression.rotation-report.json"
+      MOBILE_REGRESSION_ROTATION_REPORT_MD_PATH: "scripts/mobile-regression.rotation-report.md"
+      MOBILE_REGRESSION_ROTATION_REPORT_WINDOW_DAYS: "7"
+      MOBILE_REGRESSION_ROTATION_PUBLISH_STATUS_PATH: "scripts/mobile-regression.rotation-publish-status.json"
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL_PROD: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL_PROD }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL_CANARY: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URL_CANARY }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN_PROD: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN_PROD }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN_CANARY: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_TOKEN_CANARY }}
+      MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URLS: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_WEBHOOK_URLS }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNING_SECRET: ${{ secrets.MOBILE_REGRESSION_ROTATION_REPORT_SIGNING_SECRET }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_TIMESTAMP_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_TIMESTAMP_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_NONCE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_NONCE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ALGORITHM_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ALGORITHM_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ENCODING_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ENCODING_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_VERSION_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_VERSION_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ALGORITHM: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ALGORITHM }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ENCODING: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_ENCODING }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_PREFIX: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_PREFIX }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_VERSION: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_VERSION }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_KEY_ID_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_KEY_ID_HEADER }}
+      MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_KEY_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_REPORT_SIGNATURE_KEY_ID }}
+      MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_STATUS_PATH: "scripts/mobile-regression.rotation-publish-verify-status.json"
+      MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_REPLAY_STATE_PATH: "scripts/mobile-regression.rotation-publish-verify-replay-state.json"
+      MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_SIGNING_SECRET: ${{ secrets.MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_SIGNING_SECRET }}
+      MOBILE_REGRESSION_ROTATION_PUBLISH_RETRIES: "1"
+      MOBILE_REGRESSION_ROTATION_PUBLISH_RETRY_DELAY_MS: "1000"
+      MOBILE_REGRESSION_ROTATION_ALERT_STATUS_PATH: "scripts/mobile-regression.rotation-alert-status.json"
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_TOKEN: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_TOKEN }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_ERROR: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_ERROR }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_WARNING: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_WARNING }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_INFO: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_INFO }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_PROD: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_PROD }}
+      MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_CANARY: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_WEBHOOK_URL_CANARY }}
+      MOBILE_REGRESSION_ROTATION_ALERT_MUTE_REASON_CODES: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_MUTE_REASON_CODES }}
+      MOBILE_REGRESSION_ROTATION_ALERT_LEVEL_OVERRIDES: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_LEVEL_OVERRIDES }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNING_SECRET: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_SIGNING_SECRET }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_TIMESTAMP_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_TIMESTAMP_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_NONCE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_NONCE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ALGORITHM_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ALGORITHM_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ENCODING_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ENCODING_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_VERSION_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_VERSION_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ALGORITHM: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ALGORITHM }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ENCODING: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_ENCODING }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_PREFIX: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_PREFIX }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_VERSION: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_VERSION }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_KEY_ID_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_KEY_ID_HEADER }}
+      MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_KEY_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_SIGNATURE_KEY_ID }}
+      MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_STATUS_PATH: "scripts/mobile-regression.rotation-alert-verify-status.json"
+      MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_REPLAY_STATE_PATH: "scripts/mobile-regression.rotation-alert-verify-replay-state.json"
+      MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_SIGNING_SECRET: ${{ secrets.MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_SIGNING_SECRET }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_MAX_TIMESTAMP_SKEW_SEC: "300"
+      MOBILE_REGRESSION_ROTATION_VERIFY_NONCE_TTL_SEC: "900"
+      MOBILE_REGRESSION_ROTATION_ONLINE_VERIFY_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_ONLINE_VERIFY_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_ONLINE_VERIFY_STATUS_PATH: "scripts/mobile-regression.rotation-online-verify-status.json"
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_LAST_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_LAST_AT }}
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_MAX_AGE_DAYS: "30"
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_RUNBOOK_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_RUNBOOK_ID }}
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_TICKET_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_TICKET_ID }}
+      MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_STATUS_PATH: "scripts/mobile-regression.rotation-emergency-drill-status.json"
+      MOBILE_REGRESSION_ROTATION_REPLAY_CAPACITY_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_REPLAY_CAPACITY_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_REPLAY_CAPACITY_STATUS_PATH: "scripts/mobile-regression.rotation-replay-capacity-status.json"
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_PROVIDER: "redis"
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_PEAK_QPS: "5"
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_BURST_FACTOR: "1.2"
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_CAPACITY: ${{ vars.MOBILE_REGRESSION_ROTATION_REPLAY_STORE_CAPACITY }}
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_UTILIZATION_LIMIT: "0.8"
+      MOBILE_REGRESSION_ROTATION_REPLAY_STORE_HEADROOM_MIN: "500"
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_STATUS_PATH: "scripts/mobile-regression.rotation-verify-alert-stress-status.json"
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_LAST_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_LAST_AT }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_MAX_AGE_DAYS: "30"
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_RUNBOOK_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_RUNBOOK_ID }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_TICKET_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_TICKET_ID }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_ERROR_COUNT: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_ERROR_COUNT }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_WARNING_COUNT: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_WARNING_COUNT }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_INFO_COUNT: ${{ vars.MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_INFO_COUNT }}
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_MIN_ERROR_COUNT: "1"
+      MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_MIN_WARNING_COUNT: "1"
+      MOBILE_REGRESSION_ROTATION_BASELINE_CHECK_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_BASELINE_CHECK_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_BASELINE_PATH: "scripts/mobile-regression-rotation.baseline.json"
+      MOBILE_REGRESSION_ROTATION_BASELINE_STATUS_PATH: "scripts/mobile-regression.rotation-baseline-status.json"
+      MOBILE_REGRESSION_ROTATION_BASELINE_MAX_AGE_DAYS: "14"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_STATUS_PATH: "scripts/mobile-regression.rotation-closeout-status.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_SIGNOFF_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_SIGNOFF_AT }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_SIGNOFF_OWNERS: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_SIGNOFF_OWNERS }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_WINDOW_START_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_WINDOW_START_AT }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_WINDOW_END_AT: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_WINDOW_END_AT }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_POSTMORTEM_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_POSTMORTEM_ID }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_PATH: "scripts/mobile-regression-rotation.closeout-governance.baseline.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_STATUS_PATH: "scripts/mobile-regression.rotation-closeout-governance-baseline-status.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_MAX_REVIEW_AGE_DAYS: "92"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_REVIEW_REMINDER_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_REVIEW_REMINDER_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_REVIEW_REMINDER_STATUS_PATH: "scripts/mobile-regression.rotation-closeout-governance-review-reminder-status.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_REVIEW_DUE_SOON_DAYS: "14"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WINDOW_DAYS: "14"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_ALERT_HISTORY_PATH: "scripts/mobile-regression.rotation-closeout-alert-history.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_REVIEW_HISTORY_PATH: "scripts/mobile-regression.rotation-closeout-review-history.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_JSON_PATH: "scripts/mobile-regression.rotation-closeout-dashboard.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_MD_PATH: "scripts/mobile-regression.rotation-closeout-dashboard.md"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_STATUS_PATH: "scripts/mobile-regression.rotation-closeout-dashboard-publish-status.json"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL_PROD: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL_PROD }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL_CANARY: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URL_CANARY }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN_PROD: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN_PROD }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN_CANARY: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_TOKEN_CANARY }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URLS: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_WEBHOOK_URLS }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNING_SECRET: ${{ secrets.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNING_SECRET }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_TIMESTAMP_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_TIMESTAMP_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_NONCE_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_NONCE_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ALGORITHM_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ALGORITHM_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ENCODING_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ENCODING_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_VERSION_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_VERSION_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_KEY_ID_HEADER: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_KEY_ID_HEADER }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ALGORITHM: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ALGORITHM }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ENCODING: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_ENCODING }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_PREFIX: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_PREFIX }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_VERSION: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_VERSION }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_KEY_ID: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_SIGNATURE_KEY_ID }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_RETRIES: "1"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_RETRY_DELAY_MS: "1000"
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES_PROD: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES_PROD }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES_CANARY: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_REASON_CODES_CANARY }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_LEVEL_OVERRIDES: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_LEVEL_OVERRIDES }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES_PROD: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES_PROD }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES_CANARY: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_MUTE_REASON_CODES_CANARY }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP_PROD: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP_PROD }}
+      MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP_CANARY: ${{ vars.MOBILE_REGRESSION_ROTATION_CLOSEOUT_ALERT_DEDUPE_WINDOW_SEC_MAP_CANARY }}
+      MOBILE_REGRESSION_ROTATION_ALERT_DEDUPE_WINDOW_SEC: "600"
+      MOBILE_REGRESSION_ROTATION_ALERT_DEDUPE_STATE_PATH: "scripts/mobile-regression.rotation-alert-dedupe.json"
+      MOBILE_REGRESSION_ROTATION_ALERT_RETRIES: "1"
+      MOBILE_REGRESSION_ROTATION_ALERT_RETRY_DELAY_MS: "1000"
+      MOBILE_REGRESSION_ROTATION_ALERT_REQUIRED: ${{ vars.MOBILE_REGRESSION_ROTATION_ALERT_REQUIRED || 'false' }}
+      MOBILE_REGRESSION_ROTATION_ALERT_FAIL_COUNT_THRESHOLD: "2"
+      MOBILE_REGRESSION_ROTATION_ALERT_FAIL_RATE_THRESHOLD: "0.3"
+      MOBILE_REGRESSION_FETCH_RETRIES: "2"
+      MOBILE_REGRESSION_FETCH_RETRY_DELAY_MS: "1200"
+      MOBILE_REGRESSION_FETCH_TIMEOUT_MS: "10000"
+      MOBILE_REGRESSION_FETCH_MAX_RESPONSE_BYTES: "1048576"
+      MOBILE_REGRESSION_REPORT_FALLBACK_FILE: "scripts/mobile-regression-report.sample.json"
+      MOBILE_REGRESSION_FETCH_ALLOW_STALE_ON_FAILURE: "false"
+      MOBILE_REGRESSION_FETCH_STALE_MAX_AGE_SEC: "86400"
+      NATIVE_PLAYER_INTEGRATION_REQUIRED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      NATIVE_PLAYER_INTEGRATION_REPORT_PATH: "scripts/native-player-integration.report.json"
+      NATIVE_PLAYER_INTEGRATION_FETCH_STATUS_PATH: "scripts/native-player-integration.fetch-status.json"
+      NATIVE_PLAYER_INTEGRATION_REPORT_API_URL: ${{ secrets.NATIVE_PLAYER_INTEGRATION_REPORT_API_URL }}
+      NATIVE_PLAYER_INTEGRATION_REPORT_API_TOKEN: ${{ secrets.NATIVE_PLAYER_INTEGRATION_REPORT_API_TOKEN }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_TOKEN: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_TOKEN }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_ERROR: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_ERROR }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_WARNING: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_WARNING }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_INFO: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_WEBHOOK_URL_INFO }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_ESCALATION_WEBHOOK_URL: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_ESCALATION_WEBHOOK_URL }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_MUTE_REASON_CODES: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_MUTE_REASON_CODES }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_LEVEL_OVERRIDES: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_LEVEL_OVERRIDES }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_ESCALATE_REASON_CODES: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_ESCALATE_REASON_CODES }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_RETRIES: "1"
+      NATIVE_PLAYER_INTEGRATION_ALERT_RETRY_DELAY_MS: "1000"
+      NATIVE_PLAYER_INTEGRATION_ALERT_DEDUPE_WINDOW_SEC: "600"
+      NATIVE_PLAYER_INTEGRATION_ALERT_DEDUPE_STATE_PATH: "scripts/native-player-integration.alert-dedupe.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_SUMMARY_PATH: "scripts/native-player-integration.alert-summary.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_HISTORY_PATH: "scripts/native-player-integration.alert-history.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_HISTORY_MAX_ENTRIES: "500"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_JSON_PATH: "scripts/native-player-integration.alert-report.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_MD_PATH: "scripts/native-player-integration.alert-report.md"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WINDOW_DAYS: "7"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_PUBLISH_STATUS_PATH: "scripts/native-player-integration.alert-report-publish-status.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_ERROR: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_ERROR }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_WARNING: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_WARNING }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_INFO: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URL_INFO }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_ESCALATION_WEBHOOK_URL: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_ESCALATION_WEBHOOK_URL }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_ERROR: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_ERROR }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_WARNING: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_WARNING }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_INFO: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_TOKEN_INFO }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_ESCALATION_WEBHOOK_TOKEN: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_ESCALATION_WEBHOOK_TOKEN }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URLS: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_WEBHOOK_URLS }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNING_SECRET: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNING_SECRET }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_TIMESTAMP_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_TIMESTAMP_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_NONCE_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_NONCE_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ALGORITHM_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ALGORITHM_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ENCODING_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ENCODING_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_VERSION_HEADER: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_VERSION_HEADER }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ALGORITHM: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ALGORITHM }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ENCODING: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_ENCODING }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_PREFIX: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_PREFIX }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_VERSION: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_SIGNATURE_VERSION }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_PUBLISH_RETRIES: "1"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_PUBLISH_RETRY_DELAY_MS: "1000"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_REQUIRED: ${{ vars.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_REQUIRED || 'false' }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_STATUS_PATH: "scripts/native-player-integration.alert-report-verify-status.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_REPLAY_STATE_PATH: "scripts/native-player-integration.alert-report-replay-state.json"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_SIGNING_SECRET: ${{ secrets.NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_SIGNING_SECRET }}
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_MAX_TIMESTAMP_SKEW_SEC: "300"
+      NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_NONCE_TTL_SEC: "900"
+      NATIVE_PLAYER_INTEGRATION_FETCH_RETRIES: "2"
+      NATIVE_PLAYER_INTEGRATION_FETCH_RETRY_DELAY_MS: "1200"
+      NATIVE_PLAYER_INTEGRATION_FETCH_TIMEOUT_MS: "10000"
+    defaults:
+      run:
+        working-directory: editions/open-source/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Check mobile regression fetch policy
+        id: mobile_regression_policy
+        continue-on-error: true
+        run: npm run check:mobile-regression-fetch-policy
+      - name: Mobile regression fetch policy summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.policy-status.json"
+          echo "### Mobile Regression Fetch Policy" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            reason=$(grep -o '"reason_code":[[:space:]]*"[^"]*"' "$status_file" | head -n1 | sed 's/.*"reason_code":[[:space:]]*"\([^"]*\)".*/\1/')
+            if [ "$reason" != "OK" ] && [ -n "$reason" ]; then
+              echo "::warning::mobile regression policy reason=$reason"
+            fi
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Fetch mobile regression report from API
+        id: fetch_mobile_regression
+        continue-on-error: true
+        run: npm run fetch:mobile-regression-report
+      - name: Check mobile regression token rotation drill
+        id: mobile_regression_rotation
+        continue-on-error: true
+        run: npm run check:mobile-regression-token-rotation-drill
+      - name: Mobile regression token rotation summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-drill-status.json"
+          echo "### Mobile Regression Token Rotation Drill" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            reason=$(grep -o '"reason_code":[[:space:]]*"[^"]*"' "$status_file" | head -n1 | sed 's/.*"reason_code":[[:space:]]*"\([^"]*\)".*/\1/')
+            if [ "$reason" != "OK" ] && [ "$reason" != "SKIPPED" ] && [ -n "$reason" ]; then
+              echo "::warning::mobile regression rotation drill reason=$reason"
+            fi
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build mobile regression rotation weekly report
+        if: always()
+        run: npm run report:mobile-regression-rotation
+      - name: Mobile regression rotation weekly report summary
+        if: always()
+        shell: bash
+        run: |
+          report_md="scripts/mobile-regression.rotation-report.md"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$report_md" ]; then
+            cat "$report_md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Mobile Regression Rotation Weekly Report" >> "$GITHUB_STEP_SUMMARY"
+            echo "- report file missing: $report_md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish mobile regression rotation weekly report
+        if: always()
+        run: npm run publish:mobile-regression-rotation-report
+      - name: Mobile regression rotation weekly report publish summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-publish-status.json"
+          echo "### Mobile Regression Rotation Publish" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Verify mobile regression rotation publish signature
+        id: verify_mobile_rotation_publish_signature
+        if: always()
+        continue-on-error: true
+        run: npm run verify:mobile-regression-rotation-publish-signature
+      - name: Mobile regression rotation publish verify summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-publish-verify-status.json"
+          echo "### Mobile Regression Rotation Publish Verify" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check mobile regression rotation closeout
+        id: check_mobile_rotation_closeout
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-closeout
+      - name: Check mobile regression rotation closeout governance baseline
+        id: check_mobile_rotation_closeout_gov_baseline
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-closeout-governance-baseline
+      - name: Check mobile regression rotation closeout governance review reminder
+        id: check_mobile_rotation_closeout_gov_review
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-closeout-governance-review-reminder
+      - name: Notify mobile regression rotation trend alert
+        id: mobile_regression_rotation_alert
+        if: always()
+        continue-on-error: true
+        run: npm run notify:mobile-regression-rotation-trend
+      - name: Mobile regression rotation trend alert summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-alert-status.json"
+          echo "### Mobile Regression Rotation Trend Alert" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Verify mobile regression rotation alert signature
+        id: verify_mobile_rotation_alert_signature
+        if: always()
+        continue-on-error: true
+        run: npm run verify:mobile-regression-rotation-alert-signature
+      - name: Check mobile regression rotation online verify readiness
+        id: check_mobile_rotation_online_verify
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-online-verify-readiness
+      - name: Mobile regression rotation online verify readiness summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-online-verify-status.json"
+          echo "### Mobile Regression Rotation Online Verify Readiness" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check mobile regression rotation emergency drill
+        id: check_mobile_rotation_emergency_drill
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-emergency-drill
+      - name: Mobile regression rotation emergency drill summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-emergency-drill-status.json"
+          echo "### Mobile Regression Rotation Emergency Drill" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check mobile regression rotation replay capacity
+        id: check_mobile_rotation_replay_capacity
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-replay-capacity
+      - name: Mobile regression rotation replay capacity summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-replay-capacity-status.json"
+          echo "### Mobile Regression Rotation Replay Capacity" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check mobile regression verify alert stress
+        id: check_mobile_rotation_verify_alert_stress
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-verify-alert-stress
+      - name: Mobile regression verify alert stress summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-verify-alert-stress-status.json"
+          echo "### Mobile Regression Verify Alert Stress" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Check mobile regression rotation baseline freeze
+        id: check_mobile_rotation_baseline
+        if: always()
+        continue-on-error: true
+        run: npm run check:mobile-regression-rotation-baseline
+      - name: Mobile regression rotation baseline freeze summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-baseline-status.json"
+          echo "### Mobile Regression Rotation Baseline Freeze" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mobile regression rotation closeout summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-closeout-status.json"
+          echo "### Mobile Regression Rotation Closeout" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mobile regression rotation closeout governance baseline summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-closeout-governance-baseline-status.json"
+          echo "### Mobile Regression Rotation Closeout Governance Baseline" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mobile regression rotation closeout governance review reminder summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-closeout-governance-review-reminder-status.json"
+          echo "### Mobile Regression Rotation Closeout Governance Review Reminder" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build mobile regression rotation closeout governance dashboard
+        if: always()
+        run: npm run report:mobile-regression-rotation-closeout-governance-dashboard
+      - name: Mobile regression rotation closeout governance dashboard summary
+        if: always()
+        shell: bash
+        run: |
+          report_md="scripts/mobile-regression.rotation-closeout-dashboard.md"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$report_md" ]; then
+            cat "$report_md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Mobile Regression Rotation Closeout Governance Dashboard" >> "$GITHUB_STEP_SUMMARY"
+            echo "- report file missing: $report_md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish mobile regression rotation closeout governance dashboard
+        id: publish_mobile_rotation_closeout_dashboard
+        if: always()
+        continue-on-error: true
+        run: npm run publish:mobile-regression-rotation-closeout-governance-dashboard
+      - name: Mobile regression rotation closeout governance dashboard publish summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-closeout-dashboard-publish-status.json"
+          echo "### Mobile Regression Rotation Closeout Governance Dashboard Publish" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mobile regression rotation alert verify summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.rotation-alert-verify-status.json"
+          echo "### Mobile Regression Rotation Alert Verify" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Mobile regression fetch summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/mobile-regression.fetch-status.json"
+          echo "### Mobile Regression Report Fetch" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            reason=$(grep -o '"reason_code":[[:space:]]*"[^"]*"' "$status_file" | head -n1 | sed 's/.*"reason_code":[[:space:]]*"\([^"]*\)".*/\1/')
+            degraded=$(grep -o '"degraded":[[:space:]]*[^,}]*' "$status_file" | head -n1 | sed 's/.*"degraded":[[:space:]]*\([^,}]*\).*/\1/')
+            if [ "$reason" != "OK" ] && [ -n "$reason" ]; then
+              echo "::warning::mobile regression report fetch reason=$reason"
+            fi
+            if [ "$degraded" = "true" ]; then
+              echo "::warning::mobile regression report fetch degraded=true reason=$reason"
+            fi
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Fetch native integration report from API
+        id: fetch_native_report
+        continue-on-error: true
+        run: npm run fetch:native-player-integration-report
+      - name: Native report fetch summary
+        if: always()
+        shell: bash
+        run: |
+          status_file="scripts/native-player-integration.fetch-status.json"
+          echo "### Native Integration Report Fetch" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$status_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$status_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            reason=$(grep -o '"reason_code":[[:space:]]*"[^"]*"' "$status_file" | head -n1 | sed 's/.*"reason_code":[[:space:]]*"\([^"]*\)".*/\1/')
+            if [ "$reason" != "OK" ] && [ -n "$reason" ]; then
+              echo "::warning::native integration report fetch reason=$reason"
+            fi
+          else
+            echo "- status file missing: $status_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Install dependencies
+        run: npm install
+      - name: Mobile gate checks
+        id: mobile_gate
+        continue-on-error: true
+        run: npm run ci:gate
+      - name: Notify enterprise alert channel on failure
+        if: always()
+        env:
+          NATIVE_PLAYER_FETCH_OUTCOME: ${{ steps.fetch_native_report.outcome }}
+          NATIVE_PLAYER_GATE_OUTCOME: ${{ steps.mobile_gate.outcome }}
+        run: node ./scripts/notify-native-integration-failure.mjs
+      - name: Native alert summary
+        if: always()
+        shell: bash
+        run: |
+          summary_file="scripts/native-player-integration.alert-summary.json"
+          echo "### Native Integration Alert Summary" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$summary_file" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$summary_file" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- alert summary file missing: $summary_file" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Build native alert weekly report
+        if: always()
+        run: npm run report:native-player-integration-alert
+      - name: Native alert weekly report summary
+        if: always()
+        shell: bash
+        run: |
+          report_md="scripts/native-player-integration.alert-report.md"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$report_md" ]; then
+            cat "$report_md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Native Integration Alert Weekly Report" >> "$GITHUB_STEP_SUMMARY"
+            echo "- report file missing: $report_md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish native alert weekly report
+        if: always()
+        run: npm run publish:native-player-integration-alert-report
+      - name: Native alert weekly report publish summary
+        if: always()
+        shell: bash
+        run: |
+          publish_status="scripts/native-player-integration.alert-report-publish-status.json"
+          echo "### Native Integration Alert Weekly Report Publish" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$publish_status" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$publish_status" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- publish status file missing: $publish_status" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Verify native alert weekly report signature (non-blocking)
+        id: verify_weekly_signature
+        if: always()
+        continue-on-error: true
+        run: npm run verify:native-player-integration-alert-report-signature
+      - name: Native alert weekly report verify summary
+        if: always()
+        shell: bash
+        run: |
+          verify_status="scripts/native-player-integration.alert-report-verify-status.json"
+          echo "### Native Integration Alert Weekly Report Verify" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$verify_status" ]; then
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$verify_status" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- verify status file missing: $verify_status" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Final gate decision
+        if: always()
+        run: |
+          if [ "${NATIVE_PLAYER_INTEGRATION_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.fetch_native_report.outcome }}" = "failure" ] || [ "${{ steps.mobile_gate.outcome }}" = "failure" ]; then
+              echo "Required native integration gate failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.mobile_regression_policy.outcome }}" = "failure" ] || [ "${{ steps.fetch_mobile_regression.outcome }}" = "failure" ] || [ "${{ steps.mobile_regression_rotation.outcome }}" = "failure" ] || [ "${{ steps.mobile_gate.outcome }}" = "failure" ]; then
+              echo "Required mobile regression gate failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_ALERT_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.mobile_regression_rotation_alert.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation trend alert failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_PUBLISH_VERIFY_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.verify_mobile_rotation_publish_signature.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation publish signature verify failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_ALERT_VERIFY_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.verify_mobile_rotation_alert_signature.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation alert signature verify failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_ONLINE_VERIFY_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_online_verify.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation online verify readiness failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_EMERGENCY_DRILL_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_emergency_drill.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation emergency drill check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_REPLAY_CAPACITY_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_replay_capacity.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation replay capacity check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_VERIFY_ALERT_STRESS_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_verify_alert_stress.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation verify alert stress check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_BASELINE_CHECK_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_baseline.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation baseline check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_CLOSEOUT_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_closeout.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation closeout check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_BASELINE_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_closeout_gov_baseline.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation closeout governance baseline check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_CLOSEOUT_GOVERNANCE_REVIEW_REMINDER_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.check_mobile_rotation_closeout_gov_review.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation closeout governance review reminder check failed"
+              exit 1
+            fi
+          fi
+          if [ "${MOBILE_REGRESSION_ROTATION_CLOSEOUT_DASHBOARD_PUBLISH_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.publish_mobile_rotation_closeout_dashboard.outcome }}" = "failure" ]; then
+              echo "Required mobile regression rotation closeout governance dashboard publish failed"
+              exit 1
+            fi
+          fi
+          if [ "${NATIVE_PLAYER_INTEGRATION_ALERT_REPORT_VERIFY_REQUIRED}" = "true" ]; then
+            if [ "${{ steps.verify_weekly_signature.outcome }}" = "failure" ]; then
+              echo "Required native weekly report signature verify failed"
+              exit 1
+            fi
+          fi

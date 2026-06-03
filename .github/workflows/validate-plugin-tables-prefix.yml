@@ -1,0 +1,35 @@
+name: Validate plugin tables prefix
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      # 若你在仓库 Variables 里设置 `PLUGIN_TABLES_REQUIRE_PLUGIN_ID_PREFIX=true`，
+      # 则开启严格前缀校验；否则仅做表名合法性校验（避免阻塞现有插件）。
+      REQUIRE_PREFIX: ${{ vars.PLUGIN_TABLES_REQUIRE_PLUGIN_ID_PREFIX }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate tables prefix
+        shell: bash
+        run: |
+          if [ "${REQUIRE_PREFIX}" = "true" ]; then
+            python "editions/server/backend/scripts/validate_plugin_tables_prefix.py" \
+              --plugin-root "editions/server/backend/plugin_packages" \
+              --require-prefix
+          else
+            python "editions/server/backend/scripts/validate_plugin_tables_prefix.py" \
+              --plugin-root "editions/server/backend/plugin_packages"
+          fi
+

@@ -1,0 +1,51 @@
+{
+  "at": "2026-04-18T11:19:45.904Z",
+  "required": false,
+  "ok": true,
+  "skipped": true,
+  "reason_code": "NO_ALERT",
+  "failed": 0,
+  "total": 0,
+  "fail_rate": 0,
+  "fail_count_threshold": 2,
+  "fail_rate_threshold": 0.3,
+  "closeout_reason_code": "SKIPPED",
+  "closeout_alert_reason_codes": [
+    "CLOSEOUT_INFO_MISSING",
+    "CLOSEOUT_SIGNOFF_AT_MISSING",
+    "CLOSEOUT_SIGNOFF_OWNERS_INSUFFICIENT",
+    "CLOSEOUT_POSTMORTEM_ID_MISSING",
+    "CLOSEOUT_SIGNOFF_AT_INVALID",
+    "CLOSEOUT_WINDOW_INVALID",
+    "CLOSEOUT_WINDOW_ORDER_INVALID",
+    "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW"
+  ],
+  "closeout_mute_reason_codes": [],
+  "policy_audit": {
+    "policy_env": "dev",
+    "closeout_reason_codes": {
+      "source": "global",
+      "effective": [
+        "CLOSEOUT_INFO_MISSING",
+        "CLOSEOUT_SIGNOFF_AT_MISSING",
+        "CLOSEOUT_SIGNOFF_OWNERS_INSUFFICIENT",
+        "CLOSEOUT_POSTMORTEM_ID_MISSING",
+        "CLOSEOUT_SIGNOFF_AT_INVALID",
+        "CLOSEOUT_WINDOW_INVALID",
+        "CLOSEOUT_WINDOW_ORDER_INVALID",
+        "CLOSEOUT_SIGNOFF_OUT_OF_WINDOW"
+      ]
+    },
+    "closeout_mute_reason_codes": {
+      "source": "global",
+      "effective": []
+    },
+    "closeout_dedupe_window_sec_map": {
+      "source": "global",
+      "effective": {}
+    },
+    "dedupe_window_sec_global": 600,
+    "dedupe_window_sec_effective": 600,
+    "dedupe_window_reason_override_applied": false
+  }
+}

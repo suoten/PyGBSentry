@@ -1,0 +1,15 @@
+{
+  "id": "com.example.my_plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "description": "A brief description of your plugin",
+  "author": "Your Name",
+  "email": "you@example.com",
+  "type": "free",
+  "category": "integration",
+  "min_version": "1.0.0",
+  "max_version": "*",
+  "license": "MIT",
+  "homepage": "https://github.com/your/repo",
+  "icon": "assets/icon.png"
+}

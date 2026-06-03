@@ -1,0 +1,18 @@
+# AI Vision Hub 可选依赖
+# 安装方式：pip install -r requirements-ai.txt
+# 用途：启用 AI 视觉中枢（YOLOv8 目标检测、视频帧捕获、GPU 加速推理）
+# 环境变量：VISION_HUB_ENABLED=true
+
+# 视频帧捕获（headless 版本，无 GUI 依赖，适合服务器部署）
+opencv-python-headless>=4.8.0
+
+# 数值计算
+numpy>=1.24.0
+
+# YOLOv8 目标检测模型
+ultralytics>=8.0.0
+
+# PyTorch（CPU 版本，如需 GPU 版本请参考 https://pytorch.org/get-started/locally/）
+# 如需 GPU 加速，请替换为对应 CUDA 版本的 torch，例如：
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+torch>=2.0.0

@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-04-18T16:00:00Z",
+  "operator": "qa-mobile",
+  "android": {
+    "bridge_injected": true,
+    "is_supported": true,
+    "protocols": {
+      "webrtc": { "passed": true, "evidence": "android_webrtc_run_20260418.mp4" },
+      "flv": { "passed": true, "evidence": "android_flv_run_20260418.mp4" },
+      "hls": { "passed": true, "evidence": "android_hls_run_20260418.mp4" }
+    }
+  },
+  "ios": {
+    "bridge_injected": true,
+    "is_supported": true,
+    "protocols": {
+      "webrtc": { "passed": true, "evidence": "ios_webrtc_run_20260418.mov" },
+      "hls": { "passed": true, "evidence": "ios_hls_run_20260418.mov" }
+    }
+  }
+}

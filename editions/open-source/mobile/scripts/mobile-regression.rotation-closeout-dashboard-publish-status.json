@@ -1,0 +1,7 @@
+{
+  "at": "2026-04-18T11:57:02.879Z",
+  "policy_env": "dev",
+  "ok": false,
+  "skipped": true,
+  "reason_code": "WEBHOOK_NOT_CONFIGURED"
+}
