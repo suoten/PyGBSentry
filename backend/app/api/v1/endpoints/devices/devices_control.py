@@ -34,7 +34,8 @@ from . _common import (
 )
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+# FIXED-P0: 删除 logger = logging.getLogger(__name__)，该行覆盖了第28行 from loguru import logger，
+# 且 logging 未在模块级导入，导致 NameError: name 'logging' is not defined
 
 
 # -------------------- Channel Snapshot --------------------
