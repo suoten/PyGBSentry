@@ -113,14 +113,14 @@ class Settings(BaseSettings):
         password = data.get("DATABASE_PASSWORD") or data.get("POSTGRES_PASSWORD")
         sqlite_path = data.get("DATABASE_SQLITE_PATH") or "./pygbsentry.db"
         if db_type in {"postgres", "postgresql", "kingbase", "kingbasees"}:  # 移除中文别名"人大金仓"，保留英文别名
-            return PostgresDsn.build(
+            return str(PostgresDsn.build(
                 scheme="postgresql+asyncpg",
                 username=user,
                 password=password,
                 host=host,
                 port=port,
                 path=f"{name or ''}",
-            )
+            ))
 
         if db_type in {"mysql"}:
             _safe_user = quote_plus(str(user or ""), safe="")
@@ -135,14 +135,14 @@ class Settings(BaseSettings):
             _safe_user = quote_plus(str(user or ""), safe="")
             _safe_pwd = quote_plus(str(password or ""), safe="")
             return f"dm+dmPython://{_safe_user}:{_safe_pwd}@{host}:{port}/{name}"  # S-06-04 达梦数据库使用dm+dmPython驱动而非mysql+aiomysql
-        return PostgresDsn.build(
+        return str(PostgresDsn.build(
             scheme="postgresql+asyncpg",
             username=data.get("POSTGRES_USER"),
             password=data.get("POSTGRES_PASSWORD"),
             host=data.get("POSTGRES_SERVER"),
             port=data.get("POSTGRES_PORT"),
             path=f"{data.get('POSTGRES_DB') or ''}",
-        )
+        ))
 
     # Redis
     REDIS_HOST: str = "localhost"
