@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!.env.dev.example
+!.env.prod.example
+
+# Data & Logs
+data/
+logs/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+timelapse/
+
+# AI models
+*.pt
+*.onnx
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.nuxt/
+frontend/.output/
+
+# Mobile
+mobile/node_modules/
+mobile/dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docs (not needed in image)
+docs/
+*.md
+!README.md
+
+# CI
+.github/
+
+# Archives
+*.zip
+*.tar.gz
+
+# Dev artifacts
+_backend_full.json
+_backend_routes.json
+_backend_routes.txt
+_frontend_calls.json

@@ -1,0 +1,70 @@
+# PyGBSentry Prometheus Scrape Configuration
+# -------------------------------------------
+# Copy this file to your Prometheus config directory or include it
+# via the `rule_files` and `scrape_configs` directives.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'pygbsentry'
+
+# Alerting configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - 'alertmanager:9093'
+
+# Load alert rules
+rule_files:
+  - 'alert_rules.yml'
+
+# Scrape configurations
+scrape_configs:
+  # PyGBSentry backend metrics
+  - job_name: 'pygbsentry'
+    metrics_path: '/api/v1/metrics'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'backend:8000'
+        labels:
+          service: 'pygbsentry-backend'
+
+  # ZLMediaKit metrics (if exposed)
+  # FIXED P1-39: ZLM runs inside the backend container, not as a separate service
+  - job_name: 'zlmediakit'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'backend:8880'
+        labels:
+          service: 'zlmediakit'
+
+  # Node exporter for system metrics
+  - job_name: 'node'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'node-exporter:9100'
+        labels:
+          service: 'node-exporter'
+
+  # PostgreSQL exporter
+  - job_name: 'postgresql'
+    scrape_interval: 30s
+    static_configs:
+      - targets:
+          - 'postgres-exporter:9187'
+        labels:
+          service: 'postgresql'
+
+  # Redis exporter
+  - job_name: 'redis'
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          - 'redis-exporter:9121'
+        labels:
+          service: 'redis'

@@ -1,0 +1,155 @@
+replicaCount: 1
+
+image:
+  backend:
+    repository: pygbsentry/backend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+  frontend:
+    repository: pygbsentry/frontend
+    pullPolicy: IfNotPresent
+    tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+backend:
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: "2"
+      memory: 2Gi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+    # targetMemoryUtilizationPercentage: 80
+
+  podDisruptionBudget:
+    enabled: false
+    # minAvailable: 1
+    maxUnavailable: 1
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  env:
+    APP_ENV: prod
+    APP_EDITION: oss
+    DATABASE_TYPE: postgresql
+    POSTGRES_SERVER: pygbsentry-postgresql
+    POSTGRES_USER: postgres
+    POSTGRES_PASSWORD: ""  # FIXED-P2: W-09 必须通过 --set 或 values-override 设置强密码，空密码部署将被拒绝
+    POSTGRES_DB: pygb28181
+    REDIS_HOST: pygbsentry-redis
+    REDIS_PASSWORD: ""  # FIXED-P2: W-09 必须通过 --set 或 values-override 设置强密码，空密码部署将被拒绝
+    SIP_IP: "0.0.0.0"
+    SIP_PORT: 5060
+    ACCESS_TOKEN_EXPIRE_MINUTES: 120
+    SIP_DEBUG_TRACE_ENABLED: "false"
+    INIT_REDIS_ON_STARTUP: "true"
+    BACKEND_PUBLIC_HOST: ""  # FIXED-P1: S-23 ZLM Hook回调地址，必须设置为后端可达的外部URL（如http://pygbsentry-backend:8000）
+  sipUdp:
+    enabled: true
+    port: 5060
+  sipTcp:
+    enabled: true
+    port: 5060
+  sipTls:
+    enabled: false
+    port: 5061
+  rtp:
+    enabled: true
+    portRangeStart: 30000
+    portRangeEnd: 30999
+  # FIXED-P1: N-13 启用 hostNetwork 使 RTP 端口范围直接在宿主机上可用，绕过 K8s Service 不支持端口范围的限制。
+  # 注意：启用后每个节点只能运行一个 backend Pod 副本，且需确保宿主机端口不冲突。
+  hostNetwork: false
+  zlm:
+    httpPort: 8880
+    rtspPort: 554
+    rtmpPort: 1935
+
+frontend:
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: ""  # FIXED-P2: W-09 必须通过 --set 设置强密码
+    database: pygb28181
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClassName: ""
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+redis:
+  enabled: true
+  auth:
+    password: "CHANGE_ME_REQUIRED"  # FIXED-P2: W-20 必须通过--set设置强密码，空密码禁止部署
+  master:
+    persistence:
+      enabled: true
+      size: 2Gi
+      storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+persistence:
+  backendData:
+    enabled: true
+    size: 50Gi
+    storageClassName: ""
+  recordings:
+    enabled: true
+    size: 100Gi
+    storageClassName: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: pygbsentry.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []

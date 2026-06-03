@@ -1,0 +1,41 @@
+[Unit]
+Description=PyGBSentry - GB28181 Video Surveillance Platform
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=pygbsentry
+Group=pygbsentry
+WorkingDirectory=/opt/pygbsentry/backend
+ExecStart=/opt/pygbsentry/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Environment
+EnvironmentFile=/opt/pygbsentry/backend/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pygbsentry/backend/data /opt/pygbsentry/backend/logs /opt/pygbsentry/backend/timelapse
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=2G
+CPUQuota=200%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pygbsentry
+
+[Install]
+WantedBy=multi-user.target

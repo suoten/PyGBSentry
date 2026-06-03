@@ -1,0 +1,148 @@
+groups:
+  - name: pygbsentry_alerts
+    rules:
+      - alert: PyGBSentryDeviceOffline
+        expr: |
+          (pygbsentry_devices_online - pygbsentry_devices_online offset 5m) / pygbsentry_devices_online offset 5m < -0.5
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PyGBSentry 设备大量离线"
+          description: "在线设备数在 5 分钟内下降了超过 50%，当前值 {{ $value | humanizePercentage }}，可能存在网络或服务异常。"
+
+      - alert: PyGBSentryHighInviteLatency
+        expr: |
+          histogram_quantile(0.99, sum(rate(pygbsentry_invite_duration_seconds_bucket[5m])) by (le)) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry INVITE 延迟过高"
+          description: "INVITE 请求 P99 延迟超过 5 秒，当前值 {{ $value }}s，可能影响实时流建立速度。"
+
+      - alert: PyGBSentryInviteFailures
+        expr: |
+          (
+            sum(rate(pygbsentry_invite_result_total{result="failed"}[5m]))
+            /
+            sum(rate(pygbsentry_invite_result_total[5m]))
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry INVITE 失败率过高"
+          description: "INVITE 请求失败率超过 30%，当前值 {{ $value | humanizePercentage }}，请检查设备状态及 SIP 服务是否正常。"
+
+      - alert: PyGBSentryRTPPortExhaustion
+        expr: pygbsentry_rtp_ports_available < 50
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PyGBSentry RTP 端口即将耗尽"
+          description: "可用 RTP 端口数低于 50，当前值 {{ $value }}，新的流媒体会话可能无法建立。"
+
+      - alert: PyGBSentrySSRCExhaustion
+        expr: pygbsentry_ssrc_allocated > 900
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry SSRC 分配接近上限"
+          description: "已分配 SSRC 数超过 900（总容量约 1000），当前值 {{ $value }}，可能即将耗尽。"
+
+      - alert: PyGBSentrySIPMessageSpike
+        expr: |
+          sum(rate(pygbsentry_sip_messages_total[5m]))
+            >
+          10 * sum(rate(pygbsentry_sip_messages_total[1h] offset 5m))
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry SIP 消息量突增"
+          description: "SIP 消息速率超过 1 小时平均值的 10 倍，当前速率 {{ $value }}，可能存在异常流量或攻击。"
+
+      - alert: PyGBSentryHighSubscriptionCount
+        expr: pygbsentry_subscriptions_active > 40000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry 订阅数过高"
+          description: "活跃订阅数超过 40000，当前值 {{ $value }}，请关注系统资源使用情况。"
+
+      # ===================== System-Level Alerts =====================
+
+      - alert: PyGBSentryHighCPUUsage
+        expr: rate(process_cpu_seconds_total{job="pygbsentry"}[5m]) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry high CPU usage"
+          description: "CPU usage rate has been above 90% for 5 minutes."
+
+      - alert: PyGBSentryHighMemoryUsage
+        expr: process_resident_memory_bytes{job="pygbsentry"} > 1073741824
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry high memory usage"
+          description: "Memory usage exceeds 1GB. Current: {{ $value }} bytes."
+
+      - alert: PyGBSentryProcessRestarted
+        expr: changes(process_start_time_seconds{job="pygbsentry"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry process restarted"
+          description: "The PyGBSentry process has restarted in the last 5 minutes, possible crash."
+
+      - alert: PyGBSentryHighErrorRate
+        expr: rate(http_requests_total{job="pygbsentry",status_code=~"5.."}[5m]) / (rate(http_requests_total{job="pygbsentry"}[5m]) > 0) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PyGBSentry high HTTP error rate"
+          description: "HTTP 5xx error rate exceeds 10% for 2 minutes."
+
+      - alert: PyGBSentryDatabaseConnectionFailed
+        expr: pygbsentry_health_check{check="db"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PyGBSentry database connection failed"
+          description: "Database health check is failing for over 1 minute."
+
+      - alert: PyGBSentryRedisConnectionFailed
+        expr: pygbsentry_health_check{check="redis"} == 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry Redis connection failed"
+          description: "Redis health check is failing for over 1 minute."
+
+      - alert: PyGBSentryDiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PyGBSentry disk space low"
+          description: "Root filesystem has less than 15% space remaining ({{ $value | humanizePercentage }})."
+
+      - alert: PyGBSentryDiskSpaceCritical
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.05
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "PyGBSentry disk space critical"
+          description: "Root filesystem has less than 5% space remaining ({{ $value | humanizePercentage }}). Immediate action required."

@@ -1,0 +1,23 @@
+# Build output
+dist/
+build_err.log
+build-output.txt
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage/
+
+# Vue mirror files
+src/**/*.vue.js

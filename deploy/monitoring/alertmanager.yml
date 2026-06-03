@@ -1,0 +1,83 @@
+# PyGBSentry Alertmanager Configuration
+# --------------------------------------
+# Configure notification receivers and routing rules.
+# Customize email/webhook/DingTalk/WeChat settings before deploying.
+
+global:
+  # SMTP configuration for email notifications
+  # smtp_smarthost: 'smtp.example.com:587'
+  # smtp_from: 'alertmanager@pygbsentry.example.com'
+  # smtp_auth_username: 'alertmanager@pygbsentry.example.com'
+  # smtp_auth_password: 'CHANGE_ME'
+
+  # How long to wait before sending a notification again for the same alert
+  repeat_interval: 4h
+
+# Default route for all alerts
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # Critical alerts go to immediate notification
+    - match:
+        severity: critical
+      receiver: 'critical'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts go to standard notification
+    - match:
+        severity: warning
+      receiver: 'warning'
+      group_wait: 5m
+      repeat_interval: 4h
+
+# Inhibition rules - suppress lower severity when higher is firing
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+
+# Receivers (notification channels)
+receivers:
+  - name: 'default'
+    # Default: log to console. Configure real receivers below.
+    # Uncomment and configure the webhook below for basic notification:
+    # webhook_configs:
+    #   - url: 'http://localhost:8080/alerts'
+    #     send_resolved: true
+
+  - name: 'critical'
+    # Email notification
+    # email_configs:
+    #   - to: 'admin@example.com'
+    #     headers:
+    #       Subject: '[CRITICAL] PyGBSentry Alert: {{ .GroupLabels.alertname }}'
+
+    # Webhook notification — uncomment and set URL to receive critical alerts
+    # Supported: DingTalk, WeChat Work, Slack, custom webhooks, etc.
+    # Example for DingTalk:
+    # webhook_configs:
+    #   - url: 'https://oapi.dingtalk.com/robot/send?access_token=CHANGE_ME_DINGTALK_TOKEN'
+    #     send_resolved: true
+    # Example for generic webhook:
+    # webhook_configs:
+    #   - url: 'http://localhost:8080/alerts'
+    #     send_resolved: true
+
+  - name: 'warning'
+    # Email notification
+    # email_configs:
+    #   - to: 'ops-team@example.com'
+    #     headers:
+    #       Subject: '[WARNING] PyGBSentry Alert: {{ .GroupLabels.alertname }}'
+    # Webhook notification — uncomment and set URL to receive warning alerts
+    # webhook_configs:
+    #   - url: 'http://localhost:8080/alerts'
+    #     send_resolved: true

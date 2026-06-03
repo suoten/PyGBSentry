@@ -1,0 +1,44 @@
+PyGBSentry has been deployed!
+
+===> Access Information
+
+  Frontend URL:
+    {{- if .Values.ingress.enabled }}
+    http{{ if .Values.ingress.tls }}s{{ end }}://{{ .Values.ingress.host }}
+    {{- else }}
+    export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} services -o jsonpath="{.spec.ports[0].nodePort}" {{ include "pygbsentry.fullname" . }}-frontend)
+    export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+    echo "Frontend: http://$NODE_IP:$NODE_PORT"
+    {{- end }}
+
+  Backend API:
+    export BACKEND_PORT=$(kubectl get --namespace {{ .Release.Namespace }} services -o jsonpath="{.spec.ports[0].nodePort}" {{ include "pygbsentry.fullname" . }}-backend)
+    echo "API: http://$NODE_IP:$BACKEND_PORT/api/v1/ping"
+
+===> SIP Configuration
+
+  SIP Server: {{ .Values.backend.env.SIP_IP | default "0.0.0.0" }}:{{ .Values.backend.env.SIP_PORT | default "5060" }}
+  SIP ID: {{ .Values.backend.env.SIP_ID | default "34020000002000000001" }}
+  SIP Domain: {{ .Values.backend.env.SIP_DOMAIN | default "3402000000" }}
+
+===> RTP Port Range
+
+  {{ .Values.backend.env.MEDIA_SERVER_RTP_PROXY_PORT_RANGE | default "30000-30999" }}
+  {{- if not .Values.backend.hostNetwork }}
+  WARNING: hostNetwork is disabled. RTP streams may not work correctly in Kubernetes
+  without hostNetwork or a custom CNI plugin. Consider setting backend.hostNetwork=true.
+  {{- end }}
+
+===> Health Checks
+
+  Liveness:  /health/live
+  Readiness: /health/ready
+  Metrics:   /metrics
+
+===> Next Steps
+
+  1. Configure SIP devices to register to the SIP server above
+  2. Access the web UI to manage devices and view live streams
+  3. Configure monitoring using the provided Prometheus and Grafana configs
+
+For more information, visit: https://github.com/PyGBSentry

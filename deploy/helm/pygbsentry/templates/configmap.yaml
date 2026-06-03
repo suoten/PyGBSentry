@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pygbsentry.fullname" . }}-backend
+  labels:
+    {{- include "pygbsentry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+data:
+  APP_ENV: "prod"
+  DATABASE_TYPE: {{ .Values.backend.env.DATABASE_TYPE | default "postgresql" | quote }}
+  DATABASE_HOST: {{ .Values.backend.env.DATABASE_HOST | default (printf "%s-postgresql" .Release.Name) | quote }}
+  DATABASE_PORT: {{ .Values.backend.env.DATABASE_PORT | default "5432" | quote }}
+  DATABASE_NAME: {{ .Values.backend.env.DATABASE_NAME | default "pygbsentry" | quote }}
+  DATABASE_USER: {{ .Values.backend.env.DATABASE_USER | default "pygbsentry" | quote }}
+  REDIS_HOST: {{ .Values.backend.env.REDIS_HOST | default (printf "%s-redis-master" .Release.Name) | quote }}
+  REDIS_PORT: {{ .Values.backend.env.REDIS_PORT | default "6379" | quote }}
+  SIP_ID: {{ .Values.backend.env.SIP_ID | default "34020000002000000001" | quote }}
+  SIP_DOMAIN: {{ .Values.backend.env.SIP_DOMAIN | default "3402000000" | quote }}
+  SIP_IP: {{ .Values.backend.env.SIP_IP | default "0.0.0.0" | quote }}
+  SIP_PORT: {{ .Values.backend.env.SIP_PORT | default "5060" | quote }}
+  MEDIA_SERVER_HOST: {{ .Values.backend.env.MEDIA_SERVER_HOST | default "127.0.0.1" | quote }}
+  MEDIA_SERVER_HTTP_PORT: {{ .Values.backend.env.MEDIA_SERVER_HTTP_PORT | default "80" | quote }}
+  MEDIA_SERVER_RTP_PROXY_PORT_RANGE: {{ .Values.backend.env.MEDIA_SERVER_RTP_PROXY_PORT_RANGE | default "30000-30999" | quote }}
+  LOG_LEVEL: {{ .Values.backend.env.LOG_LEVEL | default "INFO" | quote }}

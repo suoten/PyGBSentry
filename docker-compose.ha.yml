@@ -1,0 +1,43 @@
+# PyGBSentry High Availability Deployment
+# ----------------------------------------
+# Usage: docker compose -f docker-compose.yml -f docker-compose.ha.yml up -d
+#
+# This overlay scales the backend to 2 replicas and configures:
+# - Nginx load balancer for backend instances
+# - SIP state backend forced to redis for multi-instance consistency
+#
+# Prerequisites:
+# - SIP_STATE_BACKEND=redis (required for multi-instance)
+# - Shared media storage (NFS/S3) for recordings
+# - External load balancer or DNS round-robin for SIP UDP
+
+version: '3.8'
+
+services:
+  # Nginx reverse proxy / load balancer
+  nginx-lb:
+    image: nginx:1.25-alpine
+    container_name: pygbsentry-lb
+    restart: unless-stopped
+    volumes:
+      - ./deploy/nginx/nginx-lb.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - backend
+
+  backend:
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      - SIP_STATE_BACKEND=redis
+      - WORKERS=4

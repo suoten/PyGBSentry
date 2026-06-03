@@ -1,0 +1,75 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "pygbsentry.fullname" . }}
+  labels:
+    {{- include "pygbsentry.labels" . | nindent 4 }}
+  # FIXED-P1: N-12 添加 WebSocket 升级注解和长连接超时注解，确保 /api/ 等路径的 WebSocket 连接不被 Nginx Ingress 断开
+  annotations:
+    nginx.ingress.kubernetes.io/websocket-services: "{{ include "pygbsentry.fullname" . }}-backend"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range .Values.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          # FIXED-P1: S-24 添加/api/路由到backend service，之前所有请求仅路由到frontend
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.service.port }}
+          - path: /live/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.zlm.httpPort }}
+          - path: /rtp/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.zlm.httpPort }}
+          - path: /index/api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.zlm.httpPort }}
+          - path: /record/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-backend
+                port:
+                  number: {{ $.Values.backend.zlm.httpPort }}
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType }}
+            backend:
+              service:
+                name: {{ include "pygbsentry.fullname" $ }}-frontend
+                port:
+                  number: {{ $.Values.frontend.service.port }}
+          {{- end }}
+    {{- end }}
+{{- end }}

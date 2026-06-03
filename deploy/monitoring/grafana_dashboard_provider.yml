@@ -1,0 +1,18 @@
+# Grafana Dashboard Provider Configuration
+# -----------------------------------------
+# Place this file in Grafana's provisioning/dashboards/ directory
+# to auto-import the PyGBSentry dashboard.
+
+apiVersion: 1
+
+providers:
+  - name: 'PyGBSentry'
+    orgId: 1
+    folder: 'PyGBSentry'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

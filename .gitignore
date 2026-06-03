@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+
+# Ruff / Pytest cache
+.ruff_cache/
+.pytest_cache/
+
+# Environment files (keep examples)
+.env
+backend/.env
+!backend/.env.example
+!backend/.env.dev.example
+!backend/.env.prod.example
+
+# Server edition - prevent credential leaks
+editions/server/backend/.env
+editions/server/backend/.env.bak*
+editions/server/backend/.venv/
+editions/server/backend/logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Data & Logs
+backend/data/
+backend/logs/
+backend/timelapse/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Binary / Model / Archive files
+*.pt
+*.zip
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build_err.log
+frontend/build-output.txt
+
+# Mobile
+mobile/node_modules/
+mobile/dist/
+mobile/.hbuilderx
+
+# OS files
+.DS_Store
+Thumbs.db
+CACHEDIR.TAG
+
+# Development artifacts
+_backend_full.json
+_backend_routes.json
+_backend_routes.txt
+_frontend_calls.json
+check-report*.md
+UPGRADE_AND_FIX_PLAN.md
+ANALYSIS_*.md
+待改.txt
