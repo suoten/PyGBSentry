@@ -573,7 +573,6 @@ export default {
     externalAccess: 'External Access',
     hookCallback: 'Hook Callback',
     rtpPort: 'RTP Port',
-    httpPort: 'HTTP Port',
     zlmSsl: 'ZLM SSL',
     rtspPort: 'RTSP Port',
     rtmpPort: 'RTMP Port',

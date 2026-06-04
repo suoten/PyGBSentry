@@ -32,6 +32,33 @@ else:
             "pool_recycle": settings.DB_POOL_RECYCLE,
         }
     )
+    # FIXED-P0: asyncpg 与 aware datetime 不兼容的统一解决方案
+    # PostgreSQL 的 TIMESTAMP WITHOUT TIME ZONE 列不接受带时区的 datetime 参数，
+    # 但代码中有 247 处使用 datetime.now(timezone.utc) 产生 aware datetime。
+    # 通过 asyncpg 的 set_type_codec 在每个连接上注册自定义编码器，
+    # 自动将 aware datetime 去掉 tzinfo 转为 naive datetime。
+    async def _asyncpg_init_connection(conn):
+        import asyncpg
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _timestamp_encoder(value):
+            # aware datetime → naive datetime (去掉 tzinfo)
+            if hasattr(value, 'tzinfo') and value.tzinfo is not None:
+                return value.replace(tzinfo=None)
+            return value
+
+        await conn.set_type_codec(
+            'timestamp',
+            encoder=_timestamp_encoder,
+            decoder=lambda v: v,
+            format='python',
+        )
+        return conn
+
+    engine_kwargs["connect_args"] = {
+        "init": _asyncpg_init_connection,
+        "statement_cache_size": 0,
+    }
 
 
 def _sqlite_integrity_check_and_repair(db_path: str) -> None:

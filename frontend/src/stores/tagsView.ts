@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import i18n from '@/locales'
 
 export type TagView = {
   fullPath: string
@@ -9,6 +10,14 @@ export type TagView = {
 }
 
 function normalizeTitle(route: Record<string, unknown>): string {
+  // FIXED: 优先使用 titleKey 通过 i18n 翻译，避免标签页显示英文路由名
+  const titleKey = route?.meta?.titleKey
+  if (typeof titleKey === 'string' && titleKey.trim()) {
+    try {
+      const t = i18n.global.t(titleKey.trim())
+      if (typeof t === 'string' && t.trim() && t !== titleKey) return t.trim()
+    } catch { /* i18n not ready yet */ }
+  }
   const t = route?.meta?.title
   if (typeof t === 'string' && t.trim()) return t.trim()
   if (typeof route?.name === 'string' && route.name.trim()) return route.name.trim()

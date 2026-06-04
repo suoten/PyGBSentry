@@ -218,7 +218,14 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
                 existed.hook_ip = media_host
                 changed = True
             current_hook_base = (getattr(existed, "hook_base_url", None) or "").strip()
-            if not current_hook_base or _is_local_url(current_hook_base):
+            # FIXED-P0: 优先使用 MEDIA_SERVER_HOOK_BASE_URL 环境变量
+            # ZLM 在本机时需要用 127.0.0.1 回调后端，不能用公网域名
+            global_hook_base = str(getattr(settings, "MEDIA_SERVER_HOOK_BASE_URL", "") or "").strip()
+            if global_hook_base:
+                if current_hook_base != global_hook_base:
+                    existed.hook_base_url = global_hook_base
+                    changed = True
+            elif not current_hook_base or _is_local_url(current_hook_base):
                 hook_host = (getattr(existed, "hook_ip", None) or "").strip() or media_host
                 if hook_host and not _is_local_host(hook_host):
                     existed.hook_base_url = f"http://{hook_host}:{backend_public_port}{api_v1_str}/hook"
