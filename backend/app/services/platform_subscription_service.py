@@ -228,7 +228,7 @@ class PlatformSubscriptionService:
             try:
                 await self._purge_expired()
             except Exception as e:
-                logger.error("PlatformSubscriptionService loop error: %s", e)
+                logger.error(f"PlatformSubscriptionService loop error: {e}")
             await asyncio.sleep(self.check_interval)
 
     async def get_active_subscriptions(self, event: str) -> list[PlatformSubscription]:

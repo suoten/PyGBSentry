@@ -360,6 +360,12 @@ async def login_access_token(
     # 登录成功：重置锁定状态
     user.failed_login_attempts = 0
     user.locked_until = None
+    # FIXED-P0: 在 commit 前缓存 user 属性，避免 commit 后属性过期触发懒加载 MissingGreenlet
+    _username = user.username
+    _tenant_id = user.tenant_id or "default"
+    _user_id = user.id
+    _is_superuser = user.is_superuser
+    _user_role = user.role
     try:
         await db.commit()
     except Exception:
@@ -368,27 +374,27 @@ async def login_access_token(
         db,
         action="login",
         source="login",
-        operator=user.username or attempted,
+        operator=_username or attempted,
         result="success",
-        tenant_id=user.tenant_id or "default",
+        tenant_id=_tenant_id,
         status_code=200,
         detail="ok",
     )
     access_token = security.create_access_token(
-        user.id,
+        _user_id,
         expires_delta=access_token_expires,
         extra_payload={
-            "tenant_id": user.tenant_id or "default",
-            "role": user.role or ("owner" if user.is_superuser else "viewer"),
-            "is_superuser": user.is_superuser
+            "tenant_id": _tenant_id,
+            "role": _user_role or ("owner" if _is_superuser else "viewer"),
+            "is_superuser": _is_superuser
         }
     )
-    refresh_token = security.create_refresh_token(user.id)
+    refresh_token = security.create_refresh_token(_user_id)
 
     trial_info = {}
     try:
         sub_stmt = select(TenantSubscription).where(
-            TenantSubscription.tenant_id == (user.tenant_id or "default")
+            TenantSubscription.tenant_id == _tenant_id
         )
         sub_result = await db.execute(sub_stmt)
         sub = sub_result.scalars().first()
@@ -410,9 +416,9 @@ async def login_access_token(
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "role": user.role or ("owner" if user.is_superuser else "viewer"),
-        "is_superuser": user.is_superuser,
-        "tenant_id": user.tenant_id or "default",
+        "role": _user_role or ("owner" if _is_superuser else "viewer"),
+        "is_superuser": _is_superuser,
+        "tenant_id": _tenant_id,
         **trial_info,
     }  # 登录响应补充role/is_superuser/tenant_id顶层字段
     response = JSONResponse(content=response_content)
