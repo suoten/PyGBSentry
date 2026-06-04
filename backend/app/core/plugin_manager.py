@@ -150,6 +150,10 @@ def _is_direct_plugin_caller(frame, pid: str) -> bool:
     return False
 
 _sandbox_guard_lock = threading.Lock()  # 改为threading.Lock，_load_module是sync函数不能用async with
+# FIXED-P0: 模块级 reentrancy 计数器，所有 sandbox guard 共享
+# 防止 _guarded 调用 orig() 时 orig 内部又触发其他 guarded builtin 导致无限递归
+# 之前每个 _guarded 用独立的 threading.local() 无法感知其他 guard 的递归
+_sandbox_reentrancy_depth: int = 0
 
 
 def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
@@ -165,12 +169,12 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
 
         if name == "open":
             def _make_open_guard(orig, pid):
-                _in_guard = threading.local()
                 _inspect_ref = inspect
                 def _guarded_open(*args, **kwargs):
-                    if getattr(_in_guard, 'active', False):
+                    global _sandbox_reentrancy_depth
+                    if _sandbox_reentrancy_depth > 0:
                         return orig(*args, **kwargs)
-                    _in_guard.active = True
+                    _sandbox_reentrancy_depth += 1
                     try:
                         frame = _inspect_ref.currentframe()
                         if not _is_direct_plugin_caller(frame.f_back, pid):
@@ -200,19 +204,19 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                         except Exception:
                             return orig(*args, **kwargs)
                     finally:
-                        _in_guard.active = False
+                        _sandbox_reentrancy_depth -= 1
                 return _guarded_open
 
             setattr(_builtins, name, _make_open_guard(original, plugin_id))
             continue
 
         def _make_guard(orig, blocked_name, pid):
-            _in_guard = threading.local()
             _inspect_ref = inspect
             def _guarded(*args, **kwargs):
-                if getattr(_in_guard, 'active', False):
+                global _sandbox_reentrancy_depth
+                if _sandbox_reentrancy_depth > 0:
                     return orig(*args, **kwargs)
-                _in_guard.active = True
+                _sandbox_reentrancy_depth += 1
                 try:
                     frame = _inspect_ref.currentframe()
                     plugin_caller = _is_direct_plugin_caller(frame.f_back, pid)
@@ -223,7 +227,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                         )
                     return orig(*args, **kwargs)
                 finally:
-                    _in_guard.active = False
+                    _sandbox_reentrancy_depth -= 1
             return _guarded
 
         setattr(_builtins, name, _make_guard(original, name, plugin_id))

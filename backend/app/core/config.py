@@ -793,7 +793,10 @@ if _rtp_range and "-" in _rtp_range:
         _rtp_start, _rtp_end = _rtp_range.split("-", 1)
         _rtp_start, _rtp_end = int(_rtp_start.strip()), int(_rtp_end.strip())
         _rtp_span = _rtp_end - _rtp_start + 1
-        if _rtp_span > 200:
+        # FIXED: 仅在 Docker 环境中警告端口范围过大（Docker 需要逐个映射端口）
+        # 非 Docker 环境（物理机/VM）不受 Docker 端口映射限制，无需警告
+        _is_docker = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
+        if _rtp_span > 200 and _is_docker:
             import logging as _logging
             _logging.getLogger(__name__).warning(
                 f"RTP port range {_rtp_range} spans {_rtp_span} ports, which exceeds the "
