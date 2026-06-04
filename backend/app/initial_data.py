@@ -46,6 +46,17 @@ async def init_db():
         if not _admin_password:
             _admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD", "").strip()
 
+        # FIXED: 是否强制重置密码（需显式设置 ADMIN_FORCE_RESET_PASSWORD=true）
+        # 防止每次重启都重置密码，只在用户明确要求时才重置
+        _force_reset = False
+        try:
+            from app.core.config import settings as _settings
+            _force_reset = getattr(_settings, "ADMIN_FORCE_RESET_PASSWORD", False)
+        except Exception:
+            pass
+        if not _force_reset:
+            _force_reset = os.environ.get("ADMIN_FORCE_RESET_PASSWORD", "").strip().lower() in ("true", "1", "yes")
+
         if not user:
             if not _admin_password:
                 _admin_password = secrets.token_urlsafe(12)
@@ -62,29 +73,25 @@ async def init_db():
             session.add(user)
             await session.commit()
             logger.info("Default admin user created.")
-            # removed password fingerprint from logs to prevent offline brute-force
             logger.warning("=" * 60)
             logger.warning("IMPORTANT: Admin password has been set.")
             logger.warning("Retrieve the password from ADMIN_INITIAL_PASSWORD env.")
             logger.warning("Please change it immediately after first login!")
             logger.warning("=" * 60)
         else:
-            if _admin_password:
+            if _admin_password and _force_reset:
                 user.hashed_password = security.get_password_hash(_admin_password)
                 user.failed_login_attempts = 0
                 user.locked_until = None
                 user.is_active = True
-                user.is_superuser = True
-                user.role = "owner"
                 await session.commit()
-                # removed password fingerprint from logs to prevent offline brute-force
                 logger.warning("=" * 60)
-                logger.warning("Admin password has been RESET.")
+                logger.warning("Admin password has been RESET (ADMIN_FORCE_RESET_PASSWORD=true).")
                 logger.warning("Account lock has been CLEARED.")
-                logger.warning("Please change it immediately after first login!")
+                logger.warning("Please remove ADMIN_FORCE_RESET_PASSWORD from .env after login!")
                 logger.warning("=" * 60)
             else:
-                logger.info("Admin user already exists. To reset password, set ADMIN_INITIAL_PASSWORD env or run with --password=YOUR_PASSWORD")
+                logger.info("Admin user already exists. To reset password, set ADMIN_FORCE_RESET_PASSWORD=true and ADMIN_INITIAL_PASSWORD in .env")
         plan_stmt = select(BillingPlan).where(BillingPlan.code == "community")
         plan_result = await session.execute(plan_stmt)
         community = plan_result.scalars().first()

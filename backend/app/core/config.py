@@ -186,6 +186,9 @@ class Settings(BaseSettings):
     # 管理员初始/重置密码（首次创建admin用户或重置密码时使用）
     # 留空则首次启动自动生成随机密码并打印到日志；设置后每次启动都会重置admin密码
     ADMIN_INITIAL_PASSWORD: str = ""
+    # 强制重置admin密码（需同时设置 ADMIN_INITIAL_PASSWORD）
+    # 设为 true 时下次启动重置密码，重置后应删除此配置
+    ADMIN_FORCE_RESET_PASSWORD: bool = False
     SIP_IP_BLACKLIST: str = ""  # 逗号分隔的黑名单IP，例如 "91.208.92.173,1.2.3.4"
     # SIP 调试开关：仅在联调时开启，输出关键头和 XML 摘要
     SIP_DEBUG_TRACE_ENABLED: bool = False
