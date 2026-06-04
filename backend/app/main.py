@@ -412,6 +412,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Startup step: ensure_alarm_escalation_schema failed: {e}, continue startup.")
 
+    # 初始化默认数据（admin 用户、计费方案等），支持 ADMIN_INITIAL_PASSWORD 重置密码
+    logger.info("Startup step: init_db (default admin user & billing)...")
+    try:
+        from app.initial_data import init_db
+        await asyncio.wait_for(init_db(), timeout=30)
+        logger.info("Startup step: init_db done.")
+    except asyncio.TimeoutError:
+        logger.warning("Startup step: init_db timeout (30s), continue startup.")
+    except Exception as e:
+        logger.warning(f"Startup step: init_db failed: {e}, continue startup.")
+
     # 注入配置中心已发布的插件配置，供 load_plugins 时合并到各插件 config_template
     logger.info("Startup step: load_published_plugin_config...")
     try:
