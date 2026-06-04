@@ -183,6 +183,9 @@ class Settings(BaseSettings):
     SIP_DOMAIN: str = "3402000000"
     # 设备注册默认鉴权密码（当 Asset.password 为空/未创建时使用）
     SIP_DEFAULT_PASSWORD: str = ""  # MUST be set via .env or environment variable
+    # 管理员初始/重置密码（首次创建admin用户或重置密码时使用）
+    # 留空则首次启动自动生成随机密码并打印到日志；设置后每次启动都会重置admin密码
+    ADMIN_INITIAL_PASSWORD: str = ""
     SIP_IP_BLACKLIST: str = ""  # 逗号分隔的黑名单IP，例如 "91.208.92.173,1.2.3.4"
     # SIP 调试开关：仅在联调时开启，输出关键头和 XML 摘要
     SIP_DEBUG_TRACE_ENABLED: bool = False
