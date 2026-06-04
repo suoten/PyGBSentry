@@ -35,7 +35,16 @@ async def init_db():
 
         # 支持通过环境变量 ADMIN_INITIAL_PASSWORD 指定初始密码
         # removed --password= CLI support to prevent password exposure in process list (ps aux)
-        _admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD", "").strip()
+        # FIXED: 优先从 settings 读取（pydantic-settings 会加载 .env 文件），
+        # 回退到 os.environ（支持命令行 ADMIN_INITIAL_PASSWORD=xxx 方式）
+        _admin_password = ""
+        try:
+            from app.core.config import settings as _settings
+            _admin_password = getattr(_settings, "ADMIN_INITIAL_PASSWORD", "") or ""
+        except Exception:
+            pass
+        if not _admin_password:
+            _admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD", "").strip()
 
         if not user:
             if not _admin_password:
