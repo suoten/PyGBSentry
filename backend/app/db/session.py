@@ -35,24 +35,12 @@ else:
     # FIXED-P0: asyncpg 与 aware datetime 不兼容的统一解决方案
     # PostgreSQL 的 TIMESTAMP WITHOUT TIME ZONE 列不接受带时区的 datetime 参数，
     # 但代码中有 247 处使用 datetime.now(timezone.utc) 产生 aware datetime。
-    # 通过 asyncpg 的 set_type_codec 在每个连接上注册自定义编码器，
-    # 自动将 aware datetime 去掉 tzinfo 转为 naive datetime。
+    # asyncpg 在内部类型检查时会将 aware datetime 与 naive datetime 做减法比较，
+    # 导致 "can't subtract offset-naive and offset-aware datetimes" 错误。
+    # set_type_codec 无法解决此问题，因为类型检查在编码器之前执行。
+    # 解决方案：通过 SQLAlchemy 的 before_execute 事件，在参数传递给 asyncpg 之前，
+    # 自动将所有 aware datetime 转为 naive datetime。
     async def _asyncpg_init_connection(conn):
-        import asyncpg
-        from datetime import datetime as _dt, timezone as _tz
-
-        def _timestamp_encoder(value):
-            # aware datetime → naive datetime (去掉 tzinfo)
-            if hasattr(value, 'tzinfo') and value.tzinfo is not None:
-                return value.replace(tzinfo=None)
-            return value
-
-        await conn.set_type_codec(
-            'timestamp',
-            encoder=_timestamp_encoder,
-            decoder=lambda v: v,
-            format='python',
-        )
         return conn
 
     engine_kwargs["connect_args"] = {
@@ -136,6 +124,31 @@ if is_sqlite:
         _sqlite_integrity_check_and_repair(_db_file_path)
 
 engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, **engine_kwargs)
+
+
+# FIXED-P0: 在 SQLAlchemy 层面自动将 aware datetime 转为 naive datetime
+# asyncpg 内部类型检查会在编码器之前执行，导致 "can't subtract offset-naive
+# and offset-aware datetimes" 错误。通过 before_cursor_execute 事件在参数
+# 传递给 asyncpg 之前，递归遍历所有参数，将 aware datetime 的 tzinfo 去掉。
+def _strip_tzinfo(value):
+    """递归去除 datetime 的 tzinfo，将 aware datetime 转为 naive datetime"""
+    from datetime import datetime as _dt
+    if isinstance(value, _dt) and value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    if isinstance(value, (list, tuple)):
+        stripped = [_strip_tzinfo(v) for v in value]
+        return type(value)(stripped) if isinstance(value, tuple) else stripped
+    if isinstance(value, dict):
+        return {k: _strip_tzinfo(v) for k, v in value.items()}
+    return value
+
+
+@event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
+def _before_cursor_execute_strip_tzinfo(conn, cursor, statement, parameters, context, executemany):
+    """在 SQL 执行前将参数中的 aware datetime 转为 naive datetime"""
+    if parameters:
+        parameters = _strip_tzinfo(parameters)
+    return statement, parameters
 
 if is_sqlite:
     @event.listens_for(engine.sync_engine, "connect")

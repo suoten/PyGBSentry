@@ -22,11 +22,11 @@ async def reload_nginx(cfg: CertbotSettings) -> bool:
             logger.info("nginx reload succeeded")
             return True
         else:
-            logger.error("nginx reload failed (rc=%d): %s", proc.returncode, stderr.decode(errors="replace").strip()[:200])
+            logger.error(f"nginx reload failed (rc={proc.returncode}): {stderr.decode(errors='replace').strip()[:200]}")
             return False
     except asyncio.TimeoutError:
         logger.error("nginx reload timed out")
         return False
     except Exception as e:
-        logger.error("nginx reload exception: %s", e)
+        logger.error(f"nginx reload exception: {e}")
         return False

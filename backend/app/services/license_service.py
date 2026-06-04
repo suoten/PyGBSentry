@@ -132,7 +132,7 @@ def verify_license_payload(
                 grace_period_seconds=int(getattr(settings, "PLUGIN_LICENSE_OFFLINE_GRACE_PERIOD_SECONDS", 86400) or 0),
             )
         except Exception as e:
-            logger.warning("Native license verify failed, falling back to Python: %s", e)
+            logger.warning(f"Native license verify failed, falling back to Python: {e}")
     return _verify_license_payload_python(license_data, tenant_id, plugin_id, feature_code)
 
 
@@ -190,7 +190,7 @@ def _verify_license_payload_python(
                         logger.warning("[License] instance_id 回退校验失败：当前实例未注册，拒绝授权")
                         return False, "machine_code_mismatch"
                     if instance_id != current_instance_id:
-                        logger.warning("[License] instance_id 不匹配: license=%s, current=%s", instance_id[:8], current_instance_id[:8])
+                        logger.warning(f"[License] instance_id 不匹配: license={instance_id[:8]}, current={current_instance_id[:8]}")
                         return False, "machine_code_mismatch"
                     logger.info("[License] 机器码不匹配但 instance_id 一致，允许授权")
                 else:

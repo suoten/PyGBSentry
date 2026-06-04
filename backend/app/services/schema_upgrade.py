@@ -1029,4 +1029,4 @@ async def ensure_business_schema():
         await _ensure_resources_asset_id_nullable()
     except Exception as e:
         # 不阻断启动；但如果迁移失败，后续“无设备建节点”仍可能报错
-        logger.warning("resources.asset_id nullable migration failed: %s", e)
+        logger.warning(f"resources.asset_id nullable migration failed: {e}")

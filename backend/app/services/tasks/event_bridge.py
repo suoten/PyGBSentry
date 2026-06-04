@@ -124,9 +124,9 @@ async def _publish(event_type: str, data: dict) -> None:
             elif t_type == "rabbitmq":
                 await _send_rabbitmq(target, event_type, msg_bytes)
             else:
-                logger.warning("[EventBridge] Unknown target type: %s", t_type)
+                logger.warning(f"[EventBridge] Unknown target type: {t_type}")
         except Exception as e:
-            logger.error("[EventBridge] Publish error (%s %s): %s", t_type, event_type, e)
+            logger.error(f"[EventBridge] Publish error ({t_type} {event_type}): {e}")
 
 
 async def _send_kafka(target: dict, event_type: str, msg_bytes: bytes) -> None:
@@ -154,7 +154,7 @@ async def _send_kafka(target: dict, event_type: str, msg_bytes: bytes) -> None:
             logger.warning("[EventBridge] kafka-python not installed")
             return
         except Exception as e:
-            logger.error("[EventBridge] KafkaProducer init error: %s", e)
+            logger.error(f"[EventBridge] KafkaProducer init error: {e}")
             return
 
     try:
@@ -162,7 +162,7 @@ async def _send_kafka(target: dict, event_type: str, msg_bytes: bytes) -> None:
         fut.get(timeout=3)
         _append_log(f"Kafka publish ok: topic={topic} event={event_type}", "debug")
     except Exception as e:
-        logger.error("[EventBridge] Kafka send error: %s", e)
+        logger.error(f"[EventBridge] Kafka send error: {e}")
 
 
 async def _send_rabbitmq(target: dict, event_type: str, msg_bytes: bytes) -> None:
@@ -188,7 +188,7 @@ async def _send_rabbitmq(target: dict, event_type: str, msg_bytes: bytes) -> Non
             logger.warning("[EventBridge] pika not installed")
             return
         except Exception as e:
-            logger.error("[EventBridge] RabbitMQ init error: %s", e)
+            logger.error(f"[EventBridge] RabbitMQ init error: {e}")
             return
 
     try:
@@ -200,7 +200,7 @@ async def _send_rabbitmq(target: dict, event_type: str, msg_bytes: bytes) -> Non
         )
         _append_log(f"RabbitMQ publish ok: exchange={exchange} key={routing_key}", "debug")
     except Exception as e:
-        logger.error("[EventBridge] RabbitMQ send error: %s", e)
+        logger.error(f"[EventBridge] RabbitMQ send error: {e}")
         # 重置连接
         _rabbitmq_channels.pop(url, None)
 

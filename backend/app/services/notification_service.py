@@ -127,7 +127,7 @@ class NotificationService:
         async with AsyncSessionLocal() as session:
             alarm, asset = await self._get_alarm_with_asset(alarm_id, session)
             if not alarm:
-                logger.debug("NotificationService: alarm not found, id=%s", alarm_id)
+                logger.debug(f"NotificationService: alarm not found, id={alarm_id}")
                 return
 
             matched = await self._match_notify_rules(alarm, session)
@@ -153,7 +153,7 @@ class NotificationService:
                 settings.REPORT_DAILY_EMAIL_TO,
             )
         except Exception as e:
-            logger.error("NotificationService email failed: %s", e)
+            logger.error(f"NotificationService email failed: {e}")
 
 
 notification_service = NotificationService()

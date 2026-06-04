@@ -66,13 +66,13 @@ class HealthService:
         """Mark a degraded condition that should fail readiness probes."""
         if reason not in self._degraded_reasons:
             self._degraded_reasons.append(reason)
-            logger.error("Readiness DEGRADED: %s", reason)
+            logger.error(f"Readiness DEGRADED: {reason}")
 
     def clear_degraded(self, reason: str):
         """Clear a previously set degraded condition."""
         if reason in self._degraded_reasons:
             self._degraded_reasons.remove(reason)
-            logger.info("Readiness RESTORED: %s", reason)
+            logger.info(f"Readiness RESTORED: {reason}")
 
     async def start(self):
         if self.running:
@@ -847,7 +847,7 @@ class HealthService:
             await self._execute_auto_backup(now)
             await self._cleanup_old_backups()
         except Exception as e:
-            logger.error("Auto backup failed: %s", e)
+            logger.error(f"Auto backup failed: {e}")
 
     async def _execute_auto_backup(self, now: datetime.datetime):
         """执行自动备份并加密"""
@@ -872,7 +872,7 @@ class HealthService:
                     rows = result.mappings().all()
                     backup_data[table] = [dict(row) for row in rows]
                 except Exception as e:
-                    logger.warning("Auto backup table %s failed: %s", table, e)
+                    logger.warning(f"Auto backup table {table} failed: {e}")
                     backup_data[table] = []
 
             for key in backup_data:
@@ -901,11 +901,11 @@ class HealthService:
                 encrypted = encrypt_field(raw_json, purpose="backup")
                 with open(backup_path, "w", encoding="utf-8") as f:
                     f.write(encrypted)
-                logger.info("Auto backup created (encrypted): %s", backup_filename)
+                logger.info(f"Auto backup created (encrypted): {backup_filename}")
             else:
                 with open(backup_path, "w", encoding="utf-8") as f:
                     f.write(raw_json)
-                logger.info("Auto backup created (plaintext): %s", backup_filename)
+                logger.info(f"Auto backup created (plaintext): {backup_filename}")
 
     async def _cleanup_old_backups(self):
         """清理超过保留天数的自动备份文件"""
@@ -927,6 +927,6 @@ class HealthService:
             except OSError:
                 pass
         if removed > 0:
-            logger.info("Cleaned up %d old auto backup(s)", removed)
+            logger.info(f"Cleaned up {removed} old auto backup(s)")
 
 health_service = HealthService()

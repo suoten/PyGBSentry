@@ -131,9 +131,9 @@ def _run_quality_diag(streams: list[dict], check_interval: int, signal_loss_thre
         if now_ts - last < _DIAG_COOLDOWN_SEC:
             return
         _diag_cooldown[cooldown_key] = now_ts
-        ts = datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{ts}] [{issue}] {stream_key} - {detail}\n"
-        logger.warning("[QualityDiag] %s %s: %s", issue, stream_key, detail)
+        logger.warning(f"[QualityDiag] {issue} {stream_key}: {detail}")
         try:
             with open(sla_log_file, "a", encoding="utf-8") as f:
                 f.write(line)
@@ -309,7 +309,7 @@ async def monitor_health():
                     # S-20 使用asyncio.to_thread将同步文件I/O移出事件循环，避免阻塞
                     await asyncio.to_thread(_run_quality_diag, streams, check_interval, signal_loss_threshold, cfg)
                 except Exception as e:
-                    logger.error("[Health] Quality diag error: %s", e)
+                    logger.error(f"[Health] Quality diag error: {e}")
 
             # 统计并发流数与总带宽，写入 network_metrics 表
             total_bytes_per_sec = 0.0

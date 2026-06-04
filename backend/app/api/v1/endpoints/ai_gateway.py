@@ -97,7 +97,7 @@ async def _forward_to_upstream(payload: dict[str, Any], headers: dict[str, str])
         resp = await (await get_http_client()).post(url, json=payload, headers=headers, timeout=timeout)  # 同步requests→异步httpx，避免阻塞事件循环
         return int(getattr(resp, "status_code", 0) or 0), (getattr(resp, "text", "") or "")[:2000]
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
-        logger.warning("AI gateway upstream request failed: %s", e)
+        logger.warning(f"AI gateway upstream request failed: {e}")
         return 0, f"upstream_error:{type(e).__name__}"
     # requests.post无try-catch，网络异常导致未捕获异常
 
@@ -130,7 +130,7 @@ async def analyze_ai_callback(
         try:
             forward_status, forward_text = await _forward_to_upstream(payload, headers)  # 同步requests→异步httpx，避免阻塞事件循环
         except Exception as e:
-            logger.warning("AI gateway upstream forward failed: %s", e)
+            logger.warning(f"AI gateway upstream forward failed: {e}")
             forward_status, forward_text = None, None
 
     return {

@@ -924,10 +924,10 @@ async def _fetch_marketplace_items() -> list[dict]:
     try:
         response = await (await get_http_client()).get(url, timeout=10)  # 同步requests→异步httpx，避免阻塞事件循环
     except Exception as e:
-        logger.warning("Failed to fetch remote marketplace: %s, falling back to local catalog", e)
+        logger.warning(f"Failed to fetch remote marketplace: {e}, falling back to local catalog")
         return _read_marketplace_catalog()
     if response.status_code >= 400:
-        logger.warning("Marketplace server returned %s, falling back to local catalog", response.status_code)
+        logger.warning(f"Marketplace server returned {response.status_code}, falling back to local catalog")
         return _read_marketplace_catalog()
     try:
         items = response.json()
@@ -1218,7 +1218,7 @@ async def _install_plugin_from_zip(
             if bool(getattr(settings, "PLUGIN_SECURITY_SCAN_BLOCK_ON_HIT", False)) and high_hits:
                 detail = "; ".join(security_hits[:10])
                 raise HTTPException(status_code=400, detail=f"Security scan detected dangerous usage (blocked): {detail}")  # i18n
-            logger.warning("Plugin package security scan hit %d risk items: %s", len(security_hits), "; ".join(security_hits[:5]))  # i18n
+            logger.warning(f"Plugin package security scan hit {len(security_hits)} risk items: {'; '.join(security_hits[:5])}")  # i18n
 
         if "plugin.json" not in file_list:
             raise HTTPException(status_code=400, detail="Invalid plugin package: missing plugin.json")  # i18n

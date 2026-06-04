@@ -23,18 +23,18 @@ async def _renew_loop() -> None:
                 continue
             cert_info = await get_status()
             if cert_info.status in (CertStatus.EXPIRING_SOON, CertStatus.EXPIRED, CertStatus.MISSING):
-                logger.info("SSL certbot renewer: certificate needs renewal (status=%s), triggering ...", cert_info.status)
+                logger.info(f"SSL certbot renewer: certificate needs renewal (status={cert_info.status}), triggering ...")
                 success, msg = await force_renew()
                 if success:
-                    logger.info("SSL certbot renewer: %s", msg)
+                    logger.info(f"SSL certbot renewer: {msg}")
                 else:
-                    logger.warning("SSL certbot renewer: %s", msg)
+                    logger.warning(f"SSL certbot renewer: {msg}")
             else:
-                logger.debug("SSL certbot renewer: certificate OK (status=%s, %d days remaining)", cert_info.status, cert_info.remaining_days)
+                logger.debug(f"SSL certbot renewer: certificate OK (status={cert_info.status}, {cert_info.remaining_days} days remaining)")
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error("SSL certbot renewer error: %s, retrying in 60s", e)
+            logger.error(f"SSL certbot renewer error: {e}, retrying in 60s")
             try:
                 await asyncio.sleep(60)
             except asyncio.CancelledError:
@@ -47,8 +47,7 @@ async def start() -> None:
     if not cfg.is_effective:
         return
     _task = asyncio.create_task(_renew_loop())
-    logger.info("SSL certbot renewer: background task started (check every %dh, window %d-%dh)",
-                cfg.renew_check_interval_hours, cfg.renew_window_start_hour, cfg.renew_window_end_hour)
+    logger.info(f"SSL certbot renewer: background task started (check every {cfg.renew_check_interval_hours}h, window {cfg.renew_window_start_hour}-{cfg.renew_window_end_hour}h)")
 
 
 async def stop() -> None:

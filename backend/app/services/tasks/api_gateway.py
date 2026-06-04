@@ -206,7 +206,7 @@ async def _run() -> None:
                 await asyncio.sleep(30)
                 continue
         except Exception as e:
-            logger.error("[APIGateway] Run error: %s", e)
+            logger.error(f"[APIGateway] Run error: {e}")
         await asyncio.sleep(60)
 
 

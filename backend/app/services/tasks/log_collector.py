@@ -115,7 +115,7 @@ async def _batch_and_flush(target_id: str, events: list[dict]) -> bool:
         elif t_type == "elasticsearch":
             return await asyncio.to_thread(_push_to_elasticsearch, url, index, events)
         else:
-            logger.warning("[LogCollector] Unknown target type: %s", t_type)
+            logger.warning(f"[LogCollector] Unknown target type: {t_type}")
             return False
     except Exception as e:
         logger.error("[LogCollector] Flush error (%s %s): %s", t_type, target_id, e)
@@ -284,7 +284,7 @@ async def _run() -> None:
         try:
             await _flush_all()
         except Exception as e:
-            logger.error("[LogCollector] Run error: %s", e)
+            logger.error(f"[LogCollector] Run error: {e}")
         await asyncio.sleep(15)
 
 

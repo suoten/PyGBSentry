@@ -108,7 +108,7 @@ async def websocket_talk(websocket: WebSocket, device_id: str, token: str = Quer
                 target_ip = rtp_info["target_ip"]
             if rtp_info.get("target_port") is not None:
                 target_port = rtp_info["target_port"]
-            logger.info("Talk RTP target from 200 OK: %s:%s", target_ip, target_port)
+            logger.info(f"Talk RTP target from 200 OK: {target_ip}:{target_port}")
         logger.info("Talk session started. Waiting for audio...")
 
         seq = 0

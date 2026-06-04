@@ -789,7 +789,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             # on_talk_200_ok 已改为 async，需要 await
                             await talk_module.on_talk_200_ok(call_id, message.body or "", to_tag=to_tag)
                     except Exception as e:
-                        logger.debug("Talk 200 OK handling: %s", e)
+                        logger.debug(f"Talk 200 OK handling: {e}")
             except Exception as e:
                 logger.error(f"handle_invite_response DB error for call_id={call_id}: {e}")
 

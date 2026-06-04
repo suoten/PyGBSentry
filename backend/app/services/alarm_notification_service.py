@@ -46,7 +46,7 @@ class AlarmNotificationService:
                     sent_at=sent_at,
                 )
         except Exception as e:
-            logger.error("Failed to log alarm notification: %s", e)
+            logger.error(f"Failed to log alarm notification: {e}")
 
     async def _log_notification_with_session(
         self,

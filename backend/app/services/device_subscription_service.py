@@ -46,7 +46,7 @@ class DeviceSubscriptionService:
                 await self._run_catalog_subscriptions()
                 await self._run_mobile_position_subscriptions()
             except Exception as e:
-                logger.error("DeviceSubscriptionService loop error: %s", e)
+                logger.error(f"DeviceSubscriptionService loop error: {e}")
             await asyncio.sleep(self.check_interval)
 
     async def _run_catalog_subscriptions(self):

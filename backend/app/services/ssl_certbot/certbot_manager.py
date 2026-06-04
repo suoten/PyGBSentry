@@ -32,7 +32,7 @@ async def on_startup() -> None:
                 logger.warning("SSL certbot: enabled but SSL_CERTBOT_DOMAIN not set, skipping")
             return
 
-        logger.info("SSL certbot: checking certificate for %s ...", cfg.domain)
+        logger.info(f"SSL certbot: checking certificate for {cfg.domain} ...")
         cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
         _last_cert_info = cert_info
 
@@ -45,7 +45,7 @@ async def on_startup() -> None:
                 _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
                 _last_cert_info.last_renew_at = datetime.now(timezone.utc)
             else:
-                logger.error("SSL certbot: certificate request failed: %s", output[:300])
+                logger.error(f"SSL certbot: certificate request failed: {output[:300]}")
 
         elif cert_info.status == CertStatus.EXPIRED:
             logger.warning("SSL certbot: certificate expired, attempting renewal ...")
@@ -56,12 +56,11 @@ async def on_startup() -> None:
                 _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
                 _last_cert_info.last_renew_at = datetime.now(timezone.utc)
             else:
-                logger.error("SSL certbot: certificate renewal failed: %s", output[:300])
+                logger.error(f"SSL certbot: certificate renewal failed: {output[:300]}")
 
         elif cert_info.status == CertStatus.VALID and cert_info.remaining_days <= cfg.renew_threshold_days:
             logger.info(
-                "SSL certbot: certificate expires in %d days (threshold: %d), attempting renewal ...",
-                cert_info.remaining_days, cfg.renew_threshold_days,
+                f"SSL certbot: certificate expires in {cert_info.remaining_days} days (threshold: {cfg.renew_threshold_days}), attempting renewal ...",
             )
             rc, output = await certbot_renew(cfg)
             if rc == 0:
@@ -70,19 +69,19 @@ async def on_startup() -> None:
                 _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
                 _last_cert_info.last_renew_at = datetime.now(timezone.utc)
             else:
-                logger.error("SSL certbot: certificate renewal failed: %s", output[:300])
+                logger.error(f"SSL certbot: certificate renewal failed: {output[:300]}")
 
         elif cert_info.status == CertStatus.VALID:
-            logger.info("SSL certbot: certificate valid, expires in %d days", cert_info.remaining_days)
+            logger.info(f"SSL certbot: certificate valid, expires in {cert_info.remaining_days} days")
 
         else:
-            logger.warning("SSL certbot: unexpected cert status %s", cert_info.status)
+            logger.warning(f"SSL certbot: unexpected cert status {cert_info.status}")
 
         if getattr(settings, "ENABLE_SIPS", False):
             logger.info("SSL certbot: SIPS is enabled — if ZLM does not auto-reload the renewed cert, restart ZLM")
 
     except Exception as e:
-        logger.error("SSL certbot: on_startup error (non-fatal): %s", e)
+        logger.error(f"SSL certbot: on_startup error (non-fatal): {e}")
 
 
 async def get_status() -> CertInfo:

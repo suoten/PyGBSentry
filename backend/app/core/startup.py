@@ -548,7 +548,7 @@ async def phase_start_background_services(sip_server, plugin_manager):
     except asyncio.TimeoutError:
         logger.warning("SSL certbot startup check timeout (130s), continuing startup.")
     except Exception as e:
-        logger.warning("SSL certbot startup check error (non-fatal): %s", e)
+        logger.warning(f"SSL certbot startup check error (non-fatal): {e}")
 
 
 async def phase_start_license_sync(plugin_manager):
@@ -666,5 +666,5 @@ def emit_security_warnings():
         _security_warnings.append("PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered")
     if _security_warnings and (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}:
         for _w in _security_warnings:
-            logger.warning("[Security] %s", _w)
+            logger.warning(f"[Security] {_w}")
         logger.warning("[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02")

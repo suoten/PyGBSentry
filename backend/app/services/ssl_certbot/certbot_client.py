@@ -11,7 +11,7 @@ _lock = asyncio.Lock()
 async def certbot_certonly(cfg: CertbotSettings) -> tuple[int, str]:
     async with _lock:
         args = _build_certonly_args(cfg)
-        logger.info("Running certbot certonly: %s", " ".join(args))
+        logger.info(f"Running certbot certonly: {' '.join(args)}")
         try:
             if cfg.mode == "standalone":
                 await _stop_nginx()
@@ -30,12 +30,12 @@ async def certbot_certonly(cfg: CertbotSettings) -> tuple[int, str]:
                 return 1, output
             output = stdout.decode(errors="replace").strip()
             if proc.returncode == 0:
-                logger.info("certbot certonly succeeded for %s", cfg.domain)
+                logger.info(f"certbot certonly succeeded for {cfg.domain}")
             else:
-                logger.error("certbot certonly failed (rc=%d): %s", proc.returncode, output[:500])
+                logger.error(f"certbot certonly failed (rc={proc.returncode}): {output[:500]}")
             return proc.returncode or 1, output
         except Exception as e:
-            logger.error("certbot certonly exception: %s", e)
+            logger.error(f"certbot certonly exception: {e}")
             return 1, str(e)
         finally:
             if cfg.mode == "standalone":
@@ -69,10 +69,10 @@ async def certbot_renew(cfg: CertbotSettings) -> tuple[int, str]:
             if proc.returncode == 0:
                 logger.info("certbot renew succeeded")
             else:
-                logger.error("certbot renew failed (rc=%d): %s", proc.returncode, output[:500])
+                logger.error(f"certbot renew failed (rc={proc.returncode}): {output[:500]}")
             return proc.returncode or 1, output
         except Exception as e:
-            logger.error("certbot renew exception: %s", e)
+            logger.error(f"certbot renew exception: {e}")
             return 1, str(e)
 
 
@@ -104,7 +104,7 @@ async def _stop_nginx() -> None:
         )
         await asyncio.wait_for(proc.communicate(), timeout=10.0)
     except Exception as e:
-        logger.warning("Failed to stop nginx for standalone mode: %s", e)
+        logger.warning(f"Failed to stop nginx for standalone mode: {e}")
 
 
 async def _start_nginx() -> None:
@@ -116,4 +116,4 @@ async def _start_nginx() -> None:
         )
         await asyncio.wait_for(proc.communicate(), timeout=10.0)
     except Exception as e:
-        logger.warning("Failed to start nginx after standalone mode: %s", e)
+        logger.warning(f"Failed to start nginx after standalone mode: {e}")

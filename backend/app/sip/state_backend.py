@@ -193,7 +193,7 @@ def get_sip_state_backend() -> SipStateBackend:
                     logger.info("SipStateBackend: using Redis implementation")
                     return _backend_instance
             except Exception as e:
-                logger.warning("Failed to initialize RedisSipStateBackend, falling back to local: %s", e)
+                logger.warning(f"Failed to initialize RedisSipStateBackend, falling back to local: {e}")
         _backend_instance = LocalSipStateBackend()
         logger.info("SipStateBackend: using local (single-process) implementation")
         # 多实例部署检测告警 — CLUSTER_ENABLED但使用local后端时发出ERROR

@@ -140,7 +140,7 @@ async def _send_trap(cfg: dict, alarm) -> bool:
             _append_log(device_id, ok=False, err=str(error_indication))
             return False
         _append_log(device_id, ok=True)
-        logger.info("[SNMPTrap] Sent Trap for device=%s to %s:%d", device_id, trap_host, trap_port)
+        logger.info(f"[SNMPTrap] Sent Trap for device={device_id} to {trap_host}:{trap_port}")
         return True
     except ImportError:
         logger.warning("[SNMPTrap] pysnmp not installed, skipping trap send")
@@ -201,7 +201,7 @@ async def _run() -> None:
             if cfg.get("enabled"):
                 pass  # 实际 Trap 发送由 hook 触发
         except Exception as e:
-            logger.error("[SNMPTrap] Run error: %s", e)
+            logger.error(f"[SNMPTrap] Run error: {e}")
         await asyncio.sleep(60)
 
 

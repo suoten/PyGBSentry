@@ -631,7 +631,7 @@ async def lifespan(app: FastAPI):
     except asyncio.TimeoutError:
         logger.warning("Startup step: secret consistency check timeout (10s), skipped.")
     except Exception as e:
-        logger.debug("Startup step: secret consistency check skipped: %s", e)
+        logger.debug(f"Startup step: secret consistency check skipped: {e}")
 
     # Print required ports and (optionally) auto-open firewall rules
     logger.info("Startup step: ensure_firewall_ports...")
@@ -823,7 +823,7 @@ async def lifespan(app: FastAPI):
         _security_warnings.append("PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered")  # i18n
     if _security_warnings and (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}:
         for _w in _security_warnings:
-            logger.warning("[Security] %s", _w)  # i18n
+            logger.warning(f"[Security] {_w}")  # i18n
         logger.warning("[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02")  # i18n
 
     paid_license_sync_task = None

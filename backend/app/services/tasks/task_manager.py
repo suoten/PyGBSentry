@@ -54,7 +54,7 @@ async def _register_hooks(plugin_manager):
                 t.register(plugin_manager)
                 logger.info("Registered hooks from: %s", t.__name__)
             except Exception as e:
-                logger.error("Failed to register hooks from %s: %s", t.__name__, e)
+                logger.error(f"Failed to register hooks from {t.__name__}: {e}")
 
 async def start_all_background_tasks(plugin_manager=None):
     logger.info("Starting default background tasks...")

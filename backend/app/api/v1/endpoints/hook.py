@@ -230,7 +230,7 @@ async def on_play(request: Request):
 
     if not token:
         if should_allow_no_token():
-            logger.info("on_play: no token but PLAY_ALLOW_NO_TOKEN=True, allowing app=%s stream=%s", app_name, stream_id)
+            logger.info(f"on_play: no token but PLAY_ALLOW_NO_TOKEN=True, allowing app={app_name} stream={stream_id}")
             return await _ok()
         _log_play_auth_failure(app_name, stream_id, "missing or invalid play token", data)
         return {"code": 401, "msg": "missing or invalid play token"}
@@ -240,7 +240,7 @@ async def on_play(request: Request):
         _log_play_auth_failure(app_name, stream_id, error_msg, data)
         return {"code": 401, "msg": error_msg}
 
-    logger.info("on_play auth OK: app=%s stream=%s", app_name, stream_id)
+    logger.info(f"on_play auth OK: app={app_name} stream={stream_id}")
     return await _ok()
 
 

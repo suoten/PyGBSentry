@@ -764,7 +764,7 @@ class PluginManager:
                 count += 1
                 self._paid_plugin_license_recheck_now(pid, meta or {})
             except Exception as e:
-                logger.error("Paid plugin license sync failed: %s (%s)", pid, e)
+                logger.error(f"Paid plugin license sync failed: {pid} ({e})")
         return count
 
     # -------------------------------------------------------------------------
@@ -794,7 +794,7 @@ class PluginManager:
                     with open(license_path, "r", encoding="utf-8") as f:
                         license_data = json.load(f)
                 except Exception as e:
-                    logger.debug("check_license_online_status: read license failed %s: %s", pid, e)
+                    logger.debug(f"check_license_online_status: read license failed {pid}: {e}")
                     return {"status": "unknown", "source": "license_read_failed"}
 
         if not license_data:
@@ -830,7 +830,7 @@ class PluginManager:
         except asyncio.TimeoutError:
             return {"status": "unknown", "source": "timeout"}
         except Exception as e:
-            logger.debug("check_license_online_status: request failed %s: %s", pid, e)
+            logger.debug(f"check_license_online_status: request failed {pid}: {e}")
             return {"status": "unknown", "source": f"error_{e.__class__.__name__}"}
 
     def _paid_plugin_status_cache_get(self, plugin_id: str) -> dict[str, Any] | None:
@@ -888,10 +888,10 @@ class PluginManager:
         eligible_ids = await self._compute_eligible_plugin_ids()
         if not eligible_ids:
             # 空 set: EntitlementEngine 不可用或租户无任何授权 → 降级为本地验签
-            logger.debug("_sync_paid_plugin_online_status: eligible set empty, falling back to local verify for %s", plugin_id)
+            logger.debug(f"_sync_paid_plugin_online_status: eligible set empty, falling back to local verify for {plugin_id}")
             return False
         if plugin_id not in eligible_ids:
-            logger.info("_sync_paid_plugin_online_status: plugin %s not in eligible set, denied.", plugin_id)
+            logger.info(f"_sync_paid_plugin_online_status: plugin {plugin_id} not in eligible set, denied.")
             self._paid_plugin_status_cache_set(plugin_id, {"status": "denied", "source": "entitlement_engine"})
             return False
         pid = str(plugin_id or "").strip()
@@ -1480,7 +1480,7 @@ class PluginManager:
             return True
         usage_mb = self.check_plugin_disk_usage(plugin_id)
         if usage_mb > limit_mb:
-            logger.warning("Plugin %s disk usage %dMB exceeds limit %dMB", plugin_id, usage_mb, limit_mb)  # i18n
+            logger.warning(f"Plugin {plugin_id} disk usage {usage_mb}MB exceeds limit {limit_mb}MB")  # i18n
             return False
         return True
 
@@ -1502,11 +1502,11 @@ class PluginManager:
                     try:
                         self.check_plugin_disk_limit(pid)
                     except Exception as e:
-                        logger.debug("Health check disk for %s: %s", pid, e)
+                        logger.debug(f"Health check disk for {pid}: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error("Health check loop error: %s", e)
+                logger.error(f"Health check loop error: {e}")
 
     def stop_health_check_loop(self) -> None:
         if self._health_check_task and not self._health_check_task.done():

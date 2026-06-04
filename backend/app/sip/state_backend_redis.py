@@ -72,7 +72,7 @@ class RedisSipStateBackend:
                         pass
                     val = await r.get(waiter_key)
                     if val is None:
-                        logger.debug("Redis wait_ssrc_stream: waiter key deleted, stream ready (ssrc=%s)", ssrc)
+                        logger.debug(f"Redis wait_ssrc_stream: waiter key deleted, stream ready (ssrc={ssrc})")
                         return True
                 return False
             finally:

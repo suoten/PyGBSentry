@@ -490,7 +490,7 @@ class PlatformService:
             # W-03: 后台任务中不应使用get_or_404（抛HTTPException），改用scalars().first()
             p = r.scalars().first()
             if not p:
-                logger.warning("Platform %s not found in DB, skipping session tasks", platform_id)
+                logger.warning(f"Platform {platform_id} not found in DB, skipping session tasks")
                 return
         delay = getattr(p, "catalog_push_delay_seconds", None) or 0
         if delay > 0:

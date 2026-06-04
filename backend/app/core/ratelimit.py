@@ -25,7 +25,7 @@ def _utf8_read_file(self, file_name):
                     value = value.strip().strip("\"'")
                     file_values[key] = value
     except (OSError, IOError) as e:
-        logger.warning("Failed to read rate limit config file: %s", e)
+        logger.warning(f"Failed to read rate limit config file: {e}")
     return file_values
 
 _starlette_config_mod.Config._read_file = _utf8_read_file

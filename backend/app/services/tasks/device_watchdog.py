@@ -67,7 +67,7 @@ async def _watchdog_loop():
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error("Device watchdog loop error: %s", e)
+            logger.error(f"Device watchdog loop error: {e}")
 
 
 async def start():

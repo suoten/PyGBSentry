@@ -31,7 +31,7 @@ def _set_wizard_completed():
         with open(_wizard_done_path(), "w") as f:
             f.write("1")
     except (OSError, IOError) as e:
-        logger.warning("Failed to write setup wizard done marker: %s", e)  # 异常吞没→日志记录
+        logger.warning(f"Failed to write setup wizard done marker: {e}")  # 异常吞没→日志记录
 
 @router.get("/status")
 async def get_setup_status(current_user: User = Depends(deps.require_roles(["owner", "admin"]))):

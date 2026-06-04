@@ -118,6 +118,12 @@ class MediaManager:
         return None
 
     def _resolve_webhook_base(self, node: dict | None) -> str:
+        # 优先使用环境变量显式配置的 hook_base_url（即使是 loopback 也接受，
+        # 因为嵌入式 ZLM 与后端在同一台机器上，loopback 是正确的）
+        global_base = str(getattr(settings, "MEDIA_SERVER_HOOK_BASE_URL", None) or "").strip()
+        if global_base:
+            return global_base
+
         hook_base = str((node or {}).get("hook_base_url") or "").strip()
         if hook_base and not self._is_loopback_url(hook_base):
             return hook_base
@@ -129,10 +135,6 @@ class MediaManager:
         node_ip = str((node or {}).get("ip") or "").strip()
         if node_ip and not self._is_loopback_host(node_ip):
             return f"http://{node_ip}:{settings.BACKEND_PUBLIC_PORT}{settings.API_V1_STR}/hook"
-
-        global_base = str(getattr(settings, "MEDIA_SERVER_HOOK_BASE_URL", None) or "").strip()
-        if global_base and not self._is_loopback_url(global_base):
-            return global_base
 
         backend_host = str(getattr(settings, "BACKEND_PUBLIC_HOST", "") or "").strip()
         if backend_host and not self._is_loopback_host(backend_host):
@@ -255,7 +257,7 @@ class MediaManager:
             """Synchronous wrapper — kills ZLM subprocess on ungraceful termination."""
             try:
                 if _instance.process and _instance.process.poll() is None:
-                    logger.info("[cleanup] Killing orphaned ZLM subprocess (PID=%d)...", _instance.process.pid)
+                    logger.info(f"[cleanup] Killing orphaned ZLM subprocess (PID={_instance.process.pid})...")
                     _instance.process.kill()
                     _instance.process.wait(timeout=3)
                     logger.info("[cleanup] ZLM subprocess killed.")

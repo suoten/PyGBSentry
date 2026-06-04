@@ -35,7 +35,7 @@ def get_media_nodes() -> List[Dict[str, Any]]:
     try:
         nodes = json.loads(raw)
     except Exception as e:
-        logger.warning("MEDIA_NODES JSON parse failed，使用单节点: %s", e)
+        logger.warning(f"MEDIA_NODES JSON parse failed，使用单节点: {e}")
         return [_single_node()]
 
     if not isinstance(nodes, list) or len(nodes) == 0:
@@ -93,7 +93,7 @@ async def _async_get_stream_count_for_node(node: Dict[str, Any]) -> int:
         media_list = data.get("data")
         return len(media_list) if isinstance(media_list, list) else 0
     except Exception as e:
-        logger.debug("节点 %s getMediaList 失败: %s", node.get("id"), e)
+        logger.debug(f"节点 {node.get('id')} getMediaList 失败: {e}")
         return 999999
 
 
@@ -122,7 +122,7 @@ async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
             for item in media_list:
                 items.append({**item, "node_id": node["id"]})
         except Exception as e:
-            logger.debug("节点 %s getMediaList 失败: %s", node.get("id"), e)
+            logger.debug(f"节点 {node.get('id')} getMediaList 失败: {e}")
         return items
 
     results = await asyncio.gather(*[_fetch_node(n) for n in nodes])
