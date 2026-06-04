@@ -17,7 +17,10 @@ from app.models.platform_runtime import PlatformRuntime
 
 
 def _utcnow_naive() -> datetime.datetime:
-    return datetime.datetime.now(datetime.timezone.utc)
+    # FIXED: 返回真正的 naive datetime（无时区信息），与 PostgreSQL TIMESTAMP WITHOUT TIME ZONE 兼容
+    # 之前用 datetime.now(timezone.utc) 返回的是 aware datetime，导致 PG 报错
+    # "can't subtract offset-naive and offset-aware datetimes"
+    return datetime.datetime.utcnow()
 
 
 def _normalize_event(value: str | None) -> str:
