@@ -8,7 +8,12 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, __dirname, '')
+  const isProd = mode === 'production'
   return {
+    esbuild: {
+      // P1-20: 生产环境移除 console/debugger（与 mobile 一致）
+      drop: isProd ? ['console', 'debugger'] : [],
+    },
     plugins: [
       vue(),
       AutoImport({

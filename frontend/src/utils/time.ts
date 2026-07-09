@@ -1,5 +1,9 @@
-export const formatDateTime = (input: string | Date | null | undefined, emptyText = '-') => {
-  if (!input) return emptyText
-  const date = input instanceof Date ? input : new Date(input)
-  return Number.isNaN(date.getTime()) ? String(input) : date.toLocaleString()
+﻿export function formatDateTime(value: string | number | Date | undefined | null): string {
+  if (!value) return '-'
+  try {
+    const d = new Date(value)
+    if (isNaN(d.getTime())) return '-'
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  } catch { return '-' }
 }

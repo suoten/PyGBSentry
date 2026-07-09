@@ -27,25 +27,25 @@
       </template>
       <div class="space-y-3" style="color: var(--el-text-color-regular)">
         <p class="text-sm" style="color: var(--el-text-color-secondary)">
-          版本 {{ plugin.version }}
-          <span v-if="plugin.type === 'paid'"> · ¥{{ plugin.price_monthly || 0 }}/月</span>
-          <span v-else> · 免费使用</span>
+          {{ t('common.version') }} {{ plugin.version }}
+          <span v-if="plugin.type === 'paid'"> · ¥{{ plugin.price_monthly || 0 }}{{ t('plugin.perMonth') }}</span>
+          <span v-else> · {{ t('pluginDetail.freeToUse') }}</span>
         </p>
         <p v-if="installedVersion" class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
-          当前已安装版本：v{{ installedVersion }}
+          {{ t('pluginDetail.installedVersion', { version: installedVersion }) }}
         </p>
         <el-alert
           v-if="plugin.status === 'deprecated'"
           type="warning"
           show-icon
           :closable="false"
-          :title="plugin.deprecated_message || '该插件已废弃，不再建议新安装/购买。'"
+          :title="plugin.deprecated_message || t('pluginDetail.deprecatedFallback')"
         />
         <p>{{ plugin.description }}</p>
         <p v-if="plugin.detail" class="whitespace-pre-wrap text-sm pt-3 mt-3" style="border-top: 1px solid var(--el-border-color-lighter)">
           {{ plugin.detail }}
         </p>
-        <a v-if="plugin.doc_url" :href="plugin.doc_url" target="_blank" rel="noopener" class="el-link el-link--primary">查看文档</a>
+        <a v-if="plugin.doc_url" :href="plugin.doc_url" target="_blank" rel="noopener" class="el-link el-link--primary">{{ t('pluginDetail.viewDocs') }}</a>
       </div>
       <div class="mt-6 flex gap-3">
         <el-button
@@ -80,16 +80,16 @@
     <TableCard v-if="isServerEdition && securityReport">
       <template #header>
         <div class="flex items-center justify-between">
-          <span class="font-medium">安全扫描报告</span>
+          <span class="font-medium">{{ t('pluginDetail.securityScanReport') }}</span>
           <el-tag :type="securityReport.risk_level === 'high' ? 'danger' : securityReport.risk_level === 'medium' ? 'warning' : 'success'" size="small">
-            {{ securityReport.risk_level === 'high' ? '高风险' : securityReport.risk_level === 'medium' ? '中风险' : '低风险' }}
+            {{ securityReport.risk_level === 'high' ? t('plugin.riskHigh') : securityReport.risk_level === 'medium' ? t('plugin.riskMedium') : t('plugin.riskLow') }}
           </el-tag>
         </div>
       </template>
       <div class="space-y-2 text-sm" style="color: var(--el-text-color-regular)">
-        <p v-if="securityReport.scanned_at" style="color: var(--el-text-color-secondary)">扫描时间：{{ securityReport.scanned_at }}</p>
+        <p v-if="securityReport.scanned_at" style="color: var(--el-text-color-secondary)">{{ t('pluginDetail.scanTime', { time: securityReport.scanned_at }) }}</p>
         <div v-if="securityReport.findings && securityReport.findings.length > 0">
-          <p class="font-medium mb-2">发现 {{ securityReport.findings.length }} 项：</p>
+          <p class="font-medium mb-2">{{ t('pluginDetail.findingsCount', { count: securityReport.findings.length }) }}</p>
           <div v-for="(finding, idx) in securityReport.findings" :key="idx" class="border rounded p-2 mb-2" style="border-color: var(--el-border-color-lighter)">
             <div class="flex items-center gap-2">
               <el-tag size="small" :type="finding.severity === 'high' ? 'danger' : finding.severity === 'medium' ? 'warning' : 'info'">{{ finding.severity }}</el-tag>
@@ -98,29 +98,26 @@
             <p v-if="finding.description" class="mt-1" style="color: var(--el-text-color-secondary)">{{ finding.description }}</p>
           </div>
         </div>
-        <p v-else style="color: var(--el-color-success)">未发现安全问题</p>
+        <p v-else style="color: var(--el-color-success)">{{ t('pluginDetail.noSecurityIssues') }}</p>
       </div>
     </TableCard>
 
     <TableCard v-if="plugin && showSuperuserZipUpload">
       <template #header>
-        <div class="font-medium">本地上传安装（仅超级管理员）</div>
+        <div class="font-medium">{{ t('plugin.localUploadTitle') }}</div>
       </template>
-      <p class="text-xs mb-3" style="color: var(--el-text-color-secondary)">
-        与插件中心相同接口 <code>POST /api/v1/plugins/upload</code>，可在当前页直接覆盖安装/升级（包内
-        <code>plugin.json</code> 的 id 可与本页插件不同）。
-      </p>
+      <p class="text-xs mb-3" style="color: var(--el-text-color-secondary)" v-html="sanitizeHtml(t('pluginDetail.localUploadDesc'))"></p>
       <el-upload
         ref="detailZipUploadRef"
         :limit="1"
         accept=".zip"
         :http-request="handleDetailZipUpload"
       >
-        <el-button type="primary" :loading="detailZipUploading" :disabled="detailZipUploading">选择 .zip 并安装</el-button>
+        <el-button type="primary" :loading="detailZipUploading" :disabled="detailZipUploading">{{ t('plugin.selectZipAndInstall') }}</el-button>
       </el-upload>
     </TableCard>
 
-    <el-empty v-if="!plugin" description="未找到该插件" />
+    <el-empty v-if="!plugin" :description="t('pluginDetail.notFound')" />
     </PageContainer>
   </div>
 </template>
@@ -132,12 +129,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 
 import { getFriendlyError } from '../utils/errorMessage'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
-import { getRoleInfo } from '../utils/auth'
+import { getVerifiedRoleInfo } from '../utils/auth' // FIX C-3: 改用后端验证角色
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化
@@ -181,7 +179,7 @@ const loadPluginHealth = async () => {
       if (!item) { pluginHealth.value = null; return }
       pluginHealth.value = { healthy: item.healthy, error_count: item.error_count || 0, last_error: item.last_error || '' }
     }
-  } catch { pluginHealth.value = null; console.warn('加载插件健康数据失败') }
+  } catch { pluginHealth.value = null; logger.warn('加载插件健康数据失败') }
 }
 
 const loadSecurityReport = async () => {
@@ -189,7 +187,7 @@ const loadSecurityReport = async () => {
   try {
     const res = await api.get('/api/v1/plugins/runtime/security-report', { params: { plugin_id: pluginId.value } })
     securityReport.value = res.data
-  } catch { securityReport.value = null; console.warn('加载安全报告失败') }
+  } catch { securityReport.value = null; logger.warn('加载安全报告失败') }
 }
 const detailZipUploadRef = ref<UploadInstance>()
 const detailZipUploading = ref(false)
@@ -299,8 +297,10 @@ const uninstallPlugin = async (id: string) => {
   }
 }
 
-const refreshSuperuserZipVisibility = () => {
-  showSuperuserZipUpload.value = getRoleInfo().isSuperuser
+// FIX C-3: 改用后端验证的权威角色信息
+const refreshSuperuserZipVisibility = async () => {
+  const info = await getVerifiedRoleInfo()
+  showSuperuserZipUpload.value = !!info?.isSuperuser
 }
 
 onMounted(async () => {

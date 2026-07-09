@@ -1,47 +1,73 @@
-.PHONY: env-dev env-dev-check env-prod env-prod-check compose-dev-up compose-prod-up compose-dev-down compose-prod-down compose-dev-ps compose-prod-ps compose-dev-logs compose-prod-logs compose-dev-logs-follow compose-prod-logs-follow
+# ============================================================================
+# PyGBSentry — Makefile for common development tasks
+# ============================================================================
+# Usage:
+#   make help          — show available commands
+#   make install       — install all dependencies (backend + frontend)
+#   make lint          — run ruff linter
+#   make format        — auto-format code with ruff
+#   make typecheck     — run mypy type checker
+#   make test          — run pytest with coverage
+#   make security      — run bandit security scanner
+#   make docker-up     — start all services via docker-compose
+#   make docker-down   — stop all docker services
+# ============================================================================
 
-env-dev:
-	python tools/env_manager.py switch --env dev
+.PHONY: help install lint format typecheck test security docker-up docker-down clean
 
-env-dev-check:
-	python tools/env_manager.py validate --env dev
+PYTHON ?= python
+PNPM ?= pnpm
 
-env-prod:
-	python tools/env_manager.py switch --env prod
+help:  ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-env-prod-check:
-	python tools/env_manager.py validate --env prod
+install:  ## Install all dependencies
+	cd backend && $(PYTHON) -m pip install -r requirements.txt
+	cd frontend && $(PNPM) install
 
-compose-dev-up:
-	python tools/env_manager.py switch --env dev
-	python tools/env_manager.py validate --env dev
-	docker compose up -d
+install-dev:  ## Install development dependencies
+	cd backend && $(PYTHON) -m pip install -r requirements.txt ruff mypy bandit pytest pytest-asyncio pytest-cov pytest-mock
+	cd frontend && $(PNPM) install
 
-compose-prod-up:
-	python tools/env_manager.py switch --env prod
-	python tools/env_manager.py validate --env prod
-	docker compose up -d
+lint:  ## Run ruff linter
+	cd backend && ruff check app/ tests/
 
-compose-dev-down:
-	docker compose down
+format:  ## Auto-format code
+	cd backend && ruff format app/ tests/
+	cd backend && ruff check app/ tests/ --fix
 
-compose-prod-down:
-	docker compose down
+typecheck:  ## Run mypy type checker
+	cd backend && mypy app/ --ignore-missing-imports
 
-compose-dev-ps:
-	docker compose ps
+test:  ## Run tests with coverage
+	cd backend && pytest tests/ -v --cov=app --cov-report=term-missing --cov-fail-under=70
 
-compose-prod-ps:
-	docker compose ps
+test-unit:  ## Run only unit tests (skip integration)
+	cd backend && pytest tests/ -v --ignore=tests/integration
 
-compose-dev-logs:
-	docker compose logs --tail 200
+test-integration:  ## Run integration tests
+	cd backend && pytest tests/integration/ -v
 
-compose-prod-logs:
-	docker compose logs --tail 200
+security:  ## Run security scanners
+	cd backend && bandit -r app/ -f custom --severity-level medium
+	cd backend && pip-audit -r requirements.txt
 
-compose-dev-logs-follow:
-	docker compose logs -f --tail 200
+docker-up:  ## Start all services
+	docker-compose up -d
 
-compose-prod-logs-follow:
-	docker compose logs -f --tail 200
+docker-down:  ## Stop all services
+	docker-compose down
+
+clean:  ## Clean build artifacts
+	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
+	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
+	rm -f backend/coverage.xml backend/.coverage
+	rm -f backend/bandit_report.sarif
+
+migrate:  ## Run database migrations
+	cd backend && alembic upgrade head
+
+migrate-rollback:  ## Rollback last migration
+	cd backend && alembic downgrade -1

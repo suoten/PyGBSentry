@@ -1,0 +1,248 @@
+[
+  {
+    "feature": "Module Imports",
+    "sub_item": "devices (Device management (CRUD, channels))",
+    "status": "FAIL",
+    "detail": "Module loaded but no 'router' attribute (missing __init__.py with router export)"
+  },
+  {
+    "feature": "Module Imports",
+    "sub_item": "stream (Real-time preview (play/stop))",
+    "status": "FAIL",
+    "detail": "Module loaded but no 'router' attribute (missing __init__.py with router export)"
+  },
+  {
+    "feature": "Module Imports",
+    "sub_item": "system_config (System configuration & SIP trace events)",
+    "status": "FAIL",
+    "detail": "Import error: cannot import name 'SIP_TRACE_CONFIG_KEYS' from 'app.sip.trace_events' (E:\\硕腾网络\\PyGBSentry\\PyGBSentry\\editions\\open-sour"
+  },
+  {
+    "feature": "Module Imports",
+    "sub_item": "proxy_compat (Proxy compatibility layer)",
+    "status": "FAIL",
+    "detail": "Import error: cannot import name 'list_streams' from 'app.api.v1.endpoints.stream' (unknown location)"
+  },
+  {
+    "feature": "Module Imports",
+    "sub_item": "reports (Reports & analytics)",
+    "status": "FAIL",
+    "detail": "Import error: No module named 'app.services.release_center_service'"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "Login",
+    "status": "PASS",
+    "detail": "HTTP 200, token obtained"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "Token Verification",
+    "status": "PASS",
+    "detail": "HTTP 200, valid=true"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "User List",
+    "status": "FAIL",
+    "detail": "HTTP 404 - users module not loaded (import error)"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "Operation Logs",
+    "status": "FAIL",
+    "detail": "HTTP 404 - logs module not loaded"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "Config Center SIP Info",
+    "status": "WARN",
+    "detail": "HTTP 404: {\"detail\":\"Not Found\",\"message\":\"Not Found\",\"status_code\":404,\"error_code\":\"ERR_404\"}"
+  },
+  {
+    "feature": "User System",
+    "sub_item": "Logout",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "Device List API",
+    "status": "FAIL",
+    "detail": "HTTP 404 - devices module not mounted (missing __init__.py)"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "SIP REGISTER",
+    "status": "FAIL",
+    "detail": "Registration failed - no 200 OK after digest auth"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "SIP Keepalive",
+    "status": "PASS",
+    "detail": "Keepalive 200 OK received"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "Catalog Query",
+    "status": "PASS",
+    "detail": "Catalog query 200 OK received"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "Online Status Check",
+    "status": "FAIL",
+    "detail": "HTTP 404 - devices API not available"
+  },
+  {
+    "feature": "Device Management",
+    "sub_item": "SIP Deregister",
+    "status": "WARN",
+    "detail": "No 200 OK for deregister"
+  },
+  {
+    "feature": "Real-time Preview",
+    "sub_item": "Stream Error Catalog",
+    "status": "FAIL",
+    "detail": "HTTP 404 - stream module not mounted (missing __init__.py + _shared.py)"
+  },
+  {
+    "feature": "Real-time Preview",
+    "sub_item": "Single Stream Play",
+    "status": "FAIL",
+    "detail": "HTTP 404 - stream play endpoint not available"
+  },
+  {
+    "feature": "Real-time Preview",
+    "sub_item": "Stop Stream",
+    "status": "FAIL",
+    "detail": "HTTP 404 - stream stop endpoint not available"
+  },
+  {
+    "feature": "Recording Management",
+    "sub_item": "Record Query",
+    "status": "WARN",
+    "detail": "HTTP 422: {\"detail\":\"Parameter 'start_time' validation failed\",\"error_code\":\"ERR_002\",\"errors\":[{\"type\":\"missi"
+  },
+  {
+    "feature": "Recording Management",
+    "sub_item": "Record Schedule List",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Recording Management",
+    "sub_item": "Device Record Queries",
+    "status": "WARN",
+    "detail": "HTTP 405"
+  },
+  {
+    "feature": "PTZ Control",
+    "sub_item": "Direction Control",
+    "status": "FAIL",
+    "detail": "HTTP 404 - channel not found (no device registered)"
+  },
+  {
+    "feature": "PTZ Control",
+    "sub_item": "Zoom Control",
+    "status": "WARN",
+    "detail": "HTTP 404 - channel not found"
+  },
+  {
+    "feature": "PTZ Control",
+    "sub_item": "Preset Set",
+    "status": "WARN",
+    "detail": "HTTP 404 - channel not found"
+  },
+  {
+    "feature": "Alarm Management",
+    "sub_item": "Alarm List",
+    "status": "PASS",
+    "detail": "HTTP 200, total=0"
+  },
+  {
+    "feature": "Alarm Management",
+    "sub_item": "SLA Overview",
+    "status": "FAIL",
+    "detail": "HTTP 500: {\"detail\":\"Internal server error\",\"message\":\"can't subtract offset-naive and offset-aware datetimes\",\"error_code\":\"ERR_001\",\"retryable\":true,\"status_c"
+  },
+  {
+    "feature": "Alarm Management",
+    "sub_item": "Link Rules",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Alarm Management",
+    "sub_item": "Alarm Receive (SIP)",
+    "status": "PASS",
+    "detail": "Alarm SIP MESSAGE 200 OK"
+  },
+  {
+    "feature": "Voice Talk",
+    "sub_item": "Bidirectional Talk Endpoint",
+    "status": "WARN",
+    "detail": "HTTP 404 - device not found (expected without registered device)"
+  },
+  {
+    "feature": "Voice Talk",
+    "sub_item": "WebSocket Talk",
+    "status": "SKIP",
+    "detail": "WebSocket endpoint requires WS client (cannot test via HTTP)"
+  },
+  {
+    "feature": "Cascade",
+    "sub_item": "Server SIP Config",
+    "status": "WARN",
+    "detail": "HTTP 404"
+  },
+  {
+    "feature": "Cascade",
+    "sub_item": "Platform List",
+    "status": "FAIL",
+    "detail": "HTTP 404 - platforms module not loaded"
+  },
+  {
+    "feature": "Cascade",
+    "sub_item": "Downstream Platform Info",
+    "status": "WARN",
+    "detail": "HTTP 404"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "Liveness",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "Readiness",
+    "status": "WARN",
+    "detail": "HTTP 503, status=degraded"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "Health Overview",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "DB Check",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "Ops Status",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  },
+  {
+    "feature": "Health & Ops",
+    "sub_item": "Device Metrics",
+    "status": "PASS",
+    "detail": "HTTP 200"
+  }
+]

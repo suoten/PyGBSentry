@@ -2,11 +2,11 @@
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader title="角色管理" description="管理系统角色与菜单权限">
+        <PageHeader :title="t('role.title')" :description="t('role.description')">
           <template #actions>
             <el-button type="primary" @click="openCreateRole">
               <el-icon class="mr-1"><Plus /></el-icon>
-              新增角色
+              {{ t('role.addRole') }}
             </el-button>
           </template>
         </PageHeader>
@@ -17,34 +17,34 @@
           <div class="role-toolbar">
             <div class="role-toolbar-title font-bold text-slate-700 flex items-center gap-2">
               <el-icon class="text-emerald-500"><Medal /></el-icon>
-              角色列表
+              {{ t('role.roleList') }}
             </div>
-            <el-alert class="role-toolbar-alert" title="超级管理员由用户的“超级管理员”开关控制，不支持在角色管理中编辑。" type="info" :closable="false" show-icon />
+            <el-alert class="role-toolbar-alert" :title="t('role.superAdminAlert')" type="info" :closable="false" show-icon />
           </div>
         </template>
 
         <el-table :data="paginatedRoles" size="small">
           <el-table-column prop="code" label="code" width="180" />
-          <el-table-column prop="name" label="名称" />
-          <el-table-column label="权限">
+          <el-table-column prop="name" :label="t('role.colName')" />
+          <el-table-column :label="t('role.colPermissions')">
             <template #default="{ row }">
               <div class="role-permission-tags">
                 <el-tag v-for="code in row.permission_codes || []" :key="code" size="small" effect="plain" type="success">
-                  {{ code === '*' ? '全部权限' : (permissionNameMap[code] || code) }}
+                  {{ code === '*' ? t('common.allPermissions') : (permissionNameMap[code] || code) }}
                 </el-tag>
-                <span v-if="!(row.permission_codes || []).length" class="text-slate-400">无</span>
+                <span v-if="!(row.permission_codes || []).length" class="text-slate-400">{{ t('common.none') }}</span>
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="类型" width="120" align="center">
+          <el-table-column :label="t('role.colType')" width="120" align="center">
             <template #default="{ row }">
-              <el-tag size="small" :type="row.is_system ? 'info' : 'success'">{{ row.is_system ? '系统' : '自定义' }}</el-tag>
+              <el-tag size="small" :type="row.is_system ? 'info' : 'success'">{{ row.is_system ? t('common.systemType') : t('common.customType') }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" align="center">
+          <el-table-column :label="t('common.action')" width="180" align="center">
             <template #default="{ row }">
-              <el-button size="small" type="primary" plain :disabled="row.is_super_admin" @click="editRole(row)">编辑</el-button>
-              <el-button size="small" type="danger" plain :disabled="row.is_system || row.is_super_admin" @click="deleteRole(row)">删除</el-button>
+              <el-button size="small" type="primary" plain :disabled="row.is_super_admin" @click="editRole(row)">{{ t('role.edit') }}</el-button>
+              <el-button size="small" type="danger" plain :disabled="row.is_system || row.is_super_admin" @click="deleteRole(row)">{{ t('role.delete') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -56,8 +56,8 @@
             :total="roleRows.length"
             layout="total, sizes, prev, pager, next, jumper"
             :page-sizes="[10, 20, 50, 100]"
-            prev-text="上一页"
-            next-text="下一页"
+            :prev-text="t('common.prevPage')"
+            :next-text="t('common.nextPage')"
             size="small"
           />
         </div>
@@ -65,7 +65,7 @@
 
       <AppDialog
         v-model="roleEditorVisible"
-        :title="roleEditingId ? '编辑角色' : '新增角色'"
+        :title="roleEditingId ? t('role.editRole') : t('role.createRole')"
         size="large"
         :icon="Medal"
         icon-color="primary"
@@ -73,8 +73,8 @@
       >
         <div class="role-editor">
           <div class="role-editor-row">
-            <el-input v-model="roleForm.code" :disabled="!!roleEditingId" placeholder="code（如 custom_role）" class="role-editor-input" />
-            <el-input v-model="roleForm.name" placeholder="名称" class="role-editor-input" />
+            <el-input v-model="roleForm.code" :disabled="!!roleEditingId" :placeholder="t('role.codePlaceholder')" class="role-editor-input" />
+            <el-input v-model="roleForm.name" :placeholder="t('role.namePlaceholder')" class="role-editor-input" />
           </div>
           <el-tree
             ref="treeRef"
@@ -87,8 +87,8 @@
           />
         </div>
         <template #footer>
-          <el-button @click="roleEditorVisible = false">取消</el-button>
-          <el-button type="primary" :loading="saving" @click="saveRole">{{ roleEditingId ? '保存' : '创建' }}</el-button>
+          <el-button @click="roleEditorVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" :loading="saving" @click="saveRole">{{ roleEditingId ? t('role.save') : t('role.create') }}</el-button>
         </template>
       </AppDialog>
     </PageContainer>
@@ -97,18 +97,21 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'  // FIXED: 国际化
 import { useRouter } from 'vue-router'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Medal, Plus } from '@element-plus/icons-vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import { getRoleInfo, hasPermission } from '../utils/auth'
+import { getCachedRoleInfo, getVerifiedRoleInfo, hasPermission, EMPTY_ROLE_INFO, type RoleInfo } from '../utils/auth' // FIX C-3: 改用后端验证角色
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 
 const router = useRouter()
+const { t } = useI18n()  // FIXED: 国际化
 type RoleRow = {
   id: string
   code: string
@@ -141,8 +144,12 @@ type PermissionTreeRef = {
 
 const treeRef = ref<PermissionTreeRef | null>(null)
 
+// FIX: [2026-07-04] verifiedRoleInfo 未声明为 ref，onMounted 中 .value 赋值报 ReferenceError [全栈工程师]
+const verifiedRoleInfo = ref<RoleInfo | null>(null)
+
 const visiblePluginMenus = computed(() => {
-  const roleInfo = getRoleInfo()
+  // FIX: [2026-07-04] getRoleInfo() 未导入（已废弃），改用 verifiedRoleInfo 缓存 + getCachedRoleInfo 兜底 [全栈工程师]
+  const roleInfo = verifiedRoleInfo.value ?? getCachedRoleInfo() ?? EMPTY_ROLE_INFO
   if (roleInfo.isSuperuser || roleInfo.permissions.includes('*')) return pluginMenus.value
   return pluginMenus.value.filter((p) => hasPermission(roleInfo.permissions, `plugin_${p.plugin_id}.view`))
 })
@@ -173,7 +180,7 @@ const roleRows = computed(() => {
   const superAdminRole = {
     id: 'super_admin',
     code: 'super_admin',
-    name: '超级管理员',
+    name: t('role.superAdminName'),
     permission_codes: ['*'],
     is_system: true,
     is_super_admin: true
@@ -203,12 +210,12 @@ const rolePermissionTree = computed(() => {
 
   const getCode = (routeName: string) => legacyMap[routeName] || `${routeName.toLowerCase()}.view`
   const groupsDef = [
-    { title: '概览', names: ['Dashboard', 'PluginCenter'] },
-    { title: '业务', names: ['Monitor', 'TvWall', 'Devices', 'PushStreams', 'PullProxies', 'Channels', 'ChannelsLegacy', 'ChannelsRegion', 'ChannelsGroup', 'DeviceRecords', 'CloudRecords', 'RecordSchedule', 'LegacyGateway', 'CascadePlatforms'] },
-    { title: '告警', names: ['Alarms', 'AlarmNotifications', 'AlarmLinkRules', 'WorkOrders'] },
-    { title: '可视化', names: ['Map', 'VisualCommand', 'MobileCommand'] },
-    { title: '运维', names: ['Health', 'SLA', 'Operations', 'AppLogs', 'Network', 'AssetManagement'] },
-    { title: '系统', names: ['Users', 'Roles', 'ApiKeys', 'Organizations', 'MapProviders', 'ConfigCenter', 'ReleaseCenter', 'AuditCenter', 'Reports', 'AccountSecurity', 'Help'] }
+    { title: t('role.groupOverview'), names: ['Dashboard', 'PluginCenter'] },
+    { title: t('role.groupBusiness'), names: ['Monitor', 'TvWall', 'Devices', 'PushStreams', 'PullProxies', 'Channels', 'ChannelsLegacy', 'ChannelsRegion', 'ChannelsGroup', 'DeviceRecords', 'CloudRecords', 'RecordSchedule', 'LegacyGateway', 'CascadePlatforms'] },
+    { title: t('role.groupAlarm'), names: ['Alarms', 'AlarmNotifications', 'AlarmLinkRules', 'WorkOrders'] },
+    { title: t('role.groupVisualization'), names: ['Map', 'VisualCommand', 'MobileCommand'] },
+    { title: t('role.groupOps'), names: ['Health', 'SLA', 'Operations', 'AppLogs', 'Network', 'AssetManagement'] },
+    { title: t('role.groupSystem'), names: ['Users', 'Roles', 'ApiKeys', 'Organizations', 'MapProviders', 'ConfigCenter', 'ReleaseCenter', 'AuditCenter', 'Reports', 'AccountSecurity', 'Help'] }
   ]
   const routes = router.getRoutes()
   const usedNames = new Set<string>()
@@ -250,12 +257,12 @@ const rolePermissionTree = computed(() => {
       seenCodes.add(c.code)
       uniqueChildren.push(c)
     }
-    tree.push({ code: 'group_other', label: '其他功能', children: uniqueChildren })
+    tree.push({ code: 'group_other', label: t('role.groupOther'), children: uniqueChildren })
   }
 
   if (visiblePluginMenus.value.length > 0) {
     const pluginChildren = visiblePluginMenus.value.map(p => ({ code: `plugin_${p.plugin_id}.view`, label: String(p.title || '') }))
-    tree.push({ code: 'group_plugins', label: '扩展插件', children: pluginChildren })
+    tree.push({ code: 'group_plugins', label: t('role.groupPlugins'), children: pluginChildren })
   }
 
   return tree
@@ -288,7 +295,7 @@ const fetchRoles = async () => {
   } catch (e: unknown) {
     roles.value = []
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     loading.value = false
   }
@@ -300,7 +307,7 @@ const loadPluginMenus = async () => {
     pluginMenus.value = Array.isArray(res.data) ? res.data : []
   } catch (e: unknown) {
     pluginMenus.value = []
-    console.warn('加载插件菜单失败', e)
+    logger.warn(t('role.loadPluginMenusFailed'), e)
   }
 }
 
@@ -333,7 +340,7 @@ const saveRole = async () => {
   const code = String(roleForm.value.code || '').trim()
   const name = String(roleForm.value.name || '').trim()
   if (!code || !name) {
-    ElMessage.warning('请填写 code 和名称')
+    ElMessage.warning(t('role.fillCodeAndName'))
     return
   }
   const checkedKeys = treeRef.value?.getCheckedKeys?.(true) || []
@@ -344,26 +351,26 @@ const saveRole = async () => {
       if (roleEditingIsSystem.value) {
         try {
           await ElMessageBox.confirm(
-            '你正在修改系统角色权限，此操作会影响当前租户下所有使用该角色的用户。是否继续？',
-            '修改系统角色',
-            { type: 'warning', confirmButtonText: '继续保存', cancelButtonText: '取消' }
+            t('role.editSystemRoleWarning'),
+            t('role.editSystemRoleTitle'),
+            { type: 'warning', confirmButtonText: t('role.continueSave'), cancelButtonText: t('common.cancel') }
           )
         } catch {
           return
         }
       }
       await api.put(`/api/v1/roles/${roleEditingId.value}`, { code, name, description: '', permission_codes })
-      ElMessage.success('角色已更新')
+      ElMessage.success(t('role.roleUpdated'))
     } else {
       await api.post('/api/v1/roles', { code, name, description: '', permission_codes })
-      ElMessage.success('角色已创建')
+      ElMessage.success(t('role.roleCreated'))
     }
     roleEditorVisible.value = false
     resetRoleForm()
     await fetchRoles()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     saving.value = false
   }
@@ -372,21 +379,23 @@ const saveRole = async () => {
 const deleteRole = async (row: RoleRow) => {
   if (row?.is_super_admin || row?.is_system) return
   try {
-    await ElMessageBox.confirm(`确定删除角色「${row.name}」？`, '确认', { type: 'warning' })
+    await ElMessageBox.confirm(t('role.deleteConfirm', { name: row.name }), t('role.confirmTitle'), { type: 'warning' })
   } catch {
     return
   }
   try {
     await api.delete(`/api/v1/roles/${row.id}`)
-    ElMessage.success('已删除')
+    ElMessage.success(t('role.deleted'))
     await fetchRoles()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   }
 }
 
-onMounted(() => {
+// FIX C-3: onMounted 改为 async，刷新后端验证的角色信息
+onMounted(async () => {
+  verifiedRoleInfo.value = await getVerifiedRoleInfo()
   fetchRoles()
   loadPluginMenus()
 })

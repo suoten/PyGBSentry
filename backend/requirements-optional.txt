@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# P2-16: 可选依赖 — AI 视觉功能
+#
+# 这些包体积较大（torch+ultralytics 约 2GB+），仅 AI 视觉检测/抓图功能需要。
+# 主 requirements.txt 不包含它们，代码已用 try/except 条件导入，
+# 缺失时自动禁用相关功能并记录警告日志。
+#
+# 启用 AI 视觉功能：
+#   pip install -r requirements.txt -r requirements-optional.txt
+#
+# 涉及文件：
+#   - app/services/vision_hub.py    (YOLO 目标检测)
+#   - app/api/v1/endpoints/devices/devices_control.py  (快照帧捕获)
+# ---------------------------------------------------------------------------
+
+opencv-python-headless>=4.8.0  # cv2 — 视频帧捕获（headless 无 GUI 依赖，适合服务器）
+numpy>=1.24.0                  # vision_hub.py 数组运算
+ultralytics>=8.0.0            # YOLOv8 目标检测模型
+torch>=2.0.0                  # YOLO 推理后端（CPU/CUDA）

@@ -9,7 +9,8 @@ version: '3.8'
 
 services:
   prometheus:
-    image: prom/prometheus:v2.51.0
+    # DEVOPS: v2.51.0 升级到 v2.55.0（最新稳定 2.x，安全补丁最新；不升 3.x 以避免 UTF-8 名称等破坏性变更）
+    image: prom/prometheus:v2.55.0
     container_name: pygbsentry-prometheus
     restart: unless-stopped
     volumes:
@@ -37,7 +38,8 @@ services:
       - "9093:9093"
 
   grafana:
-    image: grafana/grafana:10.4.0
+    # DEVOPS: 10.4.0 升级到 11.2.0（Grafana 11 稳定版，仪表板向后兼容，安全补丁最新）
+    image: grafana/grafana:11.2.0
     container_name: pygbsentry-grafana
     restart: unless-stopped
     environment:
@@ -56,7 +58,8 @@ services:
       - prometheus
 
   node-exporter:
-    image: prom/node-exporter:v1.7.0
+    # DEVOPS: v1.7.0 升级到 v1.8.2（安全补丁，指标兼容）
+    image: prom/node-exporter:v1.8.2
     container_name: pygbsentry-node-exporter
     restart: unless-stopped
     volumes:
@@ -82,7 +85,8 @@ services:
       - db
 
   redis-exporter:
-    image: oliver006/redis_exporter:v1.61.0
+    # DEVOPS: v1.61.0 升级到 v1.67.0（兼容 Redis 7，安全补丁最新）
+    image: oliver006/redis_exporter:v1.67.0
     container_name: pygbsentry-redis-exporter
     restart: unless-stopped
     environment:
@@ -94,7 +98,8 @@ services:
       - redis
 
   loki:
-    image: grafana/loki:2.9.6
+    # DEVOPS: 2.9.6 升级到 3.2.1（Loki 3.x 稳定版；loki-config.yml 已含 allow_structured_metadata: false 兼容 3.x）
+    image: grafana/loki:3.2.1
     container_name: pygbsentry-loki
     restart: unless-stopped
     volumes:
@@ -105,7 +110,8 @@ services:
     command: -config.file=/etc/loki/local-config.yaml
 
   promtail:
-    image: grafana/promtail:2.9.6
+    # DEVOPS: 2.9.6 升级到 3.2.1（与 Loki 3.x 配套，配置格式兼容）
+    image: grafana/promtail:3.2.1
     container_name: pygbsentry-promtail
     restart: unless-stopped
     volumes:

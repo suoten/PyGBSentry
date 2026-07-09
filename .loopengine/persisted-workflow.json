@@ -1,0 +1,60 @@
+{
+  "projectPath": "E:\\硕腾网络\\PyGBSentry\\PyGBSentry\\editions\\open-source",
+  "createdAt": "2026-07-05T11:49:32.288Z",
+  "updatedAt": "2026-07-05T11:54:45.161Z",
+  "currentRound": 3,
+  "maxRounds": 10,
+  "status": "in_progress",
+  "checkpoints": [],
+  "roundHistory": [
+    {
+      "round": 1,
+      "startedAt": "2026-07-05T11:46:55.488Z",
+      "completedAt": "2026-07-05T11:49:32.288Z",
+      "duration": 156800,
+      "issuesBefore": 1146,
+      "issuesAfter": 1146,
+      "issuesFixed": 0,
+      "issuesIntroduced": 0,
+      "maturityBefore": 0,
+      "maturityAfter": 68,
+      "gatePassed": false,
+      "gateLevel": 5,
+      "notes": "─── 轮次 1 摘要 ───\n耗时: 156.7s\n成熟度: 68/100 (🧪 Alpha)\n测试: 0/1 通过, 1 失败\n框架: Vitest\nUX 评分: 54/100\n门控: 商业就绪门控 ❌ 未通过\n硬性失败: 5 项\n收敛状态: improving\n完美度: 50/100 \n检查项: 5/13 通过, 4 失败, 4 警告\nAI 建议: 3 条改进建议已加入修复计划"
+    },
+    {
+      "round": 2,
+      "startedAt": "2026-07-05T11:49:32.290Z",
+      "completedAt": "2026-07-05T11:52:07.551Z",
+      "duration": 155261,
+      "issuesBefore": 1146,
+      "issuesAfter": 1140,
+      "issuesFixed": 6,
+      "issuesIntroduced": 0,
+      "maturityBefore": 68,
+      "maturityAfter": 69,
+      "gatePassed": false,
+      "gateLevel": 5,
+      "notes": "─── 轮次 2 摘要 ───\n耗时: 155.2s\n成熟度: 69/100 (🧪 Alpha)\n测试: 0/1 通过, 1 失败\n框架: Vitest\nUX 评分: 58/100\n门控: 商业就绪门控 ❌ 未通过\n硬性失败: 6 项\n收敛状态: improving\n完美度: 50/100 \n检查项: 6/13 通过, 4 失败, 3 警告\nAI 建议: 2 条改进建议已加入修复计划"
+    },
+    {
+      "round": 3,
+      "startedAt": "2026-07-05T11:52:07.554Z",
+      "completedAt": "2026-07-05T11:54:45.159Z",
+      "duration": 157605,
+      "issuesBefore": 1140,
+      "issuesAfter": 1140,
+      "issuesFixed": 0,
+      "issuesIntroduced": 0,
+      "maturityBefore": 69,
+      "maturityAfter": 69,
+      "gatePassed": false,
+      "gateLevel": 5,
+      "notes": "─── 轮次 3 摘要 ───\n耗时: 157.5s\n成熟度: 69/100 (🧪 Alpha)\n测试: 0/1 通过, 1 失败\n框架: Vitest\nUX 评分: 58/100\n门控: 商业就绪门控 ❌ 未通过\n硬性失败: 7 项\n收敛状态: improving\n完美度: 50/100 \n检查项: 6/13 通过, 4 失败, 3 警告\nAI 建议: 2 条改进建议已加入修复计划"
+    }
+  ],
+  "config": {
+    "target": "release",
+    "mode": "fix"
+  }
+}

@@ -1,0 +1,137 @@
+# P1-46: 发布工作流 — tag 推送触发，构建版本化 Docker 镜像并创建 GitHub Release
+#
+# 触发条件：推送 v*.*.* 格式的 tag（如 v1.0.0、v1.0.0-rc.1）
+# 产物：
+#   - 版本化的 Docker 镜像（ghcr.io/<owner>/<repo>:<tag> + :latest）
+#   - GitHub Release（含自动生成的 changelog）
+#   - 前端构建产物 artifact（供下载分发）
+#
+# 使用方式：
+#   git tag v1.0.0
+#   git push origin v1.0.0
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+      - 'v*.*.*-*'  # 支持预发布版本如 v1.0.0-rc.1
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-and-release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 完整历史，用于生成 changelog
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+
+      - name: Build and push versioned Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner on release image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+          format: sarif
+          output: trivy-release-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-release-results.sarif
+
+      # 构建前端产物并上传为 Release Asset
+      - name: Setup Node.js for frontend build
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Build frontend dist
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build:full
+
+      - name: Package frontend dist
+        run: |
+          cd frontend/dist
+          zip -r ../../pygbsentry-frontend-${{ steps.version.outputs.VERSION }}.zip .
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: Release ${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true  # 自动基于 PR/commit 生成 changelog
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.VERSION, '-') }}
+          files: |
+            pygbsentry-frontend-${{ steps.version.outputs.VERSION }}.zip
+          body: |
+            ## PyGBSentry ${{ steps.version.outputs.VERSION }}
+
+            ### Docker Image
+            ```
+            docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
+            ```
+
+            ### Frontend Artifact
+            下载下方的 `pygbsentry-frontend-${{ steps.version.outputs.VERSION }}.zip` 解压到 nginx 静态目录。
+
+            ### 升级指南
+            请参考 [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md) 与 [docs/UPGRADE_ACTION_PLAN.md](https://github.com/${{ github.repository }}/blob/main/docs/UPGRADE_ACTION_PLAN.md)。
+
+            ### 安全提示
+            - 首次启动前必须修改 `SECRET_KEY`、`MEDIA_SERVER_SECRET`、`DATABASE_PASSWORD`、`REDIS_PASSWORD` 等敏感配置
+            - 生产环境必须设置 `APP_ENV=prod` 并启用 `INIT_REDIS_ON_STARTUP=true`
+            - 建议运行 `python tools/scan_config_security.py --strict` 验证配置安全
+
+            ---
+            *本 Release 由 GitHub Actions 自动生成*

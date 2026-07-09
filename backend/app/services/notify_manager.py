@@ -3,6 +3,7 @@ from loguru import logger
 import datetime
 import time
 from app.core.plugin_manager import plugin_manager, HOOK_ON_ALARM, HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE, HOOK_ON_MOBILE_POSITION, HOOK_ON_DEVICE_ALARM
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.services.platform_subscription_service import platform_subscription_service
 from app.services.platform_service import platform_service
 from app.models.alarm import Alarm
@@ -46,7 +47,7 @@ async def _on_device_alarm_hook(alarm_data: dict):
     logger.info(f"Webhook Trigger: {msg}")
 
     if settings.WEBHOOK_ALARM_URL:
-        asyncio.create_task(_send_webhook(settings.WEBHOOK_ALARM_URL, {"text": msg, "data": alarm_data}))
+        fire_and_forget(_send_webhook(settings.WEBHOOK_ALARM_URL, {"text": msg, "data": alarm_data}))  # P0-16: 保存引用防 GC + 异常日志
 
 async def _on_mobile_position(device_id: str, longitude: float, latitude: float, speed, direction, altitude, pos_time):
     try:
@@ -103,7 +104,7 @@ async def _on_alarm(alarm: Alarm):
 async def _on_device_register(gb_id: str):
     if settings.WEBHOOK_DEVICE_STATUS_URL:
         msg = f"【设备上线】设备 {gb_id} 已注册上线"
-        asyncio.create_task(_send_webhook(settings.WEBHOOK_DEVICE_STATUS_URL, {"text": msg, "device_id": gb_id, "status": "online"}))
+        fire_and_forget(_send_webhook(settings.WEBHOOK_DEVICE_STATUS_URL, {"text": msg, "device_id": gb_id, "status": "online"}))  # P0-16: 保存引用防 GC + 异常日志
 
     try:
         subs = await platform_subscription_service.get_active_subscriptions("Catalog")
@@ -119,7 +120,7 @@ async def _on_device_register(gb_id: str):
 async def _on_device_offline(gb_id: str):
     if settings.WEBHOOK_DEVICE_STATUS_URL:
         msg = f"【设备离线】设备 {gb_id} 心跳超时，已离线"
-        asyncio.create_task(_send_webhook(settings.WEBHOOK_DEVICE_STATUS_URL, {"text": msg, "device_id": gb_id, "status": "offline"}))
+        fire_and_forget(_send_webhook(settings.WEBHOOK_DEVICE_STATUS_URL, {"text": msg, "device_id": gb_id, "status": "offline"}))  # P0-16: 保存引用防 GC + 异常日志
 
 def init_notify_manager():
     plugin_manager.register_hook(HOOK_ON_ALARM, _on_alarm)

@@ -3,20 +3,20 @@
     <div class="record-toolbar mb-3">
       <div class="flex items-center gap-2 min-w-[220px]">
         <div class="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-[0_0_0_4px_rgba(56,189,248,0.18)]"></div>
-        <h3 class="text-[15px] font-semibold tracking-wide" style="color: var(--el-text-color-primary)">云端录像</h3>
-        <span class="text-xs" style="color: var(--el-text-color-secondary)">按时间范围查询与回放</span>
+        <h3 class="text-[15px] font-semibold tracking-wide" style="color: var(--el-text-color-primary)">{{ t('record.cloudTitle') }}</h3>
+        <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('record.queryByTimeRange') }}</span>
       </div>
       <div class="record-toolbar-actions">
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
-          range-separator="至"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
+          :range-separator="t('record.rangeSeparator')"
+          :start-placeholder="t('common.startTime')"
+          :end-placeholder="t('common.endTime')"
           size="small"
         />
-        <el-button type="primary" size="small" @click="fetchRecords">查询</el-button>
-        <el-button size="small" @click="resetRange">重置</el-button>
+        <el-button type="primary" size="small" @click="fetchRecords">{{ t('common.query') }}</el-button>
+        <el-button size="small" @click="resetRange">{{ t('common.reset') }}</el-button>
       </div>
     </div>
     
@@ -27,29 +27,29 @@
         size="small"
         :row-class-name="tableRowClassName"
         class="record-table"
-        empty-text="当前时间范围暂无云端录像"
+        :empty-text="t('record.noRecordsInRange')"
         :max-height="300"
         table-layout="auto"
       >
-        <el-table-column prop="start_time" label="开始时间" min-width="220">
+        <el-table-column prop="start_time" :label="t('common.startTime')" min-width="220">
           <template #default="scope">
             {{ (() => { const d = new Date(scope.row.start_time); return Number.isNaN(d.getTime()) ? '-' : d.toLocaleString() })() }}
           </template>
         </el-table-column>
-        <el-table-column label="时长（秒）" width="110">
+        <el-table-column :label="t('record.durationSeconds')" width="110">
           <template #default="scope">
             {{ formatDuration(scope.row.duration) }}
           </template>
         </el-table-column>
-        <el-table-column prop="file_size" label="大小" width="110">
+        <el-table-column prop="file_size" :label="t('common.size')" width="110">
           <template #default="scope">
             {{ (scope.row.file_size / 1024 / 1024).toFixed(2) }} MB
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="138" align="center">
+        <el-table-column :label="t('common.action')" width="138" align="center">
           <template #default="scope">
-            <el-button type="primary" size="small" @click="play(scope.row)">回放</el-button>
-            <el-button size="small" @click="download(scope.row)">下载</el-button>
+            <el-button type="primary" size="small" @click="play(scope.row)">{{ t('common.jumpToPlayback') }}</el-button>
+            <el-button size="small" @click="download(scope.row)">{{ t('common.download') }}</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -62,8 +62,8 @@
         :total="hasMore ? page * pageSize + 1 : page * pageSize"
         layout="total, sizes, prev, pager, next, jumper"
         :page-sizes="[10, 20, 50, 100]"
-        prev-text="上一页"
-        next-text="下一页"
+        :prev-text="t('pagination.prev')"
+        :next-text="t('pagination.next')"
         size="small"
         @current-change="fetchRecords"
         @size-change="() => { page = 1; fetchRecords() }"
@@ -74,9 +74,12 @@
 
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import { getFriendlyError } from '../utils/errorMessage'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   deviceId: string
@@ -194,15 +197,15 @@ const resetRange = () => {
 const download = (row: Record<string, unknown>) => {
   const id = String(row?.id || '')
   if (!id) {
-    ElMessage.warning('缺少录像ID')
+    ElMessage.warning(t('cloudRecord.missingRecordId'))
     return
   }
   window.open(`/api/v1/record/download/${id}`, '_blank')
 }
 
 const buildInlineRecordUrl = (id: string) => {
-  const token = (() => { try { return localStorage.getItem('token') || '' } catch { return '' } })()
-  return `/api/v1/record/download/${encodeURIComponent(id)}?inline=true&token=${encodeURIComponent(token)}`
+  // P0-6: 移除 URL 中的 token，改由 HttpOnly cookie 认证（硬约束 #1）
+  return `/api/v1/record/download/${encodeURIComponent(id)}?inline=true`
 }
 
 const play = async (row: Record<string, unknown>) => {

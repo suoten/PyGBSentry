@@ -4,12 +4,12 @@ import json
 from app.db.session import AsyncSessionLocal
 from app.models.platform import ParentPlatform
 from app.api.deps import get_or_404
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 
 def _safe_create_task(coro):
-    task = asyncio.create_task(coro)
-    task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
-    return task
+    # P0-16: 委托给 fire_and_forget，保存引用防 GC + 异常日志
+    return fire_and_forget(coro)
 from app.models.platform_runtime import PlatformRuntime
 from app.models.resource import Resource
 from app.models.platform_catalog_resource import PlatformCatalogResource
@@ -22,12 +22,10 @@ from app.core.config import settings, sip_host_for_contact
 from sqlalchemy import select, update
 import time
 import random
-import string
 import secrets
 import datetime
 import contextlib
 import re
-import hashlib
 from xml.sax.saxutils import escape as _xml_escape
 from app.sip.send import send_sip_bytes
 from app.sip.sdp import build_sdp as _build_sdp
@@ -903,6 +901,7 @@ class PlatformService:
                     return
                 from app.core.config import settings, sip_host_for_contact
                 from app.sip.send import send_sip_bytes
+                from app.sip.server import sip_server
                 from xml.sax.saxutils import escape as _xml_escape
 
                 addr = (p.server_ip, p.server_port or 5060)
@@ -975,6 +974,7 @@ class PlatformService:
                     return
                 from app.core.config import settings, sip_host_for_contact
                 from app.sip.send import send_sip_bytes
+                from app.sip.server import sip_server
                 from datetime import datetime, timezone, timedelta
 
                 addr = (p.server_ip, p.server_port or 5060)
@@ -1030,7 +1030,7 @@ class PlatformService:
                 self.prune_stale_cascade_record_queries()
 
                 async with AsyncSessionLocal() as session:
-                    stmt = select(ParentPlatform).where(ParentPlatform.enable == True)
+                    stmt = select(ParentPlatform).where(ParentPlatform.enable)
                     result = await session.execute(stmt)
                     platforms = result.scalars().all()
 
@@ -1117,7 +1117,7 @@ class PlatformService:
                 algorithm = "MD5"
             response = DigestAuth.calculate_response(
                 username=p.client_gb_id,
-                password=p.password,
+                password=p.decrypted_password or "",
                 realm=auth_params.get("realm"),
                 method="REGISTER",
                 uri=req.uri,
@@ -1164,7 +1164,8 @@ class PlatformService:
                 timeout_seconds=2.2,
                 retries=2,
             )
-            await self._handle_register_response(resp, (p.server_ip, p.server_port), req_proto, call_id, p.id, state.get("sent_mono", 0.0))
+            # FIX: [2026-07-03] 传递 _auth_depth 参数，使 401 重注册时的递归深度计数器能正确传递 [全栈工程师]
+            await self._handle_register_response(resp, (p.server_ip, p.server_port), req_proto, call_id, p.id, state.get("sent_mono", 0.0), _auth_depth)
         except asyncio.TimeoutError:
             rtt_ms = int((time.monotonic() - state.get("sent_mono", time.monotonic())) * 1000)
             await self._runtime_patch(p.tenant_id or "default", p.id, {
@@ -1183,7 +1184,7 @@ class PlatformService:
         except Exception as e:
             logger.error(f"Error sending REGISTER to platform {p.server_gb_id}: {e}")
 
-    async def _handle_register_response(self, message: SipMessage, addr: tuple, proto: str, call_id: str, platform_id: str, sent_mono: float):
+    async def _handle_register_response(self, message: SipMessage, addr: tuple, proto: str, call_id: str, platform_id: str, sent_mono: float, _auth_depth: int = 0):  # FIX: [2026-07-03] 补齐 _auth_depth 参数，原签名缺失导致 line 1228 引用未定义变量 NameError，401 挑战重注册永远失败 [全栈工程师]
         _sip_trace_log(
             "platform_response_received",
             trace_id=call_id,
@@ -1407,7 +1408,7 @@ class PlatformService:
                     logger.debug(f"[PlatformService] Platform {platform.server_gb_id} has no active Alarm subscription, skipping notify")
                     return
         except Exception as _chk_err:
-            logger.debug(f"Alarm subscription check failed: {_chk_err}")
+            logger.warning(f"Alarm subscription check failed: {_chk_err}")
         addr = (platform.server_ip, platform.server_port)
         proto = _platform_proto(platform)
         local_device_id = platform.client_gb_id or ""
@@ -1526,7 +1527,7 @@ class PlatformService:
                     sub_to_tag = str(getattr(sub_obj, "remote_from_tag", "") or "")
                     sub_cseq = int(getattr(sub_obj, "notify_cseq", 0) or 0) + 1
         except Exception as e:
-            logger.debug(f"[PlatformService] Failed to load subscription dialog info: {e}")
+            logger.warning(f"[PlatformService] Failed to load subscription dialog info: {e}")
         if not sub_call_id:
             logger.warning(f"[PlatformService] No active catalog subscription for {platform.server_gb_id}, skipping NOTIFY")
             return
@@ -1541,7 +1542,7 @@ class PlatformService:
             ch_address = getattr(ch, "address", None) or "Address"
             ch_node_type = getattr(ch, "node_type", "channel")
             ch_parent_gb_id = getattr(ch, "parent_gb_id", None) or device_id
-            ch_status = getattr(ch, "status", 0)
+            getattr(ch, "status", 0)
             device_list_xml += f"""<Item>
 <DeviceID>{_xml_escape(ch_gb_id)}</DeviceID>
 <Name>{_xml_escape(ch_name)}</Name>
@@ -1595,7 +1596,7 @@ class PlatformService:
                         db_sub.notify_cseq = sub_cseq
                         await session.commit()
             except Exception as e:
-                logger.debug(f"[PlatformService] Failed to update subscription CSeq: {e}")
+                logger.warning(f"[PlatformService] Failed to update subscription CSeq: {e}")
         logger.info(f"[PlatformService] Sent Catalog NOTIFY (Event: {status}) to {platform.server_gb_id}, items: {len(channels)}")
 
     async def forward_cascade_device_control(self, channel_id: str, ptz_cmd_xml: str, sn: str) -> bool:
@@ -1668,7 +1669,6 @@ class PlatformService:
         """Forward a ConfigDownload query from upstream platform to the real device."""
         from app.models.resource import Resource
         from app.models.asset import Asset
-        from app.sip.server import sip_server as _sip_server
         real_gb_id = channel_id
         asset_id = None
         async with AsyncSessionLocal() as session:
@@ -1728,7 +1728,6 @@ class PlatformService:
         """Forward a RecordInfo query from upstream platform to the real device."""
         from app.models.resource import Resource
         from app.models.asset import Asset
-        from app.sip.server import sip_server as _sip_server
         real_gb_id = channel_id
         resource_id = None
         asset_id = None

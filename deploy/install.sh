@@ -117,6 +117,78 @@ show_status() {
     info "To stop: docker compose down"
 }
 
+setup_ssl() {
+    echo ""
+    echo "========================================="
+    echo "  SSL Certificate Setup (Optional)"
+    echo "========================================="
+    echo ""
+    read -rp "Set up HTTPS with Let's Encrypt now? [y/N] " setup_ssl_choice
+    if [[ "${setup_ssl_choice,,}" != "y" ]]; then
+        info "Skipping SSL setup. You can run it later: deploy/scripts/setup-ssl-certbot.sh --domain your-domain.com"
+        return
+    fi
+
+    local ssl_script="${SCRIPT_DIR}/scripts/setup-ssl-certbot.sh"
+    if [[ ! -f "${ssl_script}" ]]; then
+        warn "SSL setup script not found: ${ssl_script}"
+        return
+    fi
+    chmod +x "${ssl_script}"
+
+    read -rp "Enter your domain name (e.g. pygbsentry.example.com): " ssl_domain
+    if [[ -z "${ssl_domain}" ]]; then
+        warn "No domain provided, skipping SSL setup."
+        return
+    fi
+
+    read -rp "Enter your email for Let's Encrypt notifications (optional): " ssl_email
+    local ssl_args=(--domain "${ssl_domain}")
+    if [[ -n "${ssl_email}" ]]; then
+        ssl_args+=(--email "${ssl_email}")
+    fi
+
+    info "Running SSL setup..."
+    if "${ssl_script}" "${ssl_args[@]}"; then
+        info "SSL certificate obtained. Updating nginx.conf..."
+        sed -i "s/YOUR_DOMAIN/${ssl_domain}/g" "${PROJECT_DIR}/frontend/nginx.conf" 2>/dev/null || \
+            warn "Could not auto-update nginx.conf. Replace YOUR_DOMAIN manually."
+
+        info "Installing auto-renewal cron job..."
+        "${ssl_script}" --install-cron 2>/dev/null || warn "Could not install cron job. Run: ${ssl_script} --install-cron"
+
+        info "SSL setup complete! Restart frontend to apply changes:"
+        info "  docker compose restart frontend"
+    else
+        warn "SSL setup failed. You can retry manually: ${ssl_script} --domain ${ssl_domain}"
+    fi
+}
+
+setup_logrotate() {
+    # P1-35: optionally install logrotate config for systemd/host deployments.
+    # Only acts when /etc/logrotate.d exists; silently skipped otherwise (e.g.
+    # containers without logrotate). Non-fatal on any failure.
+    local conf_src="${SCRIPT_DIR}/scripts/logrotate-pygbsentry.conf"
+    local logrotate_dir="/etc/logrotate.d"
+    local target="${logrotate_dir}/pygbsentry"
+
+    if [[ ! -d "${logrotate_dir}" ]]; then
+        info "Skipping logrotate setup: ${logrotate_dir} not found (logrotate not installed on this host)."
+        return
+    fi
+    if [[ ! -f "${conf_src}" ]]; then
+        warn "logrotate config not found: ${conf_src}"
+        return
+    fi
+    if cp "${conf_src}" "${target}" 2>/dev/null; then
+        chmod 0644 "${target}" 2>/dev/null || true
+        info "Installed logrotate config to ${target}"
+        info "  Verify (dry run): sudo logrotate -d ${target}"
+    else
+        warn "Failed to install logrotate config to ${target} (need root? try: sudo cp ${conf_src} ${target})"
+    fi
+}
+
 main() {
     echo "========================================="
     echo "  PyGBSentry - One-Click Setup"
@@ -128,6 +200,8 @@ main() {
     setup_docker_compose
     start_services
     show_status
+    setup_logrotate
+    setup_ssl
 }
 
 main "$@"

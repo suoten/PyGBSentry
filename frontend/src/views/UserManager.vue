@@ -2,15 +2,15 @@
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader title="用户管理" description="管理系统用户、角色与状态">
+        <PageHeader :title="t('user.title')" :description="t('user.description')">
           <template #actions>
             <el-button type="primary" @click="openCreateUser">
               <el-icon class="mr-1"><Plus /></el-icon>
-              新增用户
+              {{ t('user.addUser') }}
             </el-button>
             <el-button @click="openRoleManager">
               <el-icon class="mr-1"><Medal /></el-icon>
-              角色管理
+              {{ t('user.roleManagement') }}
             </el-button>
           </template>
         </PageHeader>
@@ -21,22 +21,22 @@
         <div class="flex items-center justify-between">
           <div class="font-bold text-slate-700 flex items-center gap-2">
             <el-icon class="text-emerald-500"><User /></el-icon>
-            用户列表
+            {{ t('user.userList') }}
           </div>
           <div class="text-xs text-slate-500 flex items-center gap-2">
             <el-icon><Document /></el-icon>
-            共 {{ users.length }} 条
+            {{ t('user.totalCount', { count: users.length }) }}
           </div>
         </div>
       </template>
       <TableSkeleton v-if="loading && users.length === 0" :rows="5" />
-      <el-table v-else :data="paginatedUsers" style="width: 100%" v-loading="loading" :empty-text="'暂无用户'" class="users-table" fit>
+      <el-table v-else :data="paginatedUsers" style="width: 100%" v-loading="loading" :empty-text="t('user.emptyText')" class="users-table" fit>
         <template #empty>
-          <EmptyStateWithAction description="暂无用户，请点击「新增用户」添加第一个用户（当前登录账号由系统创建）。">
+          <EmptyStateWithAction :description="t('user.emptyHint')">
             <template #action>
               <el-button type="primary" @click="openCreateUser">
                 <el-icon class="mr-1"><Plus /></el-icon>
-                新增用户
+                {{ t('user.addUser') }}
               </el-button>
             </template>
           </EmptyStateWithAction>
@@ -45,7 +45,7 @@
           <template #header>
             <div class="flex items-center gap-1">
               <el-icon class="text-slate-400"><User /></el-icon>
-              <span>用户名</span>
+              <span>{{ t('user.colUsername') }}</span>
             </div>
           </template>
           <template #default="scope">
@@ -57,11 +57,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="full_name" label="姓名" min-width="140">
+        <el-table-column prop="full_name" :label="t('user.colFullName')" min-width="140">
           <template #header>
             <div class="flex items-center gap-1">
               <el-icon class="text-slate-400"><UserFilled /></el-icon>
-              <span>姓名</span>
+              <span>{{ t('user.colFullName') }}</span>
             </div>
           </template>
           <template #default="scope">
@@ -71,11 +71,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="tenant_id" label="租户" width="160">
+        <el-table-column prop="tenant_id" :label="t('user.colTenant')" width="160">
           <template #header>
             <div class="flex items-center gap-1">
               <el-icon class="text-slate-400"><OfficeBuilding /></el-icon>
-              <span>租户</span>
+              <span>{{ t('user.colTenant') }}</span>
             </div>
           </template>
           <template #default="scope">
@@ -88,14 +88,14 @@
           <template #header>
             <div class="flex items-center gap-1">
               <el-icon class="text-slate-400"><Medal /></el-icon>
-              <span>角色</span>
+              <span>{{ t('user.colRole') }}</span>
             </div>
           </template>
           <template #default="scope">
             <div class="role-cell">
               <el-tag :type="scope.row.is_superuser ? 'danger' : getRoleType(scope.row.role)" size="small" effect="dark" class="role-tag">
                 <el-icon class="mr-1" v-if="scope.row.is_superuser"><Star /></el-icon>
-                {{ scope.row.is_superuser ? '超级管理员' : roleLabel(scope.row.role) }}
+                {{ scope.row.is_superuser ? t('common.superAdmin') : roleLabel(scope.row.role) }}
               </el-tag>
             </div>
           </template>
@@ -104,14 +104,14 @@
           <template #header>
             <div class="flex items-center justify-center gap-1">
               <el-icon class="text-slate-400"><Switch /></el-icon>
-              <span>状态</span>
+              <span>{{ t('user.colStatus') }}</span>
             </div>
           </template>
           <template #default="scope">
             <div class="status-cell">
               <span class="status-dot" :class="scope.row.is_active ? 'active' : 'inactive'"></span>
               <el-tag :type="scope.row.is_active ? 'success' : 'warning'" size="small" effect="dark">
-                {{ scope.row.is_active ? '正常' : '停用' }}
+                {{ scope.row.is_active ? t('user.statusActive') : t('user.statusInactive') }}
               </el-tag>
             </div>
           </template>
@@ -120,7 +120,7 @@
           <template #header>
             <div class="flex items-center justify-center gap-1">
               <el-icon class="text-slate-400"><Tools /></el-icon>
-              <span>操作</span>
+              <span>{{ t('common.action') }}</span>
             </div>
           </template>
           <template #default="scope">
@@ -145,8 +145,8 @@
           :total="users.length"
           layout="total, sizes, prev, pager, next, jumper"
           :page-sizes="[10, 20, 50, 100]"
-          prev-text="上一页"
-          next-text="下一页"
+          :prev-text="t('common.prevPage')"
+          :next-text="t('common.nextPage')"
           size="small"
         />
       </div>
@@ -154,7 +154,7 @@
 
     <AppDialog
       v-model="dialogVisible"
-      :title="editingId ? '编辑用户' : '新增用户'"
+      :title="editingId ? t('user.editUser') : t('user.createUser')"
       size="medium"
       :icon="UserFilled"
       icon-color="success"
@@ -166,25 +166,26 @@
             <el-input v-model="form.username" :placeholder="t('user.loginNamePlaceholder')" class="form-input" :disabled="!!editingId" />
           </div>
         </el-form-item>
-        <el-form-item v-if="!editingId" label="密码" prop="password">
+        <el-form-item v-if="!editingId" :label="t('user.passwordLabel')" prop="password">
           <div class="input-wrapper">
             <el-icon class="input-icon"><Lock /></el-icon>
             <el-input v-model="form.password" type="password" :placeholder="t('user.initialPasswordPlaceholder')" show-password class="form-input" />
           </div>
         </el-form-item>
-        <el-form-item label="姓名" prop="full_name">
+        <el-form-item :label="t('user.fullNameLabel')" prop="full_name">
           <div class="input-wrapper">
             <el-icon class="input-icon"><UserFilled /></el-icon>
             <el-input v-model="form.full_name" :placeholder="t('user.namePlaceholder')" class="form-input" />
           </div>
         </el-form-item>
-        <el-form-item label="超级管理员">
+        <!-- FIX H-2: 仅当当前用户为已验证超管时才渲染超管开关，防止 admin 越权授予超管 -->
+        <el-form-item v-if="canGrantSuperuser" :label="t('user.superAdminLabel')">
           <div class="switch-wrapper">
             <el-switch v-model="form.is_superuser" class="superuser-switch" />
-            <span class="switch-hint text-sm text-slate-500">开启后将拥有系统最高权限</span>
+            <span class="switch-hint text-sm text-slate-500">{{ t('user.superAdminHint') }}</span>
           </div>
         </el-form-item>
-        <el-form-item label="租户" prop="tenant_id">
+        <el-form-item :label="t('user.tenantLabel')" prop="tenant_id">
           <div class="input-wrapper">
             <el-icon class="input-icon"><OfficeBuilding /></el-icon>
             <el-input v-model="form.tenant_id" placeholder="default" class="form-input" />
@@ -201,18 +202,18 @@
         <el-form-item v-if="editingId" :label="t('common.status')">
           <div class="switch-wrapper">
             <el-switch v-model="form.is_active" />
-            <span class="switch-hint text-sm text-slate-500">停用后将无法登录</span>
+            <span class="switch-hint text-sm text-slate-500">{{ t('user.statusHint') }}</span>
           </div>
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">
           <el-icon class="mr-1"><Close /></el-icon>
-          取消
+          {{ t('common.cancel') }}
         </el-button>
         <el-button type="primary" :loading="saving" @click="saveUser">
           <el-icon class="mr-1"><Check /></el-icon>
-          确定
+          {{ t('common.ok') }}
         </el-button>
       </template>
     </AppDialog>
@@ -226,6 +227,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'  // FIXED: 国际化
 import { useRouter } from 'vue-router'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import {
   Plus, User, Document, OfficeBuilding, Medal, Star, Switch, Tools, Edit, Delete, UserFilled, Lock, Unlock, Check, Close, CircleCheck
@@ -233,6 +235,7 @@ import {
 import TableSkeleton from '../components/TableSkeleton.vue'
 import EmptyStateWithAction from '../components/EmptyStateWithAction.vue'
 import { getFriendlyError } from '../utils/errorMessage'
+import { getVerifiedRoleInfo, type RoleInfo } from '../utils/auth' // FIX H-2: 后端验证角色控制超管授予
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
@@ -285,10 +288,10 @@ const users = ref<UserRow[]>([])
 const roles = ref<UserRoleRow[]>([])
 const roleOptions = computed(() => {
   const builtIn = [
-    { code: 'viewer', name: '查看者' },
-    { code: 'operator', name: '操作员' },
-    { code: 'admin', name: '管理员' },
-    { code: 'owner', name: '所有者' }
+    { code: 'viewer', name: t('user.roleViewer') },
+    { code: 'operator', name: t('user.roleOperator') },
+    { code: 'admin', name: t('user.roleAdmin') },
+    { code: 'owner', name: t('user.roleOwner') }
   ]
   const merged = new Map<string, { code: string; name: string }>()
   for (const item of builtIn) merged.set(item.code, item)
@@ -306,6 +309,9 @@ const dialogVisible = ref(false)
 const editingId = ref<string>('')
 const currentUserId = ref('')
 const currentUsername = ref('')
+// FIX H-2: 当前用户已验证角色信息，用于控制超管授予开关可见性
+const currentRoleInfo = ref<RoleInfo | null>(null)
+const canGrantSuperuser = computed(() => !!currentRoleInfo.value?.isSuperuser)
 const formRef = ref<FormInstance>()
 const form = ref({
   username: '',
@@ -381,7 +387,7 @@ const fetchUsers = async () => {
   } catch (e: unknown) {
     users.value = []
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     loading.value = false
   }
@@ -395,7 +401,7 @@ const fetchMe = async () => {
   } catch (e: unknown) {
     currentUserId.value = ''
     currentUsername.value = ''
-    console.warn('获取当前用户信息失败', e)
+    logger.warn(t('user.fetchMeFailed'), e)
   }
 }
 
@@ -405,7 +411,7 @@ const fetchRoles = async () => {
     roles.value = Array.isArray(res.data) ? res.data : []
   } catch (e: unknown) {
     roles.value = []
-    console.warn('加载角色列表失败', e)
+    logger.warn(t('user.fetchRolesFailed'), e)
   }
 }
 
@@ -454,7 +460,7 @@ const saveUser = async () => {
   const validated = await formRef.value?.validate().catch(() => false)
   if (!validated) return
   if (editingId.value && currentUserId.value && editingId.value === currentUserId.value && !form.value.is_active) {
-    ElMessage.warning('Cannot deactivate the current logged-in account') // FIXED: 硬编码中文→英文
+    ElMessage.warning(t('user.cannotDeactivateSelf'))
     return
   }
   saving.value = true
@@ -468,7 +474,7 @@ const saveUser = async () => {
         tenant_id: String(form.value.tenant_id || '').trim(),
         role: String(form.value.role || '').trim()
       })
-      ElMessage.success('User updated') // FIXED: 硬编码中文→英文
+      ElMessage.success(t('user.userUpdated'))
     } else {
       await api.post('/api/v1/users', {
         ...form.value,
@@ -478,14 +484,14 @@ const saveUser = async () => {
         tenant_id: String(form.value.tenant_id || '').trim(),
         role: String(form.value.role || '').trim()
       })
-      ElMessage.success('User created successfully') // FIXED: 硬编码中文→英文
+      ElMessage.success(t('user.userCreated'))
     }
     dialogVisible.value = false
     resetForm()
     await fetchUsers()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     saving.value = false
   }
@@ -495,21 +501,21 @@ const removeUser = async (row: UserRow) => {
   const id = String(row?.id || '')
   if (!id) return
   if (!canDeleteUser(row)) {
-    ElMessage.warning('Current user cannot be deleted') // FIXED: 硬编码中文→英文
+    ElMessage.warning(t('user.cannotDeleteSelf'))
     return
   }
   try {
-    await ElMessageBox.confirm(`Delete user "${row.username}"?`, 'Confirm', { type: 'warning' }) // FIXED: 硬编码中文→英文
+    await ElMessageBox.confirm(t('user.deleteUserConfirm', { username: row.username }), t('user.confirmTitle'), { type: 'warning' })
   } catch {
     return
   }
   try {
     await api.delete(`/api/v1/users/${id}`)
-    ElMessage.success('Deleted successfully') // FIXED: 硬编码中文→英文
+    ElMessage.success(t('user.deletedSuccess'))
     await fetchUsers()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   }
 }
 
@@ -519,22 +525,24 @@ const unlockUser = async (row: UserRow) => {
   const id = String(row?.id || '')
   if (!id) return
   try {
-    await ElMessageBox.confirm(`Unlock user "${row.username}"?`, 'Unlock user', { type: 'info' }) // FIXED: 硬编码中文→英文
+    await ElMessageBox.confirm(t('user.unlockUserConfirm', { username: row.username }), t('user.unlockUserTitle'), { type: 'info' })
   } catch { return }
   unlocking.value = id
   try {
     await api.post(`/api/v1/users/${id}/unlock`)
-    ElMessage.success(`User "${row.username}" unlocked`) // FIXED: 硬编码中文→英文
+    ElMessage.success(t('user.userUnlocked', { username: row.username }))
     await fetchUsers()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     unlocking.value = ''
   }
 }
 
-onMounted(() => {
+// FIX H-2: onMounted 改为 async，获取后端验证的当前用户角色以控制超管授予开关
+onMounted(async () => {
+  currentRoleInfo.value = await getVerifiedRoleInfo()
   fetchMe()
   fetchUsers()
   fetchRoles()

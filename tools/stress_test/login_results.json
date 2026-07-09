@@ -1,0 +1,42 @@
+{
+  "scenario": "concurrent_login",
+  "user_count": 100,
+  "concurrency": 20,
+  "success": 0,
+  "fail": 100,
+  "success_rate": 0.0,
+  "total_elapsed_s": 33.39,
+  "latency_ms": {
+    "avg": 0,
+    "p50": 0,
+    "p95": 0,
+    "p99": 0,
+    "max": 0
+  },
+  "pass_criteria": {
+    "response_time_lt_3s": false,
+    "success_rate_100pct": false
+  },
+  "errors": [
+    "admin000: Internal server error",
+    "admin001: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin002: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin003: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin004: Internal server error",
+    "admin005: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin006: Internal server error",
+    "admin007: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin008: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin009: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin010: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin011: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin012: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin013: Internal server error",
+    "admin014: Internal server error",
+    "admin015: Internal server error",
+    "admin016: Internal server error",
+    "admin017: {\"error\":\"Rate limit exceeded: 10 per 5 minute\"}",
+    "admin018: Internal server error",
+    "admin019: Internal server error"
+  ]
+}

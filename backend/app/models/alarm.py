@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, DateTime, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey, Float
 from sqlalchemy.sql import func
 from app.db.base import Base
 import uuid
@@ -17,8 +17,8 @@ class Alarm(Base):
     id = Column(String(32), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), default="default", index=True)
 
-    device_id = Column(String(32), ForeignKey("assets.gb_id"), nullable=False, index=True)
-    channel_id = Column(String(32), index=True) # Optional, some alarms are device level
+    device_id = Column(String(20), ForeignKey("assets.gb_id"), nullable=False, index=True)
+    channel_id = Column(String(20), index=True) # Optional, some alarms are device level
 
     # GB28181 Alarm Priority: 1-4
     priority = Column(String(10), default="4")
@@ -31,6 +31,10 @@ class Alarm(Base):
 
     # Alarm Description
     description = Column(String(255))
+
+    # FIX: [2026-07-04] 模型缺少 Longitude/Latitude 列，移动设备报警的经纬度无法落库 [全栈工程师]
+    longitude = Column(Float, nullable=True, comment="报警经度")
+    latitude = Column(Float, nullable=True, comment="报警纬度")
 
     # Alarm Type (e.g., Motion Detection, Video Loss)
     # GB28181 defines codes, we store code or text

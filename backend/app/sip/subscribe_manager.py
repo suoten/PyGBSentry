@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-import random
 import time
 import secrets
 from loguru import logger
 import contextlib
-from typing import Optional, Callable, Awaitable
+from typing import Callable, Awaitable
 from dataclasses import dataclass, field
 
 _CHUNK_SIZE = 100  # GB3 Catalog NOTIFY分页 — 每个NOTIFY最多100个通道
@@ -83,7 +82,7 @@ class SubscribeManager:
             state = get_redis_state()
             await state.set(f"sip:sub_cseq:{call_id}", str(cseq), ttl=86400)
         except Exception as e:
-            logger.debug(f"CSeq persist failed: {e}")
+            logger.warning(f"CSeq persist failed: {e}")
 
     async def _restore_cseq(self, call_id: str) -> int:
         """Restore CSeq from Redis/DB"""
@@ -128,7 +127,7 @@ class SubscribeManager:
                 # 订阅字典超限清理，防止长期运行内存增长
                 if len(self._inbound) > self._MAX_INBOUND:
                     async with self._lock:
-                        oldest = sorted(self._inbound.items(), key=lambda x: getattr(x[1], 'last_keepalive', 0))[:len(self._inbound) - self._MAX_INBOUND + 1000]
+                        oldest = sorted(self._inbound.items(), key=lambda x: getattr(x[1], 'last_renewed', 0))[:len(self._inbound) - self._MAX_INBOUND + 1000]
                         for k, _ in oldest:
                             self._inbound.pop(k, None)
                             _task = self._inbound_renew_tasks.pop(k, None)
@@ -277,7 +276,7 @@ class SubscribeManager:
             async with self._lock:
                 self._inbound.pop(key, None)
         except asyncio.CancelledError:
-            pass
+            logger.debug("task_cancelled")
         except Exception as e:
             logger.error(f"[SubscribeManager] Inbound renew loop error for {key}: {e}")
         finally:

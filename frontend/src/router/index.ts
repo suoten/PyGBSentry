@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import api from '@/utils/http'
+import { getVerifiedRoleInfo } from '@/utils/auth' // FIX C-1: 依赖后端权威角色信息
 import i18n from '@/locales' // FIXED: 国际化
 
 const t = i18n.global.t // FIXED: 国际化
@@ -116,20 +116,21 @@ router.beforeEach(async (to, from, next) => {
     const { clearStalePendingRequests } = await import('@/utils/httpDedupe')
     clearStalePendingRequests()
   } catch { /* ignore */ }
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')  // P0-4: sessionStorage
   if (to.meta.requiresAuth && token) {
-    const lastVerify = Number(localStorage.getItem('_tokenVerifyTs') || 0)
-    if (Date.now() - lastVerify > 5 * 60 * 1000) {
-      try {
-        await api.get('/api/v1/login/verify-token')
-        localStorage.setItem('_tokenVerifyTs', String(Date.now()))
-      } catch {
-        localStorage.removeItem('token')
-        localStorage.removeItem('refresh_token')
-        localStorage.removeItem('_tokenVerifyTs')
+    const lastVerify = Number(sessionStorage.getItem('_tokenVerifyTs') || 0)
+    // SECURITY: 缩短 token 验证间隔到 1 分钟，确保 token 被吊销后最多 1 分钟内生效
+    if (Date.now() - lastVerify > 60 * 1000) {
+      // FIX C-1: 使用后端 verify-token 权威验证，不再信任可篡改的客户端存储
+      const info = await getVerifiedRoleInfo()
+      if (!info) {
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('refresh_token')
+        sessionStorage.removeItem('_tokenVerifyTs')
         next('/login')
         return
       }
+      sessionStorage.setItem('_tokenVerifyTs', String(Date.now()))
     }
   }
   if (to.path === '/register' && !allowPublicRegistration) {
@@ -141,18 +142,11 @@ router.beforeEach(async (to, from, next) => {
   } else if ((to.path === '/login' || to.path === '/register') && token) {
     next(isServerEdition ? '/plugins' : '/dashboard')
   } else {
-    // RBAC role check
+    // RBAC role check — FIX C-1: 使用后端验证的角色信息，不再解码 JWT 或读取可篡改的 localStorage
     if (to.meta.requiresAuth && token && to.meta.requiredRoles) {
-      const { useUserStore } = await import('@/stores/user')
-      const userStore = useUserStore()
-      let userRole = (userStore.role || '').toLowerCase()
-      if (!userRole && token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]))
-          userRole = (payload.role || '').toLowerCase()
-        } catch { /* ignore */ }
-      }
-      const isSuperuser = userStore.isSuperuser
+      const verified = await getVerifiedRoleInfo()
+      const userRole = (verified?.role || '').toLowerCase()
+      const isSuperuser = !!verified?.isSuperuser
       const allowedRoles = (to.meta.requiredRoles as string[]).map(r => r.toLowerCase())
       if (!isSuperuser && !allowedRoles.includes(userRole)) {
         ElMessage.error(t('common.forbidden'))

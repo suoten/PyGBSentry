@@ -3,45 +3,45 @@
     <div class="record-toolbar mb-3">
       <div class="flex items-center gap-2">
         <div class="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-[0_0_0_4px_rgba(56,189,248,0.16)]"></div>
-        <h3 class="text-[15px] font-semibold tracking-wide" style="color: var(--el-text-color-primary)">录像时间轴</h3>
-        <span class="text-xs" style="color: var(--el-text-color-secondary)">云端与设备录像联合检索</span>
+        <h3 class="text-[15px] font-semibold tracking-wide" style="color: var(--el-text-color-primary)">{{ t('record.timelineTitle') }}</h3>
+        <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('record.timelineSubtitle') }}</span>
       </div>
       <div class="record-toolbar-actions">
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
-          range-separator="至"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
+          :range-separator="t('record.rangeSeparator')"
+          :start-placeholder="t('common.startTime')"
+          :end-placeholder="t('common.endTime')"
           size="small"
         />
-        <el-button type="primary" size="small" @click="fetchAll" :loading="loading">查询</el-button>
-        <el-button size="small" @click="resetRange">重置</el-button>
+        <el-button type="primary" size="small" @click="fetchAll" :loading="loading">{{ t('common.query') }}</el-button>
+        <el-button size="small" @click="resetRange">{{ t('common.reset') }}</el-button>
         <el-button size="small" type="success" @click="startDeviceDownload" :loading="downloadLoading" :disabled="!windowStart || !windowEnd">
-          下载设备录像
+          {{ t('record.downloadDeviceRecord') }}
         </el-button>
       </div>
     </div>
     <div v-if="deviceQueryStatus && !loading" class="mb-3 text-xs flex items-center justify-between">
       <div style="color: var(--el-text-color-secondary)">
-        设备录像：{{ deviceQueryStatusText }}
+        {{ t('record.deviceRecordLabel') }}{{ deviceQueryStatusText }}
       </div>
       <el-button v-if="deviceQueryStatus.status === 'running' || deviceQueryStatus.status === 'pending'" size="small" @click="cancelDeviceQuery">
-        取消查询
+        {{ t('record.cancelQuery') }}
       </el-button>
     </div>
 
     <div v-if="downloadStatus && !loading" class="mb-3 text-xs" style="color: var(--el-text-color-secondary)">
       <div class="flex items-center justify-between">
         <div>
-          下载任务：{{ downloadStatusText }}
+          {{ t('record.downloadTaskLabel') }}{{ downloadStatusText }}
         </div>
         <div class="flex gap-2">
           <el-button v-if="downloadStatus.status === 'pending' || downloadStatus.status === 'running'" size="small" @click="refreshDownloadStatus">
-            刷新
+            {{ t('common.refresh') }}
           </el-button>
           <el-button v-if="downloadStatus.status === 'pending' || downloadStatus.status === 'running'" size="small" type="danger" @click="stopDeviceDownload">
-            停止
+            {{ t('record.stop') }}
           </el-button>
         </div>
       </div>
@@ -52,14 +52,14 @@
           size="small"
           @click="openDownload(r.download_url)"
         >
-          下载文件
+          {{ t('record.downloadFile') }}
         </el-button>
       </div>
     </div>
 
     <div v-if="!loading" class="space-y-3">
       <div>
-        <div class="text-xs mb-1" style="color: var(--el-text-color-secondary)">云端录像</div>
+        <div class="text-xs mb-1" style="color: var(--el-text-color-secondary)">{{ t('record.cloudTitle') }}</div>
         <div class="timeline-row">
           <div
             v-for="item in cloudSegments"
@@ -71,7 +71,7 @@
         </div>
       </div>
       <div>
-        <div class="text-xs mb-1" style="color: var(--el-text-color-secondary)">设备录像</div>
+        <div class="text-xs mb-1" style="color: var(--el-text-color-secondary)">{{ t('common.deviceRecord') }}</div>
         <div class="timeline-row">
           <div
             v-for="item in deviceSegments"
@@ -89,17 +89,20 @@
     </div>
 
     <div v-else class="h-24 flex items-center justify-center" style="color: var(--el-text-color-secondary)">
-      加载中…
+      {{ t('common.loading') }}
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import { getFriendlyError } from '../utils/errorMessage'
 import { showSuccess, showError } from '@/utils/feedback'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   deviceId: string
@@ -150,7 +153,7 @@ const fetchCloud = async () => {
     })
     return res.data || []
   } catch (e) {
-    showError('获取云端录像', e)
+    showError(t('record.fetchCloudRecord'), e)
     return []
   }
 }
@@ -195,7 +198,7 @@ const fetchDevice = async () => {
     deviceQueryStatus.value = { status: 'timeout', received: lastItems.length, sum_num: 0 }
     return lastItems
   } catch (e) {
-    showError('获取设备录像', e)
+    showError(t('record.fetchDeviceRecord'), e)
     deviceQueryStatus.value = { status: 'error', received: 0, sum_num: 0 }
     return []
   }
@@ -232,12 +235,12 @@ const deviceQueryStatusText = computed(() => {
   const received = Number(st.received || 0)
   const sum = Number(st.sum_num || 0)
   const progress = sum > 0 ? `${received}/${sum}` : `${received}`
-  if (status === 'done') return `完成（${progress}）`
-  if (status === 'running') return `查询中（${progress}）`
-  if (status === 'pending') return `等待设备响应（${progress}）`
-  if (status === 'partial') return `已返回部分结果（${progress}）`
-  if (status === 'timeout') return `超时（${progress}）`
-  if (status === 'cancelled') return `已取消`
+  if (status === 'done') return t('record.queryDone', { progress })
+  if (status === 'running') return t('record.queryRunning', { progress })
+  if (status === 'pending') return t('record.queryPending', { progress })
+  if (status === 'partial') return t('record.queryPartial', { progress })
+  if (status === 'timeout') return t('record.queryTimeout', { progress })
+  if (status === 'cancelled') return t('record.queryCancelled')
   return status
 })
 
@@ -259,7 +262,7 @@ const refreshDownloadStatus = async () => {
     })
     downloadStatus.value = res.data || null
   } catch (e) {
-    showError('刷新下载状态', e)
+    showError(t('record.refreshDownloadStatus'), e)
     downloadStatus.value = null
   }
 }
@@ -268,10 +271,10 @@ const stopDeviceDownload = async () => {
   if (!downloadTaskId.value) return
   try {
     await api.post(`/api/v1/device-record/download/stop/${downloadTaskId.value}`)
-    showSuccess('下载已停止')
+    showSuccess(t('record.downloadStopped'))
     await refreshDownloadStatus()
   } catch (e) {
-    showError('停止下载', e)
+    showError(t('record.stopDownload'), e)
   }
 }
 
@@ -286,7 +289,7 @@ const startDeviceDownload = async () => {
       end_time: windowEnd.value.toISOString()
     })
     downloadTaskId.value = String(startRes.data?.task_id || '')
-    showSuccess('下载任务已启动')
+    showSuccess(t('record.downloadTaskStarted'))
     await refreshDownloadStatus()
   } catch (e) {
     const friendly = getFriendlyError(e)
@@ -301,11 +304,11 @@ const downloadStatusText = computed(() => {
   if (!st) return ''
   const status = String(st.status || '')
   const percent = Number(st.percent || 0)
-  if (status === 'done') return '完成'
-  if (status === 'running') return `录制中（${percent}%）`
-  if (status === 'pending') return '等待设备响应'
-  if (status === 'cancelled') return '已停止'
-  if (status === 'failed') return '失败'
+  if (status === 'done') return t('record.downloadDone')
+  if (status === 'running') return t('record.downloadRecording', { percent })
+  if (status === 'pending') return t('record.downloadPending')
+  if (status === 'cancelled') return t('record.downloadStoppedStatus')
+  if (status === 'failed') return t('record.downloadFailed')
   return status
 })
 
@@ -324,8 +327,8 @@ const segmentStyle = (item: Record<string, unknown>) => {
 }
 
 const buildInlineRecordUrl = (id: string) => {
-  const token = localStorage.getItem('token') || ''
-  return `/api/v1/record/download/${encodeURIComponent(id)}?inline=true&token=${encodeURIComponent(token)}`
+  // P0-6: 移除 URL 中的 token，改由 HttpOnly cookie 认证（硬约束 #1）
+  return `/api/v1/record/download/${encodeURIComponent(id)}?inline=true`
 }
 
 const playCloud = async (item: Record<string, unknown>) => {
@@ -362,7 +365,7 @@ const playDevice = async (item: Record<string, unknown>) => {
     const rawStart = new Date(item.start_time).getTime()
     const rawEnd = new Date(item.end_time).getTime()
     if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd)) {
-      ElMessage.warning('录像时间信息无效，无法回放')
+      ElMessage.warning(t('record.invalidTimeNoPlayback'))
       return
     }
     const start = rawStart / 1000

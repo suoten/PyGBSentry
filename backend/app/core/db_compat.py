@@ -1,61 +1,76 @@
-from sqlalchemy import text
+"""Database compatibility helpers.
+
+Normalises database type identifiers and runs lightweight vendor-specific
+compatibility checks exposed through the system-config endpoint.
+"""
+from __future__ import annotations
+
+from typing import Any
+
+from loguru import logger
+
+_ALIASES = {
+    "sqlite": "sqlite",
+    "sqlite3": "sqlite",
+    "mysql": "mysql",
+    "mariadb": "mysql",
+    "postgres": "postgresql",
+    "postgresql": "postgresql",
+    "pg": "postgresql",
+    "tdengine": "tdengine",
+    "iotdb": "iotdb",
+    "influxdb": "influxdb",
+}
 
 
-def normalize_db_type(raw: str | None) -> str:
-    value = (raw or "postgresql").strip().lower()
-    if value in {"postgres", "postgresql"}:
-        return "postgresql"
-    if value in {"mysql"}:
-        return "mysql"
-    if value in {"sqlite"}:
+def normalize_db_type(value: str) -> str:
+    """Normalise a database type string to a canonical lower-case name."""
+    if not value:
         return "sqlite"
-    if value in {"kingbase", "人大金仓"}:
-        return "kingbase"
-    if value in {"dm", "dameng", "达梦"}:
-        return "dameng"
-    return "postgresql"
+    return _ALIASES.get(str(value).strip().lower(), str(value).strip().lower())
 
 
-def vendor_hint(db_type: str) -> str | None:
-    if db_type == "kingbase":
-        return "当前通过 PostgreSQL 协议连接人大金仓，建议在目标项目环境完成 SQL 方言与驱动兼容回归。"
-    if db_type == "dameng":
-        return "当前通过 MySQL 协议连接达梦，建议在目标项目环境完成 SQL 方言与驱动兼容回归。"
-    return None
-
-
-async def run_compat_checks(conn, db_type: str) -> dict:
-    checks: list[dict] = []
-    summary = "ok"
-    parsed_type = normalize_db_type(db_type)
-    core_sql = "SELECT 1"
-    json_sql = "SELECT '{\"ok\": true}'"
-    if parsed_type in {"postgresql", "kingbase"}:
-        json_sql = "SELECT json_build_object('ok', true)"
-    elif parsed_type in {"mysql", "dameng"}:
-        json_sql = "SELECT JSON_OBJECT('ok', true)"
-
-    probe_plan = [
-        ("connectivity", core_sql),
-        ("transaction", core_sql),
-        ("json", json_sql),
-    ]
-    trans = await conn.begin()
-    try:
-        for name, sql in probe_plan:
-            try:
-                await conn.execute(text(sql))
-                checks.append({"name": name, "ok": True, "detail": "通过"})
-            except Exception as e:
-                checks.append({"name": name, "ok": False, "detail": str(e)})
-                summary = "warn" if summary == "ok" else summary
-    finally:
-        await trans.rollback()
-
-    hint = vendor_hint(parsed_type)
-    return {
-        "database": parsed_type,
-        "summary": summary,
-        "checks": checks,
-        "vendor_hint": hint,
+def vendor_hint(db_type: str) -> str:
+    """Return a human-readable hint for the given database vendor."""
+    t = normalize_db_type(db_type)
+    hints = {
+        "sqlite": "SQLite: suitable for development; consider MySQL/PostgreSQL for production",
+        "mysql": "MySQL/MariaDB: ensure utf8mb4 charset and InnoDB engine",
+        "postgresql": "PostgreSQL: ensure the database user has CREATE/ALTER privileges",
     }
+    return hints.get(t, "")
+
+
+async def run_compat_checks(conn, db_type: str) -> dict[str, Any]:
+    """Run vendor-specific compatibility checks against ``conn``.
+
+    Returns a report dict with ``ok`` and a list of ``warnings``. Failures are
+    treated as warnings, never hard errors, so the platform can still start.
+    """
+    t = normalize_db_type(db_type)
+    report: dict[str, Any] = {"db_type": t, "ok": True, "warnings": []}
+    try:
+        if t == "sqlite":
+            result = await conn.execute(_text("PRAGMA journal_mode"))
+            row = result.first()
+            mode = row[0] if row else ""
+            if str(mode).lower() not in ("wal",):
+                report["warnings"].append(f"SQLite journal_mode is '{mode}', WAL recommended")
+        elif t == "mysql":
+            result = await conn.execute(_text("SELECT version()"))
+            row = result.first()
+            report["server_version"] = row[0] if row else "unknown"
+        elif t == "postgresql":
+            result = await conn.execute(_text("SELECT version()"))
+            row = result.first()
+            report["server_version"] = row[0] if row else "unknown"
+    except Exception as e:
+        report["ok"] = False
+        report["warnings"].append(f"compat check failed: {e}")
+        logger.debug(f"db_compat: run_compat_checks failed: {e}")
+    return report
+
+
+def _text(sql: str):
+    from sqlalchemy import text
+    return text(sql)

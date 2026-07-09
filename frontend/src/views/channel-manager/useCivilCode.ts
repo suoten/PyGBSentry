@@ -2,6 +2,8 @@ import { ref } from 'vue'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import { getFriendlyError } from '../../utils/errorMessage'
+import { logger } from '@/utils/logger'
+import i18n from '@/locales'
 
 export const provinceOptions = [
   { name: '北京', code: '11' }, { name: '天津', code: '12' }, { name: '河北', code: '13' }, { name: '山西', code: '14' }, { name: '内蒙古', code: '15' },
@@ -50,9 +52,9 @@ export function useCivilCode(deps: {
   const clearListBusinessFilter = () => { deps.filters.value.listBusinessParentGbId = ''; deps.filters.value.listBusinessParentLabel = ''; deps.page.value = 1; deps.loadChannels() }
 
   const applyCivilCode = async () => {
-    if (!String(deps.civilCodeForm.value.province || '').trim()) { ElMessage.warning('请先选择省份'); return }
-    if (!String(deps.civilCodeForm.value.city || '').trim()) { ElMessage.warning('请先选择或输入市级代码'); return }
-    if (!String(deps.civilCodeForm.value.district || '').trim()) { ElMessage.warning('请先选择或输入区县代码'); return }
+    if (!String(deps.civilCodeForm.value.province || '').trim()) { ElMessage.warning(i18n.global.t('civilCode.selectProvince')); return }
+    if (!String(deps.civilCodeForm.value.city || '').trim()) { ElMessage.warning(i18n.global.t('civilCode.selectCity')); return }
+    if (!String(deps.civilCodeForm.value.district || '').trim()) { ElMessage.warning(i18n.global.t('civilCode.selectDistrict')); return }
     const target = deps.civilPickerTarget.value
     const p = String(deps.civilCodeForm.value.province || '').replace(/\D/g, '').slice(0, 2).padStart(2, '0')
     const c = String(deps.civilCodeForm.value.city || '').replace(/\D/g, '').slice(0, 2).padStart(2, '0')
@@ -66,19 +68,19 @@ export function useCivilCode(deps: {
       deps.civilCodeDialogVisible.value = false; deps.page.value = 1; await deps.loadChannels(); return
     }
     if (target === 'batch_region') {
-      if (!deps.selectedChannels.value.length) { ElMessage.warning('请先勾选需要设置的通道'); return }
+      if (!deps.selectedChannels.value.length) { ElMessage.warning(i18n.global.t('civilCode.selectChannelsFirst')); return }
       const ids = deps.selectedChannels.value.map((c: Record<string, unknown>) => String(c?.id || '').trim()).filter(Boolean); if (!ids.length) return
       batchPlacementLoading.value = true
-      try { await api.post('/api/v1/devices/channels/batch-placement', { resource_ids: ids, placement: 'region', target_id: `region:${six}`, civil_code: six }); ElMessage.success('已批量设置行政区划'); deps.civilCodeDialogVisible.value = false; deps.selectedChannels.value = []; deps.clearTableSelection(); await Promise.all([deps.loadTree(), deps.loadChannels()]) } catch (e: unknown) { ElMessage.error(getFriendlyError(e).message) } finally { batchPlacementLoading.value = false }
+      try { await api.post('/api/v1/devices/channels/batch-placement', { resource_ids: ids, placement: 'region', target_id: `region:${six}`, civil_code: six }); ElMessage.success(i18n.global.t('civilCode.batchRegionSet')); deps.civilCodeDialogVisible.value = false; deps.selectedChannels.value = []; deps.clearTableSelection(); await Promise.all([deps.loadTree(), deps.loadChannels()]) } catch (e: unknown) { ElMessage.error(getFriendlyError(e).message) } finally { batchPlacementLoading.value = false }
       return
     }
-    if (!String(deps.civilCodeForm.value.suffix || '').trim()) { ElMessage.warning('请先输入末尾2位编号'); return }
+    if (!String(deps.civilCodeForm.value.suffix || '').trim()) { ElMessage.warning(i18n.global.t('civilCode.enterLastTwoDigits')); return }
     deps.createDirectoryForm.value.civil_code = six
     if (!String(deps.createDirectoryForm.value.gb_id || '').trim()) { const suffix = String(deps.civilCodeForm.value.suffix || '').replace(/\D/g, '').slice(0, 2).padStart(2, '0'); deps.createDirectoryForm.value.gb_id = `${six}${suffix}` }
     deps.civilCodeDialogVisible.value = false
   }
 
-  const loadSystemSipId = async () => { try { const res = await api.get('/api/v1/system-config/system-info'); deps.systemSipId.value = String(res.data?.sip_id || '').trim() } catch { deps.systemSipId.value = ''; console.warn('加载系统SIP ID失败') } }
+  const loadSystemSipId = async () => { try { const res = await api.get('/api/v1/system-config/system-info'); deps.systemSipId.value = String(res.data?.sip_id || '').trim() } catch { deps.systemSipId.value = ''; logger.warn('加载系统SIP ID失败') } }
 
   return { batchPlacementLoading, openListCivilFilterPicker, clearListCivilFilter, openListBusinessFilterPicker, clearListBusinessFilter, applyCivilCode, loadSystemSipId }
 }

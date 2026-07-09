@@ -1,45 +1,89 @@
+"""Role permission-code parsing helpers (RBAC).
+
+Roles store their granted permission codes in a single text column
+(``Role.permission_codes``). This module parses that text into a normalised
+set of lowercase permission codes, supporting several storage conventions:
+
+    * comma-separated:  ``"device.view,device.control,alarm.ack"``
+    * JSON array:       ``'["device.view","alarm.ack"]'``
+    * wildcard:         ``"*"``  (grants every permission)
+
+The ``role_code`` argument is used to expand a small set of legacy role names
+(owner / admin / operator) into their canonical permission codes for backward
+compatibility with deployments that predate fine-grained RBAC.
+"""
+from __future__ import annotations
+
 import json
 from typing import Iterable
+
 from loguru import logger
 
-DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "viewer": ["dashboard.view", "monitor.view", "channels.view"],
-    "operator": ["dashboard.view", "monitor.view", "channels.view", "records.view", "alarms.handle"],
-    "admin": ["dashboard.view", "monitor.view", "channels.view", "records.view", "alarms.handle", "devices.manage", "config.manage", "audit.view", "users.manage", "roles.manage"],
-    "owner": ["*"],
+# Wildcard token granting every permission.
+WILDCARD = "*"
+
+# Legacy role-name → permission-code expansion. Applied only when the role's
+# ``permission_codes`` column is empty, so explicit grants always take precedence.
+_LEGACY_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
+    "owner": (WILDCARD,),
+    "admin": (WILDCARD,),
+    "operator": (
+        "device.view", "device.control", "channel.view",
+        "record.view", "record.download", "alarm.view", "alarm.ack",
+        "ptz.control", "stream.play", "stream.playback",
+    ),
+    "viewer": ("device.view", "channel.view", "record.view", "alarm.view", "stream.play", "stream.playback"),
 }
 
 
-def normalize_permission_codes(codes: Iterable[str] | None) -> list[str]:
-    if not codes:
-        return []
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for item in codes:
-        code = str(item or "").strip().lower()
-        if not code:
-            continue
-        if code == "*":
-            return ["*"]
-        if code in seen:
-            continue
-        seen.add(code)
-        normalized.append(code)
-    return normalized
+def _normalize(code: str) -> str:
+    return (code or "").strip().lower()
 
 
-def serialize_permission_codes(codes: Iterable[str] | None) -> str:
-    return json.dumps(normalize_permission_codes(codes), ensure_ascii=False)
+def parse_permission_codes(raw: str | None, role_code: str | None = None) -> set[str]:
+    """Parse a role's permission-codes text into a normalised set.
 
+    Args:
+        raw:       The raw ``Role.permission_codes`` column value.
+        role_code: The role's code, used to expand legacy role names when
+                   ``raw`` is empty.
 
-def parse_permission_codes(raw: str | None, role_code: str = "") -> list[str]:
-    text = str(raw or "").strip()
-    if text:
+    Returns:
+        A set of lowercase permission codes. Contains ``"*"`` if the role has
+        wildcard access. Never raises — malformed JSON falls back to comma
+        parsing, and an all-empty result yields the empty set.
+    """
+    codes: set[str] = set()
+    text = (raw or "").strip()
+    if not text:
+        # Fall back to legacy role-name expansion.
+        legacy = _LEGACY_ROLE_PERMISSIONS.get((role_code or "").strip().lower(), ())
+        return set(legacy)
+
+    # Try JSON array first.
+    if text.startswith("["):
         try:
-            parsed = json.loads(text)
-            if isinstance(parsed, list):
-                return normalize_permission_codes(parsed)
-        except Exception as e:
-            logger.warning(f"Error: {e}")
-        return normalize_permission_codes(text.split(","))
-    return list(DEFAULT_ROLE_PERMISSIONS.get((role_code or "").lower(), []))
+            items = json.loads(text)
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, str):
+                        n = _normalize(item)
+                        if n:
+                            codes.add(n)
+                if codes:
+                    return codes
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.debug(f"parse_permission_codes: JSON parse failed ({e}), falling back to comma split")
+
+    # Comma-separated fallback.
+    for part in text.split(","):
+        n = _normalize(part)
+        if n:
+            codes.add(n)
+    return codes
+
+
+def has_permission(granted: Iterable[str], required: str) -> bool:
+    """Return ``True`` if ``required`` is granted (or wildcard is present)."""
+    granted_set = set(granted)
+    return WILDCARD in granted_set or _normalize(required) in granted_set

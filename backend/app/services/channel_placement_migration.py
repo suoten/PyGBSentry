@@ -1,86 +1,73 @@
-"""
-将历史上挂在行政区划侧的 parent_gb_id（region:* 或行政区目录下）迁移到 region_parent_gb_id，
-使业务分组(parent_gb_id)与行政区划(region_parent_gb_id)可独立挂载通道。
+"""通道挂载位置拆分迁移（一次性）。
+
+历史 schema 曾将「行政区域父级」与「通道父级」合并写入 ``resources.parent_gb_id``。
+新 schema 拆分为两个字段：
+
+- ``parent_gb_id``：通道父级国标 ID（20 位 GB28181 编码，指向另一个通道/设备）
+- ``region_parent_gb_id``：行政区域父级编码（行政区划 code，6~12 位数字）
+
+本迁移扫描所有 ``node_type='channel'`` 的 Resource，若 ``region_parent_gb_id`` 为空
+而 ``parent_gb_id`` 中存放的并非 20 位国标 ID（即疑似行政区域编码），则将其搬迁到
+``region_parent_gb_id`` 并清空 ``parent_gb_id``。
+
+幂等：仅当 ``region_parent_gb_id`` 为空时处理，迁移后该字段被填充，再次运行不会
+重复处理。永不抛异常。
 """
 from __future__ import annotations
 
+import re
+
 from loguru import logger
-from sqlalchemy import text  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.resource import Resource
+
+# GB28181 通道/设备国标 ID 为 20 位数字；行政区域编码通常 6~12 位数字。
+_GB_ID_20_RE = re.compile(r"^\d{20}$")
+
+
 async def ensure_split_channel_region_parents(db: AsyncSession) -> int:
-    total_r = await db.execute(text("SELECT COUNT(1) FROM resources"))
-    total = int(total_r.scalar() or 0)
-    if total == 0:
-        logger.info("Split migration skipped: resources table is empty")
-        return 0
+    """拆分通道的 region_parent_gb_id / parent_gb_id 字段。
 
-    logger.info("Split migration(channel) start, resources={}", total)
-    # 1) parent_gb_id 直接挂 region:* 的通道，直接迁移到 region_parent_gb_id
-    logger.info("Split migration(channel) phase-1 start")
-    r1 = await db.execute(
-        text(
-            """
-            UPDATE resources
-            SET region_parent_gb_id = parent_gb_id,
-                parent_gb_id = NULL
-            WHERE (node_type IS NULL OR lower(node_type) != 'directory')
-              AND parent_gb_id IS NOT NULL
-              AND trim(parent_gb_id) LIKE 'region:%'
-              AND (region_parent_gb_id IS NULL OR trim(region_parent_gb_id) = '')
-            """
-        )
-    )
-    changed_1 = int(getattr(r1, "rowcount", 0) or 0)
-    logger.info("Split migration(channel) phase-1 done, changed={}", changed_1)
-
-    # 2) parent_gb_id 指向“行政区目录”的通道：目录自身 parent_gb_id 为 region:*。
-    # 优先用 SQLite 3.33+ 的 UPDATE...FROM（比相关 EXISTS 全表嵌套更快）；老版本再回退。
-    logger.info("Split migration(channel) phase-2 start")
-    phase2_sql = """
-            UPDATE resources AS c
-            SET region_parent_gb_id = c.parent_gb_id,
-                parent_gb_id = NULL
-            FROM resources AS p
-            WHERE (c.node_type IS NULL OR lower(c.node_type) != 'directory')
-              AND c.parent_gb_id IS NOT NULL
-              AND (c.region_parent_gb_id IS NULL OR trim(c.region_parent_gb_id) = '')
-              AND p.gb_id = c.parent_gb_id
-              AND lower(COALESCE(p.node_type, '')) = 'directory'
-              AND p.parent_gb_id LIKE 'region:%'
-            """
+    返回被更新的行数。幂等、永不抛异常。
+    """
     try:
-        r2 = await db.execute(text(phase2_sql))
-        changed_2 = int(getattr(r2, "rowcount", 0) or 0)
-    except Exception as e:
-        logger.warning(
-            "Split migration(channel) phase-2 UPDATE FROM failed, fallback to EXISTS: {}",
-            e,
+        # 查找需要迁移的行：channel 节点，region_parent_gb_id 为空，
+        # parent_gb_id 非空且不是 20 位国标 ID（疑似行政区域编码）。
+        stmt = select(Resource).where(
+            Resource.node_type == "channel",
+            (Resource.region_parent_gb_id.is_(None))
+            | (Resource.region_parent_gb_id == ""),
+            Resource.parent_gb_id.isnot(None),
+            Resource.parent_gb_id != "",
         )
-        r2 = await db.execute(
-            text(
-                """
-                UPDATE resources AS c
-                SET region_parent_gb_id = c.parent_gb_id,
-                    parent_gb_id = NULL
-                WHERE (c.node_type IS NULL OR lower(c.node_type) != 'directory')
-                  AND c.parent_gb_id IS NOT NULL
-                  AND (c.region_parent_gb_id IS NULL OR trim(c.region_parent_gb_id) = '')
-                  AND EXISTS (
-                        SELECT 1
-                        FROM resources AS p
-                        WHERE p.gb_id = c.parent_gb_id
-                          AND lower(COALESCE(p.node_type, '')) = 'directory'
-                          AND p.parent_gb_id LIKE 'region:%'
-                  )
-                """
-            )
-        )
-        changed_2 = int(getattr(r2, "rowcount", 0) or 0)
-    logger.info("Split migration(channel) phase-2 done, changed={}", changed_2)
+        rows = (await db.execute(stmt)).scalars().all()
+        if not rows:
+            logger.info("channel_placement_migration: no-op (already applied / nothing to migrate)")
+            return 0
 
-    changed = changed_1 + changed_2
-    if changed:
-        await db.commit()
-        logger.info("Migrated {} channel(s) to region_parent_gb_id for split catalog placement", changed)
-    return changed
+        updated = 0
+        for res in rows:
+            parent_gb = str(res.parent_gb_id or "").strip()
+            if not parent_gb:
+                continue
+            # 20 位国标 ID 视为合法的通道父级，不迁移
+            if _GB_ID_20_RE.match(parent_gb):
+                continue
+            # 否则视为行政区域编码，搬迁到 region_parent_gb_id
+            res.region_parent_gb_id = parent_gb
+            res.parent_gb_id = None
+            updated += 1
+
+        if updated:
+            await db.commit()
+        logger.info("channel_placement_migration: split {} channel region parents", updated)
+        return updated
+    except Exception as e:
+        logger.warning("channel_placement_migration failed (non-fatal): {}", e)
+        try:
+            await db.rollback()
+        except Exception:
+            logger.warning("silently_swallowed_exception", exc_info=True)
+        return 0

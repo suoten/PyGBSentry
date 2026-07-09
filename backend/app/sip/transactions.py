@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 from app.sip.message import SipMessage
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 _VIA_BRANCH_RE = re.compile(r"(?:^|;)\s*branch=([^;]+)", re.IGNORECASE)
 _VIA_TRANSPORT_RE = re.compile(r"^\s*SIP/2\.0/([A-Za-z]+)\s+", re.IGNORECASE)
@@ -128,17 +129,17 @@ class SipServerTransactionManager:
                 else:
                     tx.state = "Completed"
                     # W-01 Non-INVITE server transaction Timer J — RFC 3261 Section 17.2.2
-                    # After entering Completed, start Timer J (default 64*T1 ≈ 32s) to transition to Terminated
+                    # After entering Completed, start Timer J (default 64*T1 = 64*0.5 = 32s) to transition to Terminated
                     if not is_invite:
                         self._start_timer_j_locked(key)
 
     # W-01 Non-INVITE server transaction Timer J — RFC 3261 Section 17.2.2
-    # Timer J fires after 64*T1 (default 32s), transitioning Completed -> Terminated and cleaning up.
+    # Timer J fires after 64*T1 (config SIP_TRANSACTION_T1_SECONDS default 0.5s → 32s), transitioning Completed -> Terminated.
     def _start_timer_j_locked(self, key: str, timeout: float | None = None):
         """Start Timer J — caller must hold self._lock."""
         if timeout is None:
-            t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", 1.0) or 1.0)
-            timeout = 64 * t1  # RFC 3261 default: 64*T1 ≈ 32s
+            t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", 0.5) or 0.5)
+            timeout = 64 * t1  # RFC 3261 default: 64*T1 = 64*0.5 = 32s
         tx = self._tx.get(key)
         if not tx:
             return
@@ -155,7 +156,7 @@ class SipServerTransactionManager:
                             for t in tx_j.timers:
                                 t.cancel()
                         logger.debug(f"[TimerJ] Non-INVITE transaction terminated after Timer J: key={key}")
-            asyncio.create_task(_async_on_timer_j())
+            fire_and_forget(_async_on_timer_j())  # P0-16: 保存引用防 GC + 异常日志
 
         handle = loop.call_later(timeout, _on_timer_j)
         if tx.timers is None:
@@ -213,7 +214,7 @@ class SipServerTransactionManager:
                             for t in tx_i.timers:
                                 t.cancel()
                         logger.debug(f"[TimerI] Transaction deleted after ACK retransmission wait: key={key}")
-            asyncio.create_task(_async_on_timer_i())
+            fire_and_forget(_async_on_timer_i())  # P0-16: 保存引用防 GC + 异常日志
 
         handle = loop.call_later(timeout, _on_timer_i)
         if tx.timers is None:
@@ -361,8 +362,7 @@ class SipClientTransactionManager:
                     tx.last_send_at = time.monotonic()
                 maybe = send_once()
                 if asyncio.iscoroutine(maybe):
-                    _t = asyncio.create_task(maybe)
-                    _t.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                    fire_and_forget(maybe)  # P0-16: 保存引用防 GC + 异常日志
 
             try:
                 await _fire_send()
@@ -373,7 +373,7 @@ class SipClientTransactionManager:
                         elapsed += delay
                         if elapsed >= timeout_seconds:
                             break
-                        timers.append(loop.call_later(elapsed, lambda: asyncio.create_task(_fire_send())))
+                        timers.append(loop.call_later(elapsed, lambda: fire_and_forget(_fire_send())))
                         delay = min(delay * 2.0, float(t2))
 
                 resp: SipMessage = await asyncio.wait_for(fut, timeout=timeout_seconds)
@@ -484,7 +484,7 @@ class SipClientTransactionManager:
         fut = loop.create_future()
         timers = []
         created_at = time.monotonic()
-        
+
         async with self._lock:
             old = self._tx.pop(key, None)
             if old:
@@ -497,7 +497,7 @@ class SipClientTransactionManager:
                 if not old.future.done():
                     old.future.cancel()
             self._tx[key] = SipClientTransaction(key=key, created_at=created_at, future=fut, timers=timers)
-            
+
         data = request.to_bytes()
         is_udp = proto.upper() == "UDP"
 
@@ -536,7 +536,7 @@ class SipClientTransactionManager:
                 timers.append(loop.call_later(elapsed, _do_send))
                 # T1, 2*T1, 4*T1 ... but max is T2
                 delay = min(delay * 2.0, t2)
-                
+
             # Cleanup timer (Timer B/F — 最终响应超时)
             def _cleanup():
                 async def _clean():
@@ -548,8 +548,7 @@ class SipClientTransactionManager:
                         # S-06 超时定时器已触发，无需再cancel自身
                         if tx and not tx.future.done():
                             tx.future.cancel()
-                _ct = asyncio.create_task(_clean())
-                _ct.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+                fire_and_forget(_clean())  # P0-16: 保存引用防 GC + 异常日志
 
             # S-06 将最终超时定时器(Timer B/F)存储在timeout_timer而非timers列表，
             # 以便1xx响应时只取消重传定时器而保留超时定时器

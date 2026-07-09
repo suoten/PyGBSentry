@@ -115,7 +115,7 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16  # DEVOPS: 与 docker-compose.yml 对齐（PG 16），避免 CI/生产环境差异
         env:
           POSTGRES_PASSWORD: test
           POSTGRES_DB: test_db
@@ -158,7 +158,8 @@ jobs:
           MEDIA_SERVER_SECRET: test-media-secret
           APP_ENV: test
         run: |
-          pytest tests/ -v --cov=app --cov-report=xml --cov-report=html --cov-fail-under=50 --ignore=tests/integration
+          # P2-25: 覆盖率门槛从 50% 提升至 70%，推动测试补齐
+          pytest tests/ -v --cov=app --cov-report=xml --cov-report=html --cov-fail-under=70 --ignore=tests/integration
 
       - name: Upload coverage
         uses: codecov/codecov-action@v4
@@ -166,6 +167,175 @@ jobs:
         with:
           files: ./backend/coverage.xml
           fail_ci_if_error: false
+
+  # P2-26: 集成测试 job — 运行 tests/integration 下的测试
+  # 与单元测试分离，允许独立失败。集成测试可能依赖外部服务（SIP 设备/流媒体等），
+  # 在 CI 环境中可能无法全部通过，故设为 allow-failure（warning 而非阻断）。
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [test]
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16  # DEVOPS: 与 docker-compose.yml 对齐（PG 16），避免 CI/生产环境差异
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov pytest-mock httpx
+
+      - name: Run integration tests
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/test_db
+          REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: test-secret-key-for-ci
+          MEDIA_SERVER_SECRET: test-media-secret
+          APP_ENV: test
+        run: |
+          # P2-26: 集成测试允许失败（continue-on-error），结果仅作参考
+          pytest tests/integration/ -v --tb=short || echo "::warning::Integration tests failed (non-blocking)"
+
+      - name: Upload integration test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-test-results
+          path: backend/coverage.xml
+          retention-days: 7
+          if-no-files-found: ignore
+
+  migration:
+    name: DB Migration Round-Trip
+    runs-on: ubuntu-latest
+    needs: [lint]
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16  # DEVOPS: 与 docker-compose.yml 对齐（PG 16），避免 CI/生产环境差异
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install alembic asyncpg
+
+      - name: Apply migrations (upgrade head)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/test_db
+          SECRET_KEY: test-secret-key-for-ci
+          MEDIA_SERVER_SECRET: test-media-secret
+          APP_ENV: test
+        run: |
+          alembic upgrade head
+
+      - name: Rollback last migration (downgrade -1)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/test_db
+          SECRET_KEY: test-secret-key-for-ci
+          MEDIA_SERVER_SECRET: test-media-secret
+          APP_ENV: test
+        run: |
+          alembic downgrade -1
+
+      - name: Re-apply migrations (upgrade head)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:test@localhost:5432/test_db
+          SECRET_KEY: test-secret-key-for-ci
+          MEDIA_SERVER_SECRET: test-media-secret
+          APP_ENV: test
+        run: |
+          alembic upgrade head
+
+  frontend-test:
+    name: Frontend Unit Tests
+    runs-on: ubuntu-latest
+    needs: [frontend-lint]
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+        id: pnpm-cache
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'Linux' && env.STORE_PATH || '~/.pnpm-store' }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run unit tests
+        run: pnpm test
 
   frontend-lint:
     name: Frontend Lint & TypeCheck
@@ -207,7 +377,7 @@ jobs:
         run: pnpm lint
 
       - name: Run TypeCheck
-        run: pnpm typecheck || true
+        run: pnpm typecheck
 
   build-frontend:
     name: Build Frontend
@@ -268,13 +438,13 @@ jobs:
         run: npm ci
 
       - name: TypeCheck
-        run: npm run typecheck || true
+        run: npm run typecheck
 
       - name: Build H5
         run: npm run build:h5
 
   docker:
-    needs: [lint, test]
+    needs: [lint, test, migration, frontend-test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
@@ -312,3 +482,101 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: P1-47: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository }}:latest
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # P1-37: pip-audit 依赖安全审计
+  pip-audit:
+    name: Python Dependency Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: pip-audit -r requirements.txt --ignore-vuln GHSA-XXXX  # placeholder for known false positives
+
+  # P1-40: 前端依赖安全审计
+  pnpm-audit:
+    name: Frontend Dependency Audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run pnpm audit
+        run: pnpm audit --audit-level=high || true  # P1-40: 高危漏洞告警，暂不阻断（需逐步修复）
+
+  # P1-45: 配置安全强校验 + 系统全面检查
+  config-security:
+    name: Config Security & System Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Run scan_config_security --strict
+        run: |
+          cd ..
+          # --env-file 指向真实 .env（CI 中通常不存在，脚本会跳过）
+          # 脚本会自动扫描 backend/.env.example / .env.dev.example / .env.prod.example
+          # 严格模式下：示例文件中使用 CHANGE_ME_* / YOUR_* 占位符可通过；真实密钥会失败
+          python tools/scan_config_security.py --strict --root . --env-file backend/.env
+
+      - name: Run system_check (generate report)
+        run: |
+          cd ..
+          python tools/system_check/run_check.py --edition open-source --format markdown --output system_check_report.md
+
+      - name: Upload system check report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: system-check-report
+          path: system_check_report.md
+          retention-days: 30

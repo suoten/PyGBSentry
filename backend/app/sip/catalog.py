@@ -4,27 +4,23 @@ GB28181 设备目录查询模块
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_host_for_contact
-from app.sip.trace_events import should_warn_unknown_event_once
+from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from app.core.xml_utils import parse_xml, get_xml_text, find_child, find_children
 from app.db.session import AsyncSessionLocal
 from app.models.asset import Asset
 from app.models.platform import ParentPlatform
 from app.models.resource import Resource
 from app.services.commercial_guard import check_channel_quota
-from app.services.sip_trace_store import schedule_store_sip_trace
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
 from app.sip.catalog_runtime import patch_device_catalog_runtime, utc_now_iso
 from app.sip.send import send_sip_bytes
-from app.sip.catalog_data_manager import catalog_data_manager
 import secrets
 from sqlalchemy import select, delete
 from app.core.redis import redis_client
 from loguru import logger  # 统一使用 loguru 替代 logging
-import random
-import time
-import string
 import asyncio
 import json
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 
 _catalog_agg: dict[tuple[str, str], dict] = {}
@@ -48,7 +44,7 @@ async def _catalog_agg_prune_loop():
                 if expired:
                     logger.debug(f"Catalog aggregation prune: removed {len(expired)} stale entries, remaining={len(_catalog_agg)}")
         except Exception as e:
-            logger.debug(f"Catalog aggregation prune error: {e}")
+            logger.warning(f"Catalog aggregation prune error: {e}")
 
 
 def start_catalog_agg_prune():
@@ -63,7 +59,7 @@ def _attach_trace_header(req: SipMessage) -> None:
         req.headers["X-Trace-ID"] = call_id
 
 
-from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log, sip_trace_log as _sip_trace_log
+from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 
 
 class Catalog:
@@ -76,10 +72,10 @@ class Catalog:
         """Send device catalog query (Catalog)."""
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         # Generate SN (Serial Number)
-        sn = secrets.randbelow(900000) + 100000
-        
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
+
         # Build XML body for Catalog query
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
@@ -88,32 +84,32 @@ class Catalog:
 <DeviceID>{_xml_escape(device_id)}</DeviceID>
 </Query>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_catalog@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
-        
+
         # Send
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent CATALOG query to {device_id}, SN={sn}")
         _sip_trace_log(
@@ -124,7 +120,7 @@ class Catalog:
             proto=proto,
             addr=str(addr),
         )
-        
+
         return str(sn)
 
     async def send_device_info_query(self, asset, transport_info: tuple) -> str:
@@ -140,9 +136,9 @@ class Catalog:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
-        sn = secrets.randbelow(900000) + 100000
-        
+
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
 <CmdType>DeviceInfo</CmdType>
@@ -150,31 +146,31 @@ class Catalog:
 <DeviceID>{_xml_escape(device_id)}</DeviceID>
 </Query>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_deviceinfo@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent DEVICEINFO query to {device_id}, SN={sn}")
         _sip_trace_log(
@@ -185,7 +181,7 @@ class Catalog:
             proto=proto,
             addr=str(addr),
         )
-        
+
         return str(sn)
 
     async def send_device_status_query(self, asset, transport_info: tuple) -> str:
@@ -201,9 +197,9 @@ class Catalog:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
-        sn = secrets.randbelow(900000) + 100000
-        
+
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
 <CmdType>DeviceStatus</CmdType>
@@ -211,31 +207,31 @@ class Catalog:
 <DeviceID>{_xml_escape(device_id)}</DeviceID>
 </Query>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_devicestatus@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent DEVICESTATUS query to {device_id}, SN={sn}")
         _sip_trace_log(
@@ -246,7 +242,7 @@ class Catalog:
             proto=proto,
             addr=str(addr),
         )
-        
+
         return str(sn)
 
 
@@ -290,14 +286,14 @@ async def handle_catalog_response(xml_body: str, device_id: str):
 
     item_nodes = find_children(device_list, "Item")
     item_count = len(item_nodes)
-    
+
     # 提取本次收到的项?dict
     items_data = []
     for item in item_nodes:
         channel_id = (get_xml_text(item, "DeviceID") or "").strip()  # None.strip()空指针异常防护
         ptz_type_str = get_xml_text(item, "PTZType")
         video_opt_mask_str = get_xml_text(item, "VideoOptMask")
-        
+
         # 解析视频能力：VideoOptMask bit0 表示是否有视频
         # 0 = 无视频能力，> 0 = 有视频能力
         # W-18 VideoOptMask为空时has_video默认False，避免音频通道被误标为视频通道
@@ -305,12 +301,12 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         if video_opt_mask_str and video_opt_mask_str.isdigit():
             mask_val = int(video_opt_mask_str)
             has_video = mask_val > 0
-        
+
         # 通道类型推断：PTZType > 0 ?摄像头；Parental > 0 ?目录
         ptz_type = int(ptz_type_str) if ptz_type_str and ptz_type_str.isdigit() else 0
         parental_str = get_xml_text(item, "Parental")
         parental = int(parental_str) if parental_str and parental_str.isdigit() else 0
-        
+
         channel_type = 1  # 默认摄像头
         if parental > 0:
             channel_type = 0  # 目录/分组
@@ -318,7 +314,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             channel_type = 3  # 音频通道（无云台也无视频）
         elif not has_video:
             channel_type = 3  # 无视频能力，音频
-        
+
         items_data.append({
             "channel_id": channel_id,
             "name": (get_xml_text(item, "Name") or "").strip(),  # None.strip()空指针异常防护
@@ -356,20 +352,51 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             json_items = [json.dumps(it, ensure_ascii=False) for it in items_data]
             # Redis 操作添加 try-except，避免 Redis 不可用时整个 catalog 同步失败
             try:
-                await redis_client.rpush(redis_key, *json_items)
-                await redis_client.expire(redis_key, 600)
+                # R24-06: 使用 pipeline 保证 RPUSH + EXPIRE 原子性
+                pipe = redis_client.pipeline()
+                pipe.rpush(redis_key, *json_items)
+                pipe.expire(redis_key, 600)
+                await pipe.execute()
             except Exception as e:
                 logger.warning(f"Redis rpush/expire failed for catalog {device_id}: {e}")
 
-        # 获取目前总数
+        # R24-06: 使用 Lua 脚本原子化 LLEN + LRANGE + DELETE，消除 TOCTOU 竞态
+        # 之前：LLEN → LRANGE → DELETE 三步非原子，并发分片可能导致双重处理或数据丢失
+        # 现在：Lua 脚本在 Redis 服务端原子执行，返回 nil 表示未完成，返回 list 表示完成
+        _CATALOG_AGG_LUA = """
+        local n = redis.call('LLEN', KEYS[1])
+        if n < tonumber(ARGV[1]) then
+            return nil
+        end
+        local items = redis.call('LRANGE', KEYS[1], 0, -1)
+        redis.call('DEL', KEYS[1])
+        return items
+        """
         try:
-            received_total = await redis_client.llen(redis_key)
+            lua_result = await redis_client.eval(
+                _CATALOG_AGG_LUA, 1, redis_key, _total_sum_effective
+            )
         except Exception as e:
-            logger.warning(f"Redis llen failed for catalog {device_id}: {e}")
-            received_total = len(all_items)
+            logger.warning(f"Redis Lua catalog agg failed for {device_id}: {e}")
+            # R24-06: Redis 失败时设置为 error 状态，不再静默继续到 "synced"
+            await patch_device_catalog_runtime(
+                device_id,
+                {
+                    "catalog.last_response_at": utc_now_iso(),
+                    "catalog.last_sn": str(sn or ""),
+                    "catalog.last_error": f"redis_agg_failed: {e}",
+                    "catalog.sync_state": "error",
+                    "catalog.progress": 0,
+                },
+            )
+            return
 
-        if received_total < _total_sum_effective:
-            # 尚未收集完毕，仅更新进度
+        if lua_result is None:
+            # 尚未收集完毕 — 使用 LLEN 更新进度
+            try:
+                received_total = await redis_client.llen(redis_key)
+            except Exception:
+                received_total = len(all_items)
             await patch_device_catalog_runtime(
                 device_id,
                 {
@@ -386,24 +413,17 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             logger.info(f"Catalog fragment aggregated for {device_id} SN={sn}, progress: {received_total}/{_total_sum_effective}")
             return
 
-        # all_raw was undefined - restored lrange call with try-except
-        try:
-            all_raw = await redis_client.lrange(redis_key, 0, -1)
-        except Exception as e:
-            logger.warning(f"Redis lrange failed for catalog {device_id}: {e}")
-            all_raw = []
+        # R24-06: Lua 脚本成功返回所有分片数据（list 类型）
         all_items = []
-        for raw in all_raw:
+        for raw in lua_result:
             try:
-                all_items.append(json.loads(raw))
+                raw_str = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                all_items.append(json.loads(raw_str))
             except Exception as e:
                 logger.warning(f"Failed to parse catalog item JSON: {e}")
 
-        # 处理完毕后删除键
-        try:
-            await redis_client.delete(redis_key)
-        except Exception as e:
-            logger.warning(f"Redis delete failed for catalog {device_id}: {e}")
+        # received_total 用于后续 cleanup 判断
+        received_total = len(all_items)
 
     # ?Redis 时的内存备用方案（分片聚合）
     elif sn and _total_sum_effective > 0:
@@ -466,7 +486,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                 gb_id=device_id,
                 name=f"Platform_{device_id}",
                 tenant_id=platform.tenant_id or "default",
-                password=platform.password or "",
+                decrypted_password=platform.decrypted_password or "",
                 domain=settings.SIP_DOMAIN,
                 transport=(platform.transport or "UDP"),
                 ip_addr=platform.server_ip,
@@ -498,9 +518,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             channel_id = item.get("channel_id")
             if not channel_id:
                 continue
-                
+
             seen_ids.add(channel_id)
-            
+
             name = item.get("name")
             status = item.get("status")
             civil_code = item.get("civil_code")
@@ -510,12 +530,12 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             longitude = item.get("longitude")
             latitude = item.get("latitude")
             has_video = item.get("has_video", False)  # R-06 与解析阶段默认值一致，VideoOptMask为空时默认无视频
-            
+
             ptz_type = None
             if ptz_type_str and ptz_type_str.isdigit():
                 ptz_type = int(ptz_type_str)
             is_online = 1 if status == "ON" else 0
-            
+
             # 通道类型映射?=目录, 1=摄像? 2=报警, 3=音频
             if channel_type == 0:
                 node_type = "directory"
@@ -530,7 +550,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                 lat_f = None
 
             resource = existing_resources.get(channel_id)
-            
+
             # 构建 capabilities 字段：包含 has_video、default_stream_type
             caps = {}  # caps={} was inside comment line
             existing_caps = {}
@@ -586,8 +606,8 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                 if lat_f is not None:
                     resource.latitude = lat_f
 
-        await session.commit()
-
+        # R24-06: 事务边界修复 — 将 upsert 和 cleanup 合并到单次 commit，
+        # 保证 Resource 新增/更新与过期 Resource 删除是原子的，避免半同步状态
         # 触发清理条件：如果这是一次完整的同步 (总数明确且收集完毕，或者为单条响应)
         if (_total_sum_effective > 0 and received_total >= _total_sum_effective) or (_total_sum_effective <= 0) or (not sn):
             if seen_ids:
@@ -601,8 +621,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                 for batch_start in range(0, len(ids_to_delete), _BATCH_SIZE):
                     batch = ids_to_delete[batch_start:batch_start + _BATCH_SIZE]
                     await session.execute(delete(Resource).where(Resource.id.in_(batch)))
-                await session.commit()
                 logger.info(f"Cleaned up removed resources for device {device_id}, sync complete")
+
+        await session.commit()
 
         await patch_device_catalog_runtime(
             device_id,

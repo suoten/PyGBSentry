@@ -11,7 +11,17 @@
     "esModuleInterop": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    // P2-12: 启用安全的严格选项（增量错误 ≤ 2，可接受）
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
+    // P2-12: 以下选项评估后跳过（增量错误过多，留待后续迭代）：
+    //   noUnusedLocals + noUnusedParameters → +652 错误（104 TS6133 + 级联）
+    //   noUncheckedIndexedAccess → +114 错误（11 TS18048 + 级联）
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue", "src/**/*.d.ts"]
 }

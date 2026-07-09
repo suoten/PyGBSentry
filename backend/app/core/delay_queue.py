@@ -1,49 +1,55 @@
-"""简单延时队列：在指定延迟后执行异步任务，用于级联目录推送等定时任务。"""
+"""Bounded delay queue for deferred coroutine execution.
+
+:func:`run_after` schedules a coroutine to run after ``delay`` seconds using
+:func:`asyncio.ensure_future`. The task reference is retained to prevent GC
+and exceptions are logged via a done-callback. This is used by platform
+catalog push pacing and stream-strategy backoff timers.
+"""
+from __future__ import annotations
+
 import asyncio
+from typing import Awaitable
+
 from loguru import logger
-from typing import Coroutine, Any
+
+_pending: set[asyncio.Task] = set()
 
 
-# W-23 延时任务追踪字典，支持按 key 取消任务
-_pending_tasks: dict[str, asyncio.Task] = {}
+def run_after(delay: float, coro: Awaitable) -> asyncio.Task | None:
+    """Schedule ``coro`` to run after ``delay`` seconds.
 
-
-def run_after(delay_seconds: float, coro: Coroutine[Any, Any, Any], key: str | None = None) -> asyncio.Task:
-    """在 delay_seconds 秒后执行 coro，返回 asyncio.Task。
-
-    Args:
-        delay_seconds: 延迟秒数
-        coro: 要执行的协程
-        key: 可选的任务标识，提供后可通过 cancel_delayed(key) 取消任务
+    Safe to call from a running loop. Returns the created task (or ``None``
+    when no loop is running, in which case the coroutine is closed).
     """
-    async def _run():
-        await asyncio.sleep(delay_seconds)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — close the coroutine to avoid "never awaited" warning.
         try:
-            await coro
-        except asyncio.CancelledError:
-            raise
+            coro.close()  # type: ignore[attr-defined]
         except Exception as e:
-            logger.exception("Delay queue task failed: %s", e)
-        finally:
-            if key is not None:
-                _pending_tasks.pop(key, None)
+            logger.debug(f"delay_queue: failed to close coroutine: {e}")
+        logger.debug("delay_queue: run_after called with no running loop; dropped")
+        return None
 
-    task = asyncio.create_task(_run())
-    if key is not None:
-        # 如果已有同 key 的旧任务，先取消
-        old_task = _pending_tasks.pop(key, None)
-        if old_task and not old_task.done():
-            old_task.cancel()
-        _pending_tasks[key] = task
+    async def _runner() -> None:
+        """Internal helper:  runner."""
+        try:
+            if delay > 0:
+                await asyncio.sleep(delay)
+            await coro
+        except Exception as e:
+            logger.warning(f"delay_queue: deferred task failed: {e}")
+
+    task = loop.create_task(_runner())
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
     return task
 
 
-def cancel_delayed(key: str) -> bool:
-    """取消指定 key 的延时任务。返回 True 表示成功取消，False 表示任务不存在或已完成。"""
-    task = _pending_tasks.pop(key, None)
-    if task is None:
-        return False
-    if not task.done():
-        task.cancel()
-        return True
-    return False
+def cancel_all() -> None:
+    """Cancel all pending delayed tasks (called on shutdown)."""
+    for t in list(_pending):
+        if not t.done():
+            t.cancel()
+    _pending.clear()

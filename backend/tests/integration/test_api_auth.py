@@ -7,14 +7,14 @@ from httpx import AsyncClient
 @pytest.mark.asyncio
 async def test_login_missing_fields(client: AsyncClient):
     """Test login with missing fields returns 422."""
-    response = await client.post("/api/v1/login", json={})
+    response = await client.post("/api/v1/login/access-token", json={})
     assert response.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_login_invalid_credentials(client: AsyncClient):
     """Test login with invalid credentials returns 401."""
-    response = await client.post("/api/v1/login", json={
+    response = await client.post("/api/v1/login/access-token", json={
         "username": "nonexistent_user",
         "password": "wrong_password",
     })

@@ -1,7 +1,8 @@
-from sqlalchemy import Column, String, Integer, Float, ForeignKey, Boolean, JSON, DateTime
+import uuid
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, ForeignKey, JSON
 from sqlalchemy.sql import func
 from app.db.base import Base
-import uuid
+from app.core.field_crypto import encrypt_field, decrypt_field
 
 try:
     from uuid7 import uuid7 as _uuid7_impl
@@ -11,13 +12,21 @@ except ImportError:
 def generate_uuid():
     return _uuid7_impl().hex
 
+
 class Resource(Base):
+    """资源/通道模型（GB28181 通道目录）。
+
+    一个 ``Asset`` 可包含多个 ``Resource``（通道）。``asset_id`` 允许为 NULL，
+    以支持「目录节点」（无物理设备的逻辑分组节点，见 schema_upgrade 迁移说明）。
+    ``node_type`` 区分通道与目录节点：channel / directory。
+    """
+
     __tablename__ = "resources"
 
     id = Column(String(32), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), default="default", index=True)
-    # directory 节点在“选2：完全不依赖设备”模式下允许不落到任何 Asset 上。
-    # channel 节点仍然会携带 asset_id，用于关联设备与鉴权/设备信息展示。
+
+    # asset_id 允许为 NULL：目录节点不依赖物理设备
     asset_id = Column(String(32), ForeignKey("assets.id"), nullable=True, index=True)
 
     gb_id = Column(String(20), index=True, comment="通道国标ID")
@@ -26,9 +35,8 @@ class Resource(Base):
     # Type: 1=Camera, 2=Alarm, 3=Audio
     type = Column(Integer, default=1)
 
-    # State
-    status = Column(Integer, default=1, comment="1: ON, 0: OFF")
-    has_audio = Column(Boolean, default=True, comment="通道是否含音频，用于播放与对讲")
+    # State: 1=ON, 0=OFF
+    status = Column(Integer, default=1, index=True)
 
     # GIS
     longitude = Column(Float)
@@ -37,32 +45,52 @@ class Resource(Base):
     # Capabilities (PTZ support, resolution, etc.)
     capabilities = Column(JSON, default=dict)
 
+    # 目录树结构
     parent_id = Column(String(32), ForeignKey("resources.id"), nullable=True)
-    # 业务分组树挂载父节点（根/目录国标 ID）；与行政区划挂载互相独立
-    parent_gb_id = Column(String(20), index=True)
-    # 行政区划树挂载父节点（region:xxxxxx、region:root 或行政区下目录的 gb_id）
-    region_parent_gb_id = Column(String(64), index=True)
-    civil_code = Column(String(16), index=True)
+    parent_gb_id = Column(String(20), nullable=True, index=True)
+    civil_code = Column(String(16), nullable=True, index=True, comment="行政区划编码")
     node_type = Column(String(16), default="channel", index=True)
-    numeric_channel_id = Column(Integer, index=True, nullable=True, comment="numeric channel ID for fast lookup")
+    region_parent_gb_id = Column(String(64), nullable=True, index=True)
 
-    # GB28181 Extended Info
-    address = Column(String(255), comment="安装地址")
-    parental = Column(Integer, default=0, comment="是否有子设备: 0-无, 1-有")
-    safety_way = Column(Integer, default=0, comment="安全模式")
-    register_way = Column(Integer, default=1, comment="注册方式")
-    secrecy = Column(Integer, default=0, comment="保密属性: 0-不涉密, 1-涉密")
-    ip_address = Column(String(64), comment="通道IP")
-    port = Column(Integer, comment="通道端口")
-    password = Column(String(64), comment="通道密码")
-    ptz_type = Column(Integer, default=0, comment="PTZ类型: 0-未知, 1-球机, 2-半球, 3-固定枪机, 4-遥控枪机")
-    position_type = Column(Integer, default=0, comment="安装位置: 0-未知, 1-室内, 2-室外")
-    room_type = Column(Integer, default=0, comment="房间类型")
-    use_type = Column(Integer, default=0, comment="用途类型")
-    supply_light_type = Column(Integer, default=0, comment="补光类型")
-    direction_type = Column(Integer, default=0, comment="摄像机方向")
-    resolution = Column(String(32), comment="分辨率")
-    business_group_id = Column(String(64), comment="业务组ID")
+    # GB28181 Extended Fields
+    address = Column(String(255), nullable=True)
+    parental = Column(Integer, default=0)
+    safety_way = Column(Integer, default=0)
+    register_way = Column(Integer, default=1)
+    secrecy = Column(Integer, default=0)
+    ip_address = Column(String(64), nullable=True)
+    port = Column(Integer, nullable=True)
+    password = Column(String(255), nullable=True, comment="通道密码（AES-256-GCM 密文，base64 编码）")
 
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    @property
+    def decrypted_password(self) -> str | None:
+        """解密后的明文密码，供 SIP Digest 计算等需要明文的场景使用。
+
+        ``password`` 列始终为密文；本属性读取时解密、赋值时加密，实现对调用方
+        透明的字段级加解密。解密失败返回 None（fail-closed）。
+        """
+        if not self.password:
+            return None
+        return decrypt_field(self.password, purpose="sip_password")
+
+    @decrypted_password.setter
+    def decrypted_password(self, plaintext: str | None) -> None:
+        """赋值明文密码时自动加密后写入 ``password`` 列。"""
+        if not plaintext:
+            self.password = None
+            return
+        self.password = encrypt_field(plaintext, purpose="sip_password")
+    ptz_type = Column(Integer, default=0)
+    position_type = Column(Integer, default=0)
+    room_type = Column(Integer, default=0)
+    use_type = Column(Integer, default=0)
+    supply_light_type = Column(Integer, default=0)
+    direction_type = Column(Integer, default=0)
+    resolution = Column(String(32), nullable=True)
+    business_group_id = Column(String(64), nullable=True)
+    has_audio = Column(Boolean, default=True)
+    # 预计算的 SHA256 整数，用于通道快速查找
+    numeric_channel_id = Column(Integer, nullable=True, index=True)
+
+    created_at = Column(DateTime, default=func.now(), index=True)
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)

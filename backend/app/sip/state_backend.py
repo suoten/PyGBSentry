@@ -15,23 +15,39 @@ class SipStateBackend(Protocol):
     async def check_nonce_nc(self, user: str, nonce: str, nc: int) -> bool: ...
     async def record_auth_failure(self, ip: str) -> int: ...
     async def clear_auth_failure(self, ip: str) -> None: ...
+    async def cleanup_auth_failures(self) -> int: ...
     async def check_register_renewal(self, gb_id: str, call_id: str) -> bool: ...
     async def record_register_call_id(self, gb_id: str, call_id: str, ttl: int = 3660) -> None: ...
 
 
 class LocalSipStateBackend:
     def __init__(self):
+        # P2-6: 硬编码上限配置化 — 通过 settings 覆盖默认值
+        try:
+            from app.core.config import settings
+            _ssrc_waiters_max = int(getattr(settings, "SIP_SSRC_WAITERS_MAX_SIZE", 5000) or 5000)
+            _nonce_nc_max = int(getattr(settings, "SIP_NONCE_NC_MAX_SIZE", 10000) or 10000)
+            _nonce_nc_ttl = int(getattr(settings, "SIP_NONCE_NC_TTL_SECONDS", 300) or 300)
+            _auth_failure_max = int(getattr(settings, "SIP_AUTH_FAILURE_MAX_SIZE", 5000) or 5000)
+        except Exception:
+            _ssrc_waiters_max = 5000
+            _nonce_nc_max = 10000
+            _nonce_nc_ttl = 300
+            _auth_failure_max = 5000
+
         self._ssrc_waiters: dict[str, asyncio.Event] = {}
         self._ssrc_waiters_lock = asyncio.Lock()
-        self._ssrc_waiters_max_size = 5000
+        self._ssrc_waiters_max_size = _ssrc_waiters_max
         self._invite_rate_buckets: dict[str, list[float]] = {}
         self._invite_rate_lock = asyncio.Lock()
         self._nonce_nc_tracker: dict[tuple[str, str], tuple[int, float]] = {}
-        self._nonce_nc_max_size = 10000
-        self._nonce_nc_ttl = 300
+        self._nonce_nc_max_size = _nonce_nc_max
+        self._nonce_nc_ttl = _nonce_nc_ttl
         self._auth_failure_tracker: dict[str, list[float]] = {}
+        # FIX-LEAK: 使用 asyncio.Lock 保护 _auth_failure_tracker 并发访问，消除竞态条件
+        self._auth_failure_lock = asyncio.Lock()
         self._auth_failure_ttl = 300
-        self._auth_failure_max_size = 5000
+        self._auth_failure_max_size = _auth_failure_max
         self._register_call_ids: dict[str, str] = {}
         self._register_call_ids_ts: dict[str, float] = {}  # 记录call_id写入时间戳，支持TTL过期
 
@@ -128,20 +144,58 @@ class LocalSipStateBackend:
         return True
 
     async def record_auth_failure(self, ip: str) -> int:
+        # FIX-LEAK: 所有 _auth_failure_tracker 读写操作在 _auth_failure_lock 保护下完成，
+        # 消除并发场景下 list[float] 追加/过滤/弹出导致的竞态条件
         now = time.time()
         key = str(ip or "")
-        if key not in self._auth_failure_tracker:
-            self._auth_failure_tracker[key] = []
-        self._auth_failure_tracker[key] = [t for t in self._auth_failure_tracker[key] if now - t < self._auth_failure_ttl]
-        self._auth_failure_tracker[key].append(now)
-        if len(self._auth_failure_tracker) > self._auth_failure_max_size:
-            sorted_ips = sorted(self._auth_failure_tracker.items(), key=lambda x: min(x[1]) if x[1] else now)
-            for ip_key, _ in sorted_ips[:len(self._auth_failure_tracker) - self._auth_failure_max_size + 100]:
-                self._auth_failure_tracker.pop(ip_key, None)
-        return len(self._auth_failure_tracker[key])
+        async with self._auth_failure_lock:
+            if key not in self._auth_failure_tracker:
+                self._auth_failure_tracker[key] = []
+            self._auth_failure_tracker[key] = [t for t in self._auth_failure_tracker[key] if now - t < self._auth_failure_ttl]
+            self._auth_failure_tracker[key].append(now)
+            # 容量超限时触发清理：移除最旧的 IP 记录，并清理空列表条目
+            # 注意：排除当前 key，避免清理掉刚插入的记录导致返回时 KeyError
+            if len(self._auth_failure_tracker) > self._auth_failure_max_size:
+                other_items = [
+                    (k, min(v) if v else now)
+                    for k, v in self._auth_failure_tracker.items()
+                    if k != key
+                ]
+                other_items.sort(key=lambda x: x[1])
+                to_remove = len(self._auth_failure_tracker) - self._auth_failure_max_size + 100
+                for ip_key, _ in other_items[:to_remove]:
+                    self._auth_failure_tracker.pop(ip_key, None)
+                # 顺便清理因过滤而过期的空 IP 列表，防止字典条目泄漏
+                empty_keys = [k for k, v in self._auth_failure_tracker.items() if not v and k != key]
+                for k in empty_keys:
+                    self._auth_failure_tracker.pop(k, None)
+            return len(self._auth_failure_tracker[key])
 
     async def clear_auth_failure(self, ip: str) -> None:
-        self._auth_failure_tracker.pop(str(ip or ""), None)
+        # FIX-LEAK: 加锁保护，避免与 record_auth_failure 并发写入竞态
+        async with self._auth_failure_lock:
+            self._auth_failure_tracker.pop(str(ip or ""), None)
+
+    async def cleanup_auth_failures(self) -> int:
+        """FIX-LEAK: 定期清理过期的鉴权失败记录，防止 _auth_failure_tracker 字典无限增长。
+        返回被清理的 IP 条目数。"""
+        now = time.time()
+        async with self._auth_failure_lock:
+            expired_keys: list[str] = []
+            empty_keys: list[str] = []
+            for ip_key, timestamps in self._auth_failure_tracker.items():
+                if not timestamps:
+                    empty_keys.append(ip_key)
+                    continue
+                # 仅保留 TTL 内的失败记录
+                fresh = [t for t in timestamps if now - t < self._auth_failure_ttl]
+                if fresh:
+                    self._auth_failure_tracker[ip_key] = fresh
+                else:
+                    expired_keys.append(ip_key)
+            for k in expired_keys + empty_keys:
+                self._auth_failure_tracker.pop(k, None)
+            return len(expired_keys) + len(empty_keys)
 
     async def check_register_renewal(self, gb_id: str, call_id: str) -> bool:
         key = str(gb_id or "")

@@ -2,19 +2,19 @@
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader title="工作台" description="关键指标概览与实时告警">
+        <PageHeader :title="t('dashboard.headerTitle')" :description="t('dashboard.description')">
           <template #actions>
             <el-button @click="openSystemInfoDialog" class="action-btn system-info-btn">
               <el-icon class="mr-1"><InfoFilled /></el-icon>
-              平台信息
+              {{ t('dashboard.platformInfo') }}
             </el-button>
             <el-button type="primary" @click="$router.push('/monitor')" class="action-btn monitor-btn">
               <el-icon class="mr-1"><Monitor /></el-icon>
-              监控中心
+              {{ t('dashboard.monitorCenter') }}
             </el-button>
             <el-button @click="$router.push('/devices')" class="action-btn devices-btn">
               <el-icon class="mr-1"><Box /></el-icon>
-              设备列表
+              {{ t('dashboard.deviceList') }}
             </el-button>
           </template>
         </PageHeader>
@@ -22,16 +22,16 @@
 
     <el-alert
       v-if="demoEnabled"
-      title="演示模式已开启"
+      :title="t('dashboard.demoModeTitle')"
       type="info"
       show-icon
       :closable="false"
       class="mb-6 demo-alert"
-      description="当前系统开启了演示模式，将在设备列表展示内置示例设备（仅用于体验，不含真实视频流）。如需关闭，请在后端环境变量中将演示模式设为 false 并重启。"
+      :description="t('dashboard.demoModeDesc')"
     />
 
     <el-tabs v-model="activeTab" class="dashboard-tabs">
-      <el-tab-pane label="工作台概览" name="overview">
+      <el-tab-pane :label="t('dashboard.overview')" name="overview">
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
       <el-card class="stat-card stat-card--primary" v-loading="statsLoading" shadow="never">
@@ -39,9 +39,9 @@
           <el-icon><Monitor /></el-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-label">设备总数</div>
+          <div class="stat-label">{{ t('dashboard.deviceTotal') }}</div>
           <div class="stat-value">{{ stats.device_total }}</div>
-          <div class="stat-desc">国标设备数量</div>
+          <div class="stat-desc">{{ t('dashboard.gbDeviceCount') }}</div>
         </div>
       </el-card>
       <el-card class="stat-card stat-card--success" v-loading="statsLoading" shadow="never">
@@ -49,9 +49,9 @@
           <el-icon><CircleCheck /></el-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-label">在线设备</div>
+          <div class="stat-label">{{ t('dashboard.onlineDevices') }}</div>
           <div class="stat-value">{{ stats.device_online }}</div>
-          <div class="stat-desc">当前在线</div>
+          <div class="stat-desc">{{ t('dashboard.currentlyOnline') }}</div>
         </div>
       </el-card>
       <el-card class="stat-card stat-card--warning" v-loading="statsLoading" shadow="never">
@@ -59,10 +59,10 @@
           <el-icon><TrendCharts /></el-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-label">设备在线率</div>
+          <div class="stat-label">{{ t('dashboard.deviceOnlineRate') }}</div>
           <div class="stat-value" :class="onlineRateClass">{{ stats.online_rate_pct }}%</div>
           <div class="stat-desc">
-            通道 {{ stats.channel_online }}/{{ stats.channel_total }} · 录像完整率 {{ stats.record_completeness_pct }}%
+            {{ t('dashboard.channelRecordInfo', { online: stats.channel_online, total: stats.channel_total, pct: stats.record_completeness_pct }) }}
           </div>
         </div>
       </el-card>
@@ -71,11 +71,11 @@
           <el-icon><Bell /></el-icon>
         </div>
         <div class="stat-content">
-          <div class="stat-label">未处理告警</div>
+          <div class="stat-label">{{ t('dashboard.unhandledAlarms') }}</div>
           <div class="stat-value">{{ alarms.length }}</div>
           <div class="stat-desc">
-            <router-link v-if="alarms.length > 0" to="/alarms" class="text-link hover:underline font-medium">查看告警中心 →</router-link>
-            <span v-else>暂无新告警</span>
+            <router-link v-if="alarms.length > 0" to="/alarms" class="text-link hover:underline font-medium">{{ t('dashboard.viewAlarmCenter') }} →</router-link>
+            <span v-else>{{ t('dashboard.noNewAlarms') }}</span>
           </div>
         </div>
       </el-card>
@@ -84,32 +84,32 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
       <TableCard class="chart-card">
         <template #header>
-          <div class="chart-title">设备在线占比</div>
+          <div class="chart-title">{{ t('dashboard.deviceOnlineRatio') }}</div>
         </template>
         <div class="donut-wrap">
           <div class="donut" :style="onlineDonutStyle">
             <div class="donut-center">
               <div class="donut-rate">{{ stats.online_rate_pct }}%</div>
-              <div class="donut-sub">在线率</div>
+              <div class="donut-sub">{{ t('dashboard.onlineRate') }}</div>
             </div>
           </div>
           <div class="donut-legend">
             <div class="legend-item">
               <span class="legend-dot online"></span>
-              在线 {{ stats.device_online }}
+              {{ t('dashboard.online') }} {{ stats.device_online }}
             </div>
             <div class="legend-item">
               <span class="legend-dot offline"></span>
-              离线 {{ Math.max(0, stats.device_total - stats.device_online) }}
+              {{ t('dashboard.offline') }} {{ Math.max(0, stats.device_total - stats.device_online) }}
             </div>
-            <div class="legend-item total">总计 {{ stats.device_total }}</div>
+            <div class="legend-item total">{{ t('dashboard.total') }} {{ stats.device_total }}</div>
           </div>
         </div>
       </TableCard>
 
       <TableCard class="chart-card">
         <template #header>
-          <div class="chart-title">告警级别分布</div>
+          <div class="chart-title">{{ t('dashboard.alarmLevelDist') }}</div>
         </template>
         <div class="bar-list">
           <div v-for="item in alarmPriorityStats" :key="item.key" class="bar-item">
@@ -126,7 +126,7 @@
 
       <TableCard class="chart-card">
         <template #header>
-          <div class="chart-title">24小时告警趋势</div>
+          <div class="chart-title">{{ t('dashboard.alarmTrend24h') }}</div>
         </template>
         <div class="line-chart-wrap">
           <svg class="line-chart" viewBox="0 0 360 160" preserveAspectRatio="none">
@@ -135,7 +135,7 @@
           </svg>
           <div class="line-axis">
             <span>{{ trendStartLabel }}</span>
-            <span>现在</span>
+            <span>{{ t('dashboard.now') }}</span>
           </div>
         </div>
       </TableCard>
@@ -146,9 +146,9 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="font-semibold quick-access-title">
-            快捷入口
+            {{ t('dashboard.quickAccess') }}
           </div>
-          <div class="text-xs quick-access-subtitle">常用功能快速跳转</div>
+          <div class="text-xs quick-access-subtitle">{{ t('dashboard.quickAccessSubtitle') }}</div>
         </div>
       </template>
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
@@ -156,50 +156,50 @@
           <div class="quick-link-icon">
             <el-icon><Box /></el-icon>
           </div>
-          <span class="quick-link-text">设备列表</span>
-          <span class="quick-link-sub">台账与状态</span>
+          <span class="quick-link-text">{{ t('dashboard.deviceList') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.accountAndStatus') }}</span>
         </router-link>
         <router-link to="/monitor" class="quick-link quick-link--monitor">
           <div class="quick-link-icon">
             <el-icon><Monitor /></el-icon>
           </div>
-          <span class="quick-link-text">监控中心</span>
-          <span class="quick-link-sub">实时预览</span>
+          <span class="quick-link-text">{{ t('dashboard.monitorCenter') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.livePreview') }}</span>
         </router-link>
         <router-link to="/alarms" class="quick-link quick-link--alarms">
           <div class="quick-link-icon">
             <el-icon><Bell /></el-icon>
           </div>
-          <span class="quick-link-text">告警中心</span>
-          <span class="quick-link-sub">处理告警</span>
+          <span class="quick-link-text">{{ t('dashboard.alarmCenter') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.handleAlarm') }}</span>
         </router-link>
         <router-link to="/platforms" class="quick-link quick-link--platforms">
           <div class="quick-link-icon">
             <el-icon><Connection /></el-icon>
           </div>
-          <span class="quick-link-text">国标级联</span>
-          <span class="quick-link-sub">平台接入</span>
+          <span class="quick-link-text">{{ t('dashboard.gbCascade') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.platformAccess') }}</span>
         </router-link>
         <router-link to="/record-schedule" class="quick-link quick-link--record">
           <div class="quick-link-icon">
             <el-icon><VideoPlay /></el-icon>
           </div>
-          <span class="quick-link-text">录像计划</span>
-          <span class="quick-link-sub">策略编排</span>
+          <span class="quick-link-text">{{ t('dashboard.recordSchedule') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.strategyOrchestration') }}</span>
         </router-link>
         <router-link to="/ops" class="quick-link quick-link--ops">
           <div class="quick-link-icon">
             <el-icon><Setting /></el-icon>
           </div>
-          <span class="quick-link-text">运维中心</span>
-          <span class="quick-link-sub">系统运维</span>
+          <span class="quick-link-text">{{ t('dashboard.opsCenter') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.systemOps') }}</span>
         </router-link>
         <router-link to="/health" class="quick-link quick-link--health">
           <div class="quick-link-icon">
             <el-icon><DataAnalysis /></el-icon>
           </div>
-          <span class="quick-link-text">健康大屏</span>
-          <span class="quick-link-sub">运行态势</span>
+          <span class="quick-link-text">{{ t('dashboard.healthScreen') }}</span>
+          <span class="quick-link-sub">{{ t('dashboard.runtimeStatus') }}</span>
         </router-link>
       </div>
     </TableCard>
@@ -211,17 +211,17 @@
           <div class="flex items-center gap-2">
             <div class="font-bold text-slate-700 flex items-center gap-2">
               <el-icon class="text-rose-500"><BellFilled /></el-icon>
-              实时告警
+              {{ t('dashboard.realtimeAlarms') }}
             </div>
             <el-tag v-if="alarms.length > 0" type="danger" effect="dark" class="alarm-tag">
               <el-icon class="mr-1"><Warning /></el-icon>
-              有新告警
+              {{ t('dashboard.hasNewAlarms') }}
             </el-tag>
           </div>
           <router-link to="/alarms">
             <el-button type="primary" size="small" class="view-alarms-btn">
               <el-icon class="mr-1"><Right /></el-icon>
-              前往告警中心
+              {{ t('dashboard.goToAlarmCenter') }}
             </el-button>
           </router-link>
         </div>
@@ -234,7 +234,7 @@
         class="alarms-table"
         :row-class-name="getAlarmRowClass"
       >
-        <el-table-column prop="time" label="时间" width="180">
+        <el-table-column prop="time" :label="t('common.time')" width="180">
           <template #default="scope">
             <div class="time-cell">
               <el-icon class="text-slate-400"><Clock /></el-icon>
@@ -242,22 +242,22 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="device_id" label="设备ID" width="200">
+        <el-table-column prop="device_id" :label="t('dashboard.deviceId')" width="200">
           <template #default="scope">
             <div class="device-cell">
               <el-tag size="small" type="info" effect="plain">{{ scope.row.device_id }}</el-tag>
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="description" label="描述">
+        <el-table-column prop="description" :label="t('common.description')">
           <template #default="scope">
             <div class="desc-cell">{{ scope.row.description }}</div>
           </template>
         </el-table-column>
-        <el-table-column prop="priority" label="级别" width="100" align="center">
+        <el-table-column prop="priority" :label="t('dashboard.level')" width="100" align="center">
           <template #default="scope">
             <el-tag :type="getPriorityType(scope.row.priority)" size="small" effect="dark" class="priority-tag">
-              {{ scope.row.priority === '1' ? '紧急' : scope.row.priority === '2' ? '重要' : '一般' }}
+              {{ scope.row.priority === '1' ? t('dashboard.priorityUrgent') : scope.row.priority === '2' ? t('dashboard.priorityImportant') : t('dashboard.priorityNormal') }}
             </el-tag>
           </template>
         </el-table-column>
@@ -275,19 +275,19 @@
     </TableCard>
       </el-tab-pane>
 
-      <el-tab-pane label="资源统计" name="metrics">
+      <el-tab-pane :label="t('dashboard.resourceStats')" name="metrics">
         <TableCard class="mb-4">
           <template #header>
             <div class="flex items-center justify-between">
-              <div class="font-semibold metrics-title">系统资源实时统计</div>
+              <div class="font-semibold metrics-title">{{ t('dashboard.systemResourceStats') }}</div>
               <div class="flex items-center gap-2">
                 <el-select v-model="wvpAutoRefresh" class="metrics-refresh-select" @change="onWvpAutoRefreshChange">
-                  <el-option label="手动刷新" value="0" />
-                  <el-option label="15秒" value="15" />
-                  <el-option label="30秒" value="30" />
-                  <el-option label="60秒" value="60" />
+                  <el-option :label="t('dashboard.manualRefresh')" value="0" />
+                  <el-option :label="t('dashboard.refresh15s')" value="15" />
+                  <el-option :label="t('dashboard.refresh30s')" value="30" />
+                  <el-option :label="t('dashboard.refresh60s')" value="60" />
                 </el-select>
-                <el-button type="primary" :loading="wvpLoading" @click="fetchWvpMetrics">刷新统计</el-button>
+                <el-button type="primary" :loading="wvpLoading" @click="fetchWvpMetrics">{{ t('dashboard.refreshStats') }}</el-button>
               </div>
             </div>
           </template>
@@ -298,38 +298,38 @@
               <div class="wvp-kpi-value">{{ wvpKpi.cpu.toFixed(1) }}%</div>
             </el-card>
             <el-card shadow="never" class="wvp-kpi-card">
-              <div class="wvp-kpi-label">内存</div>
+              <div class="wvp-kpi-label">{{ t('dashboard.memory') }}</div>
               <div class="wvp-kpi-value">{{ wvpKpi.memory.toFixed(1) }}%</div>
             </el-card>
             <el-card shadow="never" class="wvp-kpi-card">
-              <div class="wvp-kpi-label">磁盘</div>
+              <div class="wvp-kpi-label">{{ t('dashboard.disk') }}</div>
               <div class="wvp-kpi-value">{{ wvpKpi.disk.toFixed(1) }}%</div>
             </el-card>
             <el-card shadow="never" class="wvp-kpi-card">
-              <div class="wvp-kpi-label">网络带宽</div>
+              <div class="wvp-kpi-label">{{ t('dashboard.networkBandwidth') }}</div>
               <div class="wvp-kpi-value">{{ wvpKpi.networkMbps.toFixed(2) }} Mbps</div>
             </el-card>
             <el-card shadow="never" class="wvp-kpi-card">
-              <div class="wvp-kpi-label">节点负载</div>
+              <div class="wvp-kpi-label">{{ t('dashboard.nodeLoad') }}</div>
               <div class="wvp-kpi-value">{{ wvpKpi.nodeLoad.toFixed(1) }}%</div>
             </el-card>
           </div>
 
           <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <div class="wvp-chart-box">
-              <div class="wvp-chart-title">CPU / 内存 / 磁盘 趋势</div>
+              <div class="wvp-chart-title">{{ t('dashboard.cpuMemoryDiskTrend') }}</div>
               <VChart class="wvp-chart" :option="resourceTrendOption" autoresize />
             </div>
             <div class="wvp-chart-box">
-              <div class="wvp-chart-title">网络吞吐与流数量（1小时）</div>
+              <div class="wvp-chart-title">{{ t('dashboard.networkThroughput1h') }}</div>
               <VChart class="wvp-chart" :option="networkTrendOption" autoresize />
             </div>
             <div class="wvp-chart-box">
-              <div class="wvp-chart-title">节点负载（租户在线率 Top）</div>
+              <div class="wvp-chart-title">{{ t('dashboard.nodeLoadTop') }}</div>
               <VChart class="wvp-chart" :option="tenantLoadOption" autoresize />
             </div>
             <div class="wvp-chart-box">
-              <div class="wvp-chart-title">资源负载仪表盘</div>
+              <div class="wvp-chart-title">{{ t('dashboard.resourceLoadGauge') }}</div>
               <VChart class="wvp-chart" :option="gaugeOption" autoresize />
             </div>
           </div>
@@ -337,11 +337,11 @@
       </el-tab-pane>
     </el-tabs>
 
-    <AppDialog v-model="systemInfoVisible" title="平台信息" size="medium" class="system-info-dialog">
+    <AppDialog v-model="systemInfoVisible" :title="t('dashboard.platformInfo')" size="medium" class="system-info-dialog">
       <div class="dialog-content">
         <div class="info-section">
           <div class="info-item">
-            <div class="info-label">编号</div>
+            <div class="info-label">{{ t('common.code') }}</div>
             <div class="info-value-wrapper">
               <span class="info-value">{{ systemInfo.sip_id || '-' }}</span>
               <el-button 
@@ -356,7 +356,7 @@
             </div>
           </div>
           <div class="info-item">
-            <div class="info-label">域</div>
+            <div class="info-label">{{ t('dashboard.domain') }}</div>
             <div class="info-value-wrapper">
               <span class="info-value">{{ systemInfo.sip_domain || '-' }}</span>
               <el-button 
@@ -373,20 +373,20 @@
           <div class="info-item">
             <div class="info-label">IP</div>
             <div class="info-value-wrapper">
-              <span class="info-value">{{ systemInfo.sip_ip || '-' }}</span>
-              <el-button 
-                v-if="systemInfo.sip_ip" 
-                size="small" 
-                type="primary" 
-                link 
-                @click="copyToClipboard(systemInfo.sip_ip)"
+              <span class="info-value">{{ maskSipIp(systemInfo.sip_ip) || '-' }}</span>
+              <el-button
+                v-if="systemInfo.sip_ip"
+                size="small"
+                type="primary"
+                link
+                @click="copyToClipboard(maskSipIp(systemInfo.sip_ip))"
               >
                 <el-icon><DocumentCopy /></el-icon>
               </el-button>
             </div>
           </div>
           <div class="info-item">
-            <div class="info-label">端口</div>
+            <div class="info-label">{{ t('dashboard.port') }}</div>
             <div class="info-value-wrapper">
               <span class="info-value">{{ systemInfo.sip_port || '-' }}</span>
               <el-button 
@@ -401,7 +401,7 @@
             </div>
           </div>
           <div class="info-item">
-            <div class="info-label">密码</div>
+            <div class="info-label">{{ t('common.password') }}</div>
             <div class="info-value-wrapper">
               <el-input 
                 v-if="systemInfo.sip_password" 
@@ -412,7 +412,7 @@
                 readonly 
                 class="info-password-input"
               />
-              <span v-else class="info-value-empty">未设置</span>
+              <span v-else class="info-value-empty">{{ t('dashboard.notSet') }}</span>
               <el-button 
                 v-if="systemInfo.sip_password" 
                 size="small" 
@@ -429,14 +429,14 @@
 
       <template #footer>
         <div class="dialog-footer">
-          <el-button @click="systemInfoVisible = false">关闭</el-button>
+          <el-button @click="systemInfoVisible = false">{{ t('common.close') }}</el-button>
           <el-button 
             type="primary" 
             @click="copyAllSystemInfo"
             class="copy-all-btn"
           >
             <el-icon class="mr-1"><DocumentCopy /></el-icon>
-            一键复制全部
+            {{ t('dashboard.copyAll') }}
           </el-button>
         </div>
       </template>
@@ -448,6 +448,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onDeactivated, onActivated, watch } from 'vue'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { ElNotification, ElMessage } from 'element-plus'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
@@ -460,13 +461,18 @@ import {
   Warning, Right, Clock, InfoFilled, DocumentCopy 
 } from '@element-plus/icons-vue'
 import { getFriendlyError } from '../utils/errorMessage'
+import { maskSipIp } from '../utils/sipMask' // FIX H-10: SIP IP 脱敏
+import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import { useI18n } from 'vue-i18n'
 
 use([CanvasRenderer, LineChart, BarChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent])
+
+const { t } = useI18n()
 
 const demoEnabled = ref(false)
 
@@ -483,7 +489,7 @@ const stats = ref({
 const statsLoading = ref(true)
 const alarms = ref<Alarm[]>([])
 const alarmsLoading = ref(true)
-const alarmsEmptyText = ref('暂无告警记录，有告警时会在此显示')
+const alarmsEmptyText = ref(t('dashboard.noAlarmsHint'))
 const alarmsPage = ref(1)
 const alarmsPageSize = ref(10)
 const activeTab = ref<'overview' | 'metrics'>('overview')
@@ -511,9 +517,9 @@ const onlineDonutStyle = computed(() => {
 
 const alarmPriorityStats = computed(() => {
   const levels = [
-    { key: 'p1', label: '紧急', matcher: (p: string) => p === '1' },
-    { key: 'p2', label: '重要', matcher: (p: string) => p === '2' },
-    { key: 'p3', label: '一般', matcher: (p: string) => p !== '1' && p !== '2' }
+    { key: 'p1', label: t('dashboard.priorityUrgent'), matcher: (p: string) => p === '1' },
+    { key: 'p2', label: t('dashboard.priorityImportant'), matcher: (p: string) => p === '2' },
+    { key: 'p3', label: t('dashboard.priorityNormal'), matcher: (p: string) => p !== '1' && p !== '2' }
   ]
   const total = alarms.value.length || 1
   return levels.map((item) => {
@@ -593,9 +599,9 @@ const resourceTrendOption = computed(() => ({
   },
   series: [
     { name: 'CPU', type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.cpu), lineStyle: { width: 2, color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.10)' } },
-    { name: '内存', type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.memory), lineStyle: { width: 2, color: '#22c55e' }, areaStyle: { color: 'rgba(34,197,94,0.08)' } },
-    { name: '磁盘', type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.disk), lineStyle: { width: 2, color: '#f59e0b' } },
-    { name: '节点负载', type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.nodeLoad), lineStyle: { width: 2, color: '#ef4444' } }
+    { name: t('dashboard.memory'), type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.memory), lineStyle: { width: 2, color: '#22c55e' }, areaStyle: { color: 'rgba(34,197,94,0.08)' } },
+    { name: t('dashboard.disk'), type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.disk), lineStyle: { width: 2, color: '#f59e0b' } },
+    { name: t('dashboard.nodeLoad'), type: 'line', smooth: true, data: resourceTrend.value.map((x) => x.nodeLoad), lineStyle: { width: 2, color: '#ef4444' } }
   ]
 }))
 
@@ -618,14 +624,14 @@ const networkTrendOption = computed(() => ({
     },
     {
       type: 'value',
-      name: '流数量',
+      name: t('dashboard.streamCount'),
       axisLabel: { color: '#94a3b8', fontSize: 11 }
     }
   ],
   series: [
-    { name: '估算带宽', type: 'line', smooth: true, data: networkTrend.value.map((x) => x.estimated), lineStyle: { width: 2, color: '#22c55e' } },
-    { name: '节点带宽', type: 'line', smooth: true, data: networkTrend.value.map((x) => x.zlm), lineStyle: { width: 2, color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.08)' } },
-    { name: '流数量', type: 'line', smooth: true, yAxisIndex: 1, data: networkTrend.value.map((x) => x.streams), lineStyle: { width: 2, color: '#f59e0b' } }
+    { name: t('dashboard.estimatedBandwidth'), type: 'line', smooth: true, data: networkTrend.value.map((x) => x.estimated), lineStyle: { width: 2, color: '#22c55e' } },
+    { name: t('dashboard.nodeBandwidth'), type: 'line', smooth: true, data: networkTrend.value.map((x) => x.zlm), lineStyle: { width: 2, color: '#3b82f6' }, areaStyle: { color: 'rgba(59,130,246,0.08)' } },
+    { name: t('dashboard.streamCount'), type: 'line', smooth: true, yAxisIndex: 1, data: networkTrend.value.map((x) => x.streams), lineStyle: { width: 2, color: '#f59e0b' } }
   ]
 }))
 
@@ -659,7 +665,7 @@ const gaugeOption = computed(() => ({
   tooltip: { formatter: '{a}<br/>{b}: {c}%' },
   series: [
     {
-      name: '节点负载',
+      name: t('dashboard.nodeLoad'),
       type: 'gauge',
       center: ['50%', '58%'],
       min: 0,
@@ -669,7 +675,7 @@ const gaugeOption = computed(() => ({
       axisLine: { lineStyle: { width: 10 } },
       pointer: { width: 3 },
       detail: { valueAnimation: true, formatter: '{value}%' },
-      data: [{ value: Number(wvpKpi.value.nodeLoad.toFixed(1)), name: '负载指数' }]
+      data: [{ value: Number(wvpKpi.value.nodeLoad.toFixed(1)), name: t('dashboard.loadIndex') }]
     }
   ]
 }))
@@ -725,7 +731,7 @@ const fetchWvpMetrics = async () => {
         const online = Number(x?.metrics?.device_online || 0)
         const total = Number(x?.metrics?.device_total || 0)
         const ratio = total > 0 ? normalizeToPercent((online / total) * 100) : 0
-        return { name: String(x?.label || x?.id || '未知租户'), ratio }
+        return { name: String(x?.label || x?.id || t('dashboard.unknownTenant')), ratio }
       })
       .sort((a: Record<string, unknown>, b: Record<string, unknown>) => b.ratio - a.ratio)
       .slice(0, 8)
@@ -864,7 +870,7 @@ const fetchAlarms = async () => {
     alarms.value = Array.isArray(res.data) ? res.data : []
   } catch (e: unknown) {
     alarms.value = []
-    alarmsEmptyText.value = '加载告警列表失败，请稍后重试'
+    alarmsEmptyText.value = t('dashboard.loadAlarmsFailed')
   } finally {
     alarmsLoading.value = false
   }
@@ -882,16 +888,23 @@ const getAlarmRowClass = ({ row }: { row: Record<string, unknown> }) => {
   return ''
 }
 
-const initWebSocket = () => {
+const initWebSocket = async () => {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const host = location.host
   if (reconnectTimer != null) {
     clearTimeout(reconnectTimer)
     reconnectTimer = null
   }
-  // FIXED-P1: R-01 报警WebSocket连接添加token认证参数
-  ws = new WebSocket(`${protocol}://${host}/api/v1/alarms/ws?token=${encodeURIComponent(localStorage.getItem('token') || '')}`)
-  
+  // P0-6: 通过 ws-ticket 认证，消除 URL 暴露 JWT token
+  let wsUrl: string
+  try {
+    wsUrl = await buildWsUrlWithTicket('/api/v1/alarms/ws')
+  } catch (e) {
+    logger.warn('initWebSocket: failed to fetch ws-ticket', e)
+    return
+  }
+  ws = new WebSocket(wsUrl)
+
   ws.onmessage = (event) => {
     try {
       const alarm = JSON.parse(event.data)
@@ -917,9 +930,9 @@ const initWebSocket = () => {
           pendingNotifyCount = 0
           lastPendingAlarm = null
 
-          const message = last ? `${last.device_id}: ${last.description || '告警'}` : '收到新告警'
+          const message = last ? t('dashboard.alarmDeviceMsg', { deviceId: String(last.device_id), description: String(last.description || t('dashboard.alarmFallback')) }) : t('dashboard.receivedNewAlarm')
           ElNotification({
-            title: count > 1 ? `新告警（${count} 条）` : '新告警',
+            title: count > 1 ? t('dashboard.newAlarmsCount', { count }) : t('dashboard.newAlarm'),
             message,
             type: 'error',
             duration: 5000
@@ -1027,7 +1040,7 @@ const copyToClipboard = async (text: string) => {
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text)
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('dashboard.copiedToClipboard'))
       return
     } catch {
       // fallback
@@ -1046,22 +1059,24 @@ const copyToClipboard = async (text: string) => {
     const successful = document.execCommand('copy')
     textArea.remove()
     if (successful) {
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('dashboard.copiedToClipboard'))
     } else {
-      ElMessage.warning('复制失败，请手动复制')
+      ElMessage.warning(t('dashboard.copyFailedManual'))
     }
   } catch (err) {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('dashboard.copyFailedManual'))
   }
 }
 
 const copyAllSystemInfo = () => {
   const info = systemInfo.value
-  const text = `编号: ${info.sip_id}
-域: ${info.sip_domain}
-IP: ${info.sip_ip}
-端口: ${info.sip_port}
-密码: ${info.sip_password || '未设置'}`
+  const text = t('dashboard.copyAllText', {
+    id: info.sip_id,
+    domain: info.sip_domain,
+    ip: maskSipIp(info.sip_ip),
+    port: info.sip_port,
+    password: info.sip_password || t('dashboard.notSet')
+  })
   copyToClipboard(text)
 }
 </script>

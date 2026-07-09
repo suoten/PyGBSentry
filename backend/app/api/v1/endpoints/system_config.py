@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import text as sql_text
@@ -41,6 +41,7 @@ class SystemInfoResponse(BaseModel):
 
 
 class DatabaseConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     database_type: str
     host: str | None = None
     port: int | None = None
@@ -52,6 +53,7 @@ class DatabaseConfigPayload(BaseModel):
 
 
 class Gb28181PlayConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     ssrc_policy: str | None = None
     ssrc_retry_on_not_ready: bool | None = None
     ssrc_retry_order: str | None = None

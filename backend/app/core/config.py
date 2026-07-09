@@ -12,8 +12,8 @@ import secrets as _secrets
 from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
-from pydantic import AnyHttpUrl, PostgresDsn, field_validator, ValidationInfo
-from pydantic_settings import BaseSettings
+from pydantic import AnyHttpUrl, PostgresDsn, field_validator, ValidationInfo, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 先把 .env 写入 os.environ，否则仅靠 pydantic 读 .env 时 os.getenv 仍为 None（如 ZLM 生产编译门控）
 _backend_dir = Path(__file__).resolve().parent.parent.parent
@@ -22,16 +22,18 @@ load_dotenv(_backend_dir / ".env", override=False)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "PyGBSentry"
-    PROJECT_VERSION: str = os.environ.get("BUILD_VERSION", "1.0.0")  # 版本号支持构建时注入(BUILD_VERSION)，回退为硬编码值；变更时需同步更新
+    PROJECT_VERSION: str = os.environ.get("BUILD_VERSION", "1.1.0")  # 版本号支持构建时注入(BUILD_VERSION)，回退为硬编码值；变更时需同步更新
     PROJECT_LICENSE: str = "AGPL-3.0-or-later"
     PROJECT_LICENSE_URL: str = "https://www.gnu.org/licenses/agpl-3.0.html"
     PLUGIN_LICENSE_EXCEPTION: str = "classpath"
     API_V1_STR: str = "/api/v1"
-    APP_ENV: str = "prod"  # 默认生产模式，防止部署遗漏导致文档/调试信息暴露
+    APP_ENV: str = "dev"  # 默认开发模式；生产部署必须在 .env 中显式设置 APP_ENV=prod
     APP_LANGUAGE: str = "zh"  # 错误消息语言 (zh/en)，影响后端 i18n 模块输出
     APP_TIMEZONE: str = "Asia/Shanghai"
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "text"
+    # P3-05: stderr 日志级别覆盖（空字符串=自动按 APP_ENV 推导：prod→WARNING, dev→INFO, debug→DEBUG）
+    LOG_LEVEL_STDERR: str = ""
 
     # Security — 密钥分离，不同用途使用独立密钥
     SECRET_KEY: str = ""
@@ -47,6 +49,12 @@ class Settings(BaseSettings):
     ENABLE_OPENAPI_DOCS: bool = False  # Disabled by default; enable explicitly for dev/internal networks
     ENABLE_SECURITY_HEADERS: bool = True
     ENABLE_CSP: bool = True
+    # CSP connect-src 额外白名单：逗号分隔的源表达式（含协议+主机+可选端口），
+    # 追加到 'self' 和自动推导的流媒体公网源（STREAM_PUBLIC_SCHEME/HOST/PORT）之后。
+    # 默认包含 ArcGIS 矢量瓦片（OpenLayers VectorTileSource 通过 XHR 加载 .pbf）。
+    # 如使用自定义矢量瓦片服务或外置 ZLMediaKit 节点（非 STREAM_PUBLIC_HOST），请在此追加对应源。
+    # 示例：CSP_CONNECT_SRC_DOMAINS=https://basemaps.arcgis.com,http://media2.example.com:80,wss://media2.example.com:80
+    CSP_CONNECT_SRC_DOMAINS: str = "https://basemaps.arcgis.com"
     METRICS_ALLOWED_NETWORKS: list[str] = ["127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
     # When True, use Alembic for schema migration on startup instead of schema_upgrade.py
     USE_ALEMBIC: bool = True
@@ -54,9 +62,14 @@ class Settings(BaseSettings):
     CROSS_ORIGIN_EMBEDDER_POLICY: str = "credentialless"
     ENABLE_SHUTDOWN_API: bool = False
     SHUTDOWN_API_LOCAL_ONLY: bool = True
+    # P1-08: 生产环境强制 HTTPS — 当 APP_ENV=prod 且 FORCE_HTTPS_IN_PRODUCTION=true 时，
+    # HTTP 请求自动 301 重定向到 HTTPS（检查 X-Forwarded-Proto 头）
+    FORCE_HTTPS_IN_PRODUCTION: bool = True
     # True 时 require_roles 拒绝（403）写入审计中心；默认 False 避免普通浏览产生大量记录
     AUDIT_RBAC_ROLE_DENIALS: bool = False
     AUDIT_WEBHOOK_TIMEOUT: int = 5
+    # P0-11#3: dev/test 环境显式跳过 market_builtin 占位符/完整性校验（生产环境忽略此 flag）
+    _DEV_SKIP_VERIFY: bool = False
 
     # 自动备份配置
     AUTO_BACKUP_ENABLED: bool = False
@@ -84,8 +97,8 @@ class Settings(BaseSettings):
     DATABASE_SQLITE_PATH: str = "./pygbsentry.db"
     SQLITE_BUSY_TIMEOUT_MS: int = 15000
     SQLITE_CONNECT_TIMEOUT_SECONDS: float = 15.0
-    SQLITE_POOL_SIZE: int = 20
-    SQLITE_MAX_OVERFLOW: int = 30
+    # UNIFIED: SQLite 与非 SQLite 统一使用 DB_POOL_SIZE / DB_MAX_OVERFLOW（见下方 DB Optimization 段）
+    # 已移除废弃的 SQLITE_POOL_SIZE / SQLITE_MAX_OVERFLOW，避免双套配置引起混淆
     # 启动时是否执行业务/行政区 parent 字段拆分迁移（旧库升级用）。默认 False，避免阻塞启动；需迁移时改 True 或用手动脚本
     RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP: bool = False
     # 启动时是否从 data/region.sql 导入行政区划（行数多，旧实现每行 flush 会极慢）。默认 False；需要时在 .env 设 true 或运行 scripts/seed_regions.py
@@ -98,10 +111,15 @@ class Settings(BaseSettings):
     DB_POOL_SIZE: int = 100
     DB_MAX_OVERFLOW: int = 50
     DB_POOL_RECYCLE: int = 1800
+    # P2-03: 慢查询监控阈值（秒），超过此值的查询将记录 WARNING 日志
+    SLOW_QUERY_THRESHOLD_SECONDS: float = 1.0
+    # DB 启动是否强依赖。true: DB 连接失败直接中止启动（生产推荐）；false: 记录告警并降级继续（开发/无 DB 环境用）
+    DB_STARTUP_REQUIRED: bool = True
 
     @field_validator("SQLALCHEMY_DATABASE_URI", mode="before")
     @classmethod
     def assemble_db_connection(cls, v: str | None, info: ValidationInfo) -> str | None:
+        """Assemble db connection."""
         if isinstance(v, str):
             return v
         data = info.data
@@ -166,10 +184,10 @@ class Settings(BaseSettings):
     CLUSTER_ENABLED: bool = False
     CLUSTER_NODE_ID: str = "" # 如果为空，启动时自动生成 UUID
 
-    # SIP
+    # SIP — 以下默认值仅供开发使用，生产环境必须在 .env 中显式配置
     SIP_IP: str = "0.0.0.0"
     SIP_TALK_DEFAULT_PORT: int = 6000
-    SIP_PORT: int = 5060
+    SIP_PORT: int = 5060  # PRODUCTION: 必须在 .env 中设置，避免与其他 SIP 服务端口冲突
     SIP_WS_PORT: int = 0  # SIP over WebSocket端口(0=禁用)
     # 移除重复的GB28181_VERSION定义（L162），保留L198的完整注释版本
     # SIPS (TLS) Support
@@ -179,8 +197,8 @@ class Settings(BaseSettings):
     STUN_SERVER: str = ""
     # SIP 启动是否强依赖。true: 端口占用等异常直接中止启动；false: 记录告警并降级继续
     SIP_STARTUP_REQUIRED: bool = True
-    SIP_ID: str = "34020000002000000001"
-    SIP_DOMAIN: str = "3402000000"
+    SIP_ID: str = "34020000002000000001"  # PRODUCTION: 必须在 .env 中设置唯一 SIP_ID（20位数字），多实例部署时每个实例必须不同
+    SIP_DOMAIN: str = "3402000000"  # PRODUCTION: 必须在 .env 中设置为实际行政区划编码（10位数字）
     # 设备注册默认鉴权密码（当 Asset.password 为空/未创建时使用）
     SIP_DEFAULT_PASSWORD: str = ""  # MUST be set via .env or environment variable
     # 管理员初始/重置密码（首次创建admin用户或重置密码时使用）
@@ -205,6 +223,13 @@ class Settings(BaseSettings):
     SIP_RESPONSE_CACHE_MAX_SIZE: int = 50000
     SIP_MAX_INFLIGHT: int = 5000
     SIP_INVITE_RESPONSE_TIMEOUT_SECONDS: int = 20
+    # FIX-LEAK: 全局字典定期清理配置 — 防止内存泄漏和竞态条件
+    SIP_SEEN_REQUESTS_TTL_SECONDS: int = 300  # 请求去重缓存 TTL（秒），默认 5 分钟
+    SIP_SEEN_REQUESTS_MAX_SIZE: int = 5000  # 请求去重缓存最大条目数
+    SIP_SEEN_REQUESTS_CLEANUP_INTERVAL_SECONDS: int = 60  # 去重缓存定期清理间隔（秒）
+    SIP_AUTH_FAILURE_CLEANUP_INTERVAL_SECONDS: int = 60  # 鉴权失败追踪清理间隔（秒）
+    SIP_AUTH_FAILURE_MAX_SIZE: int = 5000  # 鉴权失败追踪字典最大条目数，超限触发清理
+    SIP_CLEANUP_LOCKS_CLEANUP_INTERVAL_SECONDS: int = 300  # 设备清理锁回收间隔（秒）
     SIP_INVITE_TIMEOUT_SECONDS: int = 20
 
     ZLM_NONE_READER_DELAY_SECONDS: float = 0
@@ -268,9 +293,33 @@ class Settings(BaseSettings):
     ZLM_RTP_PORT: int = 0
     ZLM_API_SECRET: str = ""
     ZLM_API_BASE_URL: str = ""
+    # ZLM HTTP connection pool tuning
+    ZLM_POOL_MAX_CONNECTIONS: int = 50
+    ZLM_POOL_KEEPALIVE_SECONDS: int = 30
+    ZLM_POOL_TIMEOUT_SECONDS: float = 10.0
+    # ZLM protocol defaults (0=disabled, 1=enabled)
+    ZLM_DEFAULT_ENABLE_HLS: int = 0
+    ZLM_DEFAULT_ENABLE_FLV: int = 1
+    # ZLM node scheduling weights (should sum to 1.0)
+    ZLM_SCHEDULE_WEIGHT_STREAMS: float = 0.5
+    ZLM_SCHEDULE_WEIGHT_CPU: float = 0.3
+    ZLM_SCHEDULE_WEIGHT_MEM: float = 0.2
+    # Stream session cache TTL
+    STREAM_SESSION_CACHE_TTL_SECONDS: int = 300
     STREAM_PUBLIC_HOST: str = "localhost"
     STREAM_PUBLIC_HTTP_PORT: int = 8880
     STREAM_PUBLIC_SCHEME: str = "http"
+    # P0-RTP: ZLM RTP Server 超时秒数，NAT场景下设备推流延迟可能超过ZLM默认15秒
+    # 建议生产环境设置为30-60秒，可通过环境变量 RTP_SERVER_TIMEOUT_SECONDS 覆盖
+    RTP_SERVER_TIMEOUT_SECONDS: int = int(os.getenv("RTP_SERVER_TIMEOUT_SECONDS", "30") or "30")
+    # P0-RTP: RTP超时宽限期 — INVITE发送后多少秒内忽略ZLM的RTP超时回调
+    # 在此期间收到超时回调时，重新打开RTP服务器而非清理会话
+    RTP_TIMEOUT_GRACE_PERIOD_SECONDS: int = int(os.getenv("RTP_TIMEOUT_GRACE_PERIOD_SECONDS", "20") or "20")
+    # P0-RTP: 别名，供 on_rtp_server_timeout / _cleanup_sessions 统一引用
+    RTP_TIMEOUT_GRACE_SECONDS: int = int(os.getenv("RTP_TIMEOUT_GRACE_SECONDS", os.getenv("RTP_TIMEOUT_GRACE_PERIOD_SECONDS", "20") or "20") or "20")
+    # P0-SIP: SIP 端口绑定重试配置（处理进程重启时旧端口未释放）
+    SIP_BIND_MAX_RETRIES: int = int(os.getenv("SIP_BIND_MAX_RETRIES", "3") or "3")
+    SIP_BIND_RETRY_DELAY: float = float(os.getenv("SIP_BIND_RETRY_DELAY", "1.0") or "1.0")
 
     # 快照相关配置
     SNAPSHOT_CONCURRENCY_LIMIT: int = 3
@@ -282,6 +331,8 @@ class Settings(BaseSettings):
     SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS: float = 5.0
     SIP_INVITE_RATE_LIMIT_PER_DEVICE: int = 8
     SIP_INVITE_RATE_LIMIT_PER_TENANT: int = 40
+    # FIX: [2026-07-03] 全局并发 INVITE 数量限制，防止大流量时打爆设备 [全栈工程师]
+    SIP_INVITE_MAX_CONCURRENT: int = 200
     # P4 magic numbers → config constants
     WATCHDOG_CALLBACK_TIMEOUT_SECONDS: int = 30
     DEVICE_OFFLINE_MAX_GRACE_SECONDS: int = 300
@@ -464,6 +515,13 @@ class Settings(BaseSettings):
     HEALTH_ALERT_MIN_HIGH_RISK: int = 3
     HEALTH_ALERT_HOLD_MINUTES: int = 5
     HEALTH_ALERT_COOLDOWN_MINUTES: int = 10
+    # FIX: [2026-07-03] 系统资源监控配置 — 内存增长和磁盘空间告警 [可靠性工程师]
+    MEMORY_GROWTH_ALERT_THRESHOLD_MB: int = 500  # 内存增长超过此值(MB)触发告警和缓存清理
+    MEMORY_ABSOLUTE_ALERT_THRESHOLD_MB: int = 2048  # 内存绝对值超过此值(MB)标记降级
+    DISK_SPACE_MONITOR_ENABLED: bool = True  # 是否启用磁盘空间监控
+    DISK_SPACE_CRITICAL_THRESHOLD: int = 95  # 磁盘使用率超过此值(%)停止录像并告警
+    DISK_SPACE_WARNING_THRESHOLD: int = 85  # 磁盘使用率超过此值(%)发出警告
+    DISK_SPACE_RECOVERY_THRESHOLD: int = 80  # 磁盘使用率低于此值(%)恢复录像
     ALARM_ESCALATION_ENABLED: bool = True
     ALARM_ESCALATION_FIRST_MINUTES: int = 5
     ALARM_ESCALATION_MAX_LEVEL: int = 3
@@ -623,11 +681,26 @@ class Settings(BaseSettings):
     UVICORN_TIMEOUT_KEEP_ALIVE: int = 5
     HEALTH_CHECK_LIMIT: int = 500
     NOTIFY_REQUEST_TIMEOUT: int = 3
-    SERVER_PORT: int = 8000
+    SERVER_PORT: int = 8000  # PRODUCTION: 必须在 .env 中设置，确保与反向代理/防火墙配置一致
 
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
+    # R24-07: 使用 Pydantic v2 SettingsConfigDict 替代 class Config
+    # extra="ignore" 对 BaseSettings 是必要的（env 变量常被多服务共享），
+    # 但对 API 请求模型应使用 extra="forbid"
+    model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def _enforce_prod_redis_on_startup(self):
+        """Internal helper:  enforce prod redis on startup."""
+        # P1-3: 生产环境强制 INIT_REDIS_ON_STARTUP=True
+        # 限流/会话/Token吊销/黑名单等功能强依赖 Redis，生产关闭会引入安全风险
+        _env = (getattr(self, "APP_ENV", "dev") or "dev").lower()
+        if _env in {"prod", "production"} and not self.INIT_REDIS_ON_STARTUP:
+            raise ValueError(
+                "INIT_REDIS_ON_STARTUP must be True in production (APP_ENV=prod). "
+                "Redis is required for rate limiting, session management, token revocation, and IP blacklist."
+            )
+        return self
+
 
 settings = Settings()
 
@@ -784,6 +857,18 @@ if settings.SIP_DOMAIN == "3402000000":
         "SIP_DOMAIN is using the default value '3402000000'. "
         "Set SIP_DOMAIN to your actual administrative code in .env."
     )
+if settings.SIP_PORT == 5060:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "SIP_PORT is using the default value 5060. "
+        "Ensure this does not conflict with other SIP services on the same host. Set SIP_PORT in your .env file."
+    )
+if settings.SERVER_PORT == 8000:
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "SERVER_PORT is using the default value 8000. "
+        "Ensure this matches your reverse proxy / firewall configuration. Set SERVER_PORT in your .env file."
+    )
 
 # R3-06 SIP_ID/SIP_DOMAIN空字符串也必须通过格式校验，防止生成无效SIP URI
 import re as _re
@@ -810,8 +895,9 @@ if _rtp_range and "-" in _rtp_range:
                 f"ensure the port mapping in docker-compose.yml covers the full range, "
                 f"or reduce MEDIA_SERVER_RTP_PROXY_PORT_RANGE to '30000-30199'."
             )
-    except (ValueError, TypeError):
-        pass
+    except (ValueError, TypeError) as _exc:
+        import logging as _logging
+        _logging.getLogger(__name__).debug(f"RTP port range validation skipped: {_exc}")
 
 # FIXED-P2: 端口冲突预检 — 检测 SIP_PORT / SERVER_PORT / MEDIA_SERVER_HTTP_PORT / MEDIA_SERVER_RTC_PORT 之间的冲突
 _port_fields = {

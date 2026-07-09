@@ -1,0 +1,112 @@
+SQLite is being used in development mode. Do NOT use SQLite in production — it cannot handle concurrent device registrations. Set DATABASE_TYPE=postgresql and configure the connection in .env for production.
+SIP_ID is using the default value '34020000002000000001'. If running multiple PyGBSentry instances, each MUST have a unique SIP_ID to prevent signaling conflicts. Set SIP_ID in your .env file.
+SIP_DOMAIN is using the default value '3402000000'. Set SIP_DOMAIN to your actual administrative code in .env.
+SIP_PORT is using the default value 5060. Ensure this does not conflict with other SIP services on the same host. Set SIP_PORT in your .env file.
+SERVER_PORT is using the default value 8000. Ensure this matches your reverse proxy / firewall configuration. Set SERVER_PORT in your .env file.
+2026-07-03 16:24:08.789 | DEBUG    | app.core.timezone:apply_process_timezone:36 - time.tzset() unsupported on this platform; TZ env set to Asia/Shanghai
+2026-07-03 16:24:26.947 | INFO     | app.core.tracing:setup_tracing:55 - tracing: enabled (service=PyGBSentry)
+INFO:     Started server process [35788]
+INFO:     Waiting for application startup.
+2026-07-03 16:24:27.199 | INFO     | app.main:lifespan:308 - Using Database Dialect: sqlite
+2026-07-03 16:24:27.200 | INFO     | app.main:lifespan:311 - Startup step: DB connectivity pre-check...
+2026-07-03 16:24:27.225 | INFO     | app.main:lifespan:315 - Startup step: DB connectivity pre-check passed.
+2026-07-03 16:24:27.245 | INFO     | app.main:lifespan:407 - Startup step: alembic upgrade head...
+Exception in thread Thread-5 (_readerthread):
+Traceback (most recent call last):
+  File "D:\os\Python312\Lib\threading.py", line 1052, in _bootstrap_inner
+    self.run()
+  File "D:\os\Python312\Lib\threading.py", line 989, in run
+    self._target(*self._args, **self._kwargs)
+  File "D:\os\Python312\Lib\subprocess.py", line 1597, in _readerthread
+    buffer.append(fh.read())
+                  ^^^^^^^^^
+UnicodeDecodeError: 'gbk' codec can't decode byte 0x94 in position 100: illegal multibyte sequence
+2026-07-03 16:24:31.399 | INFO     | app.main:lifespan:418 - Startup step: alembic upgrade head done.
+2026-07-03 16:24:31.540 | INFO     | app.main:lifespan:454 - Startup step: ensure all ORM tables exist (create_all fallback) done.
+2026-07-03 16:24:31.541 | INFO     | app.main:lifespan:462 - Startup step: ensure_alarm_escalation_schema...
+2026-07-03 16:24:31.567 | INFO     | app.main:lifespan:467 - Startup step: ensure_alarm_escalation_schema done.
+2026-07-03 16:24:31.568 | INFO     | app.main:lifespan:474 - Startup step: init_db (default admin user & billing)...
+2026-07-03 16:24:31.575 | INFO     | app.initial_data:init_db:23 - Checking database schema...
+2026-07-03 16:24:31.669 | INFO     | app.initial_data:init_db:27 - Database schema initialized.
+2026-07-03 16:24:32.198 | WARNING  | app.initial_data:init_db:90 - ============================================================
+2026-07-03 16:24:32.199 | WARNING  | app.initial_data:init_db:91 - Admin password has been RESET (ADMIN_FORCE_RESET_PASSWORD=true).
+2026-07-03 16:24:32.201 | WARNING  | app.initial_data:init_db:92 - Account lock has been CLEARED.
+2026-07-03 16:24:32.203 | WARNING  | app.initial_data:init_db:93 - Please remove ADMIN_FORCE_RESET_PASSWORD from .env after login!
+2026-07-03 16:24:32.205 | WARNING  | app.initial_data:init_db:94 - ============================================================
+2026-07-03 16:24:32.420 | WARNING  | app.main:lifespan:482 - Startup step: init_db failed: (sqlite3.OperationalError) no such column: tenant_subscriptions.downgrade_history
+[SQL: SELECT tenant_subscriptions.id, tenant_subscriptions.tenant_id, tenant_subscriptions.plan_code, tenant_subscriptions.status, tenant_subscriptions.starts_at, tenant_subscriptions.trial_ends_at, tenant_subscriptions.ends_at, tenant_subscriptions.reminder_sent_at, tenant_subscriptions.machine_code, tenant_subscriptions.machine_code_registered_at, tenant_subscriptions.extra_machine_codes, tenant_subscriptions.downgrade_history, tenant_subscriptions.created_at, tenant_subscriptions.updated_at 
+FROM tenant_subscriptions 
+WHERE tenant_subscriptions.tenant_id = ?]
+[parameters: ('default',)]
+(Background on this error at: https://sqlalche.me/e/20/e3q8), continue startup.
+2026-07-03 16:24:32.421 | INFO     | app.main:lifespan:485 - Startup step: load_published_plugin_config...
+2026-07-03 16:24:32.445 | INFO     | app.main:lifespan:494 - Startup step: load_published_plugin_config done.
+2026-07-03 16:24:32.446 | INFO     | app.main:lifespan:502 - Startup step: plugin_manager.load_plugins...
+2026-07-03 16:24:32.449 | INFO     | app.main:lifespan:505 - Startup step: plugin_manager.load_plugins done.
+2026-07-03 16:24:32.449 | INFO     | app.services.notify_manager:init_notify_manager:131 - NotifyManager initialized
+2026-07-03 16:24:32.450 | INFO     | app.main:lifespan:510 - Startup step: plugin_manager.emit(HOOK_ON_STARTUP)...
+2026-07-03 16:24:32.452 | INFO     | app.main:lifespan:513 - Startup step: plugin_manager.emit(HOOK_ON_STARTUP) done.
+2026-07-03 16:24:32.453 | INFO     | app.main:lifespan:522 - Startup step: plugin health check loop started.
+2026-07-03 16:24:32.453 | INFO     | app.main:lifespan:544 - Startup step: PLUGIN_MARKETPLACE_ENABLED=False, marketplace integration disabled.
+2026-07-03 16:24:32.454 | INFO     | app.main:lifespan:548 - Startup step: split_migrations skipped (RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP=false). To migrate an old database, set to true in .env or run: python scripts/run_split_catalog_migrations.py
+2026-07-03 16:24:32.455 | INFO     | app.main:lifespan:619 - Startup step: ensure_regions_seeded_from_sql skipped (RUN_REGION_SEED_ON_STARTUP=false). To use built-in regions, set to true in .env or run: python scripts/seed_regions.py
+2026-07-03 16:24:32.456 | INFO     | app.main:lifespan:641 - Startup step: ensure_embedded_media_node...
+2026-07-03 16:24:32.482 | INFO     | app.main:lifespan:645 - Startup step: ensure_embedded_media_node ok (id=4aaf0ce3f5424da38ad913ef5f87c118).
+2026-07-03 16:24:32.484 | INFO     | app.main:lifespan:646 - Startup step: ensure_embedded_media_node done.
+2026-07-03 16:24:32.485 | INFO     | app.sip.state_backend:get_sip_state_backend:252 - SipStateBackend: using local (single-process) implementation
+2026-07-03 16:24:32.487 | INFO     | app.main:lifespan:660 - Startup step: SipStateBackend initialized (type=LocalSipStateBackend)
+2026-07-03 16:24:32.680 | INFO     | app.main:lifespan:701 - Startup step: ensure_firewall_ports...
+2026-07-03 16:24:32.681 | INFO     | app.utils.firewall:ensure_firewall_ports:84 - firewall: ensuring ports [554, 1935, 5060, 8000, 8880, 30000] are open
+2026-07-03 16:24:33.474 | WARNING  | app.utils.firewall:ensure_firewall_ports:104 - firewall: no supported firewall tool found (ufw/firewalld/iptables); ensure ports are open manually
+2026-07-03 16:24:33.475 | INFO     | app.main:lifespan:704 - Startup step: ensure_firewall_ports done.
+2026-07-03 16:24:33.477 | INFO     | app.main:lifespan:709 - Startup step: init_redis skipped (INIT_REDIS_ON_STARTUP=false). Set INIT_REDIS_ON_STARTUP=true in .env and start redis-server when Redis is needed
+2026-07-03 16:24:33.478 | INFO     | app.main:lifespan:751 - Startup step: init_handlers...
+2026-07-03 16:24:33.495 | INFO     | app.sip.invite_server_state:start:76 - invite_server_state started
+2026-07-03 16:24:33.502 | INFO     | app.main:lifespan:754 - Startup step: init_handlers done.
+2026-07-03 16:24:33.502 | INFO     | app.main:lifespan:770 - Startup step: sip_server.start...
+2026-07-03 16:24:33.505 | INFO     | app.sip.storm_handler:_db_updater_worker:103 - Storm Handler DB updater worker started
+2026-07-03 16:24:33.536 | INFO     | app.sip.server:reload_ip_blacklist:809 - Loaded 0 IPs into blacklist cache.
+2026-07-03 16:24:33.541 | WARNING  | app.sip.server:start:971 - SIP bind attempt 1/3 failed: SIP bind failed on 0.0.0.0:5060 (address already in use), retrying in 1.0s...
+2026-07-03 16:24:34.552 | WARNING  | app.sip.server:start:971 - SIP bind attempt 2/3 failed: SIP bind failed on 0.0.0.0:5060 (address already in use), retrying in 1.0s...
+2026-07-03 16:24:35.562 | WARNING  | app.sip.server:start:971 - SIP bind attempt 3/3 failed: SIP bind failed on 0.0.0.0:5060 (address already in use), retrying in 1.0s...
+2026-07-03 16:24:36.566 | WARNING  | app.main:lifespan:783 - Startup step: sip_server.start failed: [Errno 10048] SIP bind failed on 0.0.0.0:5060 (address already in use). Continue startup without SIP.
+2026-07-03 16:24:36.567 | WARNING  | app.main:lifespan:788 - Startup step: platform_service.start skipped (SIP not running).
+2026-07-03 16:24:36.569 | INFO     | app.main:lifespan:801 - Startup step: cluster subscriber started.
+2026-07-03 16:24:36.571 | INFO     | app.main:lifespan:805 - Startup step: platform_subscription_service.start...
+2026-07-03 16:24:36.571 | INFO     | app.services.platform_subscription_service:start:72 - platform_subscription_service started
+2026-07-03 16:24:36.572 | INFO     | app.main:lifespan:809 - Startup step: platform_subscription_service.start done.
+2026-07-03 16:24:36.573 | INFO     | app.main:lifespan:815 - Startup step: device_subscription_service.start...
+2026-07-03 16:24:36.577 | INFO     | app.services.device_subscription_service:start:59 - device_subscription_service started
+2026-07-03 16:24:36.578 | INFO     | app.main:lifespan:819 - Startup step: device_subscription_service.start done.
+2026-07-03 16:24:36.578 | INFO     | app.main:lifespan:834 - Startup step: catalog_runtime cleanup loop started.
+2026-07-03 16:24:36.579 | INFO     | app.main:lifespan:840 - Startup step: vision_hub.start...
+2026-07-03 16:24:36.580 | INFO     | app.services.vision_hub:start:45 - AI Vision Hub disabled by config (VISION_HUB_ENABLED=false).
+2026-07-03 16:24:36.581 | INFO     | app.main:lifespan:843 - Startup step: vision_hub.start done.
+2026-07-03 16:24:36.582 | INFO     | app.main:lifespan:849 - Startup step: media_manager.start (embedded ZLM)...
+2026-07-03 16:24:36.583 | INFO     | app.services.media_manager:start:64 - media_manager.start(): probing configured media nodes...
+2026-07-03 16:24:40.475 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed
+2026-07-03 16:24:40.477 | WARNING  | app.services.media_manager:start:92 - media_manager.start(): no media nodes online. If using embedded ZLM, ensure the MediaServer process is started (or set EMBEDDED_ZLM_ENABLED=false / ZLM_PREFER_EXTERNAL_NODES=true to skip).
+2026-07-03 16:24:40.478 | INFO     | app.main:lifespan:855 - Startup step: media_manager.start done.
+2026-07-03 16:24:40.480 | INFO     | app.main:lifespan:866 - Startup step: health_service.start...
+2026-07-03 16:24:40.481 | INFO     | app.services.health_service:start:93 - Health Service started
+2026-07-03 16:24:40.482 | INFO     | app.main:lifespan:869 - Startup step: health_service.start done.
+2026-07-03 16:24:40.492 | INFO     | app.services.tasks.task_manager:start_all_background_tasks:42 - Background task started: device_watchdog
+2026-07-03 16:24:40.494 | INFO     | app.services.tasks.task_manager:start_all_background_tasks:58 - start_all_background_tasks: 0 task(s) + 1 stop callback(s) registered
+2026-07-03 16:24:40.495 | INFO     | app.main:lifespan:886 - Startup step: talk session cleanup loop started.
+2026-07-03 16:24:40.509 | INFO     | app.services.ssl_certbot.certbot_manager:on_startup:44 - SSL certbot: Windows platform, skipping (platform_supported=False)
+2026-07-03 16:24:40.510 | INFO     | app.main:lifespan:914 - Startup step: log queue drainer started.
+2026-07-03 16:24:40.511 | INFO     | app.main:lifespan:916 - Startup complete.
+2026-07-03 16:24:40.512 | INFO     | app.main:lifespan:1004 - Startup step: dialog_manager.restore_from_redis done.
+2026-07-03 16:24:40.516 | INFO     | app.services.tasks.device_watchdog:_watchdog_loop:84 - Device heartbeat watchdog started (interval=%ds)
+2026-07-03 16:24:40.526 | INFO     | app.main:_paid_license_sync_loop:961 - Paid license sync (startup) finished: checked 0 plugin(s)
+INFO:     Application startup complete.
+2026-07-03 16:24:40.528 | INFO     | app.sip.ssrc_manager:cleanup_loop:297 - SSRC cleanup loop started: interval=300.0s stale=3600.0s
+2026-07-03 16:24:40.529 | INFO     | app.sip.catalog_data_manager:monitor_loop:216 - catalog_data_manager monitor_loop started: interval=60.0s ttl=300.0s
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+2026-07-03 16:24:40.589 | WARNING  | app.services.health_service:_check_zlm_health:504 - ZLMediaKit is not running! Attempting restart...
+2026-07-03 16:24:40.590 | ERROR    | app.services.health_service:mark_degraded:80 - Readiness DEGRADED: zlm_down
+2026-07-03 16:25:12.709 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed
+2026-07-03 16:25:44.944 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed
+2026-07-03 16:26:17.146 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed
+2026-07-03 16:26:49.353 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed
+2026-07-03 16:27:21.587 | WARNING  | app.services.media_manager:_probe_one:242 - media_manager probe getServerConfig failed for 127.0.0.1:8880: All connection attempts failed

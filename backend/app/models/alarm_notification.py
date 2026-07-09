@@ -18,6 +18,9 @@ class AlarmNotification(Base):
     id = Column(String(32), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), default="default", index=True)
 
+    # P2-4: alarm_id 为软引用（无 ForeignKey 约束）— 设计意图：
+    # 通知记录用于审计追溯，告警删除后通知记录应保留。若加 FK 级联，
+    # 删除告警会连带删除通知，破坏审计完整性。孤儿记录由清理任务定期回收。
     alarm_id = Column(String(32), index=True)
     device_id = Column(String(32), index=True)
     channel_id = Column(String(32), index=True)

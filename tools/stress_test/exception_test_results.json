@@ -1,0 +1,97 @@
+{
+  "scenarios": {
+    "network_jitter": {
+      "scenario": "network_jitter",
+      "tests": [
+        {
+          "name": "baseline_health",
+          "alive": true
+        },
+        {
+          "name": "delayed_register_response",
+          "got_401": false,
+          "error": "timeout"
+        },
+        {
+          "name": "post_jitter_health",
+          "alive": true
+        }
+      ],
+      "pass": false
+    },
+    "malformed_sip": {
+      "scenario": "malformed_sip",
+      "tests": [
+        {
+          "name": "garbage_data",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        },
+        {
+          "name": "missing_headers",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": true
+        },
+        {
+          "name": "oversized_uri",
+          "sent": false,
+          "crashed": false,
+          "error": "[WinError 10040] 一个在数据报套接字上发送的消息大于内部消息缓冲区或其他一些网络限制，或该用户用于接收数据报的缓冲区比数据报小。"
+        },
+        {
+          "name": "empty_message",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        },
+        {
+          "name": "request_line_only",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        },
+        {
+          "name": "invalid_content_length",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        },
+        {
+          "name": "huge_content_length",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        },
+        {
+          "name": "binary_data",
+          "sent": true,
+          "crashed": false,
+          "error": "",
+          "got_response": false
+        }
+      ],
+      "pass": false,
+      "platform_alive_after_malformed": false
+    },
+    "db_outage_recovery": {
+      "scenario": "db_outage_recovery",
+      "tests": [
+        {
+          "name": "baseline_db",
+          "connected": false
+        }
+      ],
+      "pass": false,
+      "error": "DB not connected at baseline"
+    }
+  },
+  "overall_pass": false
+}

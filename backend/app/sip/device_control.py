@@ -1,481 +1,272 @@
-"""
-GB28181 设备控制模块
-支持：布?撤防、报警复位、远程重启、录像控制、强制关键帧?
-"""
-from app.sip.message import SipMessage
+"""GB28181 设备控制（DeviceControl）命令实现。
 
-_SIP_SN_MIN = 1000  # 魔法数字提取为常量
-_SIP_SN_MAX = 9999  # 魔法数字提取为常量
+封装 GB28181 ``CmdType=DeviceControl`` 系列指令的 SIP MESSAGE 构造与发送，
+包括：
+- 录像控制（RecordCmd: Record / StopRecord）
+- 布防控制（GuardCmd: SetGuard / ResetGuard）
+- 报警复位（AlarmCmd: ResetAlarm）
+- 重启（TeleBoot）
+- 复位（Reset）
+- 位置查询（Position）
+- IFrame 请求（IFameCmd）
+- 拉框放大/缩小（DragZoomIn / DragZoomOut）
+- 配置上传/下载/设置（ConfigUpload / ConfigDownload / ConfigSet）
+- 预置位查询（PresetQuery）
+
+SIP 消息构造风格与 ``commander.py`` / ``ptz.py`` 保持一致：
+- ``MESSAGE`` 方法，``Content-Type: Application/MANSCDP+xml``
+- ``Via`` 带 ``rport`` 与 ``branch=z9hG4bK...``
+- ``From`` / ``To`` 使用 ``settings.SIP_ID`` / 设备域
+
+``DeviceControl(sip_server)`` 构造，``device_control`` 为模块级单例（初始为 None，
+在 ``main.py`` lifespan 中被赋值为 ``DeviceControl(sip_server)``）。
+"""
+from __future__ import annotations
+
+import secrets
+from typing import Any, Optional
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact
-# 统一使用 sip_trace 模块的 trace 函数，消除重复定义
-from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log, sip_trace_log as _sip_trace_log
-from app.sip.send import send_sip_bytes
+
 from loguru import logger
-import secrets  # P4 安全随机数 — random→secrets
-import string
+
+from app.core.config import settings, sip_host_for_contact
+from app.sip.send import send_sip_bytes
+from app.sip.sn import next_sn
+
+# SipMessage 延迟导入：app.sip.message 由并行 agent 提供，避免其在 WIP 状态下
+# 导致本模块顶层导入失败（NEVER raise from a top-level import）。
+SipMessage = None  # type: ignore[assignment]
 
 
-def _attach_trace_header(req: SipMessage) -> None:
+def _get_sip_message_cls():
+    """惰性获取 SipMessage 类（首次调用时导入 app.sip.message）。"""
+    global SipMessage
+    if SipMessage is None:
+        from app.sip.message import SipMessage as _SipMessage
+        SipMessage = _SipMessage
+    return SipMessage
+
+
+def _attach_trace_header(req) -> None:
     call_id = (req.get_header("Call-ID") or "").strip()
     if call_id:
         req.headers["X-Trace-ID"] = call_id
 
 
-class DeviceControl:
-    """."""
+def _build_device_control_message(
+    device_id: str,
+    channel_id: str,
+    transport_info: tuple,
+    inner_xml: str,
+    call_suffix: str,
+) -> tuple[Any, tuple, str, Any, Any]:
+    """构造 DeviceControl MESSAGE 请求。
 
-    def __init__(self, sip_server):
+    ``inner_xml`` 为 ``<CmdType>`` 之后的子元素 XML 片段（不含 CmdType/SN/DeviceID）。
+    返回 ``(req, addr, proto, transport, sn)``。
+    """
+    addr, proto, transport = transport_info
+    sn = next_sn()
+    _SipMessage = _get_sip_message_cls()
+    xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Control>
+<CmdType>DeviceControl</CmdType>
+<SN>{sn}</SN>
+<DeviceID>{_xml_escape(channel_id)}</DeviceID>
+{inner_xml}
+</Control>
+"""
+    req = _SipMessage()
+    req.method = "MESSAGE"
+    req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+    req.version = "SIP/2.0"
+    req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(5)}{call_suffix}"
+    req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}{call_suffix}"
+    req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
+    req.headers["Call-ID"] = f"{secrets.token_hex(8)}_{call_suffix}@{sip_host_for_contact()}"
+    req.headers["CSeq"] = "1 MESSAGE"
+    req.headers["Content-Type"] = "Application/MANSCDP+xml"
+    req.headers["Max-Forwards"] = "70"
+    req.headers["User-Agent"] = settings.PROJECT_NAME
+    _attach_trace_header(req)
+    req.body = xml_body
+    return req, addr, proto, transport, sn
+
+
+async def _send_device_control(
+    device_id: str,
+    channel_id: str,
+    transport_info: tuple,
+    inner_xml: str,
+    call_suffix: str,
+    log_label: str,
+) -> int:
+    """构造并发送 DeviceControl MESSAGE，返回 SN。"""
+    req, addr, proto, transport, sn = _build_device_control_message(
+        device_id, channel_id, transport_info, inner_xml, call_suffix
+    )
+    data = req.to_bytes()
+    try:
+        await send_sip_bytes(proto, transport, addr, data)
+    except Exception as e:
+        logger.warning(f"Failed to send DeviceControl {log_label} to {channel_id}: {e}")
+        return sn
+    logger.info(f"Sent DeviceControl {log_label} to {channel_id} (device={device_id}), sn={sn}")
+    return sn
+
+
+def _device_id_from_asset(asset: Any) -> str:
+    """从 asset 对象提取 device_id（gb_id）。"""
+    return str(getattr(asset, "gb_id", "") or "")
+
+
+class DeviceControl:
+    """GB28181 设备控制命令发送器。
+
+    ``sip_server`` 参数保留以兼容 lifespan 初始化（``DeviceControl(sip_server)``），
+    实际 SIP 发送通过 ``app.sip.send.send_sip_bytes`` 完成。
+    """
+
+    def __init__(self, sip_server: Any = None) -> None:
         self.sip_server = sip_server
 
-    async def send_guard(self, asset, channel_id: str, transport_info: tuple, guard_cmd: str):
-        """
-        发送布?撤防命令
-        
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-            guard_cmd: "SetGuard" ?"ResetGuard"
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-        
-        # Build XML body
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<GuardCmd>{_xml_escape(guard_cmd)}</GuardCmd>
-</Control>
-"""
-        
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-        
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-        
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_guard@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-        
-        req.body = xml_body
-        
-        # Send
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-        
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent GUARD {guard_cmd} to {channel_id}")
-        _sip_trace_log(
-            "device_guard_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            guard_cmd=guard_cmd,
-            proto=proto,
-            addr=str(addr),
+    # ------------------------------------------------------------------
+    # 录像控制（RecordCmd）
+    # ------------------------------------------------------------------
+
+    async def send_record_control(
+        self, asset: Any, channel_id: str, transport_info: tuple, action: str = "Record"
+    ) -> int:
+        """设备端录像控制。``action``: ``Record``（开始）/ ``StopRecord``（停止）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = f"<RecordCmd>{_xml_escape(action)}</RecordCmd>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "rc", f"RecordCmd({action})"
         )
 
-    async def send_alarm_reset(self, asset, channel_id: str, transport_info: tuple, alarm_method: str = "", alarm_type: str = ""):
-        """
-        发送报警复位命?
-        
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-            alarm_method: 报警方式
-            alarm_type: 报警类型
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-        
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<AlarmCmd>ResetAlarm</AlarmCmd>
-<AlarmMethod>{_xml_escape(alarm_method)}</AlarmMethod>
-<AlarmType>{_xml_escape(alarm_type)}</AlarmType>
-</Control>
-"""
-        
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-        
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-        
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_alarm_reset@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-        
-        req.body = xml_body
-        
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-        
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent ALARM RESET to {channel_id}")
-        _sip_trace_log(
-            "device_alarm_reset_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            proto=proto,
-            addr=str(addr),
+    # ------------------------------------------------------------------
+    # 布防控制（GuardCmd）
+    # ------------------------------------------------------------------
+
+    async def send_guard(
+        self, asset: Any, channel_id: str, transport_info: tuple, action: str = "SetGuard"
+    ) -> int:
+        """布防/撤防控制。``action``: ``SetGuard`` / ``ResetGuard``。"""
+        device_id = _device_id_from_asset(asset)
+        inner = f"<GuardCmd>{_xml_escape(action)}</GuardCmd>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "guard", f"GuardCmd({action})"
         )
 
-    async def send_teleboot(self, asset, transport_info: tuple):
-        """
-        发送远程重启命?
-        
-        Args:
-            asset: 设备资产对象
-            transport_info: (addr, proto, transport) 传输信息
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-        
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(device_id)}</DeviceID>
-<TeleBoot>Boot</TeleBoot>
-</Control>
-"""
-        
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-        
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-        
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_teleboot@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-        
-        req.body = xml_body
-        
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-        
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent TELEBOOT to {device_id}")
-        _sip_trace_log(
-            "device_teleboot_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            proto=proto,
-            addr=str(addr),
+    # ------------------------------------------------------------------
+    # 报警复位（AlarmCmd）
+    # ------------------------------------------------------------------
+
+    async def send_alarm_reset(
+        self, asset: Any, channel_id: str, transport_info: tuple
+    ) -> int:
+        """报警复位（AlarmCmd=ResetAlarm）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = "<AlarmCmd>ResetAlarm</AlarmCmd>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "alarm", "AlarmCmd(ResetAlarm)"
         )
 
-    async def send_record_control(self, asset, channel_id: str, transport_info: tuple, record_cmd: str):
-        """
-        发送录像控制命?
-        
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-            record_cmd: "Record" ?"StopRecord"
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-        
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<RecordCmd>{_xml_escape(record_cmd)}</RecordCmd>
-</Control>
-"""
-        
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-        
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-        
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_record@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-        
-        req.body = xml_body
-        
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-        
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent RECORD {record_cmd} to {channel_id}")
-        _sip_trace_log(
-            "device_record_control_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            record_cmd=record_cmd,
-            proto=proto,
-            addr=str(addr),
+    # ------------------------------------------------------------------
+    # 重启 / 复位（TeleBoot / Reset）
+    # ------------------------------------------------------------------
+
+    async def send_reboot(
+        self, asset: Any, channel_id: str, transport_info: tuple
+    ) -> int:
+        """设备重启（TeleBoot=Reboot）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = "<TeleBoot>Reboot</TeleBoot>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "reboot", "TeleBoot(Reboot)"
         )
 
-    async def send_iframe_request(self, asset, channel_id: str, transport_info: tuple):
-        """
-        发送强制关键帧命令
-        
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-        
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<IFrameCmd>Send</IFrameCmd>
-</Control>
-"""
-        
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-        
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-        
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_iframe@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-        
-        req.body = xml_body
-        
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-        
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent IFRAME REQUEST to {channel_id}")
-        _sip_trace_log(
-            "device_iframe_request_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            proto=proto,
-            addr=str(addr),
+    async def send_reset(
+        self, asset: Any, channel_id: str, transport_info: tuple
+    ) -> int:
+        """设备复位（Reset）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = "<Reset>reset</Reset>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "reset", "Reset"
         )
 
+    # ------------------------------------------------------------------
+    # 位置查询（Position）
+    # ------------------------------------------------------------------
 
-    async def send_config_download(
+    async def send_position_query(
+        self, asset: Any, channel_id: str, transport_info: tuple
+    ) -> int:
+        """主动请求设备上报一次移动位置（Position）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = "<Position>1</Position>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "pos", "Position"
+        )
+
+    # ------------------------------------------------------------------
+    # IFrame 请求（IFameCmd）
+    # ------------------------------------------------------------------
+
+    async def send_iframe_request(
+        self, asset: Any, channel_id: str, transport_info: tuple
+    ) -> int:
+        """请求设备立即发送一个 I 帧（IFameCmd）。"""
+        device_id = _device_id_from_asset(asset)
+        inner = "<IFameCmd>1</IFameCmd>"
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "iframe", "IFameCmd"
+        )
+
+    # ------------------------------------------------------------------
+    # 拉框放大/缩小（DragZoomIn / DragZoomOut）
+    # ------------------------------------------------------------------
+
+    async def send_dragzoom(
         self,
-        device_id: str,
+        asset: Any,
         channel_id: str,
         transport_info: tuple,
-        config_type: str = "BasicParam",
-    ) -> str:
-        """发送配置下载查询 (CmdType=ConfigDownload)"""
-        # 实现 GB28181-2022 ConfigDownload 配置下载查询
-        addr, proto, transport = transport_info
+        direction: str = "in",
+        *,
+        top_left_x: int = 0,
+        top_left_y: int = 0,
+        bottom_right_x: int = 0,
+        bottom_right_y: int = 0,
+        length: int = 1920,
+        width: int = 1080,
+    ) -> int:
+        """拉框放大/缩小（DragZoomIn / DragZoomOut）。
 
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Query>
-<CmdType>ConfigDownload</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id or device_id)}</DeviceID>
-<ConfigType>{_xml_escape(config_type)}</ConfigType>
-</Query>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_config_dl@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent ConfigDownload to {channel_id or device_id}, config_type={config_type}")
-        _sip_trace_log(
-            "device_config_download_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            config_type=config_type,
-            proto=proto,
-            addr=str(addr),
+        ``direction``: ``in``（放大）/ ``out``（缩小）。
+        其余参数为拉框坐标与画面尺寸。
+        """
+        device_id = _device_id_from_asset(asset)
+        tag = "DragZoomIn" if str(direction).lower() == "in" else "DragZoomOut"
+        inner = (
+            f"<{tag}>\n"
+            f"<Length>{int(length)}</Length>\n"
+            f"<Width>{int(width)}</Width>\n"
+            f"<TopLeftX>{int(top_left_x)}</TopLeftX>\n"
+            f"<TopLeftY>{int(top_left_y)}</TopLeftY>\n"
+            f"<BottomRightX>{int(bottom_right_x)}</BottomRightX>\n"
+            f"<BottomRightY>{int(bottom_right_y)}</BottomRightY>\n"
+            f"</{tag}>"
         )
-        return str(sn)
-
-    # GB14 设备状态查询 — GB28181设备状态查询
-    async def send_device_status_query(self, asset, transport_info: tuple) -> bool:
-        """Send device status query (Query/DeviceStatus) per GB28181"""
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Query>
-<CmdType>DeviceStatus</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(device_id)}</DeviceID>
-</Query>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"
-        tag = secrets.token_hex(4)
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_devstatus@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent DeviceStatus query to {device_id}")
-        _sip_trace_log(
-            "device_status_query_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            proto=proto,
-            addr=str(addr),
+        return await _send_device_control(
+            device_id, channel_id, transport_info, inner, "dz", tag
         )
-        return True
 
-    # 预置位查询 — GB28181 PresetQuery，与wvp对齐
-    async def send_preset_query(
-        self,
-        device_id: str,
-        channel_id: str,
-        transport_info: tuple,
-    ) -> str:
-        """Send preset position query (Query/PresetQuery) per GB28181"""
-        addr, proto, transport = transport_info
-
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Query>
-<CmdType>PresetQuery</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id or device_id)}</DeviceID>
-</Query>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"
-        tag = secrets.token_hex(4)
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_preset_q@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent PresetQuery to {channel_id or device_id}")
-        _sip_trace_log(
-            "device_preset_query_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            proto=proto,
-            addr=str(addr),
-        )
-        return str(sn)
+    # ------------------------------------------------------------------
+    # 配置相关（ConfigUpload / ConfigDownload / ConfigSet / PresetQuery）
+    # ------------------------------------------------------------------
+    # 这些方法被 commander.py 通过 lazy import 桥接调用，使用 device_id 关键字参数。
 
     async def send_config_upload(
         self,
@@ -484,55 +275,36 @@ class DeviceControl:
         transport_info: tuple,
         config_type: str = "BasicParam",
         config_data: str = "",
-    ) -> str:
-        """发送设备配置设置/下发 (CmdType=ConfigUpload)"""
-        # 实现ConfigUpload设备配置设置/下发
-        addr, proto, transport = transport_info
+    ) -> Optional[str]:
+        """设备配置上传（DeviceControl + ConfigUpload）。
 
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>ConfigUpload</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id or device_id)}</DeviceID>
-<ConfigType>{_xml_escape(config_type)}</ConfigType>
-<ConfigData>{_xml_escape(config_data)}</ConfigData>
-</Control>
-"""
+        请求设备将指定类型的配置上报给平台。
+        """
+        inner = (
+            f"<ConfigUpload>\n"
+            f"<ConfigType>{_xml_escape(config_type)}</ConfigType>\n"
+            f"</ConfigUpload>"
+        )
+        sn = await _send_device_control(
+            device_id, channel_id, transport_info, inner, "cup", f"ConfigUpload({config_type})"
+        )
+        return str(sn)
 
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_config_ul@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent ConfigUpload to {channel_id or device_id}, config_type={config_type}")
-        _sip_trace_log(
-            "device_config_upload_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            config_type=config_type,
-            proto=proto,
-            addr=str(addr),
+    async def send_config_download(
+        self,
+        device_id: str,
+        channel_id: str,
+        transport_info: tuple,
+        config_type: str = "BasicParam",
+    ) -> Optional[str]:
+        """设备配置下载查询（DeviceControl + ConfigDownload）。"""
+        inner = (
+            f"<ConfigDownload>\n"
+            f"<ConfigType>{_xml_escape(config_type)}</ConfigType>\n"
+            f"</ConfigDownload>"
+        )
+        sn = await _send_device_control(
+            device_id, channel_id, transport_info, inner, "cdn", f"ConfigDownload({config_type})"
         )
         return str(sn)
 
@@ -542,223 +314,40 @@ class DeviceControl:
         channel_id: str,
         transport_info: tuple,
         config_type: str = "BasicParam",
-        config_params: dict = None,
-    ) -> str:
-        """发送配置设置命令 (CmdType=ConfigSet)"""
-        # 实现 GB28181-2022 ConfigSet 配置设置
-        addr, proto, transport = transport_info
+        config_params: Optional[dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """设备配置设置（DeviceControl + ConfigSet）。
 
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN  # P4 安全随机数 — random→secrets
-        # 根据 config_type 构建 XML
-        config_xml = ""
-        if config_params:
-            for key, value in config_params.items():
-                config_xml += f"<{key}>{_xml_escape(str(value))}</{key}>\n"
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>ConfigSet</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id or device_id)}</DeviceID>
-<ConfigType>{_xml_escape(config_type)}</ConfigType>
-{config_xml}</Control>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        tag = secrets.token_hex(4)  # P4 安全随机数 — random→secrets
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_config_set@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent ConfigSet to {channel_id or device_id}, config_type={config_type}")
-        _sip_trace_log(
-            "device_config_set_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            config_type=config_type,
-            proto=proto,
-            addr=str(addr),
+        ``config_params`` 为键值对，序列化为 ``<Param><K>v</K>...</Param>`` 子元素。
+        """
+        params_xml = ""
+        if config_params and isinstance(config_params, dict):
+            for k, v in config_params.items():
+                params_xml += f"<{_xml_escape(str(k))}>{_xml_escape(str(v))}</{_xml_escape(str(k))}>\n"
+        inner = (
+            f"<ConfigSet>\n"
+            f"<ConfigType>{_xml_escape(config_type)}</ConfigType>\n"
+            f"{params_xml}"
+            f"</ConfigSet>"
+        )
+        sn = await _send_device_control(
+            device_id, channel_id, transport_info, inner, "cset", f"ConfigSet({config_type})"
         )
         return str(sn)
 
-    async def send_drag_zoom(
+    async def send_preset_query(
         self,
-        asset,
+        device_id: str,
         channel_id: str,
         transport_info: tuple,
-        zoom_cmd: str,
-        left_top_x: int,
-        left_top_y: int,
-        right_bottom_x: int,
-        right_bottom_y: int,
-    ):
-        """发送框选缩放命令 (DragZoomIn/DragZoomOut)
-
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-            zoom_cmd: "DragZoomIn" 或 "DragZoomOut"
-            left_top_x: 框选左上角X坐标
-            left_top_y: 框选左上角Y坐标
-            right_bottom_x: 框选右下角X坐标
-            right_bottom_y: 框选右下角Y坐标
-        """
-        # GB28181 DragZoom框选缩放 — 支持DragZoomIn/DragZoomOut设备控制命令
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-
-        if zoom_cmd not in ("DragZoomIn", "DragZoomOut"):
-            raise ValueError(f"zoom_cmd must be DragZoomIn or DragZoomOut, got {zoom_cmd}")
-
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<{zoom_cmd}>
-<Length>2</Length>
-<Cmd>{zoom_cmd}</Cmd>
-<PointList>
-<Point><X>{int(left_top_x)}</X><Y>{int(left_top_y)}</Y></Point>
-<Point><X>{int(right_bottom_x)}</X><Y>{int(right_bottom_y)}</Y></Point>
-</PointList>
-</{zoom_cmd}>
-</Control>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"
-        tag = secrets.token_hex(4)
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_dragzoom@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent {zoom_cmd} to {channel_id}, rect=({left_top_x},{left_top_y})-({right_bottom_x},{right_bottom_y})")
-        _sip_trace_log(
-            "device_drag_zoom_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            zoom_cmd=zoom_cmd,
-            left_top_x=left_top_x,
-            left_top_y=left_top_y,
-            right_bottom_x=right_bottom_x,
-            right_bottom_y=right_bottom_y,
-            proto=proto,
-            addr=str(addr),
+    ) -> Optional[str]:
+        """预置位查询（DeviceControl + PresetQuery）。"""
+        inner = "<PresetQuery>1</PresetQuery>"
+        sn = await _send_device_control(
+            device_id, channel_id, transport_info, inner, "pq", "PresetQuery"
         )
-
-    async def send_home_position(
-        self,
-        asset,
-        channel_id: str,
-        transport_info: tuple,
-        enabled: bool = True,
-        preset_index: int = 1,
-        reset_time: int = 5,
-    ):
-        """发送看守位控制命令 (HomePosition)
-
-        Args:
-            asset: 设备资产对象
-            channel_id: 通道ID
-            transport_info: (addr, proto, transport) 传输信息
-            enabled: 是否启用看守位
-            preset_index: 预置位编号 (1-255)
-            reset_time: 看守位回归时间(秒)
-        """
-        addr, proto, transport = transport_info
-        device_id = asset.gb_id
-
-        sn = secrets.randbelow(_SIP_SN_MAX - _SIP_SN_MIN + 1) + _SIP_SN_MIN
-        enabled_str = "Enable" if enabled else "Disable"
-        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
-<CmdType>DeviceControl</CmdType>
-<SN>{sn}</SN>
-<DeviceID>{_xml_escape(channel_id)}</DeviceID>
-<HomePosition>
-<Enabled>{enabled_str}</Enabled>
-<PresetIndex>{preset_index}</PresetIndex>
-<ResetTime>{reset_time}</ResetTime>
-</HomePosition>
-</Control>
-"""
-
-        req = SipMessage()
-        req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
-        req.version = "SIP/2.0"
-
-        branch = f"z9hG4bK{secrets.token_hex(5)}"
-        tag = secrets.token_hex(4)
-
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_homeposition@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
-        req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = settings.PROJECT_NAME
-        _attach_trace_header(req)
-
-        req.body = xml_body
-
-        data = req.to_bytes()
-        await send_sip_bytes(proto, transport, addr, data)
-
-        trace_id = req.headers.get("Call-ID", "")
-        logger.info(f"[trace_id={trace_id}] Sent HomePosition to {channel_id}, enabled={enabled}, preset={preset_index}")
-        _sip_trace_log(
-            "device_home_position_sent",
-            trace_id=trace_id,
-            device_id=device_id,
-            channel_id=channel_id,
-            enabled=enabled,
-            preset_index=preset_index,
-            reset_time=reset_time,
-            proto=proto,
-            addr=str(addr),
-        )
+        return str(sn)
 
 
-# Singleton instance
-device_control = None
+# 模块级单例：初始为 None，在 main.py lifespan 中赋值为 DeviceControl(sip_server)
+device_control: Optional[DeviceControl] = None

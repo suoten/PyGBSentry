@@ -8,11 +8,8 @@ from app.core import security
 from app.core.config import settings
 from sqlalchemy import select
 import asyncio
-import hashlib
-import logging
 import os
 import secrets
-import sys
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 
@@ -41,7 +38,8 @@ async def init_db():
         try:
             from app.core.config import settings as _settings
             _admin_password = getattr(_settings, "ADMIN_INITIAL_PASSWORD", "") or ""
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to read ADMIN_INITIAL_PASSWORD from settings: {e}")
             pass
         if not _admin_password:
             _admin_password = os.environ.get("ADMIN_INITIAL_PASSWORD", "").strip()
@@ -52,7 +50,8 @@ async def init_db():
         try:
             from app.core.config import settings as _settings
             _force_reset = getattr(_settings, "ADMIN_FORCE_RESET_PASSWORD", False)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to read ADMIN_FORCE_RESET_PASSWORD from settings: {e}")
             pass
         if not _force_reset:
             _force_reset = os.environ.get("ADMIN_FORCE_RESET_PASSWORD", "").strip().lower() in ("true", "1", "yes")
@@ -170,7 +169,7 @@ async def init_db():
                     rtp_port_mode="range" if "-" in str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "") or "") else "single",
                     rtp_port_range_start=int(str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "0-0")).split("-")[0] or 0),
                     rtp_port_range_end=int(str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "0-0")).split("-")[-1] or 0),
-                    secret=str(getattr(settings, "MEDIA_SERVER_SECRET", "") or ""),
+                    decrypted_secret=str(getattr(settings, "MEDIA_SERVER_SECRET", "") or ""),  # P0-02: setter 自动加密
                     hook_base_url=hook_base,
                     is_online=False,
                     load=0.0,

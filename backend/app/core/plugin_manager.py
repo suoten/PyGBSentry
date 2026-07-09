@@ -8,7 +8,6 @@ from loguru import logger
 import multiprocessing
 import os
 import math
-import pickle
 import sys
 import threading
 import time
@@ -16,6 +15,7 @@ from pathlib import Path
 
 import aiohttp
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.services.license_service import verify_license_payload
 from types import SimpleNamespace
 
@@ -113,7 +113,7 @@ def _is_internal_caller(caller: str, frame) -> bool:
                 mod_path = str(Path(mod_file).resolve())
                 return mod_path.startswith(_APP_PKG_ROOT)
             except Exception:
-                pass
+                logger.warning("silently_swallowed_exception", exc_info=True)
         # 无 __file__ 信息时保守视为内部（如 frozen 模块）
         return True
     return False
@@ -589,7 +589,7 @@ class PluginManager:
                 try:
                     del sys.modules[module_name]
                 except Exception:
-                    pass
+                    logger.warning("silently_swallowed_exception", exc_info=True)
             logger.error(f"Failed to load plugin {module_name}: {e}")
 
     def _find_venv_site_packages(self, venv_dir: str) -> str | None:
@@ -794,7 +794,7 @@ class PluginManager:
                     with open(license_path, "r", encoding="utf-8") as f:
                         license_data = json.load(f)
                 except Exception as e:
-                    logger.debug(f"check_license_online_status: read license failed {pid}: {e}")
+                    logger.warning(f"check_license_online_status: read license failed {pid}: {e}")
                     return {"status": "unknown", "source": "license_read_failed"}
 
         if not license_data:
@@ -830,7 +830,7 @@ class PluginManager:
         except asyncio.TimeoutError:
             return {"status": "unknown", "source": "timeout"}
         except Exception as e:
-            logger.debug(f"check_license_online_status: request failed {pid}: {e}")
+            logger.warning(f"check_license_online_status: request failed {pid}: {e}")
             return {"status": "unknown", "source": f"error_{e.__class__.__name__}"}
 
     def _paid_plugin_status_cache_get(self, plugin_id: str) -> dict[str, Any] | None:
@@ -1142,7 +1142,7 @@ class PluginManager:
                                 time=time.time(),
                                 description=f"Plugin hook timeout: {hook_name} ({getattr(callback, '__module__', '?')}); timeout={timeout_seconds:.2f}s",
                             )
-                            asyncio.create_task(self.emit(HOOK_ON_ALARM, alarm))
+                            fire_and_forget(self.emit(HOOK_ON_ALARM, alarm))  # P0-16: 保存引用防 GC + 异常日志
                     except Exception as e:
                         logger.warning(f"Failed to emit alarm for hook timeout: {e}")
                     return
@@ -1219,7 +1219,7 @@ class PluginManager:
                     if not t.done():
                         t.cancel()
                 except Exception:
-                    pass
+                    logger.warning("silently_swallowed_exception", exc_info=True)
             self._plugin_startup_tasks.clear()
         return report
 
@@ -1502,7 +1502,7 @@ class PluginManager:
                     try:
                         self.check_plugin_disk_limit(pid)
                     except Exception as e:
-                        logger.debug(f"Health check disk for {pid}: {e}")
+                        logger.warning(f"Health check disk for {pid}: {e}")
             except asyncio.CancelledError:
                 break
             except Exception as e:

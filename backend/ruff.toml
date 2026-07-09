@@ -1,0 +1,38 @@
+# Ruff 配置 — PyGBSentry 后端代码质量检查
+# 运行: ruff check app/
+# 修复: ruff check app/ --fix
+
+target-version = "py311"
+line-length = 150
+
+[lint]
+# 启用的规则集
+select = [
+    "F",       # pyflakes: 未使用导入、未定义变量等
+    "E",       # pycodestyle errors
+    "W",       # pycodestyle warnings
+    "I",       # isort: 导入排序
+    "A",       # flake8-builtins: 遮蔽内置函数
+    "PLC0414", # import shadowing: 函数内import遮蔽模块级变量
+    "PLW0406", # import self-shadowing
+    "RUF100",  # 未使用的 noqa 注释
+]
+
+# 忽略的规则（项目当前暂不强制）
+ignore = [
+    "E501",    # 行长度（项目已有长行，逐步修复）
+    "E402",    # 模块级导入不在文件顶部（延迟导入模式是项目设计）
+    "I001",    # 导入排序（P2-28: 历史遗留 663 处，正式版前不强制；新代码应通过 ruff check --select I --fix 自动排序）
+    "A002",    # 函数参数遮蔽内置函数（id, type, range 等是API参数命名惯例）
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["F401"]  # __init__.py 的导出式导入允许未使用
+
+# ── L3 审计脚本（独立运行，不通过 ruff 集成） ──
+# 运行: python scripts/audit_l3_exception_pattern_scan.py --src-dir app/
+# 规则:
+#   L300: 裸 except: (无异常类型)
+#   L301: except Exception: pass (静默吞掉异常)
+#   L302: except Exception 后 return None/[]/False/0/{} (吞掉异常返回假值)
+#   L303: except Exception 仅日志不 re-raise (可能需要传播异常)

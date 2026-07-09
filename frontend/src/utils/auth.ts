@@ -1,4 +1,4 @@
-﻿import api from '@/utils/http'
+import api from '@/utils/http'
 
 export type RoleInfo = {
   role: string
@@ -29,8 +29,30 @@ let _cachedRoleInfo: RoleInfo | null = null
 let _cacheExpiry = 0
 const CACHE_TTL_MS = 60_000
 
+// FIX C-3: 空角色信息常量，供未验证时兜底使用
+export const EMPTY_ROLE_INFO: RoleInfo = {
+  role: '',
+  isSuperuser: false,
+  permissions: [],
+  canManageConfig: false,
+  canQueryAudit: false
+}
+
+// FIX C-3: 同步读取已缓存的后端权威角色信息（用于无法 await 的场景，如模板内 IP 脱敏）
+export const getCachedRoleInfo = (): RoleInfo | null => {
+  if (_cachedRoleInfo && Date.now() < _cacheExpiry) return _cachedRoleInfo
+  return null
+}
+
+// FIX C-3: 异步调用后端 verify-token 获取权威角色信息并写入缓存，优先返回未过期缓存
+export const getVerifiedRoleInfo = async (): Promise<RoleInfo | null> => {
+  if (_cachedRoleInfo && Date.now() < _cacheExpiry) return _cachedRoleInfo
+  return verifyTokenWithBackend()
+}
+
+/** @deprecated 禁止用于权限判断，请改用 getVerifiedRoleInfo() —— 客户端 JWT 解码无签名验证 */
 export const getRoleInfo = (): RoleInfo => {
-  const token = (() => { try { return localStorage.getItem('token') || '' } catch { return '' } })()
+  const token = (() => { try { return sessionStorage.getItem('token') || '' } catch { return '' } })()  // P0-4: sessionStorage
   if (!token) {
     _cachedRoleInfo = null
     return {
@@ -57,7 +79,10 @@ export const getRoleInfo = (): RoleInfo => {
   const decodeBase64 = (value: string) => {
     const normalized = value.replace(/-/g, '+').replace(/_/g, '/')
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=')
-    return atob(padded)
+    // atob polyfill — 部分运行时（Node.js SSR/测试、旧浏览器）可能无 atob
+    if (typeof atob === 'function') return atob(padded)
+    if (typeof Buffer !== 'undefined') return Buffer.from(padded, 'base64').toString('binary')
+    throw new Error('No base64 decoder available (atob/Buffer both missing)')
   }
 
   try {

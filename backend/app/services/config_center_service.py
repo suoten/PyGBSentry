@@ -38,7 +38,8 @@ class ConfigCenterService:
             if parsed.tzinfo is None:
                 return parsed.replace(tzinfo=timezone.utc)
             return parsed.astimezone(timezone.utc)
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse datetime value '{value}': {e}")
             return datetime.now(timezone.utc)
 
     async def _get_setting(self, db: AsyncSession, key: str) -> str | None:
@@ -62,7 +63,8 @@ class ConfigCenterService:
             loaded = json.loads(row.modules or "{}")
             if isinstance(loaded, dict):
                 modules = loaded
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse draft modules JSON: {e}")
             modules = {}
         return {
             "draft_id": row.draft_id,
@@ -107,7 +109,8 @@ class ConfigCenterService:
             data = json.loads(raw)
             if isinstance(data, dict):
                 return data
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse legacy draft data for {draft_id}: {e}")
             return None
         return None
 
@@ -134,7 +137,8 @@ class ConfigCenterService:
         raw_revision = await self._get_setting(db, self._revision_key)
         try:
             revision = int(raw_revision or "0")
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse config revision '{raw_revision}': {e}")
             revision = 0
         if revision <= 0:
             return 0, {}

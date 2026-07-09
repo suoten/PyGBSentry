@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Union, Any
+from typing import Any
 import jwt
 from passlib.context import CryptContext
 from app.core.config import settings
@@ -15,7 +15,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
-def create_access_token(subject: Union[str, Any], expires_delta: timedelta | None = None, extra_payload: dict | None = None) -> str:  # timedelta 不接受 None
+def create_access_token(subject: str | Any, expires_delta: timedelta | None = None, extra_payload: dict | None = None) -> str:  # timedelta 不接受 None
     if not settings.SECRET_KEY:  # C-03 SECRET_KEY空值校验，防止用空密钥签发可伪造令牌
         raise ValueError("SECRET_KEY is not configured; cannot create access token")
     if expires_delta is not None:
@@ -34,7 +34,7 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta | Non
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
-def create_refresh_token(subject: Union[str, Any]) -> str:
+def create_refresh_token(subject: str | Any) -> str:
     if not settings.SECRET_KEY:  # C-03 SECRET_KEY空值校验，防止用空密钥签发可伪造令牌
         raise ValueError("SECRET_KEY is not configured; cannot create refresh token")
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -86,6 +86,12 @@ async def verify_token_async(token: str, audience: str = "pygbsentry:access") ->
             except jwt.InvalidTokenError:
                 raise
             except Exception as e:
+                # P1-1: fail-closed 策略 — 生产环境 Redis 故障时拒绝请求，防止已吊销 token 被放行
+                # dev/test 环境降级放行（仅告警），避免本地无 Redis 时无法登录
+                from app.core.config import settings
+                _env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
                 logger.warning(f"Redis token revocation check failed for user {user_id}: {e}")
-                pass
+                if _env in {"prod", "production"}:
+                    raise jwt.InvalidTokenError("Token revocation check unavailable (Redis down)")
+                # 非生产环境降级放行
     return payload

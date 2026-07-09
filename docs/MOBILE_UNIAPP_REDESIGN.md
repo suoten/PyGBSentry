@@ -1,7 +1,9 @@
 # 开源版手机端重设计方案（uni-app）
 
-> 目标：基于 `BUSINESS_MODEL.md`、`BUSINESS_MODEL_V2.md` 与当前 `open-source/server` 现有能力，重构一个“美观大气、简洁大方、简单好用”的开源版手机端。  
+> 目标：基于 `BUSINESS_MODEL.md`、`BUSINESS_MODEL_V2.md` 与当前 `open-source/server` 现有能力，重构一个“美观大气、简洁大方、简单好用”的开源版手机端。
 > 技术路线：`uni-app`（App + H5 + 小程序可复用）。
+
+> **文档状态**：已落地（`mobile/` 目录已按本方案实现；剩余迭代项见 `PyGBSentry正式版修复提示语.md` 的 P1-28~P1-32 移动端条目）。本文保留为历史规划参考。
 
 ---
 

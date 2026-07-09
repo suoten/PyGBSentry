@@ -291,8 +291,8 @@
             :total="total"
             layout="total, sizes, prev, pager, next, jumper"
             :page-sizes="[10, 20, 50, 100]"
-            prev-text="t('pagination.prev')"
-            next-text="t('pagination.next')"
+            :prev-text="t('pagination.prev')"
+            :next-text="t('pagination.next')"
             size="small"
             @current-change="fetchAlarms"
             @size-change="() => { page = 1; fetchAlarms() }"
@@ -322,6 +322,7 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'  // FIXED: 国际化
 import { useRouter } from 'vue-router'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   ArrowDown, VideoCamera, Refresh, Bell, TrendCharts, Warning, CircleCheck, Timer, Search, InfoFilled,
@@ -370,7 +371,7 @@ const fetchUnreadCount = async () => {
     const res = await api.get('/api/v1/alarms/unread-count')
     unreadCount.value = res.data?.unread_count ?? 0
   } catch {
-    console.warn(t('alarm.loadUnreadFailed'))
+    logger.warn(t('alarm.loadUnreadFailed'))
     unreadCount.value = 0
   }
 }
@@ -402,7 +403,7 @@ const fetchOverview = async () => {
       : { total_open: 0, escalated_open: 0, overdue_open: 0, acknowledged_today: 0, avg_ack_minutes_today: 0 }
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   }
 }
 
@@ -426,7 +427,7 @@ const fetchAlarms = async () => {
     alarms.value = []
     total.value = 0
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     loading.value = false
   }
@@ -493,7 +494,7 @@ const ack = async (row: AlarmRow) => {
     await Promise.all([fetchAlarms(), fetchOverview(), fetchUnreadCount()])
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     ;(row as Record<string, unknown>)._acking = false
   }
@@ -519,7 +520,7 @@ const escalate = async (row: AlarmRow) => {
     await Promise.all([fetchAlarms(), fetchOverview(), fetchUnreadCount()])
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     ;(row as Record<string, unknown>)._escalating = false
   }
@@ -561,7 +562,7 @@ const loadAlarmConfig = async () => {
   try {
     const res = await api.get('/api/v1/alarms/config')
     alarmRecordLinkEnabled.value = Boolean(res.data?.alarm_record_link_enabled)
-  } catch { console.warn(t('alarm.loadConfigFailed')) }
+  } catch { logger.warn(t('alarm.loadConfigFailed')) }
 }
 
 const saveAlarmConfig = async () => {

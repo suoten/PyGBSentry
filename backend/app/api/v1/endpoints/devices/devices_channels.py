@@ -46,6 +46,21 @@ _TREE_CACHE_TTL = 30
 _tree_cache: dict[str, tuple[float, list]] = {}  # key: tenant_id, value: (timestamp, result)
 # /tree 端点结果无大小限制 → 添加最大节点数限制
 _MAX_TREE_NODES = 50000
+
+
+def invalidate_tree_cache(tenant_id: str | None = None) -> None:
+    """S-06: 主动失效 tree 缓存，避免 DB 状态变更后 30s 内返回过期数据。
+
+    tenant_id 为 None 时清空全部租户缓存；否则只清除指定租户的 region 和 business 缓存。
+    """
+    if tenant_id is None:
+        _tree_cache.clear()
+    else:
+        _keys_to_remove = [k for k in _tree_cache if k.endswith(f":{tenant_id}")]
+        for k in _keys_to_remove:
+            _tree_cache.pop(k, None)
+
+
 @router.get("/{device_id}/channels")
 async def get_channels(
     device_id: str,
@@ -550,6 +565,7 @@ async def reset_channel(
         detail=f"channel_id={channel_id}",
     )
     await db.commit()
+    invalidate_tree_cache(current_user.tenant_id or "default")  # S-06
     return {"status": "ok", "reset": channel_id}
 
 
@@ -579,6 +595,7 @@ async def delete_channel(
         detail=f"channel_id={channel_id}",
     )
     await db.commit()
+    invalidate_tree_cache(current_user.tenant_id or "default")  # S-06
     return {"status": "ok", "deleted": channel_id}
 
 
@@ -616,7 +633,7 @@ async def batch_channel_placement(
         dir_stmt = select(Resource.gb_id).where(Resource.node_type == "directory")
         if not current_user.is_superuser:
             dir_stmt = dir_stmt.where(Resource.tenant_id == tenant_id)
-        directory_ids = {str(x).strip() for x in (await db.execute(dir_stmt)).scalars().all() if str(x).strip()}
+        {str(x).strip() for x in (await db.execute(dir_stmt)).scalars().all() if str(x).strip()}
 
         # 允许直接移动节点，不再抛出"请先移除后再添加"错误
 
@@ -1153,6 +1170,7 @@ async def create_directory(
     )
     db.add(node)
     await db.commit()
+    invalidate_tree_cache()  # S-06
     return {"status": "ok", "gb_id": gb_id}
 
 
@@ -1248,6 +1266,7 @@ async def rename_directory(
 
     node.name = name
     await db.commit()
+    invalidate_tree_cache()  # S-06
     return {"status": "ok"}
 
 

@@ -2,90 +2,90 @@
   <div class="app-page">
     <PageContainer flex>
       <template #header>
-        <PageHeader title="通道列表" description="集中管理系统内的所有通道数据，支持状态检索与快捷操作">
+        <PageHeader :title="t('channel.list.title')" :description="t('channel.list.description')">
           <template #actions>
-            <el-tooltip content="刷新通道列表" placement="bottom">
+            <el-tooltip :content="t('channel.list.refreshTip')" placement="bottom">
               <el-button @click="loadList">
                 <el-icon class="mr-1"><RefreshRight /></el-icon>
-                刷新
+                {{ t('common.refresh') }}
               </el-button>
             </el-tooltip>
-            <el-tooltip content="新增通道（填写设备通道国标ID等）" placement="bottom">
-              <el-button type="primary" @click="openAdd">新增通道</el-button>
+            <el-tooltip :content="t('channel.list.addChannelTip')" placement="bottom">
+              <el-button type="primary" @click="openAdd">{{ t('channel.list.addChannel') }}</el-button>
             </el-tooltip>
-            <el-button @click="$router.push('/channels/legacy')">旧版资源</el-button>
+            <el-button @click="$router.push('/channels/legacy')">{{ t('channel.list.legacyResource') }}</el-button>
           </template>
         </PageHeader>
       </template>
 
       <TableCard class="flex-1 flex flex-col min-h-0" body-class="flex-1 flex flex-col min-h-0 p-4">
         <el-form :inline="true" size="small" class="mb-2 flex flex-wrap gap-1 items-center">
-        <el-form-item label="搜索">
-          <el-input v-model="searchStr" placeholder="名称/编号关键字" clearable style="width: 220px" @keyup.enter="search">
+        <el-form-item :label="t('common.search')">
+          <el-input v-model="searchStr" :placeholder="t('channel.list.keywordPlaceholder')" clearable style="width: 220px" @keyup.enter="search">
             <template #prefix>
               <el-icon><Search /></el-icon>
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item label="在线状态">
+        <el-form-item :label="t('channel.list.onlineStatus')">
           <el-select v-model="online" style="width: 120px" @change="search">
-            <el-option label="全部" value="" />
-            <el-option label="在线" value="true" />
-            <el-option label="离线" value="false" />
+            <el-option :label="t('common.all')" value="" />
+            <el-option :label="t('common.online')" value="true" />
+            <el-option :label="t('common.offline')" value="false" />
           </el-select>
         </el-form-item>
-        <el-form-item label="类型">
+        <el-form-item :label="t('common.type')">
           <el-select v-model="channelType" style="width: 130px" @change="loadList">
-            <el-option label="全部" value="" />
-            <el-option v-for="t in typeOptions" :key="t.id" :label="t.name" :value="String(t.id)" />
+            <el-option :label="t('common.all')" value="" />
+            <el-option v-for="opt in typeOptions" :key="opt.id" :label="opt.name" :value="String(opt.id)" />
           </el-select>
         </el-form-item>
-        <el-form-item label="行政区划">
-          <el-input v-model="civilCodeName" placeholder="请选择" readonly style="width: 200px">
+        <el-form-item :label="t('channel.list.civilCode')">
+          <el-input v-model="civilCodeName" :placeholder="t('common.pleaseSelect')" readonly style="width: 200px">
             <template #append>
-              <el-button @click="openCivilForFilter">选择</el-button>
+              <el-button @click="openCivilForFilter">{{ t('channel.manager.select') }}</el-button>
             </template>
           </el-input>
-          <el-button v-if="civilCodeDeviceId" link type="danger" class="ml-1" @click="clearCivil">清除</el-button>
+          <el-button v-if="civilCodeDeviceId" link type="danger" class="ml-1" @click="clearCivil">{{ t('channel.manager.clear') }}</el-button>
         </el-form-item>
-        <el-form-item label="业务分组">
-          <el-input v-model="groupName" placeholder="请选择" readonly style="width: 200px">
+        <el-form-item :label="t('channel.list.businessGroup')">
+          <el-input v-model="groupName" :placeholder="t('common.pleaseSelect')" readonly style="width: 200px">
             <template #append>
-              <el-button @click="openGroupForFilter">选择</el-button>
+              <el-button @click="openGroupForFilter">{{ t('channel.manager.select') }}</el-button>
             </template>
           </el-input>
-          <el-button v-if="groupDeviceId" link type="danger" class="ml-1" @click="clearGroup">清除</el-button>
+          <el-button v-if="groupDeviceId" link type="danger" class="ml-1" @click="clearGroup">{{ t('channel.manager.clear') }}</el-button>
         </el-form-item>
         <el-form-item>
           <el-dropdown trigger="click" @command="onBatchCommand">
             <el-tooltip
-              :content="canBatchOperate ? '对选中的通道执行批量操作' : '请先勾选要批量操作的通道'"
+              :content="canBatchOperate ? t('channel.list.batchOperateTip') : t('channel.list.batchOperateTipDisabled')"
               placement="top"
             >
               <span>
                 <el-button type="primary" :disabled="!canBatchOperate">
-                  批量操作
+                  {{ t('common.batchOps') }}
                   <el-icon class="el-icon--right"><ArrowDown /></el-icon>
                 </el-button>
               </span>
             </el-tooltip>
             <template #dropdown>
               <el-dropdown-menu>
-                <el-dropdown-item command="region" :disabled="!canBatchOperate">行政区划</el-dropdown-item>
-                <el-dropdown-item command="group" :disabled="!canBatchOperate">业务分组</el-dropdown-item>
+                <el-dropdown-item command="region" :disabled="!canBatchOperate">{{ t('channel.list.civilCode') }}</el-dropdown-item>
+                <el-dropdown-item command="group" :disabled="!canBatchOperate">{{ t('channel.list.businessGroup') }}</el-dropdown-item>
               </el-dropdown-menu>
             </template>
           </el-dropdown>
         </el-form-item>
         <el-form-item>
-          <el-button :icon="RefreshRight" circle @click="loadList" title="刷新列表" />
+          <el-button :icon="RefreshRight" circle @click="loadList" :title="t('channel.list.refreshListTip')" />
         </el-form-item>
       </el-form>
 
       <div class="channel-summary mb-2">
-        <span>总数 {{ total }}</span>
+        <span>{{ t('channel.list.totalCount', { n: total }) }}</span>
         <span class="divider">|</span>
-        <span>已选 {{ multipleSelection.length }}</span>
+        <span>{{ t('channel.list.selectedCount', { n: multipleSelection.length }) }}</span>
       </div>
 
       <div class="flex-1 min-h-0 border rounded-lg overflow-hidden bg-white">
@@ -94,7 +94,7 @@
           v-loading="loading"
           :data="channelList"
           size="small"
-          aria-label="通道列表"
+          :aria-label="t('channel.list.title')"
           height="100%"
           style="width: 100%"
           class="channel-table"
@@ -103,23 +103,23 @@
           @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows)"
         >
           <el-table-column type="selection" width="50" />
-          <el-table-column prop="gbName" label="名称" min-width="160" show-overflow-tooltip />
-          <el-table-column prop="gbDeviceId" label="编号" min-width="150" show-overflow-tooltip>
+          <el-table-column prop="gbName" :label="t('common.name')" min-width="160" show-overflow-tooltip />
+          <el-table-column prop="gbDeviceId" :label="t('common.code')" min-width="150" show-overflow-tooltip>
             <template #default="{ row }">
               <span class="font-mono text-xs">{{ row.gbDeviceId }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="gbManufacturer" label="厂家" width="100" show-overflow-tooltip />
-          <el-table-column label="类型" width="110">
+          <el-table-column prop="gbManufacturer" :label="t('channel.list.manufacturerCol')" width="100" show-overflow-tooltip />
+          <el-table-column :label="t('common.type')" width="110">
             <template #default="{ row }">
-              <el-tooltip :content="`通道类型：{row.dataType}`" placement="top">
+              <el-tooltip :content="t('channel.list.channelTypeTip', { type: row.dataType })" placement="top">
                 <el-tag size="small" effect="plain" :style="channelTypeTag(row.dataType).style">
                   {{ channelTypeTag(row.dataType).name }}
                 </el-tag>
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column label="位置信息" min-width="120">
+          <el-table-column :label="t('channel.list.locationInfo')" min-width="120">
             <template #default="{ row }">
               <span v-if="row.gbLongitude != null && row.gbLatitude != null" class="text-xs text-slate-600">
                 {{ row.gbLongitude }} / {{ row.gbLatitude }}
@@ -127,7 +127,7 @@
               <span v-else class="text-slate-400 text-xs">—</span>
             </template>
           </el-table-column>
-          <el-table-column label="摄像头类型" width="100" show-overflow-tooltip>
+          <el-table-column :label="t('channel.list.cameraType')" width="100" show-overflow-tooltip>
             <template #default="{ row }">
               <el-tag
                 size="small"
@@ -139,20 +139,20 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="90">
+          <el-table-column :label="t('common.status')" width="90">
             <template #default="{ row }">
-              <el-tooltip :content="row.gbStatus === 'ON' ? '在线' : '离线'" placement="top">
+              <el-tooltip :content="row.gbStatus === 'ON' ? t('common.online') : t('common.offline')" placement="top">
                 <span class="status-wrap">
                   <span class="status-dot" :class="row.gbStatus === 'ON' ? 'online' : 'offline'"></span>
-                  <span>{{ row.gbStatus === 'ON' ? '在线' : '离线' }}</span>
+                  <span>{{ row.gbStatus === 'ON' ? t('common.online') : t('common.offline') }}</span>
                 </span>
               </el-tooltip>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="260" fixed="right">
+          <el-table-column :label="t('common.action')" width="260" fixed="right">
             <template #default="{ row }">
               <div class="table-actions">
-                <el-tooltip :content="row.gbStatus === 'ON' ? '播放' : '离线设备无法播放'" placement="top">
+                <el-tooltip :content="row.gbStatus === 'ON' ? t('channel.manager.play') : t('channel.list.offlineCannotPlay')" placement="top">
                   <span>
                     <el-button
                       type="primary"
@@ -162,51 +162,51 @@
                       :loading="!!playLoading[row.gbId]"
                       @click="play(row)"
                     >
-                      <el-icon class="mr-1"><VideoPlay /></el-icon>播放
+                      <el-icon class="mr-1"><VideoPlay /></el-icon>{{ t('channel.manager.play') }}
                     </el-button>
                   </span>
                 </el-tooltip>
-                <el-tooltip content="停止预览" placement="top">
+                <el-tooltip :content="t('channel.list.stopPreview')" placement="top">
                   <span>
-                    <el-button v-if="row.streamId" type="danger" link size="small" @click="stopRow(row)">停止</el-button>
+                    <el-button v-if="row.streamId" type="danger" link size="small" @click="stopRow(row)">{{ t('channel.manager.stop') }}</el-button>
                   </span>
                 </el-tooltip>
                 <el-divider direction="vertical" />
-                <el-tooltip content="编辑通道字段" placement="top">
+                <el-tooltip :content="t('channel.list.editChannelTip')" placement="top">
                   <span>
                     <el-button type="primary" link size="small" @click="openEdit(row)">
-                      <el-icon class="mr-1"><Edit /></el-icon>编辑
+                      <el-icon class="mr-1"><Edit /></el-icon>{{ t('common.edit') }}
                     </el-button>
                   </span>
                 </el-tooltip>
                 <el-divider direction="vertical" />
                 <el-dropdown trigger="click" @command="(c: string) => more(c, row)">
-                  <el-tooltip :content="row.gbStatus === 'ON' ? '更多：设备录像/云端录像/时间重置' : '离线：仅重置通道字段可用'" placement="top">
+                  <el-tooltip :content="row.gbStatus === 'ON' ? t('channel.list.moreOnlineTip') : t('channel.list.moreOfflineTip')" placement="top">
                     <span>
                       <el-button type="primary" link size="small">
-                        更多 <el-icon><MoreFilled /></el-icon>
+                        {{ t('common.more') }} <el-icon><MoreFilled /></el-icon>
                       </el-button>
                     </span>
                   </el-tooltip>
                   <template #dropdown>
                     <el-dropdown-menu>
-                      <el-dropdown-item command="device" :disabled="row.gbStatus !== 'ON'">设备录像</el-dropdown-item>
-                      <el-dropdown-item command="cloud" :disabled="row.gbStatus !== 'ON'">云端录像</el-dropdown-item>
+                      <el-dropdown-item command="device" :disabled="row.gbStatus !== 'ON'">{{ t('common.deviceRecord') }}</el-dropdown-item>
+                      <el-dropdown-item command="cloud" :disabled="row.gbStatus !== 'ON'">{{ t('common.cloudRecord') }}</el-dropdown-item>
                       <el-dropdown-item command="timeline" :disabled="row.gbStatus !== 'ON'">
                         <el-icon class="mr-1"><Timer /></el-icon>
-                        时间重置
+                        {{ t('channel.list.timeReset') }}
                       </el-dropdown-item>
                       <el-tooltip
                         :content="
                           resetLoading[String(row.gbId || '')]
-                            ? '重置中，请稍候…'
-                            : '重置区划/分组/坐标/云台字段（会覆盖当前值）'
+                            ? t('channel.list.resetting')
+                            : t('channel.list.resetFieldsTip')
                         "
                         placement="left"
                       >
                         <span class="inline-block">
                           <el-dropdown-item command="reset" :disabled="!!resetLoading[String(row.gbId || '')]">
-                            重置通道字段
+                            {{ t('channel.list.resetChannelFields') }}
                           </el-dropdown-item>
                         </span>
                       </el-tooltip>
@@ -258,7 +258,9 @@
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { ArrowDown, RefreshRight, Search, VideoPlay, Edit, MoreFilled, Timer } from '@element-plus/icons-vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -273,11 +275,12 @@ import { getFriendlyError } from '../utils/errorMessage'
 import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
 
 const router = useRouter()
-const typeOptions = [
-  { id: 1, name: '国标设备' },
-  { id: 2, name: '推流设备' },
-  { id: 3, name: '拉流代理' }
-]
+const { t } = useI18n()
+const typeOptions = computed(() => [
+  { id: 1, name: t('channel.list.typeGbDevice') },
+  { id: 2, name: t('channel.list.typePushDevice') },
+  { id: 3, name: t('channel.list.typeStreamProxy') }
+])
 
 const ptzTypeTagType = (ptzTypeText: unknown): 'success' | 'info' | 'warning' | 'danger' => {
   const s = String(ptzTypeText || '').trim()
@@ -409,9 +412,9 @@ const onCivilDialogPicked = async (code: string, name: string) => {
   const ids = multipleSelection.value.map((r: Record<string, unknown>) => r.gbId)
   if (!ids.length) return
   try {
-    await ElMessageBox.confirm(`确定添加 ${ids.length} 个通道到行政区：${code}？`, '批量操作', { type: 'warning' })
+    await ElMessageBox.confirm(t('channel.list.batchAddRegionConfirm', { n: ids.length, code }), t('common.batchOps'), { type: 'warning' })
     await api.post('/api/common/channel/region/add', { civilCode: code, channelIds: ids })
-    ElMessage.success('保存成功')
+    ElMessage.success(t('common.saveSuccess'))
     loadList()
   } catch (e: unknown) {
     if (e !== 'cancel') ElMessage.error(getFriendlyError(e).message)
@@ -429,13 +432,13 @@ const onGroupDialogPicked = async (parentId: string, businessGroup: string, name
   const ids = multipleSelection.value.map((r: Record<string, unknown>) => r.gbId)
   if (!ids.length) return
   try {
-    await ElMessageBox.confirm(`确定添加 ${ids.length} 个通道到分组：${name}？`, '批量操作', { type: 'warning' })
+    await ElMessageBox.confirm(t('channel.list.batchAddGroupConfirm', { n: ids.length, name }), t('common.batchOps'), { type: 'warning' })
     await api.post('/api/common/channel/group/add', {
       parentId,
       businessGroup,
       channelIds: ids
     })
-    ElMessage.success('保存成功')
+    ElMessage.success(t('common.saveSuccess'))
     loadList()
   } catch (e: unknown) {
     if (e !== 'cancel') ElMessage.error(getFriendlyError(e).message)
@@ -450,7 +453,7 @@ const onBatchCommand = (cmd: string) => {
 const startBatchRegion = () => {
   const ids = multipleSelection.value.map((r: Record<string, unknown>) => r.gbId)
   if (!ids.length) {
-    ElMessage.warning('请选择通道')
+    ElMessage.warning(t('common.pleaseSelectChannel'))
     return
   }
   civilDialogMode.value = 'batchRegion'
@@ -460,7 +463,7 @@ const startBatchRegion = () => {
 const startBatchGroup = () => {
   const ids = multipleSelection.value.map((r: Record<string, unknown>) => r.gbId)
   if (!ids.length) {
-    ElMessage.warning('请选择通道')
+    ElMessage.warning(t('common.pleaseSelectChannel'))
     return
   }
   groupDialogMode.value = 'batchGroup'
@@ -482,7 +485,7 @@ const stopRow = async (row: Record<string, unknown>) => {
   try {
     await api.post('/api/v1/stream/stop', { app: 'live', stream: row.streamId })
   } catch (e) {
-    console.warn('停止播放失败:', e)
+    logger.warn('停止播放失败:', e)
   }
   row.streamId = ''
   loadList()
@@ -497,7 +500,7 @@ const openEdit = async (row: Record<string, unknown>) => {
     const items = res.data?.items || []
     const d = items.find((x: Record<string, unknown>) => x.gb_id === channelId)
     if (!d) {
-       ElMessage.error('找不到该通道详细信息')
+       ElMessage.error(t('channel.list.channelDetailNotFound'))
        return
     }
     editForm.value = d
@@ -528,12 +531,12 @@ const resetChannel = async (row: Record<string, unknown>) => {
     const key = String(row.gbId || '')
     if (resetLoading.value[key]) return
     resetLoading.value[key] = true
-    await ElMessageBox.confirm(`确定重置通道 ${row.gbDeviceId} 的区域/分组/坐标/云台字段？`, '提示', { type: 'warning' })
+    await ElMessageBox.confirm(t('channel.list.resetChannelConfirm', { id: row.gbDeviceId }), t('common.tips'), { type: 'warning' })
     await api.post('/api/common/channel/reset', {
       id: row.gbId,
       channelFields: ['gbCivilCode', 'gbParentId', 'gbBusinessGroupId', 'gbLongitude', 'gbLatitude', 'ptzType']
     })
-    ElMessage.success('重置成功')
+    ElMessage.success(t('channel.list.resetSuccess'))
     loadList()
   } catch (e: unknown) {
     if (e !== 'cancel') ElMessage.error(getFriendlyError(e).message)

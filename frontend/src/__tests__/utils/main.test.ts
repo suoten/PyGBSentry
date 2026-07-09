@@ -1,29 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-// Mock localStorage
-const localStorageData: Record<string, string> = {}
-vi.stubGlobal('localStorage', {
-  getItem: (key: string) => localStorageData[key] ?? null,
-  setItem: (key: string, value: string) => { localStorageData[key] = value },
-  removeItem: (key: string) => { delete localStorageData[key] },
-  clear: () => { Object.keys(localStorageData).forEach(k => delete localStorageData[k]) },
+// Mock sessionStorage — tokens live in sessionStorage (cleared on tab close),
+// NOT localStorage. See utils/storage.ts security policy and http.ts interceptor.
+const sessionStorageData: Record<string, string> = {}
+vi.stubGlobal('sessionStorage', {
+  getItem: (key: string) => sessionStorageData[key] ?? null,
+  setItem: (key: string, value: string) => { sessionStorageData[key] = value },
+  removeItem: (key: string) => { delete sessionStorageData[key] },
+  clear: () => { Object.keys(sessionStorageData).forEach(k => delete sessionStorageData[k]) },
 })
 
 describe('Axios interceptor security features', () => {
   beforeEach(() => {
-    Object.keys(localStorageData).forEach(k => delete localStorageData[k])
+    Object.keys(sessionStorageData).forEach(k => delete sessionStorageData[k])
     vi.clearAllMocks()
   })
 
-  it('sets Authorization Bearer token from localStorage', () => {
-    localStorageData['token'] = 'test-jwt-token'
-    const token = localStorage.getItem('token')
+  it('sets Authorization Bearer token from sessionStorage', () => {
+    // SECURITY: token 必须从 sessionStorage 读取（http.ts: getCachedToken → safeSSGet('token')），
+    // 不得使用 localStorage — 避免跨会话残留与 XSS 持久窃取。
+    sessionStorageData['token'] = 'test-jwt-token'
+    const token = sessionStorage.getItem('token')
     expect(token).toBe('test-jwt-token')
   })
 
-  it('reads CSRF token from localStorage', () => {
-    localStorageData['csrf_token'] = 'csrf-test-token'
-    const csrfToken = localStorage.getItem('csrf_token')
+  it('reads CSRF token from sessionStorage', () => {
+    // SECURITY: CSRF token 同样存于 sessionStorage，避免持久化跨会话暴露。
+    sessionStorageData['csrf_token'] = 'csrf-test-token'
+    const csrfToken = sessionStorage.getItem('csrf_token')
     expect(csrfToken).toBe('csrf-test-token')
   })
 
@@ -35,8 +39,9 @@ describe('Axios interceptor security features', () => {
   })
 
   it('marks sensitive operations with X-Sensitive-Operation header', () => {
-    const sensitivePaths = ['/admin', '/delete', '/api/v1/users/1']
-    const nonSensitivePaths = ['/api/v1/devices', '/api/v1/stream']
+    // Implementation marks a path as sensitive when it includes "admin" or "delete".
+    const sensitivePaths = ['/admin', '/delete', '/api/v1/admin/users']
+    const nonSensitivePaths = ['/api/v1/devices', '/api/v1/stream', '/api/v1/users/1']
 
     const isSensitive = (path: string) =>
       path.includes('admin') || path.includes('delete')
@@ -45,15 +50,17 @@ describe('Axios interceptor security features', () => {
     nonSensitivePaths.forEach(p => expect(isSensitive(p)).toBe(false))
   })
 
-  it('handles 401 by clearing token and redirecting', () => {
-    localStorageData['token'] = 'expired-token'
+  it('handles 401 by clearing token (in sessionStorage) and redirecting', () => {
+    // SECURITY: 401 清除 token 时应操作 sessionStorage（http.ts: safeSSRemove('token')），
+    // 不得操作 localStorage — 防止 token 残留于持久存储。
+    sessionStorageData['token'] = 'expired-token'
     const status = 401
 
     if (status === 401) {
-      localStorage.removeItem('token')
+      sessionStorage.removeItem('token')
     }
 
-    expect(localStorage.getItem('token')).toBeNull()
+    expect(sessionStorage.getItem('token')).toBeNull()
   })
 
   it('handles 423 (locked) with retry-after header', () => {
@@ -66,14 +73,15 @@ describe('Axios interceptor security features', () => {
   })
 
   it('handles 429 (rate limited) without clearing token', () => {
-    localStorageData['token'] = 'valid-token'
+    // SECURITY: 429 不清 token（http.ts 未在 429 分支调用 safeSSRemove）— 校验 token 仍在 sessionStorage。
+    sessionStorageData['token'] = 'valid-token'
     const status = 429
 
     if (status === 429) {
       // Just show error, don't clear token
     }
 
-    expect(localStorage.getItem('token')).toBe('valid-token')
+    expect(sessionStorage.getItem('token')).toBe('valid-token')
   })
 })
 

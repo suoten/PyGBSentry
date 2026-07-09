@@ -1,6 +1,6 @@
 <template>
   <div class="app-page h-full flex flex-col">
-    <PageHeader :title="t('command.title')" description="报警点位闪烁、视频联动、轨迹追踪" />
+    <PageHeader :title="t('command.title')" :description="t('command.description')" />
 
     <div class="visual-map-shell flex-1 relative overflow-hidden rounded-2xl" style="border: 1px solid var(--el-border-color-lighter)">
         <div id="vc-map" class="absolute inset-0"></div>
@@ -11,14 +11,14 @@
             :type="alarmWsConnected ? 'success' : (alarmWsReconnecting ? 'warning' : 'info')"
             effect="plain"
           >
-            报警流：{{ alarmWsConnected ? '已连接' : (alarmWsReconnecting ? '重连中' : '未连接') }}
+            {{ t('command.alarmStream') }}：{{ alarmWsConnected ? t('command.connected') : (alarmWsReconnecting ? t('command.reconnecting') : t('command.disconnected')) }}
           </el-tag>
-          <el-tooltip content="在地图上点击两点测距" placement="bottom">
+          <el-tooltip :content="t('command.measureHint')" placement="bottom">
             <el-button size="small" :type="measureMode ? 'primary' : 'default'" @click="toggleMeasure">
-              {{ measureMode ? '取消测距' : '测距' }}
+              {{ measureMode ? t('command.cancelMeasure') : t('command.measure') }}
             </el-button>
           </el-tooltip>
-          <span v-if="measureResult" class="text-sm" style="color: var(--el-text-color-regular)">距离: {{ measureResult }}</span>
+          <span v-if="measureResult" class="text-sm" style="color: var(--el-text-color-regular)">{{ t('command.distance') }}: {{ measureResult }}</span>
         </div>
 
         <div
@@ -38,8 +38,8 @@
       <div class="popup-content bg-black rounded-b-lg overflow-hidden relative" :class="popupContentClass">
         <JessibucaPlayer v-if="popupVisible && popupData.url" :video-url="popupData.url" class="w-full h-full" />
         <div v-else class="w-full h-full flex items-center justify-center text-white/30 bg-slate-950">
-           <span v-if="popupData.loading" class="animate-pulse">正在请求视频流...</span>
-           <span v-else>暂无视频信号</span>
+           <span v-if="popupData.loading" class="animate-pulse">{{ t('command.requestingStream') }}</span>
+           <span v-else>{{ t('command.noVideoSignal') }}</span>
         </div>
       </div>
     </div>
@@ -50,10 +50,10 @@
       class="absolute bottom-4 left-4 right-4 md:right-auto md:w-80 z-10 max-h-72 overflow-hidden flex flex-col rounded-lg shadow-lg"
       style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
     >
-      <div class="p-2 font-medium" style="border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-regular)">轨迹追踪（最近报警）</div>
+      <div class="p-2 font-medium" style="border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-regular)">{{ t('command.trajectoryTracking') }}</div>
       <div class="p-2 flex gap-2" style="border-bottom: 1px solid var(--el-border-color-lighter)">
-        <el-input v-model="trajectoryFilterDevice" placeholder="设备ID" size="small" clearable class="flex-1" />
-        <el-input v-model="trajectoryFilterChannel" placeholder="通道ID" size="small" clearable class="flex-1" />
+        <el-input v-model="trajectoryFilterDevice" :placeholder="t('command.deviceIdPlaceholder')" size="small" clearable class="flex-1" />
+        <el-input v-model="trajectoryFilterChannel" :placeholder="t('command.channelIdPlaceholder')" size="small" clearable class="flex-1" />
       </div>
       <ul class="overflow-auto flex-1 p-2 text-sm space-y-1">
         <li
@@ -66,16 +66,16 @@
           <span class="truncate" style="color: var(--el-text-color-regular)" :title="item.description || item.channel_id">{{ item.description || item.channel_id }}</span>
           <span class="text-xs shrink-0" style="color: var(--el-text-color-secondary)">{{ formatTime(item.time) }}</span>
         </li>
-        <li v-if="filteredTrajectoryList.length === 0" class="py-2 text-center" style="color: var(--el-text-color-secondary)">暂无轨迹数据，报警后将在此展示</li>
+        <li v-if="filteredTrajectoryList.length === 0" class="py-2 text-center" style="color: var(--el-text-color-secondary)">{{ t('command.noTrajectoryData') }}</li>
       </ul>
     </div>
 
     <!-- 移动端：轨迹抽屉（不遮挡地图） -->
-    <el-drawer v-if="isMobileRoute" v-model="trajectoryDrawerVisible" title="轨迹追踪（最近报警）" direction="btt" size="70%">
+    <el-drawer v-if="isMobileRoute" v-model="trajectoryDrawerVisible" :title="t('command.trajectoryTracking')" direction="btt" size="70%">
       <div class="space-y-3">
         <div class="flex gap-2">
-          <el-input v-model="trajectoryFilterDevice" placeholder="设备ID" size="small" clearable class="flex-1" />
-          <el-input v-model="trajectoryFilterChannel" placeholder="通道ID" size="small" clearable class="flex-1" />
+          <el-input v-model="trajectoryFilterDevice" :placeholder="t('command.deviceIdPlaceholder')" size="small" clearable class="flex-1" />
+          <el-input v-model="trajectoryFilterChannel" :placeholder="t('command.channelIdPlaceholder')" size="small" clearable class="flex-1" />
         </div>
         <ul class="overflow-auto text-sm space-y-1 max-h-[52vh] pr-1">
           <li
@@ -88,13 +88,13 @@
             <span class="truncate" style="color: var(--el-text-color-regular)" :title="item.description || item.channel_id">{{ item.description || item.channel_id }}</span>
             <span class="text-xs shrink-0" style="color: var(--el-text-color-secondary)">{{ formatTime(item.time) }}</span>
           </li>
-          <li v-if="filteredTrajectoryList.length === 0" class="py-2 text-center" style="color: var(--el-text-color-secondary)">暂无轨迹数据</li>
+          <li v-if="filteredTrajectoryList.length === 0" class="py-2 text-center" style="color: var(--el-text-color-secondary)">{{ t('command.noTrajectoryDataShort') }}</li>
         </ul>
       </div>
     </el-drawer>
 
     <div v-if="isMobileRoute" class="fixed right-4 bottom-4 z-10 flex flex-col gap-2">
-      <el-button type="primary" circle size="large" @click="trajectoryDrawerVisible = true">轨</el-button>
+      <el-button type="primary" circle size="large" @click="trajectoryDrawerVisible = true">{{ t('command.trajectoryBtn') }}</el-button>
     </div>
     </div>
   </div>
@@ -128,6 +128,7 @@ import { getLength } from 'ol/sphere'
 import { Close } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { getApiErrorMessage } from '../utils/errorMessage'
+import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import { showSuccess } from '@/utils/feedback'
 import JessibucaPlayer from '../components/JessibucaPlayer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -230,9 +231,9 @@ function _tryFocusPending() {
   if (!feature) {
     // 常见原因：通道缺少经纬度，未能在地图生成点位
     if (missingCoordinateCount.value > 0) {
-      configMessage.value = `该通道可能缺少经纬度，无法自动定位。请在「通道管理」维护经纬度后重试（当前有 ${missingCoordinateCount.value} 个通道未展示）。`
+      configMessage.value = t('command.missingCoordinateFocus', { count: missingCoordinateCount.value })
     } else {
-      configMessage.value = '未找到目标通道点位，无法自动定位（可能未加载到通道列表）'
+      configMessage.value = t('command.channelNotFound')
     }
     return
   }
@@ -286,7 +287,7 @@ function getLayer(provider: string, key: string) {
   } else if (provider === 'tianditu') {
     const k = key
     if (!k) {
-      ElMessage.warning('天地图未配置 API Key，请在地图配置中设置')
+      ElMessage.warning(t('command.tiandituApiKeyMissing'))
       return new TileLayer({ source: new OSM() })
     }
     return new TileLayer({
@@ -413,7 +414,7 @@ async function loadTrajectory(deviceId: string) {
         device_id: deviceId,
         channel_id: String(p.channel_id || deviceId),
         time: String(p.time || ''),
-        description: p.speed ? `速度: ${String(p.speed)}` : '历史轨迹',
+        description: p.speed ? t('command.speedLabel', { speed: String(p.speed) }) : t('command.historyTrajectory'),
         lng: p.lng != null ? Number(p.lng) : undefined,
         lat: p.lat != null ? Number(p.lat) : undefined
       }))
@@ -456,7 +457,7 @@ async function persistTrajectoryPoint(alarm: VisualAlarm, lng: number, lat: numb
       time: alarm.time
     })
   } catch (e: unknown) {
-    const msg = getApiErrorMessage(e, '轨迹点推送失败')
+    const msg = getApiErrorMessage(e, t('command.trajectoryPushFailed'))
     logger.warn(msg, e)
   }
 }
@@ -539,7 +540,7 @@ function closePopup() {
 
 async function openChannelPopup(ch: VisualChannel, coordinates: number[]) {
   if (!popupOverlay) return
-  popupData.value.name = ch.name || ch.gb_id || ch.channel_id || '通道'
+  popupData.value.name = ch.name || ch.gb_id || ch.channel_id || t('command.channelDefaultName')
   popupData.value.deviceId = String(ch.device_id || '')
   popupData.value.channelId = String(ch.gb_id || '')
   popupData.value.loading = true
@@ -554,7 +555,7 @@ async function openChannelPopup(ch: VisualChannel, coordinates: number[]) {
     popupData.value.url = playRes.data.flv || ''
     loadTrajectory(String(ch.device_id || ''))
   } catch (e: unknown) {
-    ElMessage.warning(getApiErrorMessage(e, '获取视频流失败，请检查设备在线'))
+    ElMessage.warning(getApiErrorMessage(e, t('command.getVideoStreamFailed')))
     popupData.value.url = ''
   } finally {
     popupData.value.loading = false
@@ -572,7 +573,7 @@ async function fetchConfig() {
     alarmBlinkSeconds.value = cmdRes.data?.alarm_blink_seconds ?? 5
     trajectoryMaxPoints.value = cmdRes.data?.trajectory_max_points ?? 50
   } catch {
-    configMessage.value = '可视化指挥：报警点位闪烁、点击视频联动、轨迹追踪'
+    configMessage.value = t('command.defaultConfigMessage')
   }
 }
 
@@ -585,7 +586,7 @@ async function loadChannels() {
     vectorSource?.clear()
     channels.forEach((ch: VisualChannel) => addChannelMarker(ch))
     if (missingCoordinateCount.value > 0) {
-      configMessage.value = `有 ${missingCoordinateCount.value} 个通道缺少经纬度，未展示在地图中`
+      configMessage.value = t('command.missingCoordinateCount', { count: missingCoordinateCount.value })
     }
     if (map) {
       map.getView().setCenter(fromLonLat([mapConfig.value.center_lng, mapConfig.value.center_lat]))
@@ -593,7 +594,7 @@ async function loadChannels() {
     }
     _tryFocusPending()
   } catch (e: unknown) {
-    configMessage.value = getApiErrorMessage(e, '加载通道失败')
+    configMessage.value = getApiErrorMessage(e, t('command.loadChannelsFailed'))
     const now = Date.now()
     if (now - lastLoadChannelsWarnAt > 3000) {
       lastLoadChannelsWarnAt = now
@@ -602,14 +603,21 @@ async function loadChannels() {
   }
 }
 
-function initAlarmWs() {
+async function initAlarmWs() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   if (wsReconnectTimer != null) {
     clearTimeout(wsReconnectTimer)
     wsReconnectTimer = null
   }
-  // FIXED-P1: R-01 报警WebSocket连接添加token认证参数
-  ws = new WebSocket(`${protocol}://${location.host}/api/v1/alarms/ws?token=${encodeURIComponent(localStorage.getItem('token') || '')}`)
+  // P0-6: 通过 ws-ticket 认证，消除 URL 暴露 JWT token
+  let wsUrl: string
+  try {
+    wsUrl = await buildWsUrlWithTicket('/api/v1/alarms/ws')
+  } catch (e) {
+    logger.warn('initAlarmWs: failed to fetch ws-ticket', e)
+    return
+  }
+  ws = new WebSocket(wsUrl)
   ws.onmessage = (event) => {
     try {
       const alarm = JSON.parse(event.data)

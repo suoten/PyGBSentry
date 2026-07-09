@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+from loguru import logger
 
 
 def generate_api_key(prefix_len: int = 8) -> tuple[str, str]:
@@ -42,6 +43,7 @@ def parse_api_key(value: str) -> tuple[str, str] | None:
 def secure_compare(a: str, b: str) -> bool:
     try:
         return hmac.compare_digest(str(a), str(b))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"API key validation error (may mask DB issue): {e}")
         return False
 

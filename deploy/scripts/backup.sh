@@ -6,6 +6,8 @@
 #   ./backup.sh                          # Full backup (DB + config)
 #   ./backup.sh --db-only                # Database only
 #   ./backup.sh --config-only            # Configuration only
+#   ./backup.sh --include-media          # Full backup + media (records/snapshots)
+#   ./backup.sh --dry-run                # Show what would be backed up (no changes)
 #   ./backup.sh --restore /path/to/backup.tar.gz  # Restore from backup
 #
 # Environment variables:
@@ -17,6 +19,13 @@
 #   DB_PASSWORD    - Database password (from .env if not set)
 #   DB_TYPE        - Database type: postgresql|mysql|sqlite (default: from .env)
 #   RETENTION_DAYS - Number of days to keep backups (default: 30)
+#   MEDIA_RECORDS_DIR - Recordings directory (default: /app/records)
+#   MEDIA_DATA_DIR    - Device snapshots/timelapse directory (default: /app/data)
+#   MEDIA_MAX_FILE_SIZE - Skip files larger than this (e.g. 500M, default: unlimited)
+#
+# NOTE: Media backup (--include-media) is OFF by default because recordings
+# can be very large. For production, consider NFS/S3 for independent media
+# backups rather than including them in the regular backup archive.
 # -------------------------------------------------------------------------
 
 set -euo pipefail
@@ -28,6 +37,11 @@ BACKUP_DIR="${BACKUP_DIR:-/opt/pygbsentry/backups}"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BACKUP_NAME="pygbsentry_backup_${TIMESTAMP}"
+
+# --- Media backup configuration ---
+MEDIA_RECORDS_DIR="${MEDIA_RECORDS_DIR:-/app/records}"
+MEDIA_DATA_DIR="${MEDIA_DATA_DIR:-/app/data}"
+MEDIA_MAX_FILE_SIZE="${MEDIA_MAX_FILE_SIZE:-}"  # e.g. "500M" — empty = no limit
 
 # --- Load .env if available ---
 ENV_FILE="${PROJECT_DIR}/backend/.env"
@@ -153,14 +167,100 @@ backup_config() {
     log_info "Configuration backup completed"
 }
 
+backup_media() {
+    local media_dir="${BACKUP_DIR}/${BACKUP_NAME}/media"
+    local has_media=false
+
+    # Build find size-filter argument
+    local size_filter=()
+    if [[ -n "${MEDIA_MAX_FILE_SIZE}" ]]; then
+        size_filter=(-size -"${MEDIA_MAX_FILE_SIZE}")
+    fi
+
+    # Back up recordings directory
+    if [[ -d "${MEDIA_RECORDS_DIR}" ]]; then
+        local records_count
+        records_count=$(find "${MEDIA_RECORDS_DIR}" -type f "${size_filter[@]}" 2>/dev/null | wc -l)
+        if [[ "${records_count}" -gt 0 ]]; then
+            log_info "Backing up recordings: ${MEDIA_RECORDS_DIR} (${records_count} files)"
+            if [[ "${DRY_RUN:-false}" == true ]]; then
+                log_info "[DRY-RUN] Would copy ${records_count} files from ${MEDIA_RECORDS_DIR}"
+                find "${MEDIA_RECORDS_DIR}" -type f "${size_filter[@]}" 2>/dev/null | head -20 | while read -r f; do
+                    log_info "[DRY-RUN]   ${f}"
+                done
+            else
+                mkdir -p "${media_dir}"
+                mkdir -p "${media_dir}/records"
+                find "${MEDIA_RECORDS_DIR}" -type f "${size_filter[@]}" -print0 2>/dev/null | \
+                    while IFS= read -r -d '' f; do
+                        local rel="${f#${MEDIA_RECORDS_DIR}/}"
+                        mkdir -p "${media_dir}/records/$(dirname "${rel}")"
+                        cp "${f}" "${media_dir}/records/${rel}"
+                    done
+            fi
+            has_media=true
+        else
+            log_info "Recordings directory is empty: ${MEDIA_RECORDS_DIR}"
+        fi
+    else
+        log_info "Recordings directory not found: ${MEDIA_RECORDS_DIR}"
+    fi
+
+    # Back up device data (snapshots, timelapse)
+    if [[ -d "${MEDIA_DATA_DIR}" ]]; then
+        local data_count
+        data_count=$(find "${MEDIA_DATA_DIR}" -type f "${size_filter[@]}" 2>/dev/null | wc -l)
+        if [[ "${data_count}" -gt 0 ]]; then
+            log_info "Backing up device data: ${MEDIA_DATA_DIR} (${data_count} files)"
+            if [[ "${DRY_RUN:-false}" == true ]]; then
+                log_info "[DRY-RUN] Would copy ${data_count} files from ${MEDIA_DATA_DIR}"
+                find "${MEDIA_DATA_DIR}" -type f "${size_filter[@]}" 2>/dev/null | head -20 | while read -r f; do
+                    log_info "[DRY-RUN]   ${f}"
+                done
+            else
+                mkdir -p "${media_dir}"
+                mkdir -p "${media_dir}/data"
+                find "${MEDIA_DATA_DIR}" -type f "${size_filter[@]}" -print0 2>/dev/null | \
+                    while IFS= read -r -d '' f; do
+                        local rel="${f#${MEDIA_DATA_DIR}/}"
+                        mkdir -p "${media_dir}/data/$(dirname "${rel}")"
+                        cp "${f}" "${media_dir}/data/${rel}"
+                    done
+            fi
+            has_media=true
+        else
+            log_info "Device data directory is empty: ${MEDIA_DATA_DIR}"
+        fi
+    else
+        log_info "Device data directory not found: ${MEDIA_DATA_DIR}"
+    fi
+
+    if [[ "${has_media}" == false ]]; then
+        rmdir "${media_dir}" 2>/dev/null || true
+        log_info "No media files found to back up"
+    fi
+}
+
 do_backup() {
     local do_db=true
     local do_config=true
+    local do_media=false
 
-    case "${1:-}" in
-        --db-only)      do_config=false ;;
-        --config-only)  do_db=false ;;
-    esac
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --db-only)       do_config=false ;;
+            --config-only)   do_db=false ;;
+            --include-media) do_media=true ;;
+            --dry-run)       DRY_RUN=true ;;
+            *)               log_warn "Unknown option: $1" ;;
+        esac
+        shift
+    done
+
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+        log_info "=== DRY RUN — no files will be written ==="
+    fi
 
     mkdir -p "${BACKUP_DIR}/${BACKUP_NAME}/config"
 
@@ -168,14 +268,33 @@ do_backup() {
     log_info "Backup directory: ${BACKUP_DIR}/${BACKUP_NAME}"
 
     if [[ "${do_db}" == true ]]; then
-        backup_database
+        if [[ "${DRY_RUN:-false}" == true ]]; then
+            log_info "[DRY-RUN] Would back up ${DB_TYPE} database: ${DB_NAME}@${DB_HOST}:${DB_PORT}"
+        else
+            backup_database
+        fi
     fi
 
     if [[ "${do_config}" == true ]]; then
-        backup_config
+        if [[ "${DRY_RUN:-false}" == true ]]; then
+            log_info "[DRY-RUN] Would back up configuration files (.env, docker-compose, helm, zlm.ini)"
+        else
+            backup_config
+        fi
     fi
 
-    # Create archive
+    if [[ "${do_media}" == true ]]; then
+        backup_media
+    fi
+
+    # Create archive (skip in dry-run)
+    if [[ "${DRY_RUN:-false}" == true ]]; then
+        log_info "[DRY-RUN] Would create archive: ${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
+        rm -rf "${BACKUP_DIR}/${BACKUP_NAME}"
+        log_info "=== DRY RUN Finished ==="
+        return
+    fi
+
     log_info "Creating archive: ${BACKUP_DIR}/${BACKUP_NAME}.tar.gz"
     tar -czf "${BACKUP_DIR}/${BACKUP_NAME}.tar.gz" -C "${BACKUP_DIR}" "${BACKUP_NAME}"
     rm -rf "${BACKUP_DIR}/${BACKUP_NAME}"
@@ -253,8 +372,6 @@ do_restore() {
 
 # --- Main ---
 case "${1:-}" in
-    --db-only)      do_backup --db-only ;;
-    --config-only)  do_backup --config-only ;;
     --restore)      do_restore "${2:-}" ;;
     --help|-h)
         echo "PyGBSentry Backup Script"
@@ -265,8 +382,14 @@ case "${1:-}" in
         echo "  (no option)       Full backup (database + configuration)"
         echo "  --db-only         Database backup only"
         echo "  --config-only     Configuration backup only"
+        echo "  --include-media   Also back up recordings and device data (large!)"
+        echo "  --dry-run         Show what would be backed up without writing files"
         echo "  --restore FILE    Restore from backup archive"
         echo "  --help            Show this help message"
+        echo ""
+        echo "Combinations are supported, e.g.:"
+        echo "  $0 --include-media --dry-run    # Preview media backup"
+        echo "  $0 --db-only --dry-run          # Preview DB backup"
         ;;
-    *)              do_backup ;;
+    *)              do_backup "$@" ;;
 esac

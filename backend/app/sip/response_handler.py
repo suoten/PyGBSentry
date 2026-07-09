@@ -9,12 +9,10 @@ import app.sip.invite as invite_module
 from loguru import logger  # 统一使用 loguru 替代 logging
 import asyncio
 import contextlib
-import random
 import secrets
-import string
 import re
 from app.sip.send import send_sip_bytes
-from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from typing import Optional
 
 # GB2 3xx重定向自动跟随 — 重定向计数器，防止循环
@@ -118,25 +116,25 @@ async def _record_stream_health(session, stream_session: StreamSession, status_c
     if not health:
         health = AssetStreamHealth(asset_id=stream_session.asset_id)
         session.add(health)
-    
+
     is_success = (status_code < 300) and (status_code != 202)
-    
+
     health.last_status_code = status_code
     health.last_mode = _normalize_mode(stream_session.protocol)
     health.success_total = int(getattr(health, "success_total", 0) or 0)
     health.fail_total = int(getattr(health, "fail_total", 0) or 0)
     health.consecutive_failures = int(getattr(health, "consecutive_failures", 0) or 0)
     health.auto_switch_count = int(getattr(health, "auto_switch_count", 0) or 0)
-    
+
     if is_success:
         health.success_total += 1
         health.consecutive_failures = 0
         health.last_mode = _normalize_mode(stream_session.protocol)  # C-23 成功时也更新last_mode
         return
-        
+
     health.fail_total += 1
     health.consecutive_failures += 1
-    
+
     if stream_session.app != "live":
         return
 
@@ -147,7 +145,7 @@ async def _record_stream_health(session, stream_session: StreamSession, status_c
 
     if health.consecutive_failures < 2:
         return
-        
+
     policy_result = await session.execute(select(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == stream_session.asset_id))
     policy = policy_result.scalars().first()
 
@@ -166,7 +164,7 @@ async def _record_stream_health(session, stream_session: StreamSession, status_c
             learning_state = {}
     profiles = learning_state.get("profiles", {}) if isinstance(learning_state, dict) else {}
     default_profile = profiles.get("default_profile") or profiles.get("no_asset_profile") or {}
-    
+
     def _get_failures(mode_key: str) -> int:
         m = default_profile.get(mode_key) if isinstance(default_profile, dict) else {}
         return int(m.get("f", 0)) if isinstance(m, dict) else 0
@@ -231,7 +229,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
             _ack_req.headers["Max-Forwards"] = "70"
             await send_sip_bytes(proto, transport, addr, _ack_req.to_bytes())
         except Exception as _ack_err:
-            logger.debug(f"ACK for 3xx failed: {_ack_err}")
+            # R24-07: 3xx ACK 失败会违反 RFC 3261 §13.2.2.4 并可能导致对端重传，提升至 WARNING
+            logger.warning(f"ACK for 3xx response failed (call_id={call_id}): {_ack_err}")
         # GB2 3xx重定向自动跟随 — RFC 3261 Section 8.1.3.4
         contact_header = message.get_header("Contact") or message.get_header("m") or ""
         if contact_header:
@@ -290,7 +289,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 _redirect_port = int(_uri_match.group(3) or 5060)
                                 _redirect_addr = (_redirect_host, _redirect_port)
                         except (ValueError, TypeError, IndexError):
-                            pass
+                            logger.debug("swallowed_exception", exc_info=True)
                         await send_sip_bytes(proto, transport, _redirect_addr, redirect_req.to_bytes())
                         # S-07 3xx重定向后取消原watchdog并注册新watchdog，
                         # 否则原watchdog超时会清理pending条目和资源，导致重定向INVITE无响应
@@ -335,7 +334,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 dialog.to_tag = to_tag
                                 dialog.state = DialogState.EARLY
                 except Exception as e:
-                    logger.debug(f"Exception: {e}")
+                    logger.warning(f"Exception: {e}")
 
         # PRACK可靠1xx支持（RFC 3262）— 对带Require:100rel的1xx响应发送PRACK
         require_header = message.get_header("Require") or ""
@@ -346,8 +345,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 cseq_header = message.get_header("CSeq") or "1 INVITE"
                 cseq_num = cseq_header.split()[0] if cseq_header else "1"
                 branch = f"z9hG4bK{secrets.token_hex(6)}"
-                from_tag_val = _extract_tag(message.get_header("From")) or ""
-                to_tag_val = _extract_tag(message.get_header("To")) or ""
+                _extract_tag(message.get_header("From")) or ""
+                _extract_tag(message.get_header("To")) or ""
 
                 prack = SipMessage()
                 prack.method = "PRACK"
@@ -356,7 +355,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                     try:
                         prack.uri = prack.uri.split("<")[1].split(">")[0]
                     except (IndexError, ValueError):
-                        pass
+                        logger.debug("swallowed_exception", exc_info=True)
                 prack.version = "SIP/2.0"
                 prack.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
                 from_h = message.get_header("From") or ""
@@ -439,20 +438,14 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
         data = req.to_bytes()
 
         try:
-            from app.sip import transactions as sip_transactions
-            tx_manager = getattr(sip_transactions, "client_tx_manager", None) or getattr(sip_transactions, "tx_manager", None)
-            if tx_manager is None:
-                raise RuntimeError("sip_client_tx_manager_unavailable")
-
-            # W-06 2xx ACK直接发送(RFC 3261 §13.2.2.4)，不通过事务管理器，
-            # 避免创建永远不会被resolve的无用事务浪费资源
-            if 200 <= status_code < 300:
-                await send_sip_bytes(proto, transport, addr, data)
-            else:
-                await send_sip_bytes(proto, transport, addr, data)
+            # R24-07: tx_manager 之前被导入但从未实际使用（死代码），
+            # 2xx/非2xx ACK 均直接 send_sip_bytes（RFC 3261 §13.2.2.4），并检查返回值
+            sent_ok = await send_sip_bytes(proto, transport, addr, data)
+            if not sent_ok:
+                logger.warning(f"ACK send_sip_bytes returned False for call_id={call_id}, status={status_code}")
         except Exception as e:
-            logger.warning(f"Error sending ACK via tx_manager: {e}, falling back to direct send")
-            await send_sip_bytes(proto, transport, addr, data)
+            # 兜底也失败时记录 WARNING，避免异常向上传播中断后续 pending/资源清理流程
+            logger.warning(f"Failed to send ACK for call_id={call_id}, status={status_code}: {e}")
 
     to_tag = _extract_tag(message.get_header("To"))
     if call_id:
@@ -512,7 +505,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         try:
                             _talk_sock.close()
                         except Exception as _sock_close_err:
-                            logger.debug(f"Talk socket close failed: {_sock_close_err}")
+                            logger.warning(f"Talk socket close failed: {_sock_close_err}")
                     # S-06 释放对讲SSRC，防止泄漏
                     _talk_ssrc = _talk_res.get("ssrc")
                     if _talk_ssrc:
@@ -523,7 +516,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             # SSRC释放失败记录日志，否则泄漏无法追踪
                             logger.warning(f"Talk SSRC release failed for {_talk_ssrc}: {_ssrc_rel_err}")
             except Exception as _talk_cleanup_err:
-                logger.debug(f"Talk cleanup error for {call_id}: {_talk_cleanup_err}")
+                logger.warning(f"Talk cleanup error for {call_id}: {_talk_cleanup_err}")
             # 流切换失败，取消超时看门狗并主动触发回退
             async with invite_module.invite_state.stream_switch_lock:
                 is_stream_switch = call_id in invite_module.invite_state.stream_switch_pending
@@ -580,7 +573,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         # SSRC Waiter 已在 _send_invite_common 中提前注册，此处不再重复注册（避免重置 Redis TTL）
                         if to_tag:
                             stream_session.to_tag = to_tag
-                    
+
                         sdp_body = message.body or ""
                         sdp_lower = sdp_body.lower()
                         is_tcp_active_reply = (
@@ -598,7 +591,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 m_port = re.search(r'm=(?:video|audio) (\d+)', sdp_body)
                                 m_ip = re.search(r'c=IN IP4 (\d+\.\d+\.\d+\.\d+)', sdp_body)
                                 m_pt = re.search(r'm=(?:video|audio) \d+ [^\s]+ (\d+)', sdp_body)
-                            
+
                                 dev_ssrc = m_ssrc.group(1).strip() if m_ssrc else ""
                                 dev_port = int(m_port.group(1).strip()) if m_port else 0
                                 dev_ip = m_ip.group(1).strip() if m_ip else ""
@@ -608,7 +601,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 dev_port = 0
                                 dev_ip = ""
                                 dev_pt = ""
-                            
+
                         # NAT Traversal: Send Dummy RTP Packet
                         if stream_session.protocol == "UDP" and dev_ip and dev_port > 0:
                             try:
@@ -630,7 +623,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 await asyncio.get_running_loop().run_in_executor(None, _send_dummy_rtp)
                             except Exception as e:
                                 logger.warning(f"Failed to send Dummy RTP packet: {e}")
-                            
+
                         if dev_ssrc and dev_ssrc != stream_session.ssrc:
                             logger.info(f"Device modified SSRC in 200 OK: {stream_session.ssrc} -> {dev_ssrc}")
                             old_ssrc = stream_session.ssrc
@@ -664,7 +657,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                             await update_rtp_server_ssrc(
                                                 host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or getattr(settings, 'STREAM_PUBLIC_HOST', '') or node.ip,
                                                 http_port=node.http_port or 0,
-                                                secret=node.secret or settings.MEDIA_SERVER_SECRET or "",
+                                                secret=node.decrypted_secret or settings.MEDIA_SERVER_SECRET or "",  # P0-02: ORM 对象，decrypted_secret 解密
                                                 app=stream_session.app,
                                                 stream_id=stream_session.stream,
                                                 ssrc=str(int(dev_ssrc))
@@ -692,7 +685,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                                     await connect_rtp_server(
                                                         host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or getattr(settings, 'STREAM_PUBLIC_HOST', '') or node.ip,
                                                         http_port=node.http_port or 0,
-                                                        secret=node.secret or settings.MEDIA_SERVER_SECRET or "",
+                                                        secret=node.decrypted_secret or settings.MEDIA_SERVER_SECRET or "",  # P0-02: ORM 对象，decrypted_secret 解密
                                                         dst_url=dev_ip or addr[0],
                                                         dst_port=dev_port,
                                                         app=stream_session.app,
@@ -721,7 +714,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                         return
                             except Exception as e:
                                 logger.error(f"[TCP-ACTIVE] Failed to parse 200 OK SDP: {e}")
-                    
+
                         await _record_stream_health(session, stream_session, message.status_code)
                         await session.commit()
 
@@ -737,7 +730,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             try:
                                 del stream_session._pending_old_lease_id
                             except Exception as e:
-                                logger.debug(f"Exception: {e}")
+                                logger.warning(f"Exception: {e}")
 
                         # 异步等待 ZLM 流注册：200 OK 收到后设备开始推流，
                         # ZLM 需要几秒将流从 rtp app 迁移/注册到目标 app（live/playback）。
@@ -751,7 +744,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 _original_stream = str(stream_session.stream or "")
                                 _node_host = str(getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or node.ip)
                                 _node_http_port = int(node.http_port or 0)
-                                _secret = str(node.secret or "") or str(settings.MEDIA_SERVER_SECRET or "")
+                                _secret = str(node.decrypted_secret or "") or str(settings.MEDIA_SERVER_SECRET or "")  # P0-02: ORM 对象解密
 
                                 async def _on_stream_found(registered_app: str, registered_stream: str, media_item: dict):
                                     try:
@@ -772,7 +765,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                     except Exception as e:
                                         logger.warning(f"[StreamWait] Failed to update StreamSession {_session_id}: {e}")  # update_session possibly unbound in except
 
-                                asyncio.create_task(_wait_stream_registered(
+                                fire_and_forget(_wait_stream_registered(  # P0-16: 保存引用防 GC + 异常日志
                                     _node_host,
                                     _node_http_port,
                                     _secret,
@@ -789,18 +782,18 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             # on_talk_200_ok 已改为 async，需要 await
                             await talk_module.on_talk_200_ok(call_id, message.body or "", to_tag=to_tag)
                     except Exception as e:
-                        logger.debug(f"Talk 200 OK handling: {e}")
+                        logger.warning(f"Talk 200 OK handling: {e}")
             except Exception as e:
                 logger.error(f"handle_invite_response DB error for call_id={call_id}: {e}")
 
         logger.info("Sent ACK")
-        
+
     elif 100 <= message.status_code < 200:
         call_id = message.get_header("Call-ID")
         if call_id:
             invite_module.on_invite_provisional(call_id, message.status_code, message.reason_phrase or "")
         logger.debug(f"INVITE provisional response: {message.status_code} {message.reason_phrase}")
-        
+
     elif message.status_code >= 400:
         logger.error(f"INVITE failed with {message.status_code} {message.reason_phrase}")
         call_id = message.get_header("Call-ID")
@@ -817,7 +810,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         try:
                             _talk_sock_err.close()
                         except Exception:
-                            pass
+                            logger.warning("silently_swallowed_exception", exc_info=True)
                     _talk_ssrc_err = _talk_res_err.get("ssrc")
                     if _talk_ssrc_err:
                         try:
@@ -826,7 +819,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         except Exception as _ssrc_err:
                             logger.warning(f"Talk SSRC release failed on INVITE error for {_talk_ssrc_err}: {_ssrc_err}")
             except Exception as _talk_err_cleanup:
-                logger.debug(f"Talk cleanup on INVITE error for {call_id}: {_talk_err_cleanup}")
+                logger.warning(f"Talk cleanup on INVITE error for {call_id}: {_talk_err_cleanup}")
             try:
                 invite_module.cancel_invite_watchdog(call_id)
             except Exception as e:
@@ -839,7 +832,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                     if ss_obj and ss_obj.ssrc:
                         await unregister_ssrc_waiter(str(ss_obj.ssrc))
             except Exception as e:
-                logger.debug(f"Exception: {e}")
+                logger.warning(f"Exception: {e}")
             # 流切换失败，取消超时看门狗并主动触发回退
             async with invite_module.invite_state.stream_switch_lock:
                 is_stream_switch = call_id in invite_module.invite_state.stream_switch_pending
@@ -895,3 +888,88 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             await session.commit()
                 except Exception as e:
                     logger.error(f"invite_failed cleanup DB error for {call_id}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# P0-RTP: SSRC Mismatch Recovery
+# ---------------------------------------------------------------------------
+
+async def _try_reopen_rtp_server_on_ssrc_mismatch(
+    *,
+    host: str,
+    http_port: int,
+    secret: str,
+    app: str,
+    stream_id: str,
+    ssrc: str,
+    tcp_mode: int = 0,
+    rtp_port: int = 0,
+) -> bool:
+    """当 updateRtpServerSSRC 失败（session not found）时，尝试重新打开 RTP 服务器。
+
+    场景：INVITE 200 OK 到达后调用 updateRtpServerSSRC，但 RTP session 已被 ZLM
+    超时清理。此时重新 openRtpServer 创建新 session，再 updateRtpServerSSRC 绑定 SSRC。
+
+    Args:
+        host: ZLM 主机地址
+        http_port: ZLM HTTP 端口
+        secret: ZLM API secret
+        app: 应用名
+        stream_id: 流 ID
+        ssrc: 要绑定的 SSRC
+        tcp_mode: TCP 模式 (0=UDP, 1=TCP被动, 2=TCP主动)
+        rtp_port: 期望的 RTP 端口 (0=自动分配)
+
+    Returns:
+        True 表示恢复成功，False 表示恢复失败
+    """
+    from app.services.zlm_rtp_server_service import (
+        open_rtp_server,
+        update_rtp_server_ssrc,
+    )
+
+    try:
+        logger.info(
+            f"[SSRC Recovery] Reopening RTP server for {app}/{stream_id} "
+            f"(ssrc={ssrc}, rtp_port={rtp_port})"
+        )
+        # Step 1: 重新打开 RTP 服务器
+        open_result = await open_rtp_server(
+            host=host,
+            http_port=http_port,
+            secret=secret,
+            port=rtp_port or 0,
+            tcp_mode=tcp_mode,
+            app=app,
+            stream_id=stream_id,
+            ssrc=ssrc,
+        )
+        if open_result.get("code", -1) != 0:
+            logger.warning(
+                f"[SSRC Recovery] open_rtp_server returned code={open_result.get('code')} "
+                f"for {app}/{stream_id}"
+            )
+            return False
+
+        # Step 2: 更新 SSRC 绑定
+        update_result = await update_rtp_server_ssrc(
+            host=host,
+            http_port=http_port,
+            secret=secret,
+            stream_id=stream_id,
+            ssrc=ssrc,
+        )
+        if update_result.get("code", -1) != 0:
+            logger.warning(
+                f"[SSRC Recovery] update_rtp_server_ssrc returned code={update_result.get('code')} "
+                f"for {app}/{stream_id}"
+            )
+            return False
+
+        logger.info(f"[SSRC Recovery] Successfully reopened RTP server for {app}/{stream_id}")
+        return True
+    except Exception as e:
+        logger.warning(
+            f"[SSRC Recovery] Failed to reopen RTP server for {app}/{stream_id}: {e}"
+        )
+        return False

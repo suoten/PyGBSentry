@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from app.db.session import get_db
 from app.models.record_schedule import RecordSchedule
@@ -237,6 +237,7 @@ async def delete_schedule(
 
 
 class StorageConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     storage_root: str | None = None
 
 
@@ -400,7 +401,8 @@ async def _select_media_node(db: AsyncSession) -> tuple[str, int, str]:
 async def _start_record(proxy_host: str, proxy_http_port: int, proxy_secret: str, stream: str) -> None:
     url = f"http://{proxy_host}:{proxy_http_port}/index/api/startRecord"
     try:
-        r = await (await get_http_client()).get(url, params={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
+        # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
+        r = await (await get_http_client()).post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
         raise RuntimeError(f"startRecord request failed: {e}") from e
     # requests.get无try-catch，ZLM离线时ConnectionError未捕获
@@ -414,7 +416,8 @@ async def _start_record(proxy_host: str, proxy_http_port: int, proxy_secret: str
 async def _stop_record(proxy_host: str, proxy_http_port: int, proxy_secret: str, stream: str) -> None:
     url = f"http://{proxy_host}:{proxy_http_port}/index/api/stopRecord"
     try:
-        r = await (await get_http_client()).get(url, params={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
+        # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
+        r = await (await get_http_client()).post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
         raise RuntimeError(f"stopRecord request failed: {e}") from e
     # requests.get无try-catch，ZLM离线时ConnectionError未捕获

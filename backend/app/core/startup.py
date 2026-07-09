@@ -10,6 +10,7 @@ from loguru import logger
 from sqlalchemy import text
 
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.db.session import AsyncSessionLocal, engine
 
 
@@ -83,7 +84,7 @@ async def phase_schema_migration():
                         if _bt_result.scalar():
                             _need_stamp = True
         except Exception as _stamp_check_err:
-            logger.debug(f"alembic stamp pre-check error: {_stamp_check_err}")
+            logger.warning(f"alembic stamp pre-check error: {_stamp_check_err}")
 
         if _need_stamp:
             logger.info("Startup step: stamping alembic version (database has tables but no alembic_version)...")
@@ -215,7 +216,7 @@ async def phase_marketplace_registration(plugin_manager):
 
     # License refresh subscriber
     try:
-        asyncio.create_task(plugin_manager.start_license_refresh_subscriber())
+        fire_and_forget(plugin_manager.start_license_refresh_subscriber())  # P0-16: 保存引用防 GC + 异常日志
         logger.info("Startup step: license refresh Redis subscriber started.")
     except Exception as e:
         logger.warning(f"Startup step: license refresh subscriber failed: {e}, continue startup.")
@@ -337,40 +338,42 @@ async def phase_init_sip_state_backend():
 
 async def phase_check_secret_consistency():
     """Phase 7: Verify MEDIA_SERVER_SECRET consistency with DB."""
+    # P0-02: secret 列已加密存储，需通过 decrypted_secret 取明文后比较
     try:
         async def _check_secret_consistency(db):
             from app.models.media_node import MediaNode as _MN
             from sqlalchemy import select as _sel
-            result = await db.execute(_sel(_MN.id, _MN.secret).where(_MN.is_embedded == True).limit(1))
-            row = result.first()
-            return row
+            result = await db.execute(_sel(_MN).where(_MN.is_embedded).limit(1))
+            return result.scalars().first()
 
-        secret_row = await asyncio.wait_for(_session_call(_check_secret_consistency), timeout=10)
-        if secret_row and secret_row[1] and secret_row[1] != settings.MEDIA_SERVER_SECRET:
-            _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
-            if _app_env in {"prod", "production"}:
-                logger.error(
-                    "FATAL: MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls will FAIL. Please ensure MEDIA_SERVER_SECRET in .env matches the secret in DB media_nodes table, "
-                    "or run 'python scripts/update_media_node_secret.py' to sync DB with .env.",
-                    secret_row[0],
-                )
-                raise RuntimeError(
-                    "MEDIA_SERVER_SECRET mismatch between .env and DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls will fail. Please fix and restart." % secret_row[0]
-                )
-            else:
-                logger.warning(
-                    "MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls may fail. This is acceptable in dev, but please ensure they match.",
-                    secret_row[0],
-                )
+        _secret_node = await asyncio.wait_for(_session_call(_check_secret_consistency), timeout=10)
+        if _secret_node:
+            _db_secret_plain = _secret_node.decrypted_secret
+            if _db_secret_plain and _db_secret_plain != settings.MEDIA_SERVER_SECRET:
+                _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+                if _app_env in {"prod", "production"}:
+                    logger.error(
+                        "FATAL: MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls will FAIL. Please ensure MEDIA_SERVER_SECRET in .env matches the secret in DB media_nodes table, "
+                        "or run 'python scripts/update_media_node_secret.py' to sync DB with .env.",
+                        _secret_node.id,
+                    )
+                    raise RuntimeError(
+                        "MEDIA_SERVER_SECRET mismatch between .env and DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls will fail. Please fix and restart." % _secret_node.id
+                    )
+                else:
+                    logger.warning(
+                        "MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls may fail. This is acceptable in dev, but please ensure they match.",
+                        _secret_node.id,
+                    )
     except asyncio.TimeoutError:
         logger.warning("Startup step: secret consistency check timeout (10s), skipped.")
     except RuntimeError:
         raise
     except Exception as e:
-        logger.debug("Startup step: secret consistency check skipped: %s", e)
+        logger.warning("Startup step: secret consistency check skipped: %s", e)
 
 
 async def phase_init_redis():
@@ -465,7 +468,7 @@ async def phase_init_platform_service(sip_server):
         await ha_cluster.start_subscriber()
         logger.info("Startup step: cluster subscriber started.")
     except Exception as e:
-        logger.debug(f"Startup step: cluster subscriber start failed (non-critical): {e}")
+        logger.warning(f"Startup step: cluster subscriber start failed (non-critical): {e}")
 
     # Platform subscription service
     logger.info("Startup step: platform_subscription_service.start...")
@@ -497,7 +500,7 @@ async def phase_start_background_services(sip_server, plugin_manager):
         from app.sip.catalog import start_catalog_agg_prune
         start_catalog_agg_prune()
     except Exception as e:
-        logger.debug(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
+        logger.warning(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
 
     # AI Vision Hub
     from app.services.vision_hub import VisionHub

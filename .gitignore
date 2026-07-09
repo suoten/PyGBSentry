@@ -70,3 +70,18 @@ check-report*.md
 UPGRADE_AND_FIX_PLAN.md
 ANALYSIS_*.md
 待改.txt
+
+# 调试残留与一次性修复脚本（P0-1）
+backend/_line_endings.txt
+backend/_test*.py
+backend/_test*.txt
+backend/check_all_nodes.py
+backend/test_req.py
+backend/app/sip/check_ptz.py
+backend/app/sip/fix_*.py
+
+# 嵌套重复目录（P0-2）
+editions/
+
+# 运行时设备抓图（P1-58）
+backend/www/snap/

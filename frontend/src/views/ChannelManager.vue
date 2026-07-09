@@ -580,11 +580,47 @@ import CreateDirectoryDialog from '../components/channel/CreateDirectoryDialog.v
 import SharedChannelTree from '../components/channel/SharedChannelTree.vue'
 import { useChannelTreeStats } from '../utils/channelTreeStats'
 
+// P2-9: 逐步补充类型 — 定义局部接口替代 bare any
+// TreeNodeData: 树节点（业务分组/行政区划/设备/通道）
+interface TreeNodeData {
+  id: string
+  nodeType?: string
+  gb_id?: string
+  channelId?: string
+  name?: string
+  status?: number | string
+  children?: TreeNodeData[]
+  code?: string
+  parentId?: string
+  [key: string]: unknown  // 动态属性（API 返回的额外字段）
+}
+
+// ChannelRow: 通道表格行数据
+interface ChannelRow {
+  id: string
+  gb_id?: string
+  channelId?: string
+  name?: string
+  status?: number | string
+  stream_type?: string
+  audio?: string
+  device_id?: string
+  device_name?: string
+  [key: string]: unknown  // 动态属性（API 返回的额外字段）
+}
+
+// CivilCodeOption: 行政区划选项（省/市/区）
+interface CivilCodeOption {
+  code: string
+  name: string
+  children?: CivilCodeOption[]
+}
+
 const { t } = useI18n()  // FIXED: i18n - added useI18n destructuring
 
 const treeMode = ref<'business' | 'region'>('business')
 const loadingTree = ref(false)
-const treeDropHandler = async (evt: any) => {
+const treeDropHandler = async (evt: DragEvent) => {
   const toNodeEl = evt.to.closest('.el-tree-node')
   if (!toNodeEl) return
   const nodeKey = toNodeEl.dataset.key
@@ -645,7 +681,7 @@ const treeDropHandler = async (evt: any) => {
     channelTableRef.value?.clearSelection?.()
     await loadTree()
     await loadUnaddedCount()
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
@@ -677,14 +713,15 @@ const initSortable = () => {
     }
   })
 }
-const selectedNode = ref<any>(null)
-const treeRef = ref<any>(null)
+const selectedNode = ref<TreeNodeData | null>(null)
+const treeRef = ref<any>(null)  // P2-9: 组件 ref 保留 any（InstanceType 过于复杂）
 const expandedTreeKeys = ref<string[]>([])
 const treeSearchKeyword = ref('')
 // 兼容旧模板/缓存产物：保留 highContrastTree，避免运行时变量缺失
+// SECURITY: 非敏感 UI 偏好（设备树状态高对比度开关）— 仅 'true'/'false'，不含敏感信息，可安全存入 localStorage
 const highContrastTree = ref(localStorage.getItem('tree_status_high_contrast') === 'true')
 
-const treeData = ref<any[]>([])
+const treeData = ref<TreeNodeData[]>([])
 const {
   rebuildTreeNodeStats,
   shouldShowNodeStats,
@@ -693,7 +730,7 @@ const {
 } = useChannelTreeStats(treeData, {
   countableNodeTypes: ['channel'],
   statsVisibleNodeTypes: ['root', 'directory', 'region'],
-  isPlayableChannel: (node: any) => {
+  isPlayableChannel: (node: TreeNodeData) => {
     const nodeType = String(node?.nodeType || '').toLowerCase()
     if (nodeType !== 'channel') return false
     if (Number(node?.status) !== 1) return false
@@ -703,9 +740,9 @@ const {
   }
 })
 const loading = ref(false)
-const channels = ref<any[]>([])
-const selectedChannels = ref<any[]>([])
-const channelTableRef = ref<any>(null)
+const channels = ref<ChannelRow[]>([])
+const selectedChannels = ref<ChannelRow[]>([])
+const channelTableRef = ref<any>(null)  // P2-9: 组件 ref 保留 any
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
@@ -744,7 +781,7 @@ const playApp = ref('')
 const playStreamId = ref('')
 const playMode = ref<'webrtc' | 'flv' | 'hls' | 'raw'>('flv')
 const playUrls = reactive<Record<string, string>>({})
-const normalizePlayUrl = (value: any) => {
+const normalizePlayUrl = (value: unknown) => {
   let text = String(value || '').trim()
   while (text.length >= 2) {
     const first = text[0]
@@ -776,8 +813,8 @@ const pickPreferredWebrtc = () =>
     : normalizePlayUrl(playUrls.webrtc || playUrls.rtc || playUrls.rtcs || '')
 const playingChannelGbId = ref<string>('')
 const channelPlayLoading = ref<Record<string, boolean>>({})
-const currentDevice = ref<any>(null)
-const currentChannel = ref<any>(null)
+const currentDevice = ref<TreeNodeData | null>(null)
+const currentChannel = ref<ChannelRow | null>(null)
 const playRequest = reactive<{
   status: 'idle' | 'requesting' | 'waiting' | 'ready' | 'error'
   stage: string
@@ -785,7 +822,7 @@ const playRequest = reactive<{
   message: string
   suggestion: string
   retryable: boolean
-  diagnostics: Record<string, any>
+  diagnostics: Record<string, unknown>
 }>({
   status: 'idle',
   stage: '',
@@ -796,8 +833,8 @@ const playRequest = reactive<{
   diagnostics: {}
 })
 let playRequestAbort: AbortController | null = null
-let playRequestInterval: any = null
-const playRequestTimeouts: any[] = []
+let playRequestInterval: ReturnType<typeof setInterval> | null = null
+const playRequestTimeouts: ReturnType<typeof setTimeout>[] = []
 
 const clearPlayRequestTimers = () => {
   if (playRequestInterval) {
@@ -831,9 +868,9 @@ const resetPlayRequest = () => {
 
 // 通道编辑
 const channelEditDialogVisible = ref(false)
-const channelEditData = ref<any>(null)
+const channelEditData = ref<ChannelRow | null>(null)
 
-const openChannelEdit = (row: any) => {
+const openChannelEdit = (row: ChannelRow) => {
   channelEditData.value = row
   channelEditDialogVisible.value = true
 }
@@ -873,7 +910,7 @@ const contextMenu = ref({
   visible: false,
   x: 0,
   y: 0,
-  node: null as any
+  node: null as TreeNodeData | null
 })
 const CONTEXT_MENU_WIDTH = 186
 const CONTEXT_MENU_HEIGHT = 118
@@ -901,7 +938,7 @@ const civilCodeDialogConfirmLabel = computed(() => {
   }
 })
 
-const businessPickerTreeData = ref<any[]>([])
+const businessPickerTreeData = ref<CivilCodeOption[]>([])
 const loadingBusinessPickerTree = ref(false)
 const listBusinessFilterDialogVisible = ref(false)
 const listBusinessFilterPickId = ref('')
@@ -917,7 +954,7 @@ const civilCodeForm = ref({
   suffix: '01'
 })
 const systemSipId = ref('')
-const regionTreeOptions = ref<any[]>([])
+const regionTreeOptions = ref<CivilCodeOption[]>([])
 const provinceOptions = [
   { name: '北京', code: '11' },
   { name: '天津', code: '12' },
@@ -1007,46 +1044,46 @@ const fallbackDistrictOptions = computed(() => {
 })
 const dynamicProvinceOptions = computed(() => {
   return (regionTreeOptions.value || [])
-    .map((item: any) => ({
+    .map((item: CivilCodeOption) => ({
       name: String(item?.name || ''),
       code: String(item?.code || '').slice(0, 2),
       children: Array.isArray(item?.children) ? item.children : []
     }))
-    .filter((item: any) => /^\d{2}$/.test(item.code))
+    .filter((item: CivilCodeOption) => /^\d{2}$/.test(item.code))
 })
 const cityOptions = computed(() => {
-  const province = dynamicProvinceOptions.value.find((item: any) => item.code === civilCodeForm.value.province)
+  const province = dynamicProvinceOptions.value.find((item: CivilCodeOption) => item.code === civilCodeForm.value.province)
   if (!province) return fallbackCityOptions.value
   return (province.children || [])
-    .map((item: any) => ({
+    .map((item: CivilCodeOption) => ({
       name: String(item?.name || ''),
       code: String(item?.code || '').slice(2, 4),
       children: Array.isArray(item?.children) ? item.children : []
     }))
-    .filter((item: any) => /^\d{2}$/.test(item.code))
+    .filter((item: CivilCodeOption) => /^\d{2}$/.test(item.code))
 })
 const districtOptions = computed(() => {
-  const province = dynamicProvinceOptions.value.find((item: any) => item.code === civilCodeForm.value.province)
+  const province = dynamicProvinceOptions.value.find((item: CivilCodeOption) => item.code === civilCodeForm.value.province)
   if (!province) return fallbackDistrictOptions.value
-  const city = (province.children || []).find((item: any) => String(item?.code || '').slice(2, 4) === civilCodeForm.value.city)
+  const city = (province.children || []).find((item: CivilCodeOption) => String(item?.code || '').slice(2, 4) === civilCodeForm.value.city)
   if (!city) return fallbackDistrictOptions.value
   return (city.children || [])
-    .map((item: any) => ({
+    .map((item: CivilCodeOption) => ({
       name: String(item?.name || ''),
       code: String(item?.code || '').slice(4, 6)
     }))
-    .filter((item: any) => /^\d{2}$/.test(item.code))
+    .filter((item: CivilCodeOption) => /^\d{2}$/.test(item.code))
 })
 const selectedProvinceName = computed(() => {
-  const found = provinceOptions.find((item: any) => item.code === civilCodeForm.value.province)
+  const found = provinceOptions.find((item: CivilCodeOption) => item.code === civilCodeForm.value.province)
   return found?.name || t('channel.manager.unselectedProvince')  // FIXED: i18n
 })
 const selectedCityName = computed(() => {
-  const found = cityOptions.value.find((item: any) => item.code === civilCodeForm.value.city)
+  const found = cityOptions.value.find((item: CivilCodeOption) => item.code === civilCodeForm.value.city)
   return found?.name || (civilCodeForm.value.city ? t('channel.manager.cityCodeLabel', { code: civilCodeForm.value.city }) : t('channel.manager.unselectedCity'))  // FIXED: i18n
 })
 const selectedDistrictName = computed(() => {
-  const found = districtOptions.value.find((item: any) => item.code === civilCodeForm.value.district)
+  const found = districtOptions.value.find((item: CivilCodeOption) => item.code === civilCodeForm.value.district)
   return found?.name || (civilCodeForm.value.district ? t('channel.manager.districtCodeLabel', { code: civilCodeForm.value.district }) : t('channel.manager.unselectedDistrict'))  // FIXED: i18n
 })
 const civilCodePreview = computed(() => {
@@ -1075,7 +1112,7 @@ const selectedNodePathLabel = computed(() => {
   const path: string[] = []
   let found = false
   
-  const walk = (nodes: any[], currentPath: string[]) => {
+  const walk = (nodes: TreeNodeData[], currentPath: string[]) => {
     if (found) return
     for (const node of nodes || []) {
       if (found) return
@@ -1099,7 +1136,7 @@ const selectedNodePathLabel = computed(() => {
 
 const nodeLabelMap = computed(() => {
   const map = new Map<string, string>()
-  const walk = (nodes: any[]) => {
+  const walk = (nodes: TreeNodeData[]) => {
     for (const node of nodes || []) {
       const id = String(node?.id || '').trim()
       if (id) {
@@ -1125,7 +1162,7 @@ const isMountableNodeType = (nodeType: string) => {
   return type === 'directory' || type === 'root' || type === 'region'
 }
 
-const findTreeNodeById = (targetId: string): any | null => {
+const findTreeNodeById = (targetId: string): TreeNodeData | null => {
   const id = String(targetId || '').trim()
   if (!id) return null
   const stack = [...(treeData.value || [])]
@@ -1139,7 +1176,7 @@ const findTreeNodeById = (targetId: string): any | null => {
   return null
 }
 
-const resolveSelectedNodeForList = (data: any, node?: any) => {
+const resolveSelectedNodeForList = (data: TreeNodeData, node?: TreeNodeData) => {
   const currentType = String(data?.nodeType || '').toLowerCase()
   if (currentType !== 'channel') return data
 
@@ -1166,7 +1203,7 @@ const resolveSelectedNodeForList = (data: any, node?: any) => {
 }
 
 /** 当前 Tab（业务/行政区）下通道挂载父节点 ID */
-const catalogParentId = (row: any) => {
+const catalogParentId = (row: ChannelRow) => {
   const raw =
     treeMode.value === 'region'
       ? row?.region_parent_gb_id ?? row?.regionParentGbId
@@ -1308,12 +1345,13 @@ const tableEmptyText = computed(() => {
   return t('channel.manager.emptyNoData')  // FIXED: i18n
 })
 
-const getChannelSnapSrc = (row: any) => {
+const getChannelSnapSrc = (row: ChannelRow) => {
   const channelKey = String(row?.id ?? row?.gb_id ?? '').trim()
   if (!channelKey) return ''
   if (Number(row?.status) !== 1) return ''
-  const token = localStorage.getItem('token') || ''
-  return `/api/v1/devices/channels/${encodeURIComponent(channelKey)}/snap?stream_type=auto&ts=${channelSnapReloadToken.value}&token=${token}`
+  // 硬约束 #1: 禁止通过 URL 查询参数暴露 JWT token — 截图改由 HttpOnly cookie 认证
+  // （login 已设置 access_token cookie，后端 snap 接口支持 cookie 鉴权）
+  return `/api/v1/devices/channels/${encodeURIComponent(channelKey)}/snap?stream_type=auto&ts=${channelSnapReloadToken.value}`
 }
 
 const businessRootId = computed(() => {
@@ -1326,7 +1364,7 @@ const canAddToSelectedNode = computed(() => {
   return nodeType === 'directory' || nodeType === 'root' || nodeType === 'region'
 })
 
-const rowSelectable = (row: any) => {
+const rowSelectable = (row: ChannelRow) => {
   const scope = filters.value.listScope
   const pid = catalogParentId(row)
   // 未选左侧节点时仍可勾选（全表筛选 + 批量区划/分组）
@@ -1350,7 +1388,7 @@ const rowSelectable = (row: any) => {
   return false
 }
 
-const saveChannelAudioInline = async (row: any) => {
+const saveChannelAudioInline = async (row: ChannelRow) => {
   if (!row?.id) return
   const id = String(row.id)
   channelInlineSaving.value[id] = true
@@ -1359,7 +1397,7 @@ const saveChannelAudioInline = async (row: any) => {
       has_audio: !!row.has_audio
     })
     ElMessage.success(t('channel.audioSwitchUpdated'))  // FIXED: 硬编码中文→i18n
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
     row.has_audio = !row.has_audio
@@ -1368,7 +1406,7 @@ const saveChannelAudioInline = async (row: any) => {
   }
 }
 
-const saveChannelStreamTypeInline = async (row: any) => {
+const saveChannelStreamTypeInline = async (row: ChannelRow) => {
   if (!row?.id) return
   const id = String(row.id)
   channelInlineSaving.value[id] = true
@@ -1379,7 +1417,7 @@ const saveChannelStreamTypeInline = async (row: any) => {
     })
     row.default_stream_type = v
     ElMessage.success(t('channel.defaultStreamUpdated'))  // FIXED: 硬编码中文→i18n
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   } finally {
@@ -1431,7 +1469,7 @@ const refreshStream = async () => {
   }
 }
 
-const canPlay = (row: any) => {
+const canPlay = (row: ChannelRow) => {
   if (row.status !== 1 && Number(row.status) !== 1) {
     return false
   }
@@ -1444,7 +1482,7 @@ const canPlay = (row: any) => {
   return true
 }
 
-const playTooltip = (row: any) => {
+const playTooltip = (row: ChannelRow) => {
   if (row.status !== 1 && Number(row.status) !== 1) {
     return t('channel.manager.channelOffline')  // FIXED: i18n
   }
@@ -1490,7 +1528,7 @@ const toPlayFailureText = (friendly: ReturnType<typeof getFriendlyError>) => {
   }
 }
 
-const playStream = async (row: any) => {
+const playStream = async (row: ChannelRow) => {
   const deviceId = String(row?.device_id || row?.deviceId || '').trim()
   const channelId = String(row?.gb_id || row?.channelId || row?.id || '').trim()
   if (!deviceId || !channelId) return
@@ -1627,13 +1665,21 @@ const playStream = async (row: any) => {
           ? preferredHls
           : normalizePlayUrl(playUrls.raw)
     try {
-      const token = localStorage.getItem('token') || ''
-      const snapUrl = `/api/v1/devices/channels/${encodeURIComponent(channelId)}/snap?stream_type=auto&prefer_existing=true&allow_invite=false&force=true&ts=${Date.now()}&token=${token}`
-      const img = new Image()
-      img.onload = () => {
-        channelSnapReloadToken.value = Date.now()
-      }
-      img.src = snapUrl
+      // 硬约束 #1: 禁止通过 URL 查询参数暴露 JWT token
+      // FIX: 使用 fetch + Authorization 头加载截图，避免 token 暴露在 URL/日志/Referrer 中
+      const snapUrl = `/api/v1/devices/channels/${encodeURIComponent(channelId)}/snap?stream_type=auto&prefer_existing=true&allow_invite=false&force=true&ts=${Date.now()}`
+      const snapToken = sessionStorage.getItem('token') || ''
+      fetch(snapUrl, { headers: { Authorization: `Bearer ${snapToken}` } })
+        .then(r => r.blob())
+        .then(blob => {
+          const img = new Image()
+          img.onload = () => {
+            channelSnapReloadToken.value = Date.now()
+          }
+          img.src = URL.createObjectURL(blob)
+          setTimeout(() => URL.revokeObjectURL(img.src), 30000)
+        })
+        .catch(() => { /* snap reload best-effort */ })
     } catch { /* snap reload best-effort */ }
     clearPlayRequestTimers()
     playRequestAbort = null
@@ -1644,7 +1690,7 @@ const playStream = async (row: any) => {
     playRequest.suggestion = ''
     playRequest.retryable = true
     playRequest.diagnostics = {}
-  } catch (e: any) {
+  } catch (e: unknown) {
     clearPlayRequestTimers()
     playRequestAbort = null
     const friendly = getFriendlyError(e)
@@ -1687,7 +1733,7 @@ const closePlayer = async () => {
   playerVisible.value = false
 }
 
-const openDeviceListWithRecordTab = (row: any, tab: 'cloud' | 'device' | 'timeline') => {
+const openDeviceListWithRecordTab = (row: ChannelRow, tab: 'cloud' | 'device' | 'timeline') => {
   const deviceId = String(row?.device_id || row?.deviceId || '').trim()
   const channelGbId = String(row?.gb_id || row?.channelId || row?.id || '').trim()
   if (!deviceId || !channelGbId) return
@@ -1705,16 +1751,16 @@ const openDeviceListWithRecordTab = (row: any, tab: 'cloud' | 'device' | 'timeli
   })
 }
 
-const getChannelGbIdForNode = (node: any) => String(node?.gb_id || node?.channelId || node?.id || '').trim()
+const getChannelGbIdForNode = (node: TreeNodeData) => String(node?.gb_id || node?.channelId || node?.id || '').trim()
 
 type ContextMenuTargetType = 'channel' | 'directory'
-const getContextMenuTargetType = (node: any): ContextMenuTargetType => {
+const getContextMenuTargetType = (node: TreeNodeData): ContextMenuTargetType => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   if (!nodeType) return 'channel' // table row often doesn't carry nodeType
   return nodeType === 'channel' ? 'channel' : 'directory'
 }
 
-const handleMoreCommand = async (row: any, cmd: string) => {
+const handleMoreCommand = async (row: ChannelRow, cmd: string) => {
   if (cmd === 'remove_from_node') {
     await removeFromNode(row)
     return
@@ -1734,7 +1780,7 @@ const handleMoreCommand = async (row: any, cmd: string) => {
       await http.post(`/api/v1/devices/channels/${row.id}/reset`)
       ElMessage.success(t('channel.channelInfoReset'))  // FIXED: 硬编码中文→i18n
       await loadChannels()
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e !== 'cancel') {
         const friendly = getFriendlyError(e)
         ElMessage.error(friendly.message)
@@ -1752,7 +1798,7 @@ const handleMoreCommand = async (row: any, cmd: string) => {
       await http.delete(`/api/v1/devices/channels/${row.id}`)
       ElMessage.success(t('channel.channelDeleted'))  // FIXED: 硬编码中文→i18n
       await loadChannels()
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e !== 'cancel') {
         const friendly = getFriendlyError(e)
         ElMessage.error(friendly.message)
@@ -1774,9 +1820,9 @@ const loadTree = async () => {
     treeData.value = Array.isArray(res.data) ? res.data : []
     rebuildTreeNodeStats()
     if (expandedTreeKeys.value.length === 0 && treeData.value.length > 0) {
-      expandedTreeKeys.value = treeData.value.map((n: any) => String(n.id))
+      expandedTreeKeys.value = treeData.value.map((n: TreeNodeData) => String(n.id))
     }
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   } finally {
@@ -1784,35 +1830,35 @@ const loadTree = async () => {
   }
 }
 
-const handleNodeExpand = (data: any) => {
+const handleNodeExpand = (data: TreeNodeData) => {
   const id = String(data?.id || '').trim()
   if (id && !expandedTreeKeys.value.includes(id)) {
     expandedTreeKeys.value.push(id)
   }
 }
 
-const handleNodeCollapse = (data: any) => {
+const handleNodeCollapse = (data: TreeNodeData) => {
   const id = String(data?.id || '').trim()
   if (id) {
     expandedTreeKeys.value = expandedTreeKeys.value.filter(k => k !== id)
   }
 }
 
-const shouldShowStatusBadge = (node: any) => {
+const shouldShowStatusBadge = (node: TreeNodeData) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   return ['channel', 'device'].includes(nodeType)
 }
 
-const isChannelTreeFolderNode = (node: any) => {
+const isChannelTreeFolderNode = (node: TreeNodeData) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   return nodeType === 'directory' || nodeType === 'root' || nodeType === 'region'
 }
 
-const getNodeStatusTone = (node: any) => {
+const getNodeStatusTone = (node: TreeNodeData) => {
   return Number(node?.status) === 1 ? 'online' : 'offline'
 }
 
-const getNodeStatusText = (node: any) => {
+const getNodeStatusText = (node: TreeNodeData) => {
   return Number(node?.status) === 1 ? t('common.online') : t('common.offline')  // FIXED: i18n
 }
 
@@ -1875,7 +1921,7 @@ const loadChannels = async () => {
     const res = await http.get('/api/v1/devices/channels/flat', { params })
     channels.value = Array.isArray(res.data?.items) ? res.data.items : []
     total.value = Number(res.data?.total || 0)
-  } catch (e: any) {
+  } catch (e: unknown) {
     channels.value = []
     total.value = 0
     const friendly = getFriendlyError(e)
@@ -1892,7 +1938,7 @@ const refreshAll = () => {
   loadUnaddedCount()
 }
 
-const applyTreeNodeSelection = (data: any) => {
+const applyTreeNodeSelection = (data: TreeNodeData) => {
   selectedNode.value = data
   filters.value.listBusinessParentGbId = ''
   filters.value.listBusinessParentLabel = ''
@@ -1907,16 +1953,16 @@ const applyTreeNodeSelection = (data: any) => {
   loadChannels()
 }
 
-const handleNodeClick = (data: any, node: any) => {
+const handleNodeClick = (data: TreeNodeData, node: TreeNodeData) => {
   const target = resolveSelectedNodeForList(data, node)
   applyTreeNodeSelection(target)
 }
 
-const handleSelectionChange = (rows: any[]) => {
+const handleSelectionChange = (rows: ChannelRow[]) => {
   selectedChannels.value = Array.isArray(rows) ? rows : []
 }
 
-const onChannelTableRowContextMenu = (row: any, ev: MouseEvent) => {
+const onChannelTableRowContextMenu = (row: ChannelRow, ev: MouseEvent) => {
   ev.preventDefault()
   ev.stopPropagation()
   const maxX = Math.max(8, window.innerWidth - CONTEXT_MENU_WIDTH - 8)
@@ -1968,7 +2014,7 @@ const hideContextMenuByContextmenu = (ev: MouseEvent) => {
   hideContextMenu()
 }
 
-const openNodeContextMenu = (ev: MouseEvent, nodeData: any) => {
+const openNodeContextMenu = (ev: MouseEvent, nodeData: TreeNodeData) => {
   const nodeType = String(nodeData?.nodeType || '').toLowerCase()
   const isBusiness = treeMode.value === 'business'
   const isRegion = treeMode.value === 'region'
@@ -2006,13 +2052,13 @@ const openNodeContextMenu = (ev: MouseEvent, nodeData: any) => {
   }
 }
 
-const syncCatalog = async (node: any) => {
+const syncCatalog = async (node: TreeNodeData) => {
   const gbId = String(node?.deviceId || node?.id || '').trim()
   if (!gbId) return
   try {
     await http.post(`/api/v1/devices/${gbId}/sync`)
     ElMessage.success(t('channel.catalogSyncSent'))  // FIXED: 硬编码中文→i18n
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
@@ -2060,7 +2106,7 @@ const contextDeleteNode = () => {
 }
 
 /** @param explicitParent 若传入则作为父节点（例如右键菜单「新增子节点」），否则使用当前选中的树节点 */
-const openCreateDirectoryDialog = (explicitParent?: any) => {
+const openCreateDirectoryDialog = (explicitParent?: TreeNodeData) => {
   const parent = explicitParent !== undefined && explicitParent !== null ? explicitParent : selectedNode.value
 
   if (explicitParent !== undefined && explicitParent !== null) {
@@ -2106,7 +2152,7 @@ const loadBusinessPickerTree = async () => {
   try {
     const res = await http.get('/api/v1/devices/tree/business')
     businessPickerTreeData.value = Array.isArray(res.data) ? res.data : []
-  } catch (e: any) {
+  } catch (e: unknown) {
     businessPickerTreeData.value = []
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
@@ -2122,7 +2168,7 @@ const openListBusinessFilterPicker = async () => {
   await loadBusinessPickerTree()
 }
 
-const onListBusinessFilterTreeClick = (data: any) => {
+const onListBusinessFilterTreeClick = (data: TreeNodeData) => {
   listBusinessFilterPickId.value = String(data?.id || '').trim()
   listBusinessFilterPickLabel.value = String(data?.label || listBusinessFilterPickId.value || '').trim()
 }
@@ -2168,7 +2214,7 @@ const onBatchPlacementCommand = async (cmd: string) => {
     ElMessage.warning(t('channel.selectChannels'))  // FIXED: 硬编码中文→i18n
     return
   }
-  const ids = selectedChannels.value.map((c: any) => String(c?.id || '').trim()).filter(Boolean)
+  const ids = selectedChannels.value.map((c: ChannelRow) => String(c?.id || '').trim()).filter(Boolean)
   if (!ids.length) return
 
   if (cmd === 'batch_region') {
@@ -2198,7 +2244,7 @@ const onBatchPlacementCommand = async (cmd: string) => {
       selectedChannels.value = []
       channelTableRef.value?.clearSelection?.()
     await Promise.all([loadTree(), loadChannels(), loadUnaddedCount()])
-  } catch (e: any) {
+  } catch (e: unknown) {
       if (e !== 'cancel') {
         const friendly = getFriendlyError(e)
         ElMessage.error(friendly.message)
@@ -2225,7 +2271,7 @@ const onBatchPlacementCommand = async (cmd: string) => {
       selectedChannels.value = []
       channelTableRef.value?.clearSelection?.()
     await Promise.all([loadTree(), loadChannels(), loadUnaddedCount()])
-  } catch (e: any) {
+  } catch (e: unknown) {
       if (e !== 'cancel') {
         const friendly = getFriendlyError(e)
         ElMessage.error(friendly.message)
@@ -2252,7 +2298,7 @@ const handlePrimaryBatchAction = async () => {
   await batchAddToSelectedNode()
 }
 
-const onBatchBusinessTreeClick = (data: any) => {
+const onBatchBusinessTreeClick = (data: TreeNodeData) => {
   batchBusinessPickId.value = String(data?.id || '').trim()
 }
 
@@ -2262,7 +2308,7 @@ const confirmBatchBusinessPlacement = async () => {
     ElMessage.warning(t('channel.selectBusinessGroup'))  // FIXED: 硬编码中文→i18n
     return
   }
-  const ids = selectedChannels.value.map((c: any) => String(c?.id || '').trim()).filter(Boolean)
+  const ids = selectedChannels.value.map((c: ChannelRow) => String(c?.id || '').trim()).filter(Boolean)
   if (!ids.length) return
   batchPlacementLoading.value = true
   try {
@@ -2276,7 +2322,7 @@ const confirmBatchBusinessPlacement = async () => {
     selectedChannels.value = []
     channelTableRef.value?.clearSelection?.()
     await Promise.all([loadTree(), loadChannels(), loadUnaddedCount()])
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   } finally {
@@ -2324,7 +2370,7 @@ const applyCivilCode = async () => {
       ElMessage.warning(t('channel.selectChannelsFirst'))  // FIXED: 硬编码中文→i18n
       return
     }
-    const ids = selectedChannels.value.map((c: any) => String(c?.id || '').trim()).filter(Boolean)
+    const ids = selectedChannels.value.map((c: ChannelRow) => String(c?.id || '').trim()).filter(Boolean)
     if (!ids.length) return
     batchPlacementLoading.value = true
     try {
@@ -2339,7 +2385,7 @@ const applyCivilCode = async () => {
       selectedChannels.value = []
       channelTableRef.value?.clearSelection?.()
       await Promise.all([loadTree(), loadChannels()])
-    } catch (e: any) {
+    } catch (e: unknown) {
       const friendly = getFriendlyError(e)
       ElMessage.error(friendly.message)
     } finally {
@@ -2386,7 +2432,7 @@ const deleteDirectory = async () => {
     ElMessage.success(t('channel.nodeDeleted'))  // FIXED: 硬编码中文→i18n
     selectedNode.value = null
     loadTree()
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (e !== 'cancel') {
       const friendly = getFriendlyError(e)
       ElMessage.error(friendly.message)
@@ -2407,7 +2453,7 @@ const renameDirectory = async () => {
     ElMessage.success(t('channel.nodeNameUpdated'))  // FIXED: 硬编码中文→i18n
     renameDirectoryDialogVisible.value = false
     await loadTree()
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   } finally {
@@ -2415,7 +2461,7 @@ const renameDirectory = async () => {
   }
 }
 
-const addToSelectedNode = async (channel: any) => {
+const addToSelectedNode = async (channel: ChannelRow) => {
   if (!selectedNode.value || !canAddToSelectedNode.value) return
 
   try {
@@ -2430,7 +2476,7 @@ const addToSelectedNode = async (channel: any) => {
       channel.parent_gb_id = selectedNode.value.id
     }
     await Promise.all([loadTree(), loadChannels()])
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
@@ -2477,7 +2523,7 @@ const batchAddToSelectedNode = async () => {
     })
     selectedChannels.value = []
     await Promise.all([loadTree(), loadChannels(), loadUnaddedCount()])
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
@@ -2507,13 +2553,13 @@ const batchRemoveFromNode = async () => {
     })
     selectedChannels.value = []
     await Promise.all([loadTree(), loadChannels(), loadUnaddedCount()])
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
 }
 
-const removeFromNode = async (channel: any) => {
+const removeFromNode = async (channel: ChannelRow) => {
   try {
     const key = placementPayloadKey.value
     await http.put(`/api/v1/devices/channels/${channel.id}`, {
@@ -2523,7 +2569,7 @@ const removeFromNode = async (channel: any) => {
     if (key === 'region_parent_gb_id') channel.region_parent_gb_id = null
     else channel.parent_gb_id = null
     await Promise.all([loadTree(), loadChannels()])
-  } catch (e: any) {
+  } catch (e: unknown) {
     const friendly = getFriendlyError(e)
     ElMessage.error(friendly.message)
   }
@@ -2554,14 +2600,14 @@ onMounted(() => {
       })
       .then(res => {
         const items = Array.isArray(res.data?.items) ? res.data.items : []
-        const row = items.find((x: any) => String(x?.id || '') === eid)
+        const row = items.find((x: ChannelRow) => String(x?.id || '') === eid)
         if (row) openChannelEdit(row)
       })
       .catch(() => {})
   }
 })
 
-const filterNode = (value: string, data: any) => {
+const filterNode = (value: string, data: TreeNodeData) => {
   if (!value) return true
   return String(data.label || '').toLowerCase().includes(value.toLowerCase())
 }

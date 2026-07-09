@@ -1,86 +1,22 @@
 """Tests for SIP core: handlers, invite, catalog, record, playback_control."""
+import os
 import unittest
-import types
-import sys
 import time
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
 
-
-def _install_test_settings_stub() -> None:
-    settings_obj = types.SimpleNamespace(
-        SECRET_KEY="test-secret-key-for-testing",
-        APP_ENV="dev",
-        SIP_DEBUG_TRACE_ENABLED=False,
-        SIP_TRACE_SAMPLE_RATE=0.0,
-        SIP_IP="127.0.0.1",
-        SIP_PORT=5060,
-        SIP_ID="34020000002000000001",
-        SIP_DOMAIN="3402000000",
-        SIP_DEFAULT_PASSWORD="",
-        SIP_IP_BLACKLIST="",
-        SIP_WORKER_CONCURRENCY=200,
-        SIP_RESPONSE_CACHE_TTL_SECONDS=32,
-        SIP_RESPONSE_CACHE_MAX_SIZE=50000,
-        SIP_MAX_INFLIGHT=5000,
-        SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS=5.0,
-        SIP_INVITE_RATE_LIMIT_PER_DEVICE=8,
-        SIP_INVITE_RATE_LIMIT_PER_TENANT=40,
-        SIP_PLATFORM_KEEPALIVE_MISS_THRESHOLD=3,
-        SIP_INVITE_ZLM_MAX_NODE_RETRIES=3,
-        SIP_INVITE_ZLM_OPEN_RTP_TIMEOUT_SECONDS=3.0,
-        SIP_INVITE_RESPONSE_TIMEOUT_SECONDS=20,
-        SIP_TRANSACTION_T1_SECONDS=0.5,
-        SIP_TRANSACTION_T2_SECONDS=4.0,
-        SIP_INVITE_2XX_RETRANS_MAX_SECONDS=32.0,
-        SIP_STARTUP_REQUIRED=False,
-        PROJECT_NAME="PyGBSentry",
-        MEDIA_SERVER_SECRET="test-secret",
-        MEDIA_SERVER_HOST="127.0.0.1",
-        MEDIA_SERVER_HTTP_PORT=8880,
-        MEDIA_SERVER_RTP_PROXY_PORT=30000,
-        MEDIA_SERVER_RTP_PROXY_PORT_RANGE="30000-39000",
-        GB28181_SSRC_POLICY="adaptive",
-        GB28181_SSRC_RETRY_ON_NOT_READY=True,
-        GB28181_SSRC_RETRY_ORDER="strict,off",
-        GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE=True,
-        ALLOW_UNKNOWN_CASCADE_INVITE=False,
-        STREAM_PUBLIC_HOST="localhost",
-        STREAM_PUBLIC_HTTP_PORT=8880,
-        STREAM_PUBLIC_SCHEME="http",
-        MEDIA_SERVER_HOOK_BASE_URL=None,
-        INIT_REDIS_ON_STARTUP=False,
-        REDIS_HOST="localhost",
-        REDIS_PORT=6379,
-        REDIS_PASSWORD=None,
-        REDIS_DB=0,
-        DATABASE_TYPE="sqlite",
-        DATABASE_SQLITE_PATH=":memory:",
-        DATABASE_HOST="localhost",
-        DATABASE_PORT=5432,
-        DATABASE_NAME="test",
-        DATABASE_USER="test",
-        DATABASE_PASSWORD="",
-        SQLALCHEMY_DATABASE_URI="sqlite+aiosqlite:///:memory:",
-        APP_EDITION="oss",
-    )
-    existing = sys.modules.get("app.core.config")
-    if existing is None:
-        m = types.ModuleType("app.core.config")
-        m.settings = settings_obj
-        sys.modules["app.core.config"] = m
-        return
-    if not hasattr(existing, "settings") or existing.settings is None:
-        existing.settings = settings_obj
-        return
-    for k, v in settings_obj.__dict__.items():
-        if not hasattr(existing.settings, k):
-            setattr(existing.settings, k, v)
+# P2-23: 改用真实 app.core.config.settings 加载配置，不再使用 stub 注入。
+# 通过环境变量设置测试配置（与 conftest.py 保持一致），让真实 Settings 类完成
+# pydantic 校验，从而暴露潜在的配置缺陷（如缺失字段、类型错误等）。
+# 以下环境变量在模块导入时设置，确保在 app.core.config 被首次导入前生效。
+os.environ.setdefault("DATABASE_TYPE", "sqlite")
+os.environ.setdefault("APP_ENV", "test")
+os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing-only-not-for-production")
 
 
 class TestSipMessageParsing(unittest.TestCase):
     def setUp(self):
-        _install_test_settings_stub()
+        # P2-23: 直接使用真实 app.core.config.settings，不再 stub
         from app.sip.message import SipMessage
         self.SipMessage = SipMessage
 
@@ -99,8 +35,7 @@ class TestSipMessageParsing(unittest.TestCase):
             "Content-Length: 0\r\n"
             "\r\n"
         )
-        msg = self.SipMessage()
-        msg.parse(raw.encode("utf-8"))
+        msg = self.SipMessage.parse(raw.encode("utf-8"))
         self.assertEqual(msg.method, "REGISTER")
         self.assertEqual(msg.version, "SIP/2.0")
         self.assertIn("Call-ID", msg.headers)
@@ -118,8 +53,7 @@ class TestSipMessageParsing(unittest.TestCase):
             "Content-Length: 0\r\n"
             "\r\n"
         )
-        msg = self.SipMessage()
-        msg.parse(raw.encode("utf-8"))
+        msg = self.SipMessage.parse(raw.encode("utf-8"))
         self.assertTrue(msg.is_response)
         self.assertEqual(msg.status_code, 200)
         self.assertEqual(msg.reason_phrase, "OK")
@@ -137,8 +71,7 @@ class TestSipMessageParsing(unittest.TestCase):
             "Content-Length: 0\r\n"
             "\r\n"
         )
-        msg = self.SipMessage()
-        msg.parse(raw.encode("utf-8"))
+        msg = self.SipMessage.parse(raw.encode("utf-8"))
         self.assertEqual(msg.method, "INVITE")
         self.assertEqual(msg.get_header("Content-Type"), "application/sdp")
 
@@ -153,8 +86,7 @@ class TestSipMessageParsing(unittest.TestCase):
             "Content-Length: 0\r\n"
             "\r\n"
         )
-        msg = self.SipMessage()
-        msg.parse(raw.encode("utf-8"))
+        msg = self.SipMessage.parse(raw.encode("utf-8"))
         self.assertEqual(msg.method, "BYE")
         self.assertEqual(msg.get_header("Call-ID"), "invite-call-001@127.0.0.1")
 
@@ -179,8 +111,7 @@ class TestSipMessageParsing(unittest.TestCase):
             "\r\n"
             + xml_body
         )
-        msg = self.SipMessage()
-        msg.parse(raw.encode("utf-8"))
+        msg = self.SipMessage.parse(raw.encode("utf-8"))
         self.assertEqual(msg.method, "MESSAGE")
         self.assertIn("Keepalive", msg.body)
         self.assertIn("DeviceID", msg.body)
@@ -188,7 +119,8 @@ class TestSipMessageParsing(unittest.TestCase):
 
 class TestDigestAuthNonce(unittest.TestCase):
     def setUp(self):
-        _install_test_settings_stub()
+        # P2-23: 直接使用真实 app.core.config.settings，不再 stub
+        pass
 
     def test_generate_nonce_format(self):
         from app.sip.auth import DigestAuth

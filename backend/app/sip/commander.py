@@ -2,13 +2,13 @@ from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_host_for_contact
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
-from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log, sip_trace_log as _sip_trace_log
+from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
 from app.sip.send import send_sip_bytes
 from loguru import logger
 import random
-import asyncio
 import itertools
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 _cseq_counter = itertools.count(1)
 
@@ -38,7 +38,7 @@ class SipCommander:
         Content-Type: Application/MANSCDP+xml
         """
         addr, proto, transport = transport_info
-        
+
         # Build XML Body
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -48,13 +48,13 @@ class SipCommander:
 <DeviceID>{_xml_escape(device_id)}</DeviceID>
 </Query>
 """
-        
+
         # Create Request
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKcat{sn}{random.randint(100,999)}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=cat{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
@@ -64,12 +64,12 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
-        
+
         # Send
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
             resp, meta = await tx_manager.send_and_wait(
@@ -140,7 +140,7 @@ class SipCommander:
         req.body = xml_body
 
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -162,7 +162,7 @@ class SipCommander:
         """Send mobile position subscribe."""
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
 <CmdType>MobilePosition</CmdType>
@@ -175,7 +175,7 @@ class SipCommander:
         req.method = "SUBSCRIBE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKmp{sn}{random.randint(100,999)}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=mp{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
@@ -187,10 +187,10 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
             resp, meta = await tx_manager.send_and_wait(
@@ -255,14 +255,14 @@ class SipCommander:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}ts"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}ts@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -279,8 +279,9 @@ class SipCommander:
             time=time_str,
         )
 
-    async def send_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, 
-                           left_right: int, up_down: int, in_out: int, move_speed: int = 127, zoom_speed: int = 16):
+    async def send_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple,
+                           left_right: int, up_down: int, in_out: int, move_speed: int = 127, zoom_speed: int = 16) -> bool:
+        """R24-03: 返回 bool 表示 SIP 发送是否成功，避免静默丢失 PTZ 命令。"""
         move_speed = max(0, min(255, int(move_speed or 0)))
         zoom_speed = max(0, min(255, int(zoom_speed or 0)))
         left_right = max(0, min(2, int(left_right or 0)))
@@ -292,17 +293,17 @@ class SipCommander:
             cmd_code |= 0x01
         elif left_right == 1:
             cmd_code |= 0x02
-            
+
         if up_down == 2:
             cmd_code |= 0x04
         elif up_down == 1:
             cmd_code |= 0x08
-            
+
         if in_out == 2:
             cmd_code |= 0x10
         elif in_out == 1:
             cmd_code |= 0x20
-            
+
         # PTZ Hex calculation
         # A5 0F 01 cmd_code move_speed move_speed (zoom_speed & 0xF0) check_code
         # zoom_speed 有效范围 1-15，低4位放在高4位位?(左移4?
@@ -312,12 +313,12 @@ class SipCommander:
         else:
             zoom_hex = min(zoom_speed, 15) << 4
         check_code = (0xA5 + 0x0F + 0x01 + cmd_code + move_speed + move_speed + zoom_hex) % 0x100
-        
+
         ptz_cmd = f"A50F01{cmd_code:02X}{move_speed:02X}{move_speed:02X}{zoom_hex:02X}{check_code:02X}"
-        
+
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -333,26 +334,25 @@ class SipCommander:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKptz{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ptz{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}ptz@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
-        # SIP发送裸调用无异常保护
-        try:
-            await send_sip_bytes(proto, transport, addr, data)
-        except Exception as e:
-            logger.warning(f"Failed to send SIP PTZCmd to {addr}: {e}")
-            return None
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
+        # R24-03: send_sip_bytes 已返回 bool，调用方据此判断发送成败
+        sent_ok = await send_sip_bytes(proto, transport, addr, data)
+        if not sent_ok:
+            logger.warning(f"Failed to send SIP PTZCmd to {addr} (send_sip_bytes returned False)")
+            return False
         logger.info(f"Sent PTZ Cmd to {channel_id} (device: {device_id}), PTZ={ptz_cmd}")
         _sip_trace_log(
             "device_ptz_cmd_sent",
@@ -363,8 +363,9 @@ class SipCommander:
             proto=proto,
             addr=str(addr),
         )
+        return True
 
-    async def send_absolute_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, pan: float, tilt: float, zoom: float):
+    async def send_absolute_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, pan: float, tilt: float, zoom: float) -> bool:
         """
         GB/T 28181-2022 绝对云台控制 (Absolute PTZ)
         pan: 水平角度
@@ -373,13 +374,13 @@ class SipCommander:
         """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         pan_val = max(0, min(int(pan), 360))
         tilt_val = max(0, min(int(tilt), 180))
         zoom_val = max(0, min(int(zoom * 16), 255))
-        
+
         ptz_cmd = f"A50F81{pan_val:02X}{tilt_val:02X}{zoom_val:02X}00{(0xA5 + 0x0F + 0x81 + pan_val + tilt_val + zoom_val) % 0x100:02X}"
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -395,26 +396,25 @@ class SipCommander:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKabsptz{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=absptz{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}absptz@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
-        # SIP发送裸调用无异常保护
-        try:
-            await send_sip_bytes(proto, transport, addr, data)
-        except Exception as e:
-            logger.warning(f"Failed to send SIP AbsolutePTZ to {addr}: {e}")
-            return None
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
+        # R24-03: send_sip_bytes 返回 bool，失败时调用方应感知
+        sent_ok = await send_sip_bytes(proto, transport, addr, data)
+        if not sent_ok:
+            logger.warning(f"Failed to send SIP AbsolutePTZ to {addr} (send_sip_bytes returned False)")
+            return False
         logger.info(f"Sent Absolute PTZ Cmd to {channel_id} (device: {device_id}), pan={pan} tilt={tilt} zoom={zoom}")
         _sip_trace_log(
             "device_absolute_ptz_cmd_sent",
@@ -427,13 +427,14 @@ class SipCommander:
             proto=proto,
             addr=str(addr),
         )
+        return True
 
-    async def send_raw_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, ptz_cmd: str):
+    async def send_raw_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, ptz_cmd: str) -> bool:
         """
         """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -449,36 +450,36 @@ class SipCommander:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKptz{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ptz{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}ptz@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
-        # SIP发送裸调用无异常保护
-        try:
-            await send_sip_bytes(proto, transport, addr, data)
-        except Exception as e:
-            logger.warning(f"Failed to send SIP RawPTZ to {addr}: {e}")
-            return None
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
+        # R24-03: send_sip_bytes 返回 bool，预置位命令失败需明确感知
+        sent_ok = await send_sip_bytes(proto, transport, addr, data)
+        if not sent_ok:
+            logger.warning(f"Failed to send SIP RawPTZ to {addr} (send_sip_bytes returned False)")
+            return False
         logger.info(f"Sent Raw PTZ Cmd to {channel_id} (device: {device_id}), PTZ={ptz_cmd}")
+        return True
 
-    async def send_record_info_query(self, device_id: str, channel_id: str, transport_info: tuple, 
+    async def send_record_info_query(self, device_id: str, channel_id: str, transport_info: tuple,
                                      start_time: str, end_time: str, record_type: str = "all", wait_response: bool = False):
         """
         发送录像文件查?(RecordInfo)
         """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         # 兼容部分 NVR，比如大华需?Type=all
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
@@ -495,21 +496,21 @@ class SipCommander:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKrec{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=rec{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}rec@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
-        
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
+
         if wait_response:
             from app.sip.transactions import tx_manager
             resp, meta = await tx_manager.send_and_wait(
@@ -550,15 +551,15 @@ class SipCommander:
         )
         return str(sn)
 
-    async def send_stream_control(self, device_id: str, channel_id: str, transport_info: tuple, 
+    async def send_stream_control(self, device_id: str, channel_id: str, transport_info: tuple,
                                   action: str, stream_session: dict, speed: float = 1.0, seek_time: int = 0):
         """
         发?INFO 录像流控指令: action IN (PAUSE, PLAY, TEARDOWN)
         """
         addr, proto, transport = transport_info
-        
+
         cseq = _next_cseq()
-        
+
         if action.upper() == "PAUSE":
             content = f"PAUSE RTSP/1.0\r\nCSeq: {cseq}\r\nPauseTime: now\r\n"
         elif action.upper() == "PLAY":
@@ -572,26 +573,26 @@ class SipCommander:
             content = f"TEARDOWN RTSP/1.0\r\nCSeq: {cseq}\r\n"
         else:
             return
-            
+
         req = SipMessage()
         req.method = "INFO"
         req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bKinfo{cseq}"
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        
+
         # Use existing dialog tags
         from_tag = stream_session.get("from_tag", "")
         to_tag = stream_session.get("to_tag", "")
         call_id = stream_session.get("call_id", "")
-        
+
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
         if to_tag:
             req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>;tag={to_tag}"
         else:
             req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
-            
+
         req.headers["Call-ID"] = call_id
         # CSeq sequence number must be higher than previous, we use a random large one here for INFO
         req.headers["CSeq"] = f"{cseq} INFO"
@@ -599,10 +600,10 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = content
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
 
         # SIP发送裸调用无异常保护
         try:
@@ -618,7 +619,7 @@ class SipCommander:
         """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Notify>
 <CmdType>Broadcast</CmdType>
@@ -631,20 +632,20 @@ class SipCommander:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKbc{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=bc{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}bc@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -659,7 +660,7 @@ class SipCommander:
         """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        
+
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
 <CmdType>Catalog</CmdType>
@@ -671,7 +672,7 @@ class SipCommander:
         req.method = "SUBSCRIBE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKsub{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=sub{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
@@ -683,10 +684,10 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -745,7 +746,7 @@ class SipCommander:
 
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, _transport, addr, data)
@@ -834,7 +835,7 @@ class SipCommander:
 
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -891,7 +892,7 @@ class SipCommander:
 
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -943,7 +944,7 @@ class SipCommander:
 
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -990,7 +991,7 @@ class SipCommander:
 
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
             await send_sip_bytes(proto, transport, addr, data)
@@ -1031,14 +1032,14 @@ class SipCommander:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=pts{sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}pts@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         req.body = xml_body
         data = req.to_bytes()
-        asyncio.create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         try:
             await send_sip_bytes(proto, transport, addr, data)
         except Exception as e:

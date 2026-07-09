@@ -1,13 +1,13 @@
 <template>
   <div class="min-h-screen flex flex-col items-center justify-center bg-[var(--app-content-bg-color)]">
-    <el-result icon="warning" title="404" sub-title="抱歉，页面不存在或您没有访问权限。">
+    <el-result icon="warning" title="404" :sub-title="t('notFound.subTitle')">
       <template #extra>
         <div class="mt-4 flex justify-center gap-4">
           <router-link to="/dashboard">
-            <el-button type="primary" size="large">返回工作台</el-button>
+            <el-button type="primary" size="large">{{ t('notFound.backToDashboard') }}</el-button>
           </router-link>
           <router-link to="/login">
-            <el-button size="large">重新登录</el-button>
+            <el-button size="large">{{ t('notFound.reLogin') }}</el-button>
           </router-link>
         </div>
       </template>
@@ -16,4 +16,7 @@
 </template>
 
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 </script>

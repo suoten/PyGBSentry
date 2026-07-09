@@ -2,25 +2,25 @@
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader :title="t('device.title')" description="支持设备筛选、订阅配置、通道预览和录像回放">
+        <PageHeader :title="t('device.title')" :description="t('device.listDescription')">
           <template #actions>
-            <el-button type="primary" @click="onOpenAddDialog" class="action-btn"><el-icon class="mr-1"><Plus /></el-icon>添加设备</el-button>
-            <el-button type="warning" plain @click="onOpenIpBlacklistDialog" class="action-btn"><el-icon class="mr-1"><Warning /></el-icon>IP 黑名单</el-button>
-            <el-button @click="onOpenAccessInfoDialog" class="action-btn"><el-icon class="mr-1"><InfoFilled /></el-icon>接入信息</el-button>
-            <el-tooltip content="刷新设备列表" placement="top"><el-button @click="refreshDevices" circle class="action-btn refresh-btn"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
-            <el-tooltip :content="autoRefresh ? '停止自动刷新' : '开启自动刷新(15s)'" placement="top"><el-button @click="toggleAutoRefresh" :type="autoRefresh ? 'success' : 'default'" plain circle class="action-btn"><el-icon><Timer /></el-icon></el-button></el-tooltip>
-            <el-button type="success" plain @click="onExportCsv" class="action-btn"><el-icon class="mr-1"><Download /></el-icon>导出设备台账</el-button>
+            <el-button type="primary" @click="onOpenAddDialog" class="action-btn"><el-icon class="mr-1"><Plus /></el-icon>{{ t('device.addDevice') }}</el-button>
+            <el-button type="warning" plain @click="onOpenIpBlacklistDialog" class="action-btn"><el-icon class="mr-1"><Warning /></el-icon>{{ t('device.ipBlacklist') }}</el-button>
+            <el-button @click="onOpenAccessInfoDialog" class="action-btn"><el-icon class="mr-1"><InfoFilled /></el-icon>{{ t('device.accessInfo.title') }}</el-button>
+            <el-tooltip :content="t('device.refreshList')" placement="top"><el-button @click="refreshDevices" circle class="action-btn refresh-btn"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
+            <el-tooltip :content="autoRefresh ? t('device.stopAutoRefresh') : t('device.startAutoRefresh')" placement="top"><el-button @click="toggleAutoRefresh" :type="autoRefresh ? 'success' : 'default'" plain circle class="action-btn"><el-icon><Timer /></el-icon></el-button></el-tooltip>
+            <el-button type="success" plain @click="onExportCsv" class="action-btn"><el-icon class="mr-1"><Download /></el-icon>{{ t('device.exportLedger') }}</el-button>
             <el-dropdown class="ml-2" @command="onExportCommand">
-              <el-button type="success" plain class="action-btn"><el-icon class="mr-1"><Download /></el-icon>服务端导出<el-icon class="ml-1"><ArrowDown /></el-icon></el-button>
+              <el-button type="success" plain class="action-btn"><el-icon class="mr-1"><Download /></el-icon>{{ t('device.serverExport') }}<el-icon class="ml-1"><ArrowDown /></el-icon></el-button>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="csv">CSV 格式（含通道）</el-dropdown-item>
-                  <el-dropdown-item command="json">JSON 格式（含通道）</el-dropdown-item>
-                  <el-dropdown-item command="csv-no-channels">CSV 格式（仅设备）</el-dropdown-item>
+                  <el-dropdown-item command="csv">{{ t('device.csvWithChannels') }}</el-dropdown-item>
+                  <el-dropdown-item command="json">{{ t('device.jsonWithChannels') }}</el-dropdown-item>
+                  <el-dropdown-item command="csv-no-channels">{{ t('device.csvDeviceOnly') }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button type="primary" plain @click="onBatchSnapshot" :loading="batchSnapping" class="action-btn ml-2"><el-icon class="mr-1"><Camera /></el-icon>批量截图</el-button>
+            <el-button type="primary" plain @click="onBatchSnapshot" :loading="batchSnapping" class="action-btn ml-2"><el-icon class="mr-1"><Camera /></el-icon>{{ t('device.batchSnapshot') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -47,6 +47,7 @@ import PageHeader from '../components/PageHeader.vue'
 import { getOrganizationTree, flattenOrgTree } from '../api/organizations'
 import { useRoute } from 'vue-router'
 import { getFriendlyError } from '../utils/errorMessage'
+import { logger } from '@/utils/logger'
 import type { Device } from '@/types/models'
 import DeviceFilterBar from './device-list/DeviceFilterBar.vue'
 import DeviceTable from './device-list/DeviceTable.vue'
@@ -60,7 +61,7 @@ const batchOpsRef = ref<InstanceType<typeof DeviceBatchOps>>()
 
 const devices = ref<Device[]>([])
 const loading = ref(false)
-const devicesEmptyText = ref('暂无设备，请先接入国标设备')
+const devicesEmptyText = ref(t('device.emptyNoDevice'))
 const dialogVisible = ref(false)
 const playerVisible = ref(false)
 const currentDevice = ref<Device | null>(null)
@@ -87,7 +88,7 @@ const savingMobileSub = ref<Record<string, boolean>>({})
 const catalogSyncPolling = ref<Record<string, boolean>>({})
 const batchSnapping = ref(false)
 
-const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()) } catch { organizationOptions.value = []; console.warn('加载组织树失败') } }
+const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()) } catch { organizationOptions.value = []; logger.warn('加载组织树失败') } }
 
 const fetchDevices = async (silentArg?: boolean | number) => {
   const silent = typeof silentArg === 'boolean' ? silentArg : false
@@ -102,10 +103,10 @@ const fetchDevices = async (silentArg?: boolean | number) => {
     deviceStatsTotal.value = Number(stats?.total ?? total.value ?? 0)
     deviceStatsOnline.value = Number(stats?.online ?? items.filter((d: Record<string, unknown>) => Number(d?.status) === 1 || String(d?.status) === 'Online').length)
     deviceStatsOffline.value = Number(stats?.offline ?? Math.max(0, deviceStatsTotal.value - deviceStatsOnline.value))
-    if (!items.length) devicesEmptyText.value = keyword || fb?.filterOrganizationId || fb?.deviceStatus !== '' ? '未匹配到设备' : '暂无设备，请先接入国标设备'
+    if (!items.length) devicesEmptyText.value = keyword || fb?.filterOrganizationId || fb?.deviceStatus !== '' ? t('device.noMatchDevice') : t('device.emptyNoDevice')
     return true
   } catch (e: unknown) {
-    devices.value = []; total.value = 0; totalDisplay.value = 0; deviceStatsTotal.value = 0; deviceStatsOnline.value = 0; deviceStatsOffline.value = 0; devicesEmptyText.value = '加载设备失败'
+    devices.value = []; total.value = 0; totalDisplay.value = 0; deviceStatsTotal.value = 0; deviceStatsOnline.value = 0; deviceStatsOffline.value = 0; devicesEmptyText.value = t('device.loadDeviceFailed')
     const f = getFriendlyError(e); ElMessage.error(f.suggestion ? `${f.message}（${f.suggestion}）` : f.message); return false
   } finally { if (!silent) loading.value = false }
 }
@@ -113,11 +114,11 @@ const fetchDevices = async (silentArg?: boolean | number) => {
 const handlePageSizeChange = () => { page.value = 1; fetchDevices() }
 const handleSearch = () => { page.value = 1; fetchDevices() }
 const handleView = async (row: Record<string, unknown>) => { if (!row?.gb_id) return; currentDevice.value = row; currentChannel.value = null; channelPage.value = 1; dialogVisible.value = true; await detailDrawer.value?.loadChannelsDialog() }
-const refreshDevices = async () => { page.value = 1; const ok = await fetchDevices(); if (ok) ElMessage.success('已刷新设备列表') }
+const refreshDevices = async () => { page.value = 1; const ok = await fetchDevices(); if (ok) ElMessage.success(t('device.refreshedDeviceList')) }
 const toggleAutoRefresh = () => {
   autoRefresh.value = !autoRefresh.value
-  if (autoRefresh.value) { ElMessage.success('已开启自动刷新（每 15 秒）'); autoRefreshTimer = window.setInterval(() => fetchDevices(true), 15000) }
-  else { ElMessage.info('已关闭自动刷新'); if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null } }
+  if (autoRefresh.value) { ElMessage.success(t('device.autoRefreshStarted')); autoRefreshTimer = window.setInterval(() => fetchDevices(true), 15000) }
+  else { ElMessage.info(t('device.autoRefreshStopped2')); if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null } }
 }
 
 // Delegate actions to batchOps

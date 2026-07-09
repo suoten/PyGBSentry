@@ -1,5 +1,7 @@
 import os
+import json
 from pathlib import Path
+from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.responses import FileResponse
 import asyncio
@@ -12,6 +14,23 @@ from app.api import deps  # S-06-03 日志HTTP接口添加认证依赖
 router = APIRouter()
 
 LOGS_DIR = Path("logs").resolve()
+
+# FIX: [2026-07-03] GET /api/v1/logs/ 返回 404，因为缺少根路由。
+#      根因：logs 模块只有 /files、/files/{path}/lines 等子路由，没有根路由。
+#      修复：添加根路由返回可用端点列表。 [全栈工程师]
+
+
+@router.get("")
+def logs_root(current_user=Depends(deps.get_current_active_user)):
+    """日志模块根端点 — 返回可用的日志查询端点。"""
+    return {
+        "endpoints": {
+            "files": "GET /logs/files — 列出日志文件",
+            "lines": "GET /logs/files/{filepath}/lines?keyword=&page=&page_size= — 查看日志行",
+            "download": "GET /logs/files/{filepath}/download — 下载日志文件",
+            "websocket": "WS /logs/ws/logs?ticket= — 实时日志推送",
+        }
+    }
 
 # 全量读取日志文件到内存 → 从文件末尾反向读取，使用 deque 限制最大行数
 _MAX_LOG_LINES = 10000
@@ -95,7 +114,7 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
                 try:
                     lines.appendleft(remaining.decode("utf-8", errors="ignore"))
                 except Exception:
-                    pass
+                    logger.warning("silently_swallowed_exception", exc_info=True)
 
         # Filter by keyword if provided
         if keyword:
@@ -132,7 +151,7 @@ def download_log_file(filepath: str, current_user=Depends(deps.get_current_activ
 class LogManager:
     def __init__(self):
         self.active_connections: list[tuple[WebSocket, dict]] = []
-        self.log_queue: asyncio.Queue = None  # type: ignore
+        self.log_queue: Optional[asyncio.Queue] = None  # P1-8: Optional 防止 await None.get()
 
     def set_queue(self, queue: asyncio.Queue):
         self.log_queue = queue
@@ -150,6 +169,8 @@ class LogManager:
         self.active_connections = [(ws, f) for (ws, f) in self.active_connections if ws is not websocket]
 
     async def broadcast_log(self, message: str):
+        # FIX: [2026-07-03] 广播时清理已断开的连接，防止 WebSocket 连接泄漏 [可靠性工程师]
+        dead_connections: list[WebSocket] = []
         for connection, filters in list(self.active_connections):
             try:
                 contains_all = filters.get("contains_all") or []
@@ -160,9 +181,18 @@ class LogManager:
                     continue
                 await connection.send_text(message)
             except (RuntimeError, ConnectionError, OSError):
-                logger.warning("(RuntimeError, ConnectionError, OSError) occurred")
+                dead_connections.append(connection)
+        # 清理已断开的连接
+        if dead_connections:
+            self.active_connections = [
+                (ws, f) for ws, f in self.active_connections if ws not in dead_connections
+            ]
+            logger.debug(f"Cleaned up {len(dead_connections)} dead log WebSocket connections")
 
     async def drain_queue(self):
+        # P1-8: 等待 queue 初始化完成，防止 await None.get() 抛 AttributeError
+        while self.log_queue is None:
+            await asyncio.sleep(0.1)
         while True:
             try:
                 log_entry = await self.log_queue.get()
@@ -173,7 +203,7 @@ class LogManager:
 log_manager = LogManager()
 
 # Thread-safe queue shared between sync log handler and async drainer
-_log_queue: asyncio.Queue = None  # type: ignore
+_log_queue: Optional[asyncio.Queue] = None  # P1-8: Optional 类型标注
 _log_queue_ref: list = []  # 惰性初始化
 
 def _get_log_queue() -> asyncio.Queue:
@@ -200,23 +230,33 @@ logging.getLogger().addHandler(ws_handler)
 
 
 @router.websocket("/ws/logs")
-async def websocket_logs(websocket: WebSocket, token: str = ""):
-    # R-03 日志WebSocket添加token认证，防止未授权读取系统日志
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
+async def websocket_logs(websocket: WebSocket, ticket: str = ""):
+    # P0-6: 改用短期一次性 ws-ticket 认证，消除 URL 暴露 JWT token
+    # R-03 日志WebSocket添加认证，防止未授权读取系统日志
+    if not ticket:
+        await websocket.close(code=4001, reason="Missing ticket")
         return
-    try:
-        from app.core import security
-        payload = security.verify_token(token)
-        if not payload or not payload.get("sub"):
-            await websocket.close(code=4001, reason="Invalid token")
-            return
-    except Exception:
-        await websocket.close(code=4001, reason="Invalid token")
+    from app.core.ws_ticket import consume_ws_ticket
+    payload = await consume_ws_ticket(ticket)
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=4001, reason="Invalid or expired ticket")
         return
     await log_manager.connect(websocket)
     try:
-        while True:
-            await websocket.receive_text() # Keep alive
-    except WebSocketDisconnect:
+        # FIX: [2026-07-03] 添加心跳机制，检测并清理断开的 WebSocket 连接 [可靠性工程师]
+        async def _heartbeat():
+            while True:
+                await asyncio.sleep(30)
+                try:
+                    await websocket.send_text(json.dumps({"type": "ping"}))
+                except Exception:
+                    break
+        heartbeat_task = asyncio.create_task(_heartbeat())
+        try:
+            while True:
+                await websocket.receive_text()  # Keep alive
+        except WebSocketDisconnect:
+            log_manager.disconnect(websocket)
+    finally:
+        heartbeat_task.cancel()
         log_manager.disconnect(websocket)

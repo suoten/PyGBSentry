@@ -1,31 +1,52 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import api from '@/utils/http'
-
-function safeGetItem(key: string, fallback: string = ''): string {
-  try { return localStorage.getItem(key) || fallback } catch { return fallback }
-}
-
-function safeSetItem(key: string, value: string): void {
-  try { localStorage.setItem(key, value) } catch { /* quota exceeded or privacy mode */ }
-}
-
-function safeRemoveItem(key: string): void {
-  try { localStorage.removeItem(key) } catch { /* privacy mode */ }
-}
+import { getVerifiedRoleInfo } from '@/utils/auth' // FIX C-2: 从后端获取权威角色信息
+import { safeSSGet, safeSSSet, safeSSRemove } from '@/utils/storage'  // SECURITY: 所有敏感数据统一用 sessionStorage
+import { logger } from '@/utils/logger'
 
 export const useUserStore = defineStore('user', () => {
-  const token = ref(safeGetItem('token'))
-  const username = ref(safeGetItem('username'))
-  const role = ref(safeGetItem('role'))
-  const isSuperuser = ref(safeGetItem('is_superuser') === 'true')
-  const tenantId = ref(safeGetItem('tenant_id', 'default'))
+  const token = ref(safeSSGet('token') || '')
+  // SECURITY: username 仅保留在内存中，不持久化到任何 storage，通过 fetchUserInfo() 从 API 实时获取
+  const username = ref('')
+  // FIX C-2: role/isSuperuser/tenantId 仅保留在内存中，不再持久化（防止可篡改）
+  const role = ref('')
+  const isSuperuser = ref(false)
+  const tenantId = ref('default')
 
   const isLoggedIn = computed(() => !!token.value)
 
+  // FIX C-2: 从后端 verify-token 刷新权威角色信息到内存
+  async function refreshRoleFromBackend(): Promise<void> {
+    const info = await getVerifiedRoleInfo()
+    if (info) {
+      role.value = info.role
+      isSuperuser.value = info.isSuperuser
+    } else {
+      role.value = ''
+      isSuperuser.value = false
+    }
+  }
+
+  // SECURITY: 从后端实时获取用户信息（username 等），不依赖任何本地 storage
+  async function fetchUserInfo(): Promise<void> {
+    if (!token.value) return
+    try {
+      const res = await api.get('/api/v1/login/verify-token', { withCredentials: true })
+      if (res.data?.valid) {
+        username.value = res.data.username || username.value
+        role.value = res.data.role || ''
+        isSuperuser.value = Boolean(res.data.is_superuser)
+        tenantId.value = res.data.tenant_id || 'default'
+      }
+    } catch (e) {
+      logger.warn('fetchUserInfo failed:', e)
+    }
+  }
+
   function setAuth(data: { token: string; username: string; role?: string; is_superuser?: boolean; tenant_id?: string }) {
     if (!data || typeof data.token !== 'string' || !data.token) {
-      console.error('setAuth: invalid token, skipping auth storage')  // FIXED: token类型校验
+      logger.error('setAuth: invalid token, skipping auth storage')  // FIXED: token类型校验
       return
     }
     token.value = data.token
@@ -34,11 +55,10 @@ export const useUserStore = defineStore('user', () => {
     isSuperuser.value = data.is_superuser || false
     tenantId.value = data.tenant_id || 'default'
 
-    safeSetItem('token', data.token)
-    safeSetItem('username', data.username)
-    if (data.role) safeSetItem('role', data.role)
-    safeSetItem('is_superuser', String(data.is_superuser || false))
-    safeSetItem('tenant_id', data.tenant_id || 'default')
+    // SECURITY: token 存 sessionStorage（防 XSS 持久窃取）；username 不持久化到任何 storage，仅保留内存
+    safeSSSet('token', data.token)
+    // 异步从后端刷新权威角色信息
+    void refreshRoleFromBackend()
   }
 
   function clearAuth() {
@@ -48,24 +68,21 @@ export const useUserStore = defineStore('user', () => {
     isSuperuser.value = false
     tenantId.value = 'default'
 
-    safeRemoveItem('token')
-    safeRemoveItem('refresh_token')
-    safeRemoveItem('username')
-    safeRemoveItem('role')
-    safeRemoveItem('is_superuser')
-    safeRemoveItem('tenant_id')
+    safeSSRemove('token')
+    safeSSRemove('refresh_token')
+    // SECURITY: username 不再持久化到任何 storage，无需移除
   }
 
   async function logout() {
     try {
       await api.post('/api/v1/login/logout')
     } catch (e) {
-      console.warn('logout API call failed:', e)
+      logger.warn('logout API call failed:', e)
     }
     const { useNotificationStore } = await import('@/stores/notification')
     useNotificationStore().disconnectWebSocket()
     clearAuth()
   }
 
-  return { token, username, role, isSuperuser, tenantId, isLoggedIn, setAuth, clearAuth, logout }
+  return { token, username, role, isSuperuser, tenantId, isLoggedIn, setAuth, clearAuth, logout, refreshRoleFromBackend, fetchUserInfo }
 })

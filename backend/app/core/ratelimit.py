@@ -35,6 +35,35 @@ _config_file = str(Path(__file__).with_name(".env.slowapi"))
 limiter = Limiter(key_func=get_remote_address, config_filename=_config_file)
 
 
+# P2-5: tenant 维度限流 — 组合 tenant_id + IP 作为限流 key
+def get_tenant_remote_address(request: Request) -> str:
+    """组合 tenant_id + IP 作为限流 key。
+
+    从 Authorization 头或 access_token cookie 中提取 JWT payload 的 tenant_id，
+    组合 IP 生成限流 key。未认证或提取失败时仅用 IP（与 get_remote_address 等价）。
+
+    注意：此函数仅用于限流 key 生成，不做 JWT 签名验证（认证由 deps.py 负责）。
+    用法：``@limiter.limit("10/minute", key_func=get_tenant_remote_address)``
+    """
+    ip = get_remote_address(request)
+    try:
+        auth = request.headers.get("Authorization", "")
+        token = auth[7:] if auth.startswith("Bearer ") else ""
+        if not token:
+            token = request.cookies.get("access_token", "")
+        if not token:
+            return ip
+        # 仅解码 payload（不验证签名）— 限流 key 用途，认证由 deps.py 负责
+        import jwt as _jwt
+        payload = _jwt.decode(token, options={"verify_signature": False})
+        tenant_id = str(payload.get("tenant_id") or "").strip()
+        if tenant_id:
+            return f"t:{tenant_id}:{ip}"
+    except Exception:
+        logger.warning("silently_swallowed_exception", exc_info=True)
+    return ip
+
+
 async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Response:
     """与 slowapi 默认行为一致，并对登录/注册限流写审计（失败不阻断 429 响应）。"""
     from app.core.config import settings
@@ -75,6 +104,7 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
             async with AsyncSessionLocal() as db:
                 await safe_auth_audit(
                     db,
+                    module="auth",  # FIX: [2026-07-03] 缺少必填 module 关键字参数导致 TypeError [全栈工程师]
                     action=action,
                     source=source,
                     operator=attempted,

@@ -2,21 +2,37 @@
 # ----------------------------------------
 # Usage: docker compose -f docker-compose.yml -f docker-compose.ha.yml up -d
 #
-# This overlay scales the backend to 2 replicas and configures:
-# - Nginx load balancer for backend instances
+# This overlay scales the backend to 2 replicas and adds:
+# - Nginx load balancer for backend instances (HTTP/TCP)
+# - Redis Sentinel (3 nodes) for Redis HA + automatic failover
+# - Shared NFS storage for recordings (all backend instances read/write the same volume)
 # - SIP state backend forced to redis for multi-instance consistency
+# - Session sharing via Redis (token revocation, rate limit, etc.)
 #
-# Prerequisites:
-# - SIP_STATE_BACKEND=redis (required for multi-instance)
-# - Shared media storage (NFS/S3) for recordings
-# - External load balancer or DNS round-robin for SIP UDP
+# Prerequisites (must be configured before deployment):
+# 1. SIP_STATE_BACKEND=redis (required for multi-instance consistency)
+# 2. Shared media storage (NFS/S3) for recordings — see backend_records_shared volume below
+# 3. External UDP load balancer for SIP UDP port 5060 (DNS round-robin or hardware LB)
+#    See docs/SIP_UDP_LOAD_BALANCING.md for details
+# 4. INIT_REDIS_ON_STARTUP=true (forced by config validator in prod)
+# 5. All secrets (SECRET_KEY, MEDIA_SERVER_SECRET, DATABASE_PASSWORD, REDIS_PASSWORD) configured
+#
+# Limitations (architectural constraints, not bugs):
+# - SIP UDP port 5060 cannot be shared by multiple backend instances on the same host.
+#   Each backend instance must run on a separate host with its own SIP UDP port,
+#   OR an external UDP load balancer (e.g., HAProxy with UDP, kube-vip, F5) must distribute
+#   SIP UDP packets across instances.
+# - ZLMediaKit RTP port range (30000-30999) must be uniquely assigned per backend instance
+#   to avoid port conflicts. Use RTP_PORT_RANGE_START/END to split the range.
+# - PostgreSQL HA is not covered here — use Patroni or a managed PG service for DB HA.
 
 version: '3.8'
 
 services:
-  # Nginx reverse proxy / load balancer
+  # Nginx reverse proxy / load balancer for HTTP backend traffic
   nginx-lb:
-    image: nginx:1.25-alpine
+    # DEVOPS: nginx:1.25 升级到 1.27-alpine（1.27 为当前稳定主线，安全补丁最新）
+    image: nginx:1.27-alpine
     container_name: pygbsentry-lb
     restart: unless-stopped
     volumes:
@@ -27,10 +43,32 @@ services:
       - "443:443"
     depends_on:
       - backend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
+  # Backend scaled to 2 replicas
+  # SIP_STATE_BACKEND=redis ensures all SIP dialog/CSeq state is shared across instances
   backend:
     deploy:
       replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 0
+        order: stop-first
       resources:
         limits:
           cpus: '2.0'
@@ -39,5 +77,156 @@ services:
           cpus: '0.5'
           memory: 512M
     environment:
+      # 强制 SIP 状态共享到 Redis（多实例一致性硬约束）
       - SIP_STATE_BACKEND=redis
       - WORKERS=4
+      # 显式启用 Redis 启动连接（prod 环境下 config 验证器会强制 true）
+      - INIT_REDIS_ON_STARTUP=true
+      # Redis Sentinel 配置（覆盖单机 Redis 直连）
+      # REDIS_SENTINEL_HOSTS 格式：sentinel1:26379,sentinel2:26379,sentinel3:26379
+      - REDIS_SENTINEL_HOSTS=${REDIS_SENTINEL_HOSTS:-sentinel1:26379,sentinel2:26379,sentinel3:26379}
+      - REDIS_SENTINEL_MASTER=${REDIS_SENTINEL_MASTER:-mymaster}
+      - REDIS_SENTINEL_PASSWORD=${REDIS_SENTINEL_PASSWORD:-}
+      # session 共享：token 吊销列表、限流、CSeq 持久化均走 Redis
+      - SESSION_BACKEND=redis
+    volumes:
+      # 录像/抓图共享存储（NFS/S3 挂载点，所有 backend 实例读写同一卷）
+      - backend_records_shared:/app/records
+      # 配置/日志保留实例本地（避免多实例写入冲突）
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+    # 移除端口映射 — 由 nginx-lb 统一代理 HTTP，SIP UDP 由外部 LB 分发
+    # SIP/RTP 端口必须在独立主机上分别映射，或由外部 LB 处理
+    networks:
+      - backend
+      - frontend
+
+  # Redis Sentinel 集群（3 节点，自动故障转移）
+  # 配合主 Redis（来自 docker-compose.yml 的 redis 服务）形成 HA
+  sentinel1:
+    image: redis:7-alpine
+    container_name: pygbsentry-sentinel1
+    restart: unless-stopped
+    command: |
+      sh -c 'cat > /tmp/sentinel.conf <<EOF
+      port 26379
+      sentinel monitor mymaster redis 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel failover-timeout mymaster 30000
+      sentinel parallel-syncs mymaster 1
+      sentinel auth-pass mymaster $${REDIS_PASSWORD}
+      EOF
+      redis-server /tmp/sentinel.conf --sentinel'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?Please set REDIS_PASSWORD in .env or environment variable}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  sentinel2:
+    image: redis:7-alpine
+    container_name: pygbsentry-sentinel2
+    restart: unless-stopped
+    command: |
+      sh -c 'cat > /tmp/sentinel.conf <<EOF
+      port 26379
+      sentinel monitor mymaster redis 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel failover-timeout mymaster 30000
+      sentinel parallel-syncs mymaster 1
+      sentinel auth-pass mymaster $${REDIS_PASSWORD}
+      EOF
+      redis-server /tmp/sentinel.conf --sentinel'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?Please set REDIS_PASSWORD in .env or environment variable}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  sentinel3:
+    image: redis:7-alpine
+    container_name: pygbsentry-sentinel3
+    restart: unless-stopped
+    command: |
+      sh -c 'cat > /tmp/sentinel.conf <<EOF
+      port 26379
+      sentinel monitor mymaster redis 6379 2
+      sentinel down-after-milliseconds mymaster 5000
+      sentinel failover-timeout mymaster 30000
+      sentinel parallel-syncs mymaster 1
+      sentinel auth-pass mymaster $${REDIS_PASSWORD}
+      EOF
+      redis-server /tmp/sentinel.conf --sentinel'
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?Please set REDIS_PASSWORD in .env or environment variable}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  # 共享录像存储 — 部署时替换为 NFS 挂载或 S3 fsync：
+  #   docker volume create --driver local --opt type=nfs
+  #     --opt o=addr=nfs.local,nfsvers=4,rw
+  #     --opt device=:/path/to/records backend_records_shared
+  # 或在 docker-compose.ha.yml 中使用 driver_opts 指定 NFS：
+  #   backend_records_shared:
+  #     driver: local
+  #     driver_opts:
+  #       type: nfs
+  #       o: addr=nfs.local,nfsvers=4,rw
+  #       device: ":/path/to/records"
+  backend_records_shared:
+  backend_data:
+  backend_logs:
+
+networks:
+  backend:
+    driver: bridge
+    internal: false
+  frontend:
+    driver: bridge
+
+# =============================================================================
+# SIP UDP 负载均衡方案（选其一，详见 docs/SIP_UDP_LOAD_BALANCING.md）
+# =============================================================================
+#
+# 方案 A：DNS round-robin（最简单，适合内网）
+#   - 为多个 backend 主机配置相同 SIP 域名，DNS 返回多个 A 记录
+#   - 设备侧 SIP 服务器地址填域名，由 DNS 轮询分发
+#   - 缺点：无健康检查，故障实例需手动摘除
+#
+# 方案 B：HAProxy 2.4+ UDP 负载均衡（推荐）
+#   frontend sip_udp_lb
+#     bind *:5060 udp
+#     mode udp
+#     balance roundrobin
+#     server backend1 host1:5060 check
+#     server backend2 host2:5060 check
+#
+# 方案 C：硬件 LB（F5/NetScaler）
+#   - 适用于大型生产环境，支持 UDP 健康检查与会话保持
+#
+# 注意：SIP UDP 不能像 HTTP 那样简单 round-robin——同一设备的 REGISTER/INVITE
+# 必须始终路由到同一 backend 实例（除非 SIP_STATE_BACKEND=redis 已启用）。
+# 启用 Redis 共享状态后，任意 backend 实例均可处理任意设备的请求。

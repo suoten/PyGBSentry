@@ -1,101 +1,89 @@
-import hmac
-import hashlib
+"""Play-token verification for ZLM on_play authentication.
+
+A play token is a signed JWT-like token issued by the backend when a client
+requests to play a stream. ZLM forwards it back via the ``on_play`` hook so
+the backend can authorise the viewer. Tokens are HMAC-SHA256 signed with the
+platform SECRET_KEY and bind the (app, stream) pair.
+"""
+from __future__ import annotations
+
 import base64
+import hashlib
+import hmac
+import json
 import time
+from typing import Any
+
 from loguru import logger
+
 from app.core.config import settings
-from app.core.api_key import secure_compare
+
+_TTL_SECONDS = 7200
 
 
-
-DEFAULT_TOKEN_TTL = 300
-MIN_TOKEN_TTL = 60
-HMAC_SIG_BYTES = 16
+def _secret() -> bytes:
+    return str(getattr(settings, "SECRET_KEY", "") or "").encode("utf-8")
 
 
-def _get_secret_key() -> bytes:
-    key = (settings.SECRET_KEY or "").strip()
-    if not key:
-        raise RuntimeError(
-            "SECRET_KEY is not configured. Play token signing requires SECRET_KEY. "
-            "Set it in your .env file to enable stream playback."
-        )  # removed random fallback secret that broke multi-process deployments
-    return key.encode("utf-8")
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
 
 
-def generate_play_token(app: str, stream: str, expire_seconds: int = DEFAULT_TOKEN_TTL) -> str:
-    expire_seconds = max(MIN_TOKEN_TTL, expire_seconds)
-    expire_ts = int(time.time()) + expire_seconds
-    raw = f"{app}|{stream}|{expire_ts}"
-    sig = hmac.new(
-        _get_secret_key(),
-        raw.encode("utf-8"),
-        hashlib.sha256,
-    ).digest()
-    return base64.urlsafe_b64encode(sig[:HMAC_SIG_BYTES] + raw.encode("utf-8")).decode().rstrip("=")
+def _b64url_decode(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode((s + pad).encode("ascii"))
 
 
-def _decode_play_token(token: str) -> tuple[bytes, str] | None:
-    if not token:
-        return None
-    try:
-        padding = 4 - len(token) % 4
-        if padding != 4:
-            token += "=" * padding
-        decoded = base64.urlsafe_b64decode(token)
-        if len(decoded) <= HMAC_SIG_BYTES:
-            return None
-        sig_bytes = decoded[:HMAC_SIG_BYTES]
-        payload_str = decoded[HMAC_SIG_BYTES:].decode("utf-8")
-        return sig_bytes, payload_str
-    except Exception:
-        return None
+def issue_play_token(app: str, stream: str, ttl: int = _TTL_SECONDS) -> str:
+    """Issue a signed play token bound to ``(app, stream)``."""
+    body = {"app": app, "stream": stream, "exp": int(time.time()) + int(ttl)}
+    raw = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    payload_b64 = _b64url(raw)
+    sig = _b64url(hmac.new(_secret(), payload_b64.encode("ascii"), hashlib.sha256).digest())
+    return f"{payload_b64}.{sig}"
 
 
-def verify_play_token(token: str, app: str, stream: str) -> tuple[bool, str]:
-    if not token:
-        return False, "missing or invalid play token"
-    decoded = _decode_play_token(token)
-    if decoded is None:
-        return False, "missing or invalid play token"
-    sig_bytes, payload_str = decoded
-    expected_sig = hmac.new(
-        _get_secret_key(),
-        payload_str.encode("utf-8"),
-        hashlib.sha256,
-    ).digest()[:HMAC_SIG_BYTES]
-    if not secure_compare(sig_bytes.hex(), expected_sig.hex()):
-        return False, "invalid play token"
-    parts = payload_str.split("|")
-    if len(parts) != 3:
-        return False, "invalid play token"
-    token_app, token_stream, expire_ts_str = parts
-    try:
-        expire_ts = int(expire_ts_str)
-    except ValueError:
-        return False, "invalid play token"
-    if expire_ts < int(time.time()):
-        return False, "expired play token"
-    if token_app != app or token_stream != stream:
-        return False, "token stream mismatch"
-    return True, ""
-
-
-def extract_token_from_params(params: str | dict | None) -> str:
-    if params is None:
+def extract_token_from_params(params: Any) -> str:
+    """Pull a ``playToken`` value out of ZLM hook params (dict or query string)."""
+    if not params:
         return ""
     if isinstance(params, dict):
-        return str(params.get("token") or "").strip()
+        return str(params.get("playToken") or params.get("token") or "").strip()
     if isinstance(params, str):
         raw = params.strip().lstrip("?")
         for part in raw.split("&"):
             if "=" not in part:
                 continue
             k, v = part.split("=", 1)
-            if k.strip() == "token":
+            if k.strip() in ("playToken", "token"):
                 return v.strip()
     return ""
 
 
 def should_allow_no_token() -> bool:
+    """Return True when the platform is configured to allow playback without a token."""
     return bool(getattr(settings, "PLAY_ALLOW_NO_TOKEN", False))
+
+
+def verify_play_token(token: str, app: str, stream: str) -> tuple[bool, str]:
+    """Verify a play token; return ``(is_valid, error_message)``."""
+    if not token:
+        return False, "missing play token"
+    if "." not in token:
+        return False, "malformed play token"
+    payload_b64, _, sig = token.rpartition(".")
+    if not payload_b64 or not sig:
+        return False, "malformed play token"
+    expected = _b64url(hmac.new(_secret(), payload_b64.encode("ascii"), hashlib.sha256).digest())
+    if not hmac.compare_digest(expected, sig):
+        return False, "invalid play token signature"
+    try:
+        body = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+    except Exception as e:
+        logger.debug(f"play_token: decode failed: {e}")
+        return False, "malformed play token payload"
+    if int(body.get("exp", 0)) < int(time.time()):
+        return False, "play token expired"
+    if str(body.get("app", "")) != str(app) or str(body.get("stream", "")) != str(stream):
+        return False, "play token does not match stream"
+    return True, ""

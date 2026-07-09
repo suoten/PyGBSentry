@@ -194,6 +194,7 @@ import { getFriendlyError } from '../utils/errorMessage'
 import { showSuccess } from '../utils/feedback'
 import { useUserStore } from '@/stores/user'
 import { useI18n } from 'vue-i18n'
+import { getBrandingCache } from '@/utils/brandingCache'  // FIX: [2026-07-04] 缺失品牌缓存导入 [全栈工程师]
 
 const { t } = useI18n()
 
@@ -240,8 +241,8 @@ const handleLogin = async () => {
     if (!accessToken || typeof accessToken !== 'string') {
       throw new Error(t('login.tokenMissing', 'Login response error: no valid token received'))  // FIXED: 硬编码中文→i18n
     }
-    try { localStorage.setItem('token', accessToken) } catch { /* FIXED: 隐私模式容错 */ }
-    if (res.data?.refresh_token) { try { localStorage.setItem('refresh_token', res.data.refresh_token) } catch { /* FIXED: 隐私模式容错 */ } }
+    try { sessionStorage.setItem('token', accessToken) } catch { /* P0-4: sessionStorage 防 XSS 持久窃取 */ }
+    if (res.data?.refresh_token) { try { sessionStorage.setItem('refresh_token', res.data.refresh_token) } catch { /* P0-4: sessionStorage */ } }
     const userStore = useUserStore()
     userStore.setAuth({
       token: accessToken,
@@ -281,15 +282,12 @@ const handleLogin = async () => {
 }
 
 onMounted(() => {
-  const cached = localStorage.getItem('tenant_branding_cache')
+  const cached = getBrandingCache()
   if (cached) {
-    try {
-      const value = JSON.parse(cached)
-      branding.value = {
-        product_name: value.product_name || 'PyGBSentry',
-        welcome_text: value.welcome_text || 'Welcome to PyGBSentry'
-      }
-    } catch { /* cleanup: ignore */ }
+    branding.value = {
+      product_name: cached.product_name || 'PyGBSentry',
+      welcome_text: cached.welcome_text || 'Welcome to PyGBSentry'
+    }
   }
 })
 </script>

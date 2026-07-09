@@ -1,14 +1,14 @@
-﻿<template>
+<template>
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader title="接口密钥" description="用于第三方系统或脚本调用平台接口（密钥仅展示一次）">
+        <PageHeader :title="t('apiKey.title')" :description="t('apiKey.description')">
           <template #actions>
             <el-button type="primary" @click="openCreateDialog">
               <el-icon class="mr-1"><Key /></el-icon>
-              创建接口密钥
+              {{ t('apiKey.create') }}
             </el-button>
-            <el-button @click="loadKeys" :loading="loading">刷新</el-button>
+            <el-button @click="loadKeys" :loading="loading">{{ t('common.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -16,48 +16,48 @@
       <TableCard>
         <template #header>
           <div class="flex items-center justify-between">
-            <div class="font-medium">密钥列表</div>
-            <div class="text-xs" style="color: var(--el-text-color-secondary)">共 {{ keys.length }} 条</div>
+            <div class="font-medium">{{ t('apiKey.keyList') }}</div>
+            <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('apiKey.totalCount', { count: keys.length }) }}</div>
           </div>
         </template>
 
         <TableSkeleton v-if="loading && keys.length === 0" :rows="6" />
-        <el-table v-else :data="paginatedKeys" border size="small" v-loading="loading" :empty-text="'暂无接口密钥'">
+        <el-table v-else :data="paginatedKeys" border size="small" v-loading="loading" :empty-text="t('apiKey.empty')">
           <template #empty>
-            <EmptyStateWithAction description="暂无接口密钥。建议为每个系统集成单独创建，便于审计与回收。">
+            <EmptyStateWithAction :description="t('apiKey.emptyHint')">
               <template #action>
-                <el-button type="primary" @click="openCreateDialog">创建接口密钥</el-button>
+                <el-button type="primary" @click="openCreateDialog">{{ t('apiKey.create') }}</el-button>
               </template>
             </EmptyStateWithAction>
           </template>
 
-          <el-table-column prop="name" label="名称" min-width="180" />
-          <el-table-column prop="key_prefix" label="前缀" width="110">
+          <el-table-column prop="name" :label="t('common.name')" min-width="180" />
+          <el-table-column prop="key_prefix" :label="t('apiKey.colPrefix')" width="110">
             <template #default="{ row }">
               <span class="font-mono text-xs">{{ row.key_prefix }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="110" align="center">
+          <el-table-column :label="t('common.status')" width="110" align="center">
             <template #default="{ row }">
               <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
-                {{ row.is_active ? '可用' : '已撤销' }}
+                {{ row.is_active ? t('apiKey.statusActive') : t('apiKey.statusRevoked') }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="权限范围" min-width="220">
+          <el-table-column :label="t('apiKey.colScopes')" min-width="220">
             <template #default="{ row }">
               <div v-if="Array.isArray(row.scopes) && row.scopes.length" class="flex flex-wrap gap-1">
                 <el-tag v-for="s in row.scopes" :key="s" size="small" effect="plain">{{ s }}</el-tag>
               </div>
-              <span v-else style="color: var(--el-text-color-secondary)">全量</span>
+              <span v-else style="color: var(--el-text-color-secondary)">{{ t('apiKey.scopeAll') }}</span>
             </template>
           </el-table-column>
-          <el-table-column prop="last_used_at" label="最近使用" width="190" />
-          <el-table-column prop="created_at" label="创建时间" width="190" />
-          <el-table-column label="操作" width="140" align="center">
+          <el-table-column prop="last_used_at" :label="t('apiKey.colLastUsed')" width="190" />
+          <el-table-column prop="created_at" :label="t('common.createTime')" width="190" />
+          <el-table-column :label="t('common.action')" width="140" align="center">
             <template #default="{ row }">
-              <el-button v-if="row.is_active" size="small" type="danger" plain :loading="revoking === row.id" @click="revoke(row.id)">撤销</el-button>
-              <el-button v-else size="small" disabled>已撤销</el-button>
+              <el-button v-if="row.is_active" size="small" type="danger" plain :loading="revoking === row.id" @click="revoke(row.id)">{{ t('apiKey.revoke') }}</el-button>
+              <el-button v-else size="small" disabled>{{ t('apiKey.revoked') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
@@ -68,44 +68,53 @@
             :total="keys.length"
             layout="total, sizes, prev, pager, next, jumper"
             :page-sizes="[10, 20, 50, 100]"
-            prev-text="上一页"
-            next-text="下一页"
+            :prev-text="t('pagination.prev')"
+            :next-text="t('pagination.next')"
             size="small"
           />
         </div>
       </TableCard>
 
-      <AppDialog v-model="createVisible" title="创建接口密钥" size="medium" :icon="Key" icon-color="primary">
+      <AppDialog v-model="createVisible" :title="t('apiKey.createTitle')" size="medium" :icon="Key" icon-color="primary">
         <el-form label-width="90px">
-          <el-form-item label="名称" required>
-            <el-input v-model="createForm.name" placeholder="例如：监控平台A / 工单系统 / 脚本巡检" />
+          <el-form-item :label="t('apiKey.formName')" required>
+            <el-input v-model="createForm.name" :placeholder="t('apiKey.formNamePlaceholder')" />
           </el-form-item>
-          <el-form-item label="权限范围">
-            <el-input v-model="createScopesText" placeholder="逗号分隔，如 devices:read,stream:play" />
+          <!-- FIX H-7: scopes 改为多选下拉 + 强制过期时间（最长 90 天） -->
+          <el-form-item :label="t('apiKey.formScopes')">
+            <el-select v-model="createScopes" multiple filterable allow-create default-first-option :placeholder="t('apiKey.formScopesPlaceholder')" style="width: 100%">
+              <el-option v-for="s in availableScopes" :key="s.value" :label="s.label" :value="s.value" />
+            </el-select>
             <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
-              留空表示全量权限（与当前账号一致）。建议按最小权限配置，后续可扩展更细粒度控制。
+              {{ t('apiKey.formScopesHint') }}
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('apiKey.formExpiresAt')" required>
+            <el-date-picker v-model="createExpiresAt" type="datetime" :placeholder="t('apiKey.formExpiresAtPlaceholder')" :disabled-date="isDisabledExpiryDate" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ss" />
+            <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
+              {{ t('apiKey.formExpiresAtHint') }}
             </div>
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="createVisible = false">取消</el-button>
-          <el-button type="primary" @click="createKey" :loading="creating">创建</el-button>
+          <el-button @click="createVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" @click="createKey" :loading="creating">{{ t('apiKey.createBtn') }}</el-button>
         </template>
       </AppDialog>
 
-      <AppDialog v-model="secretVisible" title="接口密钥（仅展示一次）" size="medium" icon-color="warning">
-        <el-alert type="warning" show-icon :closable="false" title="请立即保存该密钥，关闭后将无法再次查看明文。" />
+      <AppDialog v-model="secretVisible" :title="t('apiKey.secretDialogTitle')" size="medium" icon-color="warning">
+        <el-alert type="warning" show-icon :closable="false" :title="t('apiKey.secretAlertTitle')" />
         <div class="mt-3">
           <el-input v-model="createdSecret" readonly />
           <div class="mt-2 flex gap-2">
             <el-button type="primary" @click="copySecret">
               <el-icon class="mr-1"><DocumentCopy /></el-icon>
-              复制
+              {{ t('apiKey.copy') }}
             </el-button>
-            <el-button @click="secretVisible = false">关闭</el-button>
+            <el-button @click="secretVisible = false">{{ t('common.close') }}</el-button>
           </div>
           <div class="text-xs mt-3" style="color: var(--el-text-color-secondary)">
-            请求头：X-API-Key: {{ createdSecret }}
+            {{ t('apiKey.secretHeader', { key: createdSecret }) }}
           </div>
         </div>
       </AppDialog>
@@ -115,6 +124,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Key, DocumentCopy } from '@element-plus/icons-vue'
@@ -127,6 +137,7 @@ import AppDialog from '../components/common/AppDialog.vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
 
+const { t } = useI18n()
 const loading = ref(false)
 const keys = ref<ApiKey[]>([])
 
@@ -141,21 +152,35 @@ const paginatedKeys = computed(() => {
 const createVisible = ref(false)
 const creating = ref(false)
 const createForm = ref({ name: '' })
-const createScopesText = ref('')
+// FIX H-7: scopes 改为多选数组，新增过期时间（最长 90 天）
+const createScopes = ref<string[]>([])
+const createExpiresAt = ref('')
+const MAX_EXPIRY_DAYS = 90
+
+// FIX H-7: 常用权限范围枚举，供多选下拉
+const availableScopes = computed(() => [
+  { label: t('apiKey.scopeDevicesRead'), value: 'devices:read' },
+  { label: t('apiKey.scopeDevicesWrite'), value: 'devices:write' },
+  { label: t('apiKey.scopeChannelsRead'), value: 'channels:read' },
+  { label: t('apiKey.scopeChannelsWrite'), value: 'channels:write' },
+  { label: t('apiKey.scopeStreamPlay'), value: 'stream:play' },
+  { label: t('apiKey.scopeRecordsRead'), value: 'records:read' },
+  { label: t('apiKey.scopeAlarmsRead'), value: 'alarms:read' },
+  { label: t('apiKey.scopeAlarmsHandle'), value: 'alarms:handle' },
+  { label: t('apiKey.scopeAuditRead'), value: 'audit:read' },
+  { label: t('apiKey.scopeConfigRead'), value: 'config:read' }
+])
+
+// FIX H-7: 禁用超过 90 天的过期日期
+const isDisabledExpiryDate = (date: Date): boolean => {
+  const max = new Date()
+  max.setDate(max.getDate() + MAX_EXPIRY_DAYS)
+  return date.getTime() > max.getTime()
+}
 
 const secretVisible = ref(false)
 const createdSecret = ref('')
 const revoking = ref('')
-
-const normalizeScopes = (text: string) => {
-  const raw = String(text || '').split(',')
-  const out: string[] = []
-  raw.forEach((s) => {
-    const v = String(s || '').trim()
-    if (v) out.push(v)
-  })
-  return out
-}
 
 const loadKeys = async () => {
   loading.value = true
@@ -165,7 +190,7 @@ const loadKeys = async () => {
   } catch (e: unknown) {
     keys.value = []
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     loading.value = false
   }
@@ -173,27 +198,49 @@ const loadKeys = async () => {
 
 const openCreateDialog = () => {
   createForm.value = { name: '' }
-  createScopesText.value = ''
+  createScopes.value = []
+  createExpiresAt.value = ''
   createVisible.value = true
 }
 
 const createKey = async () => {
   const name = String(createForm.value.name || '').trim()
   if (!name) {
-    ElMessage.warning('请输入名称')
+    ElMessage.warning(t('apiKey.nameRequired'))
+    return
+  }
+  // FIX H-7: 校验过期时间必填且不超过 90 天
+  const expiresAt = String(createExpiresAt.value || '').trim()
+  if (!expiresAt) {
+    ElMessage.warning(t('apiKey.expiresAtRequired'))
+    return
+  }
+  const expiryMs = new Date(expiresAt).getTime()
+  if (isNaN(expiryMs)) {
+    ElMessage.warning(t('apiKey.expiresAtInvalid'))
+    return
+  }
+  const maxMs = Date.now() + MAX_EXPIRY_DAYS * 24 * 60 * 60 * 1000
+  if (expiryMs > maxMs) {
+    ElMessage.warning(t('apiKey.expiresAtMax', { days: MAX_EXPIRY_DAYS }))
+    return
+  }
+  if (expiryMs <= Date.now()) {
+    ElMessage.warning(t('apiKey.expiresAtFuture'))
     return
   }
   creating.value = true
   try {
-    const scopes = normalizeScopes(createScopesText.value)
-    const res = await api.post('/api/v1/user-api-keys', { name, scopes })
+    const scopes = createScopes.value
+    // FIX H-6: 不传 organization_id/tenant_id，由后端从 token 提取机构范围
+    const res = await api.post('/api/v1/user-api-keys', { name, scopes, expires_at: expiresAt })
     createdSecret.value = String(res.data?.api_key || '')
     createVisible.value = false
     secretVisible.value = true
     await loadKeys()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     creating.value = false
   }
@@ -201,18 +248,18 @@ const createKey = async () => {
 
 const revoke = async (id: string) => {
   try {
-    await ElMessageBox.confirm('确认撤销该接口密钥？撤销后将无法继续调用接口。', '提示', { type: 'warning' })
+    await ElMessageBox.confirm(t('apiKey.revokeConfirmMsg'), t('common.tips'), { type: 'warning' })
   } catch {
     return
   }
   revoking.value = id
   try {
     await api.post(`/api/v1/user-api-keys/${id}/revoke`)
-    ElMessage.success('已撤销')
+    ElMessage.success(t('apiKey.revokedSuccess'))
     await loadKeys()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     revoking.value = ''
   }
@@ -223,9 +270,9 @@ const copySecret = async () => {
   if (!v) return
   try {
     await navigator.clipboard.writeText(v)
-    ElMessage.success('已复制')
+    ElMessage.success(t('apiKey.copied'))
   } catch {
-    await ElMessageBox.alert(v, '接口密钥', { confirmButtonText: '确定' })
+    await ElMessageBox.alert(v, t('apiKey.secretDialogTitlePlain'), { confirmButtonText: t('common.ok') })
   }
 }
 

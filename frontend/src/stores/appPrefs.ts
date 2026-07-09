@@ -1,57 +1,31 @@
 import { defineStore } from 'pinia'
 import { ref, watch } from 'vue'
+import { safeLSGet, safeLSSet } from '@/utils/storage'
+
+// SECURITY: 此 store 仅持久化非敏感 UI 偏好（主题模式、侧边栏折叠状态）到 localStorage。
+// 敏感信息（token、refresh_token、用户名、租户配置）使用 sessionStorage 或内存，
+// 绝不存入 localStorage。详见 utils/storage.ts 安全策略。
+const THEME_KEY = 'app_theme_mode'
+const SIDEBAR_KEY = 'app_sidebar_collapsed'
 
 export const useAppPrefsStore = defineStore('appPrefs', () => {
-  // FIXED: localStorage访问添加try-catch，隐私模式/配额满时安全降级
-  const _safeGetItem = (key: string, fallback: string = ''): string => {
-    try { return localStorage.getItem(key) || fallback } catch { return fallback }
-  }
-  const _safeSetItem = (key: string, value: string): void => {
-    try { localStorage.setItem(key, value) } catch { /* ignore storage quota/privacy mode */ }
-  }
+  // 非敏感 UI 偏好 — 从 localStorage 恢复，刷新后保持用户选择
+  const themeMode = ref<'light' | 'dark' | 'auto'>(
+    (safeLSGet(THEME_KEY) as 'light' | 'dark' | 'auto') || 'auto'
+  )
+  const sidebarCollapsed = ref<boolean>(safeLSGet(SIDEBAR_KEY) === 'true')
 
-  const themeMode = ref<string>(_safeGetItem('app_theme_mode', 'auto'))
+  // 持久化到 localStorage（非敏感 UI 偏好，可安全存储）
+  watch(themeMode, (val) => safeLSSet(THEME_KEY, val))
+  watch(sidebarCollapsed, (val) => safeLSSet(SIDEBAR_KEY, String(val)))
 
-  const applyTheme = () => {
-    let isDark = false
-    if (themeMode.value === 'dark') {
-      isDark = true
-    } else if (themeMode.value === 'auto') {
-      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-    }
-
-    if (isDark) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-  }
-
-  const setThemeMode = (mode: 'auto' | 'light' | 'dark') => {
+  function setThemeMode(mode: 'light' | 'dark' | 'auto') {
     themeMode.value = mode
-    _safeSetItem('app_theme_mode', mode)  // FIXED: 使用安全写入
-    applyTheme()
   }
 
-  // FIXED: 事件监听器引用保存，支持清理避免内存泄漏
-  const _mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-  const _onMediaChange = (e: MediaQueryListEvent) => {
-    if (themeMode.value === 'auto') {
-      if (e.matches) {
-        document.documentElement.classList.add('dark')
-      } else {
-        document.documentElement.classList.remove('dark')
-      }
-    }
+  function toggleSidebar() {
+    sidebarCollapsed.value = !sidebarCollapsed.value
   }
-  _mediaQuery.addEventListener('change', _onMediaChange)
 
-  // 初始应用
-  applyTheme()
-
-  return {
-    themeMode,
-    setThemeMode,
-    applyTheme,
-  }
+  return { themeMode, sidebarCollapsed, setThemeMode, toggleSidebar }
 })

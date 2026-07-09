@@ -4,7 +4,7 @@ import asyncio
 import uuid
 import time
 import json
-from typing import Any, Callable, Dict, Optional
+from typing import Callable, Dict, Optional
 from loguru import logger
 
 try:
@@ -16,7 +16,8 @@ except ImportError:
 def _uuid7():
     return _uuid7_impl().hex[:8]
 
-redis_client: Any = None
+# P2-13: 使用 Redis 类型别名替代 Any，提升类型安全
+redis_client: Optional[redis.Redis] = None
 
 REDIS_RECONNECT_INTERVAL_SECONDS: int = 10
 
@@ -60,8 +61,8 @@ async def init_redis():
                 connection_pool=_sentinel_pool,
             )
         elif settings.REDIS_CLUSTER_MODE:
-            import redis.cluster
-            redis_client = redis.cluster.RedisCluster(
+            from redis import cluster as _redis_cluster
+            redis_client = _redis_cluster.RedisCluster(
                 host=settings.REDIS_HOST,
                 port=settings.REDIS_PORT,
                 password=settings.REDIS_PASSWORD or None,
@@ -234,14 +235,14 @@ class RedisHACluster:
                 load_info["cpu"] = psutil.cpu_percent(interval=0)
                 load_info["mem"] = psutil.virtual_memory().percent
             except ImportError:
-                pass
+                logger.debug("optional_import_skipped")
             # 尝试获取活跃流数
             try:
                 from app.services.media_manager import media_manager
                 if media_manager:
                     load_info["streams"] = getattr(media_manager, "active_stream_count", 0)
             except Exception:
-                pass
+                logger.warning("silently_swallowed_exception", exc_info=True)
             await redis_client.hset(self._node_key, mapping=load_info)
             # 同时写入旧格式以保持兼容
             await redis_client.hset("pygbsentry:nodes", self.node_id, time.time())
@@ -315,7 +316,7 @@ class RedisHACluster:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.debug(f"[Cluster HA] Subscriber loop error: {e}")
+                logger.warning(f"[Cluster HA] Subscriber loop error: {e}")
                 await asyncio.sleep(1)
 
     async def _dispatch_message(self, channel_name: str, payload: str) -> None:
@@ -449,7 +450,7 @@ class RedisHACluster:
             owner = await redis_client.hget("pygbsentry:device_owners", gb_id)
             return owner
         except Exception as e:
-            logger.debug(f"[Cluster HA] get_device_owner_node failed: {e}")
+            logger.warning(f"[Cluster HA] get_device_owner_node failed: {e}")
             return None
 
     async def register_device_owner(self, gb_id: str) -> None:
@@ -463,7 +464,7 @@ class RedisHACluster:
         try:
             await redis_client.hset("pygbsentry:device_owners", gb_id, self.node_id)
         except Exception as e:
-            logger.debug(f"[Cluster HA] register_device_owner failed: {e}")
+            logger.warning(f"[Cluster HA] register_device_owner failed: {e}")
 
     async def unregister_device_owner(self, gb_id: str) -> None:
         """Remove device ownership registration.
@@ -476,7 +477,7 @@ class RedisHACluster:
         try:
             await redis_client.hdel("pygbsentry:device_owners", gb_id)
         except Exception as e:
-            logger.debug(f"[Cluster HA] unregister_device_owner failed: {e}")
+            logger.warning(f"[Cluster HA] unregister_device_owner failed: {e}")
 
     async def get_cluster_health(self) -> dict:
         """获取集群健康状态"""
@@ -499,7 +500,7 @@ class RedisHACluster:
                         "last_seen": ts,
                     }
         except Exception as e:
-            logger.debug(f"[Cluster HA] get_cluster_health scan failed: {e}")
+            logger.warning(f"[Cluster HA] get_cluster_health scan failed: {e}")
         alive_count = sum(1 for n in nodes.values() if n["alive"])
         return {
             "total_nodes": len(nodes),

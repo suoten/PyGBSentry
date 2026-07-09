@@ -1,65 +1,71 @@
-"""
-将历史目录数据中“业务/行政区挂载字段混用”的情况纠正：
-- 行政区树的目录节点应通过 `region_parent_gb_id` 挂载（值形如 `region:xxxxxx`），同时 `parent_gb_id` 应为空或不参与 region tree。
-- 业务树的目录节点应只通过 `parent_gb_id` 挂载（根资源组/目录 gb_id），不应带 `region_parent_gb_id`。
+"""行政区域目录拆分迁移（一次性）。
 
-此迁移只修正目录（node_type=directory），不修正通道。
-"""
+与 ``channel_placement_migration`` 配套，针对 ``node_type='directory'`` 的目录
+节点 Resource。历史 schema 曾将「行政区域父级」与「目录父级」合并写入
+``resources.parent_gb_id``，新 schema 拆分为：
 
+- ``parent_gb_id``：目录父级国标 ID（20 位 GB28181 编码，指向另一个目录节点）
+- ``region_parent_gb_id``：行政区域父级编码（行政区划 code，6~12 位数字）
+
+本迁移扫描所有 ``node_type='directory'`` 的 Resource，若 ``region_parent_gb_id``
+为空而 ``parent_gb_id`` 中存放的并非 20 位国标 ID（即疑似行政区域编码），则将其
+搬迁到 ``region_parent_gb_id`` 并清空 ``parent_gb_id``。
+
+幂等、永不抛异常。
+"""
 from __future__ import annotations
 
+import re
+
 from loguru import logger
-from sqlalchemy import text  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.resource import Resource
+
+# GB28181 目录/设备国标 ID 为 20 位数字；行政区域编码通常 6~12 位数字。
+_GB_ID_20_RE = re.compile(r"^\d{20}$")
+
+
 async def ensure_split_region_directory_parents(db: AsyncSession) -> int:
-    total_r = await db.execute(text("SELECT COUNT(1) FROM resources"))
-    total = int(total_r.scalar() or 0)
-    if total == 0:
-        logger.info("Split migration skipped: resources table is empty")
+    """拆分目录节点的 region_parent_gb_id / parent_gb_id 字段。
+
+    返回被更新的行数。幂等、永不抛异常。
+    """
+    try:
+        stmt = select(Resource).where(
+            Resource.node_type == "directory",
+            (Resource.region_parent_gb_id.is_(None))
+            | (Resource.region_parent_gb_id == ""),
+            Resource.parent_gb_id.isnot(None),
+            Resource.parent_gb_id != "",
+        )
+        rows = (await db.execute(stmt)).scalars().all()
+        if not rows:
+            logger.info("region_directory_split_migration: no-op (already applied / nothing to migrate)")
+            return 0
+
+        updated = 0
+        for res in rows:
+            parent_gb = str(res.parent_gb_id or "").strip()
+            if not parent_gb:
+                continue
+            if _GB_ID_20_RE.match(parent_gb):
+                # 20 位国标 ID 视为合法的目录父级，不迁移
+                continue
+            # 否则视为行政区域编码，搬迁到 region_parent_gb_id
+            res.region_parent_gb_id = parent_gb
+            res.parent_gb_id = None
+            updated += 1
+
+        if updated:
+            await db.commit()
+        logger.info("region_directory_split_migration: split {} directory region parents", updated)
+        return updated
+    except Exception as e:
+        logger.warning("region_directory_split_migration failed (non-fatal): {}", e)
+        try:
+            await db.rollback()
+        except Exception:
+            logger.warning("silently_swallowed_exception", exc_info=True)
         return 0
-
-    logger.info("Split migration(directory) start, resources={}", total)
-    # 1) 历史兼容：directory 的 parent_gb_id 是 region:*，搬迁到 region_parent_gb_id
-    logger.info("Split migration(directory) phase-1 start")
-    r1 = await db.execute(
-        text(
-            """
-            UPDATE resources
-            SET region_parent_gb_id = parent_gb_id,
-                parent_gb_id = NULL
-            WHERE lower(COALESCE(node_type, '')) = 'directory'
-              AND parent_gb_id IS NOT NULL
-              AND trim(parent_gb_id) LIKE 'region:%'
-              AND (region_parent_gb_id IS NULL OR trim(region_parent_gb_id) = '')
-            """
-        )
-    )
-    changed_1 = int(getattr(r1, "rowcount", 0) or 0)
-    logger.info("Split migration(directory) phase-1 done, changed={}", changed_1)
-
-    # 2) 清理混用：directory 同时带 region_parent + 非 region parent_gb_id => 清空 region_parent_gb_id
-    logger.info("Split migration(directory) phase-2 start")
-    r2 = await db.execute(
-        text(
-            """
-            UPDATE resources
-            SET region_parent_gb_id = NULL
-            WHERE lower(COALESCE(node_type, '')) = 'directory'
-              AND region_parent_gb_id IS NOT NULL
-              AND trim(region_parent_gb_id) != ''
-              AND parent_gb_id IS NOT NULL
-              AND trim(parent_gb_id) != ''
-              AND trim(parent_gb_id) NOT LIKE 'region:%'
-            """
-        )
-    )
-    changed_2 = int(getattr(r2, "rowcount", 0) or 0)
-    logger.info("Split migration(directory) phase-2 done, changed={}", changed_2)
-
-    changed = changed_1 + changed_2
-    if changed:
-        await db.commit()
-        logger.info("Migrated {} directory(s) to split region_parent_gb_id", changed)
-    return changed
-

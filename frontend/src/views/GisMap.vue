@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-page h-full flex flex-col">
     <PageHeader :title="t('gis.title')" :description="t('gis.description')" />
 
@@ -14,9 +14,9 @@
       class="absolute bottom-4 left-4 px-3 py-2 z-10 flex flex-col gap-1 rounded-lg shadow-lg"
       style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
     >
-      <span class="text-xs font-semibold" style="color: var(--el-text-color-secondary)">图层控制</span>
-      <el-checkbox v-model="layerVisible.base" @change="toggleBaseLayer" size="small">底图</el-checkbox>
-      <el-checkbox v-model="layerVisible.markers" @change="toggleMarkersLayer" size="small">监控点位</el-checkbox>
+      <span class="text-xs font-semibold" style="color: var(--el-text-color-secondary)">{{ t('gis.layerControl') }}</span>
+      <el-checkbox v-model="layerVisible.base" @change="toggleBaseLayer" size="small">{{ t('gis.baseMap') }}</el-checkbox>
+      <el-checkbox v-model="layerVisible.markers" @change="toggleMarkersLayer" size="small">{{ t('gis.monitorPoints') }}</el-checkbox>
     </div>
 
     <!-- 测距工具 -->
@@ -25,9 +25,9 @@
       style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
     >
       <el-button-group size="small">
-        <el-button :type="measureMode === 'line' ? 'primary' : 'default'" @click="toggleMeasure('line')">测距</el-button>
-        <el-button :type="measureMode === 'area' ? 'primary' : 'default'" @click="toggleMeasure('area')">测面</el-button>
-        <el-button v-if="measureMode" @click="toggleMeasure(null)">清除</el-button>
+        <el-button :type="measureMode === 'line' ? 'primary' : 'default'" @click="toggleMeasure('line')">{{ t('gis.measureDistance') }}</el-button>
+        <el-button :type="measureMode === 'area' ? 'primary' : 'default'" @click="toggleMeasure('area')">{{ t('gis.measureArea') }}</el-button>
+        <el-button v-if="measureMode" @click="toggleMeasure(null)">{{ t('gis.clear') }}</el-button>
       </el-button-group>
       <span v-if="measureResult" class="text-sm font-mono ml-2" style="color: var(--el-text-color-regular)">{{ measureResult }}</span>
     </div>
@@ -38,10 +38,10 @@
       style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
     >
       <div class="flex justify-between items-center mb-3">
-        <h3 class="font-semibold" style="color: var(--el-text-color-regular)">地图设置</h3>
+        <h3 class="font-semibold" style="color: var(--el-text-color-regular)">{{ t('gis.mapSettings') }}</h3>
         <div class="flex items-center gap-2">
-          <el-button link type="primary" size="small" @click="goMapConfig">地图配置</el-button>
-          <el-button link type="primary" size="small" @click="saveConfig">保存当前视图</el-button>
+          <el-button link type="primary" size="small" @click="goMapConfig">{{ t('gis.mapConfig') }}</el-button>
+          <el-button link type="primary" size="small" @click="saveConfig">{{ t('gis.saveCurrentView') }}</el-button>
         </div>
       </div>
       <el-alert
@@ -52,17 +52,17 @@
         class="mb-3"
       >
         <template #title>
-          当前地图方案未配置 API Key，部分底图可能无法加载
+          {{ t('gis.apiKeyMissingAlert') }}
         </template>
         <template #default>
-          <el-button link type="primary" size="small" @click="goMapConfig">去地图配置</el-button>
+          <el-button link type="primary" size="small" @click="goMapConfig">{{ t('gis.goMapConfig') }}</el-button>
         </template>
       </el-alert>
       
       <el-form :model="config" size="small" label-position="top">
         <el-form-item :label="t('gis.mapScheme')">
           <el-select v-model="selectedProfileId" @change="onProfileChange" class="w-full">
-            <el-option v-for="p in mapProfiles" :key="p.id" :label="`${p.name}${p.is_default ? '（默认）' : ''}`" :value="p.id" />
+            <el-option v-for="p in mapProfiles" :key="p.id" :label="`${p.name}${p.is_default ? t('gis.defaultSuffix') : ''}`" :value="p.id" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('gis.currentBaseMap')">
@@ -79,14 +79,14 @@
         </div>
 
         <el-form-item :label="t('gis.auxFunctions')">
-          <el-checkbox v-model="overviewVisible" @change="toggleOverview">显示鹰眼概览图</el-checkbox>
+          <el-checkbox v-model="overviewVisible" @change="toggleOverview">{{ t('gis.showOverview') }}</el-checkbox>
         </el-form-item>
       </el-form>
 
       <div class="mt-4 pt-3" style="border-top: 1px solid var(--el-border-color-lighter)">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-semibold" style="color: var(--el-text-color-regular)">轨迹查询</span>
-          <el-button link type="primary" size="small" @click="clearTrajectory">清除</el-button>
+          <span class="text-sm font-semibold" style="color: var(--el-text-color-regular)">{{ t('gis.trajectoryQuery') }}</span>
+          <el-button link type="primary" size="small" @click="clearTrajectory">{{ t('gis.clear') }}</el-button>
         </div>
         <el-form size="small" label-position="top">
           <el-form-item :label="t('common.device')">
@@ -95,11 +95,11 @@
             </el-select>
           </el-form-item>
           <el-form-item :label="t('common.timeRange')">
-            <el-date-picker v-model="trajectoryForm.range" type="datetimerange" range-separator="至" start-placeholder="开始" end-placeholder="结束" class="w-full" />
+            <el-date-picker v-model="trajectoryForm.range" type="datetimerange" :range-separator="t('gis.rangeSeparator')" :start-placeholder="t('gis.startPlaceholder')" :end-placeholder="t('gis.endPlaceholder')" class="w-full" />
           </el-form-item>
           <div class="grid grid-cols-2 gap-2">
-            <el-button type="primary" :loading="trajectoryLoading" :disabled="!trajectoryForm.device_id" @click="loadTrajectory">查询轨迹</el-button>
-            <el-button :loading="subscribeLoading" :disabled="!trajectoryForm.device_id" @click="subscribePosition">订阅定位</el-button>
+            <el-button type="primary" :loading="trajectoryLoading" :disabled="!trajectoryForm.device_id" @click="loadTrajectory">{{ t('gis.queryTrajectory') }}</el-button>
+            <el-button :loading="subscribeLoading" :disabled="!trajectoryForm.device_id" @click="subscribePosition">{{ t('gis.subscribeLocation') }}</el-button>
           </div>
           <div v-if="trajectorySummary" class="mt-2 text-xs whitespace-pre-wrap" style="color: var(--el-text-color-secondary)">{{ trajectorySummary }}</div>
         </el-form>
@@ -117,14 +117,14 @@
       </div>
       <div class="px-3 py-2 flex items-center justify-between gap-2" style="background: rgba(255,255,255,.94); border-bottom: 1px solid var(--el-border-color-lighter)">
         <div class="flex items-center gap-2 flex-wrap">
-          <el-button size="small" :loading="popupData.actionLoading" @click="popupSubscribePosition">订阅定位</el-button>
-          <el-button size="small" type="primary" :loading="trajectoryLoading" @click="popupQueryTrajectory">轨迹查询</el-button>
-          <el-button size="small" type="success" :disabled="!popupData.channel_id" @click="popupGoPlayback">设备回放</el-button>
-          <el-button size="small" :loading="popupData.refreshPositionLoading" @click="popupRefreshPosition">刷新点位</el-button>
-          <el-button size="small" :loading="popupData.refreshStreamLoading" :disabled="!popupData.channel_id" @click="popupRefreshStream">刷新视频</el-button>
-          <el-button size="small" @click="popupCopyOpsInfo">复制排障信息</el-button>
-          <el-checkbox v-model="channelFilters.onlineOnly" size="small">仅在线</el-checkbox>
-          <el-checkbox v-model="channelFilters.hasAudioOnly" size="small">仅有音频</el-checkbox>
+          <el-button size="small" :loading="popupData.actionLoading" @click="popupSubscribePosition">{{ t('gis.subscribeLocation') }}</el-button>
+          <el-button size="small" type="primary" :loading="trajectoryLoading" @click="popupQueryTrajectory">{{ t('gis.trajectoryQuery') }}</el-button>
+          <el-button size="small" type="success" :disabled="!popupData.channel_id" @click="popupGoPlayback">{{ t('gis.devicePlayback') }}</el-button>
+          <el-button size="small" :loading="popupData.refreshPositionLoading" @click="popupRefreshPosition">{{ t('gis.refreshPoint') }}</el-button>
+          <el-button size="small" :loading="popupData.refreshStreamLoading" :disabled="!popupData.channel_id" @click="popupRefreshStream">{{ t('gis.refreshStream') }}</el-button>
+          <el-button size="small" @click="popupCopyOpsInfo">{{ t('gis.copyTroubleshoot') }}</el-button>
+          <el-checkbox v-model="channelFilters.onlineOnly" size="small">{{ t('gis.onlineOnly') }}</el-checkbox>
+          <el-checkbox v-model="channelFilters.hasAudioOnly" size="small">{{ t('gis.audioOnly') }}</el-checkbox>
           <el-select
             v-if="filteredChannels.length"
             v-model="popupData.channel_id"
@@ -151,8 +151,8 @@
           class="w-full h-full" 
         />
         <div v-else class="w-full h-full flex items-center justify-center text-white/30 bg-slate-950">
-           <span v-if="popupData.loading" class="animate-pulse">正在请求视频流...</span>
-           <span v-else>暂无视频信号</span>
+           <span v-if="popupData.loading" class="animate-pulse">{{ t('gis.requestingStream') }}</span>
+           <span v-else>{{ t('gis.noVideoSignal') }}</span>
         </div>
       </div>
     </div>
@@ -163,7 +163,9 @@
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, reactive, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'  // FIXED: 国际化
+import axios from 'axios'  // FIX: [2026-07-04] 缺失 axios 导入，axios.isAxiosError 运行时 ReferenceError [全栈工程师]
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 import { useRouter, useRoute } from 'vue-router'
 import 'ol/ol.css'
 import Map from 'ol/Map'
@@ -244,11 +246,11 @@ const selectedProfileId = ref('')
 const providersNeedApiKey = new Set(['tianditu', 'gaode', 'tencent', 'baidu'])
 const providerLabel = computed(() => {
   const p = String(config.value.provider || '').toLowerCase()
-  if (p === 'tianditu') return '天地图 (TianDiTu)'
-  if (p === 'gaode') return '高德地图 (Gaode)'
-  if (p === 'baidu') return '百度地图 (Baidu)'
+  if (p === 'tianditu') return t('gis.providerTianditu')
+  if (p === 'gaode') return t('gis.providerGaode')
+  if (p === 'baidu') return t('gis.providerBaidu')
   if (p === 'osm') return 'OpenStreetMap'
-  if (p === 'vector') return '自定义矢量瓦片 (MVT)'
+  if (p === 'vector') return t('gis.providerVector')
   return p || '-'
 })
 const showApiKeyAlert = computed(() => {
@@ -635,7 +637,7 @@ const handleMapClick = async (evt: MapClickLike) => {
       }
     } catch (e: unknown) {
       const friendly = getPlayFriendly(e)
-      ElMessage.warning(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+      ElMessage.warning(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
     } finally {
       popupData.value.loading = false
       popupMeta.value = buildPopupMeta()
@@ -658,25 +660,25 @@ const closePopup = () => {
 
 const formatAge = (iso: string | null) => {
   if (!iso) return ''
-  const t = new Date(iso)
-  if (Number.isNaN(t.getTime())) return ''
-  const diff = Date.now() - t.getTime()
+  const dt = new Date(iso)
+  if (Number.isNaN(dt.getTime())) return ''
+  const diff = Date.now() - dt.getTime()
   if (!Number.isFinite(diff) || diff < 0) return ''
   const s = Math.floor(diff / 1000)
-  if (s < 30) return '刚刚'
-  if (s < 60) return `${s}s前`
+  if (s < 30) return t('gis.justNow')
+  if (s < 60) return t('gis.secondsAgo', { n: s })
   const m = Math.floor(s / 60)
-  if (m < 60) return `${m}m前`
+  if (m < 60) return t('gis.minutesAgo', { n: m })
   const h = Math.floor(m / 60)
-  if (h < 48) return `${h}h前`
+  if (h < 48) return t('gis.hoursAgo', { n: h })
   const d = Math.floor(h / 24)
-  return `${d}d前`
+  return t('gis.daysAgo', { n: d })
 }
 
 const buildPopupMeta = () => {
-  const statusText = Number(popupData.value.status) === 1 ? '在线' : Number(popupData.value.status) === 0 ? '离线' : ''
+  const statusText = Number(popupData.value.status) === 1 ? t('common.online') : Number(popupData.value.status) === 0 ? t('common.offline') : ''
   const ageText = formatAge(popupData.value.time)
-  const timeText = popupData.value.time ? `定位：${popupData.value.time}` : ''
+  const timeText = popupData.value.time ? t('gis.locationAt', { time: popupData.value.time }) : ''
   const coordText =
     Number.isFinite(popupData.value.longitude) && Number.isFinite(popupData.value.latitude)
       ? `${Number(popupData.value.longitude).toFixed(6)}, ${Number(popupData.value.latitude).toFixed(6)}`
@@ -685,32 +687,32 @@ const buildPopupMeta = () => {
 }
 
 const buildPopupOpsDetail = () => {
-  const source = '来源：GB28181 MobilePosition'
+  const source = t('gis.sourceGb28181')
   const ch = (popupData.value.channels || []).find((x: PopupChannel) => String(x?.gb_id || '') === String(popupData.value.channel_id || ''))
-  const channelLine = ch ? `通道：${formatChannelLabel(ch)}` : ''
-  const speed = popupData.value.speed != null ? `速度：${popupData.value.speed}` : ''
-  const direction = popupData.value.direction != null ? `航向：${popupData.value.direction}°` : ''
-  const altitude = popupData.value.altitude != null ? `海拔：${popupData.value.altitude}` : ''
+  const channelLine = ch ? t('gis.channelLabel', { name: formatChannelLabel(ch) }) : ''
+  const speed = popupData.value.speed != null ? t('gis.speedLabel', { value: popupData.value.speed }) : ''
+  const direction = popupData.value.direction != null ? t('gis.directionLabel', { value: popupData.value.direction }) : ''
+  const altitude = popupData.value.altitude != null ? t('gis.altitudeLabel', { value: popupData.value.altitude }) : ''
   const codecLine =
     popupData.value.play_codec || popupData.value.play_app || popupData.value.play_stream
-      ? `码流：${[popupData.value.play_codec || '', popupData.value.play_app && popupData.value.play_stream ? `${popupData.value.play_app}/${popupData.value.play_stream}` : '']
+      ? t('gis.streamLabel', { info: [popupData.value.play_codec || '', popupData.value.play_app && popupData.value.play_stream ? `${popupData.value.play_app}/${popupData.value.play_stream}` : '']
           .filter(Boolean)
-          .join(' ')}`
+          .join(' ') })
       : ''
   const freq =
     popupData.value.update_interval_seconds != null && popupData.value.update_interval_seconds > 0
-      ? `更新频率：约 ${Math.round(popupData.value.update_interval_seconds)}s/次（近${popupData.value.stats_points}点）`
+      ? t('gis.updateFreq', { seconds: Math.round(popupData.value.update_interval_seconds), points: popupData.value.stats_points })
       : ''
   const span =
     popupData.value.stats_start_time && popupData.value.stats_end_time
-      ? `轨迹跨度：${popupData.value.stats_start_time} → ${popupData.value.stats_end_time}`
+      ? t('gis.trackSpan', { start: popupData.value.stats_start_time, end: popupData.value.stats_end_time })
       : ''
-  const lastAttempt = popupData.value.last_play_attempt_time ? `最近拉流：${popupData.value.last_play_attempt_time}` : ''
+  const lastAttempt = popupData.value.last_play_attempt_time ? t('gis.lastStreamAttempt', { time: popupData.value.last_play_attempt_time }) : ''
   const lastError =
     popupData.value.last_play_error && popupData.value.last_play_error_time
-      ? `最近错误：${popupData.value.last_play_error_time} ${popupData.value.last_play_error}`
+      ? t('gis.lastErrorWithTime', { time: popupData.value.last_play_error_time, detail: popupData.value.last_play_error })
       : popupData.value.last_play_error
-        ? `最近错误：${popupData.value.last_play_error}`
+        ? t('gis.lastError', { detail: popupData.value.last_play_error })
         : ''
   return [source, channelLine, codecLine, speed, direction, altitude, freq, span, lastAttempt, lastError].filter(Boolean).join('\n')
 }
@@ -729,7 +731,7 @@ const makeDeviceMarkerStyle = (status: unknown) => {
 const formatChannelLabel = (ch: PopupChannel) => {
   const name = String(ch?.name || ch?.gb_id || '').trim()
   const id = String(ch?.gb_id || '').trim()
-  const statusText = Number(ch?.status) === 1 ? '在线' : Number(ch?.status) === 0 ? '离线' : ''
+  const statusText = Number(ch?.status) === 1 ? t('common.online') : Number(ch?.status) === 0 ? t('common.offline') : ''
   return `${name}${id && name !== id ? `（${id}）` : ''}${statusText ? ` [${statusText}]` : ''}`
 }
 
@@ -753,19 +755,19 @@ const normalizeChannels = (channels: PopupChannel[]) => {
 const getPlayFriendly = (e: unknown) => {
   const status = axios.isAxiosError(e) ? Number(e.response?.status || 0) : 0
   const detailStr = getApiErrorMessage(e, '')
-  if (status === 401 || status === 403) return { message: '无权限播放该通道', suggestion: '确认账号权限/租户是否正确' }
-  if (status === 404) return { message: '设备或通道不存在', suggestion: '检查设备ID/通道ID是否正确' }
-  if (status === 409) return { message: '设备忙或正在会话中', suggestion: '稍后重试或先停止现有会话' }
-  if (status === 503) return { message: '流媒体服务不可用', suggestion: '检查流媒体服务/网关是否在线' }
-  if (detailStr.includes('离线') || detailStr.includes('offline')) return { message: '设备/通道离线，无法拉流', suggestion: '先恢复在线或切换在线通道' }
-  if (detailStr.includes('超时') || detailStr.includes('timeout')) return { message: '拉流超时', suggestion: '检查网络与SIP链路，或尝试刷新视频' }
-  return { message: '拉流失败', suggestion: detailStr ? detailStr : '检查设备在线与通道状态' }
+  if (status === 401 || status === 403) return { message: t('gis.errNoPermission'), suggestion: t('gis.errNoPermissionSuggestion') }
+  if (status === 404) return { message: t('gis.errNotFound'), suggestion: t('gis.errNotFoundSuggestion') }
+  if (status === 409) return { message: t('gis.errBusy'), suggestion: t('gis.errBusySuggestion') }
+  if (status === 503) return { message: t('gis.errMediaUnavailable'), suggestion: t('gis.errMediaUnavailableSuggestion') }
+  if (detailStr.includes('离线') || detailStr.includes('offline')) return { message: t('gis.errOffline'), suggestion: t('gis.errOfflineSuggestion') }
+  if (detailStr.includes('超时') || detailStr.includes('timeout')) return { message: t('gis.errTimeout'), suggestion: t('gis.errTimeoutSuggestion') }
+  return { message: t('gis.errStreamFailed'), suggestion: detailStr ? detailStr : t('gis.errStreamFailedSuggestion') }
 }
 
 const recordPlayFailure = (e: unknown) => {
   const friendly = getPlayFriendly(e)
   popupData.value.last_play_error_time = new Date().toISOString()
-  popupData.value.last_play_error = friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message
+  popupData.value.last_play_error = friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message
   popupOpsDetail.value = buildPopupOpsDetail()
   return friendly
 }
@@ -803,7 +805,7 @@ const popupSelectChannel = async () => {
     popupOpsDetail.value = buildPopupOpsDetail()
   } catch (e: unknown) {
     const friendly = recordPlayFailure(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     popupData.value.loading = false
     popupData.value.refreshStreamLoading = false
@@ -852,7 +854,7 @@ const loadPopupOpsStats = async () => {
       }
     }
   } catch (e) {
-    console.warn('GisMap: failed to load map config', e)  // FIXED: 空catch块→日志记录
+    logger.warn('GisMap: failed to load map config', e)  // FIXED: 空catch块→日志记录
     popupMeta.value = buildPopupMeta()
     popupOpsDetail.value = buildPopupOpsDetail()
   }
@@ -908,7 +910,7 @@ const popupRefreshStream = async () => {
     ElMessage.success(t('gis.streamRefreshed'))
   } catch (e: unknown) {
     const friendly = recordPlayFailure(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     popupData.value.loading = false
     popupData.value.refreshStreamLoading = false
@@ -919,10 +921,10 @@ const buildOpsCopyText = () => {
   const deviceId = String(popupData.value.device_id || '').trim()
   const channelId = String(popupData.value.channel_id || '').trim()
   const ch = (popupData.value.channels || []).find((x: PopupChannel) => String(x?.gb_id || '') === channelId)
-  const header = `PyGBSentry GIS 排障信息`
+  const header = t('gis.troubleshootHeader')
   const lines = [
     header,
-    `复制时间：${new Date().toISOString()}`,
+    t('gis.copyTime', { time: new Date().toISOString() }),
     deviceId ? `device_id：${deviceId}` : '',
     popupData.value.name ? `device_name：${popupData.value.name}` : '',
     channelId ? `channel_id：${channelId}` : '',
@@ -1030,7 +1032,7 @@ const loadDevices = async () => {
     thinnedHint.value = ''
     // Simple thinning for performance if too many points
     if (items.length > 1000) {
-        thinnedHint.value = `显示 ${items.length} 个设备 (已优化)`
+        thinnedHint.value = t('gis.devicesThinned', { n: items.length })
     }
 
     devicesForTrajectory.value = items
@@ -1098,7 +1100,7 @@ const loadTrajectory = async () => {
     const rows = Array.isArray(res.data) ? res.data : []
     clearTrajectory()
     if (!rows.length) {
-      trajectorySummary.value = '暂无轨迹点'
+      trajectorySummary.value = t('gis.noTrackPoints')
       return
     }
     const coords: number[][] = []
@@ -1122,12 +1124,12 @@ const loadTrajectory = async () => {
       const lengthM = getLength(line.getGeometry() as LineString)
       const first = rows[0]?.time || ''
       const last = rows[rows.length - 1]?.time || ''
-      trajectorySummary.value = `点数：${coords.length}\n距离：${(lengthM / 1000).toFixed(2)} km\n起：${first}\n止：${last}`
+      trajectorySummary.value = t('gis.trackSummary', { count: coords.length, distance: (lengthM / 1000).toFixed(2), start: first, end: last })
       const extent = (line.getGeometry() as LineString).getExtent()
       map?.getView().fit(extent, { padding: [80, 80, 80, 80], duration: 250, maxZoom: 18 })
     } else {
       trajectorySource?.addFeatures(pointFeatures)
-      trajectorySummary.value = `点数：${coords.length}`
+      trajectorySummary.value = t('gis.trackPointCount', { n: coords.length })
     }
   } catch (e: unknown) {
     const msg = getApiErrorMessage(e, t('gis.trackQueryFailed'))
@@ -1178,7 +1180,7 @@ const onProfileChange = (id: string) => {
   if (!hit) return
   applyConfig(hit)
   if (providersNeedApiKey.has(String(hit?.provider || '').toLowerCase()) && !String(hit?.api_key || '').trim()) {
-    ElMessage.warning('当前地图方案未配置 API Key，可点“地图配置”前往设置')
+    ElMessage.warning(t('gis.apiKeyMissingWarn'))
   }
   updateMapLayer()
   const view = map?.getView()
@@ -1223,7 +1225,7 @@ onMounted(async () => {
   try {
     await fetchMapProfiles()
   } catch (_e) {
-    console.warn('GisMap: failed to fetch map profiles', _e)  // FIXED: 空catch块→日志记录
+    logger.warn('GisMap: failed to fetch map profiles', _e)  // FIXED: 空catch块→日志记录
   }
   initMap()
 })

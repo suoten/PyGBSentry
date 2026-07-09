@@ -11,7 +11,7 @@ def _uuid7_hex(n: int = 16) -> str:
 from sqlalchemy import select, desc, and_, or_, func  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.operation_audit import OperationAudit
-import asyncio
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from loguru import logger
 
 
@@ -28,9 +28,10 @@ class AuditCenterService:
         webhook_timeout = getattr(settings, "AUDIT_WEBHOOK_TIMEOUT", 5)
         if webhook_url:
             try:
-                import httpx
-                async with httpx.AsyncClient() as client:
-                    await client.post(webhook_url, json=payload, timeout=float(webhook_timeout))
+                # FIX: [2026-07-04] 使用进程级共享 HTTP 客户端，避免每次调用创建/销毁 AsyncClient 导致连接池泄漏 [可靠性工程师]
+                from app.core.http_client import get_http_client
+                client = await get_http_client()
+                await client.post(webhook_url, json=payload, timeout=float(webhook_timeout))
             except Exception as e:
                 logger.error(f"Failed to push audit log to SIEM webhook: {e}")
 
@@ -90,7 +91,13 @@ class AuditCenterService:
         if source:
             fixed_conditions.append(self._summary_field_condition("source", source))
         if tenant_id:
-            fixed_conditions.append(self._summary_field_condition("tenant_id", tenant_id))
+            # FIX: [2026-07-04] 原仅通过 summary 文本匹配 tenant_id=xxx，但 safe_auth_audit 将 tenant_id 写入
+            # OperationAudit.tenant_id 专列而非 summary 文本，导致租户级审计日志隔离完全失效 [全栈工程师]
+            # 修正：优先使用专列查询，兼容 summary 文本中包含 tenant_id 的旧记录
+            fixed_conditions.append(or_(
+                OperationAudit.tenant_id == tenant_id,
+                self._summary_field_condition("tenant_id", tenant_id),
+            ))
         if status_code is not None:
             fixed_conditions.append(self._summary_field_condition("status_code", str(status_code)))
 
@@ -180,7 +187,7 @@ class AuditCenterService:
 
         # 异步推送至态势感知/SIEM
         try:
-            asyncio.create_task(self._push_to_external_siem(payload))  # W-05 直接异步调用，不再需要to_thread
+            fire_and_forget(self._push_to_external_siem(payload))  # P0-16: 保存引用防 GC + 异常日志
         except Exception as e:
             logger.warning(f"Error: {e}")
 

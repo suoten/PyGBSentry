@@ -8,7 +8,7 @@ from app.models.system_setting import SystemSetting
 from app.schemas.config_center import DraftResponse, UpdateDraftModuleRequest, ValidateDraftResponse
 from app.services.config_center_service import config_center_service
 from app.services.auth_audit import safe_auth_audit
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, Literal
 import json
 from loguru import logger
@@ -22,6 +22,7 @@ BASIC_CONFIG_KEY = "config_basic"
 
 
 class BasicConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     streamPullTimeout: Optional[int] = Field(None, ge=1, le=300)
     alarmDefaultLevel: Optional[Literal["low", "medium", "high"]] = None
     deviceHeartbeatInterval: Optional[int] = Field(None, ge=5, le=600)

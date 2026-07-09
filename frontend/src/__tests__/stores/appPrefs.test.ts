@@ -68,6 +68,12 @@ describe('App.vue Accessibility', () => {
 })
 
 describe('Theme preferences', () => {
+  beforeEach(() => {
+    localStorageMock.clear()
+    localStorageMock.setItem.mockClear()
+    localStorageMock.getItem.mockClear()
+  })
+
   it('theme mode is stored in localStorage', () => {
     localStorageMock.setItem('app_theme_mode', 'dark')
     expect(localStorageMock.setItem).toHaveBeenCalledWith('app_theme_mode', 'dark')

@@ -53,11 +53,17 @@ async def should_skip_keepalive_db_update(gb_id: str, ip: str, port: int) -> boo
             return True
 
     _keepalive_cache[gb_id] = (now, ip, port)
-    # Clean up local cache occasionally
+    # FIX: [2026-07-03] 清理本地缓存：先清除过期条目，仍超限时驱逐最旧条目，防止设备频繁注册/注销导致内存泄漏 [可靠性工程师]
     if len(_keepalive_cache) > 10000:
         to_del = [k for k, v in _keepalive_cache.items() if now - v[0] > KEEPALIVE_DB_INTERVAL * 2]
         for k in to_del:
             _keepalive_cache.pop(k, None)
+        # 硬上限：若过期清理后仍超 15000，按时间戳排序驱逐最旧条目
+        if len(_keepalive_cache) > 15000:
+            sorted_keys = sorted(_keepalive_cache.items(), key=lambda x: x[1][0])
+            over = len(_keepalive_cache) - 10000
+            for k, _ in sorted_keys[:over]:
+                _keepalive_cache.pop(k, None)
 
     return False
 
@@ -122,17 +128,21 @@ async def _process_batch(batch: list):
         return
 
     # single session for entire batch instead of one session per item
+    failed_items: list = []
     try:
         async with AsyncSessionLocal() as session:
             for item in batch:
                 try:
                     if item["type"] == "keepalive":
+                        # FIX R23-SEVERE: 心跳不更新 ip_addr/port/transport，防止设备劫持
+                        # 原问题：心跳直接用源地址更新 DB 中设备的 ip_addr/port，
+                        #   攻击者发送伪造 Keepalive（含目标设备 DeviceID）即可劫持设备
+                        # 修复：心跳只更新 last_keepalive 和 status，
+                        #   ip_addr/port/transport 仅在 REGISTER 时设置（注册时已验证源 IP）
+                        #   NAT 端口变化场景由设备重新注册处理
                         stmt = update(Asset).where(Asset.gb_id == item["gb_id"]).values(
                             last_keepalive=item["time"],
                             status=1,
-                            ip_addr=item["ip"],
-                            port=item["port"],
-                            transport=item["proto"]
                         )
                         await session.execute(stmt)
 
@@ -140,8 +150,6 @@ async def _process_batch(batch: list):
                             (ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"])
                         ).values(
                             last_keepalive=item["time"],
-                            server_ip=item["ip"],
-                            server_port=item["port"]
                         )
                         await session.execute(platform_stmt)
 
@@ -168,10 +176,28 @@ async def _process_batch(batch: list):
 
                 except Exception as item_err:
                     logger.error(f"Failed to process batch item {item.get('gb_id', '?')}: {item_err}")
+                    failed_items.append(item)
 
             await session.commit()
     except Exception as e:
         logger.error(f"Failed to process batch: {e}")
+        # FIX R23-SEVERE: commit 失败时将整个 batch 重新入队，避免设备心跳丢失导致误判离线
+        # 原问题：commit 失败仅记录日志，batch 中所有更新丢失且不重新入队
+        # 修复：将失败的 item 重新入队（限制重试次数避免无限循环）
+        failed_items = batch
+
+    # FIX R23-SEVERE: 将失败 item 重新入队（限制重试次数）
+    if failed_items:
+        for item in failed_items:
+            retry_count = item.get("_retry_count", 0)
+            if retry_count < 3:  # 最多重试 3 次
+                item["_retry_count"] = retry_count + 1
+                try:
+                    _db_update_queue.put_nowait(item)
+                except asyncio.QueueFull:
+                    logger.warning(f"Re-enqueue failed (queue full), dropping item for {item.get('gb_id', '?')}")
+            else:
+                logger.error(f"Max retries exceeded for {item.get('gb_id', '?')}, dropping")
 
 _worker_task = None
 

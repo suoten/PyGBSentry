@@ -27,23 +27,18 @@
       <el-col :span="24">
         <TableCard>
           <template #header>
-            <div class="font-medium">本地上传安装（仅超级管理员）</div>
+            <div class="font-medium">{{ t('plugin.localUploadTitle') }}</div>
           </template>
-          <p class="text-xs mb-3" style="color: var(--el-text-color-secondary)">
-            非商城路径，适用于内测或自建包；对应接口
-            <code>POST /api/v1/plugins/upload</code>。若开启
-            <code>PLUGIN_UPGRADE_HOOK_STRICT</code>，升级迁移失败将返回 500，并可在弹窗中查看
-            <code>upgrade_hook_report</code>。
-          </p>
+          <p class="text-xs mb-3" style="color: var(--el-text-color-secondary)" v-html="sanitizeHtml(t('plugin.localUploadDesc'))"></p>
           <el-upload
             ref="ossZipUploadRef"
             :limit="1"
             accept=".zip"
             :http-request="handleOssPluginZipUpload"
           >
-            <el-button type="primary" :loading="ossZipUploading" :disabled="ossZipUploading">选择 .zip 并安装</el-button>
+            <el-button type="primary" :loading="ossZipUploading" :disabled="ossZipUploading">{{ t('plugin.selectZipAndInstall') }}</el-button>
             <template #tip>
-              <div class="text-xs mt-2" style="color: var(--el-text-color-secondary)">安装成功后下方已装列表将刷新。</div>
+              <div class="text-xs mt-2" style="color: var(--el-text-color-secondary)">{{ t('plugin.installSuccessListRefresh') }}</div>
             </template>
           </el-upload>
         </TableCard>
@@ -55,8 +50,8 @@
         <TableCard>
           <template #header>
             <div class="flex items-center justify-between">
-              <div class="font-medium">插件市场</div>
-              <div class="text-xs" style="color: var(--el-text-color-secondary)">浏览并购买插件，购买后回到此处安装</div>
+              <div class="font-medium">{{ t('plugin.marketTitle') }}</div>
+              <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.marketDesc') }}</div>
             </div>
           </template>
           <TableSkeleton v-if="marketLoading && marketplaceList.length === 0" :rows="5" />
@@ -68,29 +63,29 @@
             v-loading="marketLoading"
             :empty-text="marketplaceEmptyText"
           >
-            <el-table-column label="插件名" min-width="160">
+            <el-table-column :label="t('plugin.colName')" min-width="160">
               <template #default="{ row }">
                 <el-link type="primary" :underline="false" @click="$router.push('/plugins/detail/' + row.id)">{{ row.name }}</el-link>
-                <el-tag v-if="row.is_official" size="small" type="primary" class="ml-1">官方</el-tag>
-                <el-tag v-if="row.status === 'deprecated'" size="small" type="danger" class="ml-1">已废弃</el-tag>
+                <el-tag v-if="row.is_official" size="small" type="primary" class="ml-1">{{ t('plugin.official') }}</el-tag>
+                <el-tag v-if="row.status === 'deprecated'" size="small" type="danger" class="ml-1">{{ t('plugin.deprecated') }}</el-tag>
                 <el-tag v-else-if="row.min_oss_version" size="small" type="info" class="ml-1">≥ {{ row.min_oss_version }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="version" label="版本" width="100" />
-            <el-table-column label="类型" width="100">
+            <el-table-column prop="version" :label="t('common.version')" width="100" />
+            <el-table-column :label="t('common.type')" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.type === 'free' ? 'success' : 'warning'">
-                  {{ row.type === 'free' ? '免费' : '付费' }}
+                  {{ row.type === 'free' ? t('plugin.free') : t('plugin.paid') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="价格" width="120">
+            <el-table-column :label="t('plugin.price')" width="120">
               <template #default="{ row }">
                 <span v-if="row.type === 'free'">-</span>
-                <span v-else class="text-orange-500 font-medium">¥{{ row.price_monthly || 0 }}/月</span>
+                <span v-else class="text-orange-500 font-medium">¥{{ row.price_monthly || 0 }}{{ t('plugin.perMonth') }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="140">
+            <el-table-column :label="t('common.action')" width="140">
               <template #default="{ row }">
                 <el-button
                   v-if="row.type === 'paid' && !isPurchased(row.id)"
@@ -98,7 +93,7 @@
                   size="small"
                   @click="openEmbeddedPurchase(row)"
                 >
-                  一键购买
+                  {{ t('plugin.buyNow') }}
                 </el-button>
                 <el-button
                   v-else-if="row.type === 'paid' && isPurchased(row.id)"
@@ -107,7 +102,7 @@
                   :disabled="installing"
                   @click="installPlugin(row)"
                 >
-                  安装
+                  {{ t('plugin.install') }}
                 </el-button>
                 <el-button
                   v-else
@@ -116,7 +111,7 @@
                   :disabled="installing"
                   @click="installPlugin(row)"
                 >
-                  安装
+                  {{ t('plugin.install') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -128,8 +123,8 @@
               :total="marketplaceList.length"
               layout="total, sizes, prev, pager, next, jumper"
               :page-sizes="[10, 20, 50, 100]"
-              prev-text="上一页"
-              next-text="下一页"
+              :prev-text="t('pagination.prev')"
+              :next-text="t('pagination.next')"
               size="small"
             />
           </div>
@@ -139,51 +134,51 @@
         <TableCard>
           <template #header>
             <div class="flex items-center justify-between">
-              <div class="font-medium">已安装插件</div>
-              <div class="text-xs" style="color: var(--el-text-color-secondary)">管理当前已启用的插件</div>
+              <div class="font-medium">{{ t('plugin.installedPlugins') }}</div>
+              <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.installedDesc') }}</div>
             </div>
           </template>
           <TableSkeleton v-if="installedLoading && installedList.length === 0" :rows="4" />
-          <el-table v-else :data="paginatedInstalledList" stripe v-loading="installedLoading" :empty-text="'暂无已安装插件'">
-            <el-table-column label="插件名" min-width="140">
+          <el-table v-else :data="paginatedInstalledList" stripe v-loading="installedLoading" :empty-text="t('plugin.noInstalled')">
+            <el-table-column :label="t('plugin.colName')" min-width="140">
               <template #default="{ row }">
                 <span>{{ row.name }}</span>
-                <el-tag v-if="row.type === 'paid' && !isPurchased(row.id)" size="small" type="danger" class="ml-1">已过期</el-tag>
+                <el-tag v-if="row.type === 'paid' && !isPurchased(row.id)" size="small" type="danger" class="ml-1">{{ t('plugin.expired') }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="version" label="版本" width="120" />
-            <el-table-column label="类型" width="100">
+            <el-table-column prop="version" :label="t('common.version')" width="120" />
+            <el-table-column :label="t('common.type')" width="100">
               <template #default="{ row }">
                 <el-tag size="small" :type="row.type === 'free' ? 'success' : 'warning'">
-                  {{ row.type === 'free' ? '免费' : '付费' }}
+                  {{ row.type === 'free' ? t('plugin.free') : t('plugin.paid') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column v-if="isServerEdition" label="健康状态" width="100">
+            <el-table-column v-if="isServerEdition" :label="t('plugin.healthStatus')" width="100">
               <template #default="{ row }">
                 <template v-if="pluginHealthMap[row.id]">
-                  <el-tag v-if="pluginHealthMap[row.id].healthy" size="small" type="success">正常</el-tag>
-                  <el-tooltip v-else :content="`错误${pluginHealthMap[row.id].error_count}次` + (pluginHealthMap[row.id].last_error ? `：${pluginHealthMap[row.id].last_error}` : '')">
-                    <el-tag size="small" type="danger">异常</el-tag>
+                  <el-tag v-if="pluginHealthMap[row.id].healthy" size="small" type="success">{{ t('common.normal') }}</el-tag>
+                  <el-tooltip v-else :content="pluginHealthMap[row.id].last_error ? t('plugin.errorCountWithDetail', { count: pluginHealthMap[row.id].error_count, detail: pluginHealthMap[row.id].last_error }) : t('plugin.errorCount', { count: pluginHealthMap[row.id].error_count })">
+                    <el-tag size="small" type="danger">{{ t('plugin.abnormal') }}</el-tag>
                   </el-tooltip>
                 </template>
                 <span v-else class="text-gray-400 text-xs">-</span>
               </template>
             </el-table-column>
-            <el-table-column v-if="isServerEdition" label="安全扫描" width="100">
+            <el-table-column v-if="isServerEdition" :label="t('plugin.securityScan')" width="100">
               <template #default="{ row }">
                 <template v-if="pluginSecurityReports[row.id]">
                   <el-tag size="small" :type="pluginSecurityReports[row.id].risk_level === 'high' ? 'danger' : pluginSecurityReports[row.id].risk_level === 'medium' ? 'warning' : 'success'">
-                    {{ pluginSecurityReports[row.id].risk_level === 'high' ? '高风险' : pluginSecurityReports[row.id].risk_level === 'medium' ? '中风险' : '低风险' }}
+                    {{ pluginSecurityReports[row.id].risk_level === 'high' ? t('plugin.riskHigh') : pluginSecurityReports[row.id].risk_level === 'medium' ? t('plugin.riskMedium') : t('plugin.riskLow') }}
                   </el-tag>
                 </template>
                 <span v-else class="text-gray-400 text-xs">-</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="120">
+            <el-table-column :label="t('common.action')" width="120">
               <template #default="{ row }">
                 <el-button type="danger" size="small" :disabled="installing" @click="uninstallPlugin(row.id)">
-                  卸载
+                  {{ t('plugin.uninstall') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -195,8 +190,8 @@
               :total="installedList.length"
               layout="total, sizes, prev, pager, next, jumper"
               :page-sizes="[10, 20, 50, 100]"
-              prev-text="上一页"
-              next-text="下一页"
+              :prev-text="t('pagination.prev')"
+              :next-text="t('pagination.next')"
               size="small"
             />
           </div>
@@ -206,29 +201,29 @@
 
     <el-dialog
       v-model="purchaseDialogVisible"
-      :title="`购买插件 - ${purchaseTarget?.name || ''}`"
+      :title="t('plugin.purchaseDialogTitle', { name: purchaseTarget?.name || '' })"
       width="480px"
       :close-on-click-modal="false"
       destroy-on-close
     >
       <div v-if="purchaseTarget" class="purchase-dialog-content">
         <el-descriptions :column="1" border size="small">
-          <el-descriptions-item label="插件名称">{{ purchaseTarget.name }}</el-descriptions-item>
-          <el-descriptions-item label="类型">
-            <el-tag size="small" type="warning">付费</el-tag>
+          <el-descriptions-item :label="t('plugin.fieldName')">{{ purchaseTarget.name }}</el-descriptions-item>
+          <el-descriptions-item :label="t('common.type')">
+            <el-tag size="small" type="warning">{{ t('plugin.paid') }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="价格">
+          <el-descriptions-item :label="t('plugin.price')">
             <span v-if="purchaseTarget.price_monthly" class="text-orange-500 font-medium">
-              ¥{{ purchaseTarget.price_monthly }}/月
+              ¥{{ purchaseTarget.price_monthly }}{{ t('plugin.perMonth') }}
             </span>
           </el-descriptions-item>
         </el-descriptions>
         <el-form label-width="80px" class="mt-4">
-          <el-form-item v-if="isServerEdition" label="计费周期">
+          <el-form-item v-if="isServerEdition" :label="t('plugin.billingPeriod')">
             <el-radio-group v-model="purchaseBillingPeriod">
-              <el-radio value="monthly">月付</el-radio>
-              <el-radio value="yearly">年付</el-radio>
-              <el-radio value="perpetual">永久</el-radio>
+              <el-radio value="monthly">{{ t('plugin.monthly') }}</el-radio>
+              <el-radio value="yearly">{{ t('plugin.yearly') }}</el-radio>
+              <el-radio value="perpetual">{{ t('plugin.perpetual') }}</el-radio>
             </el-radio-group>
           </el-form-item>
         </el-form>
@@ -242,9 +237,9 @@
         />
       </div>
       <template #footer>
-        <el-button @click="purchaseDialogVisible = false">取消</el-button>
+        <el-button @click="purchaseDialogVisible = false">{{ t('common.cancel') }}</el-button>
         <el-button type="primary" :loading="purchaseLoading" @click="doEmbeddedPurchase">
-          确认购买
+          {{ t('plugin.confirmPurchase') }}
         </el-button>
       </template>
     </el-dialog>
@@ -255,18 +250,22 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, onActivated, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
+import { logger } from '@/utils/logger'
 
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { getFriendlyError, promptUpgradeHookReportIfPresent } from '../utils/errorMessage'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
-import { getRoleInfo } from '../utils/auth'
+import { getVerifiedRoleInfo } from '../utils/auth' // FIX C-3: 改用后端验证角色
 
+// FIX: [2026-07-04] useI18n 已导入但未解构 t，模板/脚本中 t 为 undefined 导致 ReferenceError [全栈工程师]
+const { t } = useI18n()
 const router = useRouter()
 
 type PluginRow = {
@@ -307,7 +306,7 @@ watch(installedList, () => { installedPage.value = 1 })
 const purchasedIds = ref<string[]>([])
 const marketLoading = ref(false)
 const installedLoading = ref(false)
-const marketplaceEmptyText = ref('暂无插件，或无法连接插件市场')
+const marketplaceEmptyText = ref(t('plugin.marketEmpty'))
 const installing = ref(false)
 const showSuperuserZipUpload = ref(false)
 
@@ -332,7 +331,7 @@ const loadPluginHealth = async () => {
         }
       }
     }
-  } catch { pluginHealthMap.value = {}; console.warn('加载插件健康数据失败') }
+  } catch { pluginHealthMap.value = {}; logger.warn('加载插件健康数据失败') }
 }
 
 const loadSecurityReports = async () => {
@@ -344,7 +343,7 @@ const loadSecurityReports = async () => {
         pluginSecurityReports.value[item.plugin_id] = item
       }
     }
-  } catch { pluginSecurityReports.value = {}; console.warn('加载插件安全报告失败') }
+  } catch { pluginSecurityReports.value = {}; logger.warn('加载插件安全报告失败') }
 }
 const ossZipUploadRef = ref<UploadInstance>()
 const ossZipUploading = ref(false)
@@ -379,11 +378,11 @@ const doEmbeddedPurchase = async () => {
     const orderData = res.data
     if (orderData.status === 'paid' || orderData.status === 'active') {
       purchaseDialogVisible.value = false
-      ElMessage.success('Purchase successful, auto-installing…') // FIXED: 硬编码中文→英文
+      ElMessage.success(t('plugin.buySuccessInstalling'))
       await installPlugin(purchaseTarget.value)
     } else if (orderData.payment_url) {
       purchaseDialogVisible.value = false
-      ElMessage.info('Please complete payment in the popup window; plugin will auto-install after success') // FIXED: 硬编码中文→英文
+      ElMessage.info(t('plugin.payPageHint'))
       const payWindow = window.open(orderData.payment_url, '_blank', 'width=600,height=700')
       if (paymentPollingTimer) clearInterval(paymentPollingTimer)
       let paymentPollRetries = 0
@@ -401,7 +400,7 @@ const doEmbeddedPurchase = async () => {
             clearInterval(paymentPollingTimer!)
             paymentPollingTimer = null
             payWindow?.close()
-            ElMessage.success('Payment successful, auto-installing…') // FIXED: 硬编码中文→英文
+            ElMessage.success(t('plugin.paySuccessInstalling'))
             if (purchaseTarget.value) {
               await installPlugin(purchaseTarget.value)
             }
@@ -411,18 +410,18 @@ const doEmbeddedPurchase = async () => {
           if (paymentPollRetries >= 20) {
             clearInterval(paymentPollingTimer!)
             paymentPollingTimer = null
-            ElMessage.warning('Payment confirmation timeout, please refresh manually') // FIXED: 硬编码中文→英文
+            ElMessage.warning(t('plugin.payTimeout'))
           }
         }
       }, 3000)
     } else {
       purchaseDialogVisible.value = false
-      ElMessage.success('Order created, please complete payment then install the plugin') // FIXED: 硬编码中文→英文
+      ElMessage.success(t('plugin.orderCreated'))
       await loadData()
     }
   } catch (error: unknown) {
     const friendly = getFriendlyError(error)
-    purchaseError.value = friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message
+    purchaseError.value = friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message
   } finally {
     purchaseLoading.value = false
   }
@@ -432,8 +431,10 @@ const emitPluginUpdated = () => {
   window.dispatchEvent(new Event('plugins-updated'))
 }
 
-const refreshSuperuserZipVisibility = () => {
-  showSuperuserZipUpload.value = getRoleInfo().isSuperuser
+// FIX C-3: 改用后端验证的权威角色信息
+const refreshSuperuserZipVisibility = async () => {
+  const info = await getVerifiedRoleInfo()
+  showSuperuserZipUpload.value = !!info?.isSuperuser
 }
 
 type UploadErrorCallbackArg = Parameters<NonNullable<UploadRequestOptions['onError']>>[0]
@@ -448,9 +449,9 @@ const handleOssPluginZipUpload = async (options: UploadRequestOptions) => {
     const pid = String(data.plugin_id || '').trim()
     const op = String(data.operation || 'install')
     if (op === 'upgrade') {
-      ElMessage.success(`Plugin ${pid} upgraded to v${data.version || ''}`) // FIXED: 硬编码中文→英文
+      ElMessage.success(t('plugin.upgradeSuccess', { pid, version: data.version || '' }))
     } else {
-      ElMessage.success(pid ? `Plugin ${pid} installed successfully` : 'Plugin installed successfully') // FIXED: 硬编码中文→英文
+      ElMessage.success(pid ? t('plugin.installSuccessWithName', { pid }) : t('plugin.installSuccess'))
     }
     emitPluginUpdated()
     await loadData()
@@ -458,7 +459,7 @@ const handleOssPluginZipUpload = async (options: UploadRequestOptions) => {
     ossZipUploadRef.value?.clearFiles()
   } catch (error: unknown) {
     const friendly = getFriendlyError(error)
-    const line = friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message
+    const line = friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message
     ElMessage.error(line)
     await promptUpgradeHookReportIfPresent(friendly)
     options.onError?.(new Error(line) as UploadErrorCallbackArg)
@@ -470,18 +471,18 @@ const handleOssPluginZipUpload = async (options: UploadRequestOptions) => {
 const loadData = async () => {
   marketLoading.value = true
   installedLoading.value = true
-  marketplaceEmptyText.value = '加载中…'
+  marketplaceEmptyText.value = t('common.loading')
   try {
     let marketData: PluginRow[] = []
     try {
       const res = await api.get('/api/v1/plugins/marketplace')
       marketData = Array.isArray(res.data) ? res.data : []
     } catch {
-      marketplaceEmptyText.value = '插件市场加载失败，请检查网络或稍后重试'
+      marketplaceEmptyText.value = t('plugin.marketLoadFailed')
     }
     marketplaceList.value = marketData
-    if (marketData.length === 0 && marketplaceEmptyText.value === '加载中…') {
-      marketplaceEmptyText.value = '暂无可用插件'
+    if (marketData.length === 0 && marketplaceEmptyText.value === t('common.loading')) {
+      marketplaceEmptyText.value = t('plugin.noAvailablePlugins')
     }
 
     const [installedRes, shopRes, purchasedRes] = await Promise.all([
@@ -518,14 +519,14 @@ const installPlugin = async (row: PluginRow) => {
     await loadData()
     emitPluginUpdated()
     if (op === 'upgrade') {
-      ElMessage.success(data?.version ? `Plugin updated to v${data.version}` : 'Plugin updated to latest version') // FIXED: 硬编码中文→英文
+      ElMessage.success(data?.version ? t('plugin.updatedToVersion', { version: data.version }) : t('plugin.updatedLatest'))
     } else {
-      ElMessage.success('Plugin installed successfully, opening plugin runtime page') // FIXED: 硬编码中文→英文
+      ElMessage.success(t('plugin.installAndOpen'))
       await router.push(`/plugins/runtime/${row.id}`)
     }
   } catch (error: unknown) {
     const friendly = getFriendlyError(error)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
     await promptUpgradeHookReportIfPresent(friendly)
   } finally {
     installing.value = false
@@ -538,16 +539,16 @@ const uninstallPlugin = async (pluginId: string) => {
     const prev = await api.get(`/api/v1/plugins/${pluginId}/uninstall-preview`)
     const tables: string[] = Array.isArray(prev.data?.tables) ? prev.data.tables : []
     if (tables.length > 0) {
-      tableHint = `\n\nplugin.json 声明的数据库表将被删除：${tables.join('、')}。`
+      tableHint = '\n\n' + t('plugin.uninstallTableHint', { tables: tables.join('、') })
     }
   } catch {
-    console.warn('卸载预览失败，继续卸载流程')
+    logger.warn('卸载预览失败，继续卸载流程')
   }
   try {
     await ElMessageBox.confirm(
-      `After uninstallation, the plugin's menus and features will be unavailable.${tableHint}\n\nYou can reinstall from the marketplace later. Confirm uninstall?`,
-      'Confirm plugin uninstallation',
-      { type: 'warning', confirmButtonText: 'Uninstall', cancelButtonText: 'Cancel' } // FIXED: 硬编码中文→英文
+      t('plugin.uninstallConfirmMessage', { tableHint }),
+      t('plugin.uninstallConfirmTitle'),
+      { type: 'warning', confirmButtonText: t('plugin.uninstall'), cancelButtonText: t('common.cancel') }
     )
   } catch {
     return
@@ -557,10 +558,10 @@ const uninstallPlugin = async (pluginId: string) => {
     await api.delete(`/api/v1/plugins/${pluginId}`)
     await loadData()
     emitPluginUpdated()
-    ElMessage.success('Plugin uninstalled successfully') // FIXED: 硬编码中文→英文
+    ElMessage.success(t('plugin.uninstallSuccess'))
   } catch (error: unknown) {
     const friendly = getFriendlyError(error)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     installing.value = false
   }
@@ -574,7 +575,7 @@ onMounted(async () => {
     loadSecurityReports()
     window.addEventListener('plugin-purchases-updated', onPurchaseSync)
   } catch {
-    ElMessage.error('Failed to load plugin data') // FIXED: 硬编码中文→英文
+    ElMessage.error(t('plugin.loadDataFailed'))
   }
 })
 

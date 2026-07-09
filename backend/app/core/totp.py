@@ -1,32 +1,22 @@
 import base64
 import hashlib
 import hmac
-from loguru import logger
+import logging
 import secrets
 import struct
 import time
 
 from app.core.config import settings
 
+_logger = logging.getLogger(__name__)
+
 
 def _get_totp_cipher():
     from cryptography.fernet import Fernet
-    key_source = getattr(settings, 'TOTP_ENCRYPTION_KEY', None) or settings.SECRET_KEY
-    if not key_source:
-        raise RuntimeError("SECRET_KEY is not configured - TOTP encryption requires a valid SECRET_KEY")
-    key_material = key_source.encode("utf-8")
-    fernet_key = base64.urlsafe_b64encode(
-        hashlib.pbkdf2_hmac("sha256", key_material, b"pygbsentry:totp_encryption", 100_000)
-    )
-    return Fernet(fernet_key)
-
-
-def _get_legacy_totp_cipher():
-    from cryptography.fernet import Fernet
-    key_source = getattr(settings, 'TOTP_ENCRYPTION_KEY', None) or settings.SECRET_KEY
-    if not key_source:
-        raise RuntimeError("SECRET_KEY is not configured")
-    key_material = key_source.encode("utf-8")
+    key_material = settings.SECRET_KEY
+    if not key_material:
+        raise RuntimeError("TOTP 加密需要 SECRET_KEY，请在环境变量中设置")
+    key_material = key_material.encode("utf-8")
     fernet_key = base64.urlsafe_b64encode(hashlib.sha256(key_material).digest())
     return Fernet(fernet_key)
 
@@ -45,12 +35,8 @@ def decrypt_totp_secret(ciphertext: str) -> str:
         cipher = _get_totp_cipher()
         return cipher.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
     except Exception:
-        try:
-            legacy_cipher = _get_legacy_totp_cipher()
-            return legacy_cipher.decrypt(ciphertext.encode("utf-8")).decode("utf-8")
-        except Exception:
-            logger.error("TOTP secret decryption failed - SECRET_KEY may have changed.")
-            raise ValueError("TOTP secret decryption failed. Please contact administrator to reset 2FA.")
+        _logger.warning("TOTP 密钥解密失败，可能由 SECRET_KEY 变更导致")
+        raise ValueError("TOTP secret decryption failed, SECRET_KEY may have changed")
 
 
 def generate_base32_secret(bytes_len: int = 20) -> str:
@@ -85,4 +71,3 @@ def verify_totp(code: str, secret_b32: str, window: int = 1, step: int = 30, dig
         if _hotp(secret_b32, base_counter + i, digits=digits) == c:
             return True
     return False
-

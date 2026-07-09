@@ -12,7 +12,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from fastapi import APIRouter, Depends, Query, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,12 @@ from app.models.stream_session import StreamSession
 from app.models.network_metric import NetworkMetric
 from app.core.plugin_manager import plugin_manager
 from app.services.config_center_service import config_center_service
-from app.services.release_center_service import release_center_service
+# FIX: [2026-07-03] release_center_service 在开源版中不存在，导致 reports 模块加载失败、/reports/* 路由全部 404。
+#      根因：企业版服务模块未在开源版中提供。修复：改为可选导入，缺失时 publish 功能降级。 [全栈工程师]
+try:
+    from app.services.release_center_service import release_center_service
+except ImportError:
+    release_center_service = None
 from app.services.auth_audit import safe_auth_audit
 from app.services.stream_quality_monitor import stream_quality_monitor
 from loguru import logger
@@ -43,6 +48,7 @@ class ReportTemplatePayload(BaseModel):
 
 
 class ReportSuiteConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     enabled: bool = True
     connector_url: str = ""
     export_formats: list[str] = Field(default_factory=lambda: ["csv", "xlsx"])
@@ -685,7 +691,7 @@ async def reports_export(
         # 从 network_metrics 表查最近 24 小时真实数据
         from app.models.network_metric import NetworkMetric
         start_dt = datetime.now(timezone.utc) - timedelta(hours=24)
-        end_dt = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
         tenant_id = current_user.tenant_id or "default"
         conditions = [
             NetworkMetric.metric.in_(["active_streams", "zlm_bandwidth_kbps"]),
@@ -778,7 +784,6 @@ async def test_report_suite_connector(
         raise HTTPException(status_code=400, detail="Direct IP address usage not allowed")
     except ValueError as e:
         logger.debug(f"IP地址解析非IP值(预期行为): {e}")
-    import httpx
     from app.core.http_client import get_http_client
 
     try:

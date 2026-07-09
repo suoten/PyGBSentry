@@ -1,0 +1,36 @@
+{
+  "scenario": "concurrent_register",
+  "device_count": 50,
+  "success": 0,
+  "fail": 50,
+  "success_rate": 0.0,
+  "total_elapsed_s": 250.4,
+  "latency_ms": {
+    "avg": 0,
+    "p50": 0,
+    "p95": 0,
+    "max": 0
+  },
+  "errors": [
+    "34020000001320000: Socket timeout",
+    "34020000001320001: Socket timeout",
+    "34020000001320002: Socket timeout",
+    "34020000001320003: Socket timeout",
+    "34020000001320004: Socket timeout",
+    "34020000001320005: Socket timeout",
+    "34020000001320006: Socket timeout",
+    "34020000001320007: Socket timeout",
+    "34020000001320008: Socket timeout",
+    "34020000001320009: Socket timeout",
+    "34020000001320010: Socket timeout",
+    "34020000001320011: Socket timeout",
+    "34020000001320012: Socket timeout",
+    "34020000001320013: Socket timeout",
+    "34020000001320014: Socket timeout",
+    "34020000001320015: Socket timeout",
+    "34020000001320016: Socket timeout",
+    "34020000001320017: Socket timeout",
+    "34020000001320018: Socket timeout",
+    "34020000001320019: Socket timeout"
+  ]
+}

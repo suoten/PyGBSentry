@@ -899,6 +899,7 @@ const screens = ref(new Array(maxScreens).fill(null))
 const filterText = ref('')
 
 // 兼容旧模板/缓存产物：保留 highContrastTree，避免运行时变量缺失
+// SECURITY: 非敏感 UI 偏好（设备树状态高对比度开关）— 仅 'true'/'false'，不含敏感信息，可安全存入 localStorage
 
 const highContrastTree = ref(localStorage.getItem('tree_status_high_contrast') === 'true')
 
@@ -1632,7 +1633,7 @@ const releaseScreen = async (index: number) => {
 
   } catch (e) {
 
-    console.warn(`停止流失败(app=${current.app}, stream=${current.stream}):`, e)
+    logger.warn(`停止流失败(app=${current.app}, stream=${current.stream}):`, e)
 
   }
 
@@ -1730,7 +1731,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
             if (retryCount > 60) {
 
-              throw new Error('等待媒体流超时')
+              throw new Error(t('monitor.waitStreamTimeout'))
 
             }
 
@@ -1766,7 +1767,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
     if (!url && !hls) {
 
-      throw new Error('未获取到播放地址或设备响应超时')
+      throw new Error(t('monitor.noPlayAddress'))
 
     }
 
@@ -1824,7 +1825,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
       error: true,
 
-      errorMsg: getApiErrorMessage(error, '拉流失败，请稍后重试')
+      errorMsg: getApiErrorMessage(error, t('monitor.pullFailed'))
 
     }
 

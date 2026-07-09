@@ -2298,8 +2298,9 @@ const saveRuntimeConfig = async () => {
     const configToSend: Record<string, unknown> = {}
     for (const f of runtimeFields.value) {
       const key = String(f.key)
-      const t = String(f.type || '').toLowerCase()
-      if (t === 'json') {
+      // FIX: [2026-07-04] 局部变量 t 遮蔽 useI18n 的 t 函数，JSON 解析失败时 TypeError [全栈工程师]
+      const fieldType = String(f.type || '').toLowerCase()
+      if (fieldType === 'json') {
         const txt = String(jsonText[key] ?? '').trim()
         if (!txt) {
           configToSend[key] = {}
@@ -2325,14 +2326,11 @@ const saveRuntimeConfig = async () => {
   }
 }
 
-/** iframe 无法带 Bearer，plugin-assets 依赖 deps 的 query token，与 axios 使用同一 localStorage token。 */
+/** P0-6: iframe 无法带 Bearer，plugin-assets 改由 HttpOnly cookie 认证（login 已设置 access_token cookie）。
+ * 不再将 token 拼入 URL 查询参数，消除 token 暴露到日志/Referer/history 的风险（硬约束 #1）。
+ */
 const withPluginAssetsAuthToken = (url: unknown) => {
-  const u = String(url || '').trim()
-  if (!u || !u.includes('plugin-assets')) return u
-  const token = localStorage.getItem('token')
-  if (!token) return u
-  const sep = u.includes('?') ? '&' : '?'
-  return `${u}${sep}token=${encodeURIComponent(token)}`
+  return String(url || '').trim()
 }
 
 onMounted(async () => {

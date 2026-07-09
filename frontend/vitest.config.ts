@@ -4,20 +4,28 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [vue()],
-  test: {
-    environment: 'jsdom',
-    globals: true,
-    include: ['src/__tests__/**/*.test.ts', 'src/__tests__/**/*.test.tsx'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'html'],
-      include: ['src/**/*.{ts,vue}'],
-      exclude: ['src/__tests__/**', 'src/main.ts', 'src/router/**'],
-    },
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src'),
+    },
+  },
+  test: {
+    environment: 'jsdom',
+    include: [
+      'src/**/*.{test,spec}.{js,ts}',
+      'tests/**/*.{test,spec}.{js,ts}',
+    ],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      include: ['src/**/*.{js,ts}'],
+      exclude: [
+        'src/**/*.d.ts',
+        'src/auto-imports.d.ts',
+        'src/components.d.ts',
+        'src/**/__tests__/**',
+        'src/main.ts',
+      ],
     },
   },
 })

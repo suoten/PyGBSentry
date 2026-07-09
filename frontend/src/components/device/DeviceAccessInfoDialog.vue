@@ -1,7 +1,7 @@
 <template>
   <AppDialog
     v-model="visible"
-    title="接入信息"
+    :title="t('device.accessInfo.title')"
     size="large"
   >
     <div v-if="loading" class="py-8 flex justify-center">
@@ -10,7 +10,7 @@
     <div v-else class="dialog-content access-info-content">
       <div class="info-section">
         <div class="info-item">
-          <div class="info-label">编号</div>
+          <div class="info-label">{{ t('device.accessInfo.code') }}</div>
           <div class="info-value-wrapper">
             <span class="info-value">{{ accessInfo.sipId || '-' }}</span>
             <el-button v-if="accessInfo.sipId" size="small" type="primary" link @click="copy(accessInfo.sipId)">
@@ -19,7 +19,7 @@
           </div>
         </div>
         <div class="info-item">
-          <div class="info-label">域</div>
+          <div class="info-label">{{ t('device.accessInfo.domain') }}</div>
           <div class="info-value-wrapper">
             <span class="info-value">{{ accessInfo.domain || '-' }}</span>
             <el-button v-if="accessInfo.domain" size="small" type="primary" link @click="copy(accessInfo.domain)">
@@ -30,14 +30,14 @@
         <div class="info-item">
           <div class="info-label">IP</div>
           <div class="info-value-wrapper">
-            <span class="info-value">{{ accessInfo.sipIp || '-' }}</span>
-            <el-button v-if="accessInfo.sipIp" size="small" type="primary" link @click="copy(accessInfo.sipIp)">
+            <span class="info-value">{{ maskSipIp(accessInfo.sipIp) || '-' }}</span>
+            <el-button v-if="accessInfo.sipIp" size="small" type="primary" link @click="copy(maskSipIp(accessInfo.sipIp))">
               <el-icon><DocumentCopy /></el-icon>
             </el-button>
           </div>
         </div>
         <div class="info-item">
-          <div class="info-label">端口</div>
+          <div class="info-label">{{ t('device.accessInfo.port') }}</div>
           <div class="info-value-wrapper">
             <span class="info-value">{{ accessInfo.port || '-' }}</span>
             <el-button v-if="accessInfo.port" size="small" type="primary" link @click="copy(String(accessInfo.port))">
@@ -46,7 +46,7 @@
           </div>
         </div>
         <div class="info-item">
-          <div class="info-label">密码</div>
+          <div class="info-label">{{ t('device.accessInfo.password') }}</div>
           <div class="info-value-wrapper">
             <el-input
               v-if="accessInfo.password"
@@ -57,7 +57,7 @@
               readonly
               style="width: 180px"
             />
-            <span v-else class="info-value-empty">未设置</span>
+            <span v-else class="info-value-empty">{{ t('device.accessInfo.notSet') }}</span>
             <el-button v-if="accessInfo.password" size="small" type="primary" link @click="copy(accessInfo.password)">
               <el-icon><DocumentCopy /></el-icon>
             </el-button>
@@ -66,13 +66,13 @@
       </div>
     </div>
     <div class="mt-3 text-xs text-center leading-5" style="color: var(--el-text-color-secondary)">
-      提示：将以上参数配置到下级设备"上级平台/国标服务器"中。
+      {{ t('device.accessInfo.hint') }}
     </div>
     <template #footer>
-      <el-button @click="visible = false">关闭</el-button>
+      <el-button @click="visible = false">{{ t('device.accessInfo.close') }}</el-button>
       <el-button type="primary" @click="copyAll">
         <el-icon class="mr-1"><DocumentCopy /></el-icon>
-        一键复制全部
+        {{ t('device.accessInfo.copyAll') }}
       </el-button>
     </template>
   </AppDialog>
@@ -80,11 +80,15 @@
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import { Loading, DocumentCopy } from '@element-plus/icons-vue'
 import AppDialog from '../common/AppDialog.vue'
 import { showError } from '@/utils/feedback'
+import { maskSipIp } from '@/utils/sipMask' // FIX H-10: SIP IP 脱敏
+
+const { t } = useI18n()
 
 const props = defineProps<{ modelValue: boolean }>()
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
@@ -122,7 +126,7 @@ const loadAccessInfo = async () => {
       password: String(info.sip_password || info.sipPassword || '')
     }
   } catch (e: unknown) {
-    showError('获取接入信息', e)
+    showError(t('device.accessInfo.fetchFailed'), e)
     accessInfo.value = { sipId: '', domain: '', port: '', sipIp: '', password: '' }
   } finally {
     loading.value = false
@@ -133,7 +137,7 @@ const copy = async (text: string) => {
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text)
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('device.accessInfo.copiedToClipboard'))
       return
     } catch {
       // fallback
@@ -149,22 +153,22 @@ const copy = async (text: string) => {
     const success = document.execCommand('copy')
     textArea.remove()
     if (success) {
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('device.accessInfo.copiedToClipboard'))
     } else {
-      ElMessage.warning('复制失败，请手动复制')
+      ElMessage.warning(t('device.accessInfo.copyFailedManual'))
     }
   } catch {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('device.accessInfo.copyFailedManual'))
   }
 }
 
 const copyAll = () => {
   const lines = [
-    `编号: ${accessInfo.value.sipId || '-'}`,
-    `域: ${accessInfo.value.domain || '-'}`,
-    `IP: ${accessInfo.value.sipIp || '-'}`,
-    `端口: ${accessInfo.value.port || '-'}`,
-    `密码: ${accessInfo.value.password || '未设置'}`
+    `${t('device.accessInfo.copyLineCode')}: ${accessInfo.value.sipId || '-'}`,
+    `${t('device.accessInfo.copyLineDomain')}: ${accessInfo.value.domain || '-'}`,
+    `IP: ${maskSipIp(accessInfo.value.sipIp) || '-'}`,
+    `${t('device.accessInfo.copyLinePort')}: ${accessInfo.value.port || '-'}`,
+    `${t('device.accessInfo.copyLinePassword')}: ${accessInfo.value.password || t('device.accessInfo.notSet')}`
   ]
   copy(lines.join('\n'))
 }

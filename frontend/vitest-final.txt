@@ -1,0 +1,159 @@
+﻿
+[7m[1m[36m RUN [39m[22m[27m [36mv1.6.1[39m [90mE:/纭曡吘缃戠粶/PyGBSentry/PyGBSentry/editions/open-source/frontend[39m
+
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - request interceptor[2m > [22msets Authorization Bearer header when a token exists
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - request interceptor[2m > [22mdoes not set Authorization when no token is present
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - request interceptor[2m > [22msets X-Sensitive-Operation header for admin paths
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - request interceptor[2m > [22msets X-Sensitive-Operation header for delete paths
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - request interceptor[2m > [22mdoes not set X-Sensitive-Operation for normal paths
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - invalidateTokenCache[2m > [22mforces the next token read to come from sessionStorage
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - response interceptor: network error[2m > [22mshows a network error message and rejects when there is no response
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - response interceptor: 401 handling[2m > [22mon 401 with no token, shows login prompt and rejects
+ [32m鉁?[39m src/utils/__tests__/http.test.ts[2m > [22mhttp utility - response interceptor: 401 handling[2m > [22mon 401 with token but no refresh_token, clears tokens and rejects
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22mlocalStorage wrappers[2m > [22msafeLSSet writes and returns true; safeLSGet reads value back
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22mlocalStorage wrappers[2m > [22msafeLSGet returns null for missing key
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22mlocalStorage wrappers[2m > [22msafeLSRemove deletes the key
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22msessionStorage wrappers[2m > [22msafeSSSet writes and returns true; safeSSGet reads value back
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22msessionStorage wrappers[2m > [22msafeSSGet returns null for missing key
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22msessionStorage wrappers[2m > [22msafeSSRemove deletes the key
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22merror handling[2m > [22msafeLSGet returns null when localStorage.getItem throws
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22merror handling[2m > [22msafeLSSet returns false when localStorage.setItem throws
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22merror handling[2m > [22msafeSSGet returns null when sessionStorage.getItem throws
+ [32m鉁?[39m src/utils/__tests__/storage.test.ts[2m > [22mstorage utilities[2m > [22merror handling[2m > [22msafeSSRemove swallows errors silently
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mempty / nullish inputs[2m > [22mreturns empty string for undefined
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mempty / nullish inputs[2m > [22mreturns empty string for null
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mempty / nullish inputs[2m > [22mreturns empty string for empty string
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mIPv4 masking[2m > [22mmasks middle octets of 192.168.1.1
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mIPv4 masking[2m > [22mmasks middle octets of 10.20.30.40
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mIPv4 masking[2m > [22mpreserves first and last octet only
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22msuperuser bypass[2m > [22mreturns original IP when isSuperuser=true
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22msuperuser bypass[2m > [22mmasks when isSuperuser=false explicitly
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22msuperuser bypass[2m > [22muses cached role info when isSuperuser not provided (superuser)
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22msuperuser bypass[2m > [22muses cached role info when isSuperuser not provided (non-superuser)
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mnumber / type coercion[2m > [22mconverts number input to string and returns placeholder for non-IP
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mnumber / type coercion[2m > [22mconverts numeric-looking string that is not a valid IPv4
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mIPv6 masking[2m > [22mmasks a full IPv6 address preserving head and tail
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22mIPv6 masking[2m > [22mreturns * for short IPv6-like strings (< 6 groups)
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22minvalid / non-IP formats[2m > [22mreturns placeholder for arbitrary text
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22minvalid / non-IP formats[2m > [22mrejects IPv4 with too many parts
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22minvalid / non-IP formats[2m > [22mrejects IPv4 with non-numeric parts
+ [32m鉁?[39m src/utils/__tests__/sipMask.test.ts[2m > [22mmaskSipIp[2m > [22minvalid / non-IP formats[2m > [22mrejects IPv4 with out-of-range octet
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mApp.vue Accessibility[2m > [22mskip-link has correct href targeting main-content
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mApp.vue Accessibility[2m > [22mmain-content has id for skip-link target
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mApp.vue Accessibility[2m > [22msidebar has navigation role and accessible label
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mTheme preferences[2m > [22mtheme mode is stored in localStorage
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mTheme preferences[2m > [22mauto mode defaults to system preference
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mKeyboard navigation[2m > [22mEscape key closes dialogs
+ [32m鉁?[39m src/__tests__/stores/appPrefs.test.ts[2m > [22mKeyboard navigation[2m > [22mCtrl+K triggers help navigation
+ [32m鉁?[39m src/__tests__/stores/alarm.test.ts[2m > [22mAlarm Store[2m > [22mshould have initial state
+ [32m鉁?[39m src/__tests__/stores/device.test.ts[2m > [22mDevice Store[2m > [22mshould have initial state
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22msets Authorization Bearer token from localStorage
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mreads CSRF token from localStorage
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mgenerates unique Request-ID per request
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mmarks sensitive operations with X-Sensitive-Operation header
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mhandles 401 by clearing token and redirecting
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mhandles 423 (locked) with retry-after header
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mAxios interceptor security features[2m > [22mhandles 429 (rate limited) without clearing token
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mRoute transition[2m > [22mpage-enter transition applies opacity and transform
+ [32m鉁?[39m src/__tests__/utils/main.test.ts[2m > [22mRoute transition[2m > [22mpage-leave transition applies opacity and transform
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mhasPermission[2m > [22mreturns true when permissions include wildcard "*"
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mhasPermission[2m > [22mreturns true when target is present in permissions
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mhasPermission[2m > [22mreturns false when target is not in permissions
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mhasPermission[2m > [22mreturns true if any of multiple targets match
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mhasPermission[2m > [22mreturns false for empty permissions
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mEMPTY_ROLE_INFO[2m > [22mexposes empty / default values
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetCachedRoleInfo[2m > [22mreturns null when cache is empty
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetRoleInfo (client-side JWT decode)[2m > [22mreturns empty role info when no token in sessionStorage
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetRoleInfo (client-side JWT decode)[2m > [22mdecodes a superuser token with wildcard permission
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetRoleInfo (client-side JWT decode)[2m > [22mnormalizes permissions to lowercase, dedupes, and derives flags
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetRoleInfo (client-side JWT decode)[2m > [22mreturns fallback for a malformed token payload
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mgetRoleInfo (client-side JWT decode)[2m > [22mreturns fallback for token with empty payload part
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mverifyTokenWithBackend[2m > [22mreturns RoleInfo when backend validates the token
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mverifyTokenWithBackend[2m > [22mreturns null when backend reports token invalid
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mverifyTokenWithBackend[2m > [22mreturns null on backend error
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mverifyTokenWithBackend[2m > [22mcaches the verified result so subsequent reads skip the backend
+ [32m鉁?[39m src/utils/__tests__/auth.test.ts[2m > [22mverifyTokenWithBackend[2m > [22mclearRoleCache empties the cache
+ [32m鉁?[39m src/__tests__/i18n/completeness.test.ts[2m > [22mi18n locale completeness[2m > [22mzh-CN and en-US should have the same top-level sections
+ [32m鉁?[39m src/__tests__/i18n/completeness.test.ts[2m > [22mi18n locale completeness[2m > [22mall keys in zh-CN should exist in en-US
+ [32m鉁?[39m src/__tests__/i18n/completeness.test.ts[2m > [22mi18n locale completeness[2m > [22mall keys in en-US should exist in zh-CN
+ [32m鉁?[39m src/__tests__/i18n/completeness.test.ts[2m > [22mi18n locale completeness[2m > [22mboth locales should have a non-empty set of keys
+ [32m鉁?[39m src/__tests__/i18n/completeness.test.ts[2m > [22mi18n locale completeness[2m > [22mboth locales should have the same total number of keys
+ [32m鉁?[39m src/__tests__/stores/core.test.ts[2m > [22museUserStore[2m > [22minitial state reflects localStorage
+ [32m鉁?[39m src/__tests__/stores/core.test.ts[2m > [22museUserStore[2m > [22msetAuth updates state and localStorage
+ [32m鉁?[39m src/__tests__/stores/core.test.ts[2m > [22museUserStore[2m > [22mclearAuth resets all state
+ [32m鉁?[39m src/__tests__/composables/player.test.ts[2m > [22mPlayer Composable[2m > [22musePlayerSelection should be importable[33m 1115[2mms[22m[39m
+ [32m鉁?[39m src/__tests__/composables/player.test.ts[2m > [22mPlayer Composable[2m > [22museStreamUrls should be importable
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museStreamUrls[2m > [22mnormalizes quoted URLs
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museStreamUrls[2m > [22mreturns empty for missing URLs
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museStreamUrls[2m > [22mdetects hasWebrtc correctly
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museStreamUrls[2m > [22madds type=play to WHEP endpoints
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museStreamUrls[2m > [22mdetects H265 from codec string
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museAutoHeal[2m > [22minitial state allows auto heal
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museAutoHeal[2m > [22mrecordFallback increments attempts
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museAutoHeal[2m > [22mresetAutoHeal clears state
+ [32m鉁?[39m src/__tests__/composables/stream.test.ts[2m > [22museAutoHeal[2m > [22mrespects max attempts
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22minitial state is logged out when no token is persisted
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22minitial state reflects persisted sessionStorage token / localStorage username
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22msetAuth updates state, persists token to sessionStorage and username to localStorage
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22msetAuth ignores an invalid (empty) token
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22mclearAuth resets all state and clears persisted storage
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22mrefreshRoleFromBackend updates role/isSuperuser from the backend
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22mrefreshRoleFromBackend clears role when backend returns null
+ [32m鉁?[39m src/stores/__tests__/user.test.ts[2m > [22museUserStore[2m > [22mlogout calls the logout API, disconnects notifications, and clears auth
+ [31m脳[39m src/__tests__/api/device.test.ts[2m > [22mDevice API[2m > [22mshould export device API functions[33m 5035[2mms[22m[39m
+[31m   鈫?Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m脳[39m src/__tests__/stores/core.test.ts[2m > [22museAlarmStore[2m > [22minitial state is empty[33m 6688[2mms[22m[39m
+[31m   鈫?Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m脳[39m src/__tests__/stores/core.test.ts[2m > [22museAlarmStore[2m > [22maddAlarm prepends and increments unread[33m 5442[2mms[22m[39m
+[31m   鈫?Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [31m脳[39m src/__tests__/stores/core.test.ts[2m > [22museAlarmStore[2m > [22mrecentAlarms returns first 20[33m 6268[2mms[22m[39m
+[31m   鈫?Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or configure it globally with "testTimeout".[39m
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in validation errors (ERR_002)[2m > [22mextracts error_code ERR_002 from 422 validation error response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in validation errors (ERR_002)[2m > [22mhandles 422 with structured validation errors
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in HTTP errors (ERR_XXX)[2m > [22mextracts error_code from 404 response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in HTTP errors (ERR_XXX)[2m > [22mextracts error_code from 403 forbidden response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in HTTP errors (ERR_XXX)[2m > [22mextracts error_code from 429 rate-limited response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in HTTP errors (ERR_XXX)[2m > [22mextracts error_code from 400 bad request response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in HTTP errors (ERR_XXX)[2m > [22mhandles HTTP error with auto-generated error_code (ERR_{status})
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in global exceptions (ERR_001)[2m > [22mextracts error_code ERR_001 from 500 internal server error
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in global exceptions (ERR_001)[2m > [22mhandles 500 with upgrade_hook_report
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in device/channel errors[2m > [22mextracts device-specific error_code from 404 response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror_code in device/channel errors[2m > [22mextracts stream-specific error_code from 503 response
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22mgetApiErrorMessage with error_code responses[2m > [22mreturns friendly message for error_code responses
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22mgetApiErrorMessage with error_code responses[2m > [22mreturns empty string for canceled requests
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22mgetApiErrorMessage with error_code responses[2m > [22mreturns fallback when friendly message is empty
+ [32m鉁?[39m src/__tests__/api/errorCodes.test.ts[2m > [22mAPI error code mechanism[2m > [22merror responses with error_code are handled correctly[2m > [22mpreserves error_code in the response data for all error types
+ [32m鉁?[39m src/__tests__/stores/core.test.ts[2m > [22musePluginStore[2m > [22mcanUse checks both purchased and installed[33m 2032[2mms[22m[39m
+ [32m鉁?[39m src/__tests__/stores/core.test.ts[2m > [22musePluginStore[2m > [22misPurchased and isInstalled work independently
+
+npx : [31m鈳幆鈳幆鈳幆鈳?[1m[7m Failed Tests 4 [27m[22m鈳幆鈳幆鈳幆鈳?[39m
+所在位置 行:1 字符: 5
++ & { npx vitest run --reporter=verbose 2>&1 | Out-File -FilePath vites ...
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([31m鈳幆鈳幆鈳幆鈳...鈳幆鈳幆鈳幆鈳?[39m 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
+[31m[1m[7m FAIL [27m[22m[39m src/__tests__/api/device.test.ts[2m > [22m
+Device API[2m > [22mshould export device API functions
+[31m[1m[7m FAIL [27m[22m[39m src/__tests__/stores/core.test.ts[2m > [22
+museAlarmStore[2m > [22minitial state is empty
+[31m[1m[7m FAIL [27m[22m[39m src/__tests__/stores/core.test.ts[2m > [22
+museAlarmStore[2m > [22maddAlarm prepends and increments unread
+[31m[1m[7m FAIL [27m[22m[39m src/__tests__/stores/core.test.ts[2m > [22
+museAlarmStore[2m > [22mrecentAlarms returns first 20
+[31m[1mError[22m: Test timed out in 5000ms.
+If this is a long-running test, pass a timeout value as the last argument or co
+nfigure it globally with "testTimeout".[39m
+[31m[2m鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆鈳幆[1/4]鈳?[22m[39m
+
+[2m Test Files [22m [1m[31m2 failed[39m[22m[2m | [22m[1m[32m13 passed[39m[22m[90m (15)[39m
+[2m      Tests [22m [1m[31m4 failed[39m[22m[2m | [22m[1m[32m116 passed[39m[22m[90m (120)[39m
+[2m   Start at [22m 11:38:09
+[2m   Duration [22m 39.38s[2m (transform 5.10s, setup 1ms, collect 34.41s, tests 27.03s, environment 190.19s, prepare 40.86s)[22m
+

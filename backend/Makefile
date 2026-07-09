@@ -1,7 +1,7 @@
 # PyGBSentry Backend Makefile
 # Usage: make <target>
 
-.PHONY: help dev prod test lint format mypy bandit clean install dev-install test-cov docker-up docker-down db-migrate db-migration db-rollback pre-commit-setup run
+.PHONY: help dev prod test lint format mypy bandit clean install dev-install test-cov docker-up docker-down db-migrate db-migration db-rollback pre-commit-setup run lock
 
 # Colors
 BLUE := \033[0;34m
@@ -18,6 +18,29 @@ install: ## Install production dependencies
 
 dev-install: ## Install development dependencies
 	pip install -e ".[dev]"
+
+# P1-37: 依赖锁定 — 生成 requirements.lock 锁定全部间接依赖
+# 前置：pip install pip-tools
+# 产物：requirements.lock（提交到仓库，用于生产部署与 pip-audit 扫描）
+lock: ## Generate requirements.lock with pip-compile (pin all transitive deps)
+	pip-compile --no-emit-index-url --output-file requirements.lock requirements.txt
+	@echo "$(GREEN)Generated requirements.lock — commit it to the repository$(NC)"
+
+lock-check: ## Verify requirements.lock is up to date with requirements.txt
+	@if [ -f requirements.lock ]; then \
+		pip-compile --no-emit-index-url --output-file /tmp/requirements.lock.check requirements.txt >/dev/null 2>&1; \
+		if ! diff -q requirements.lock /tmp/requirements.lock.check >/dev/null; then \
+			echo "$(YELLOW)requirements.lock is out of date. Run 'make lock' and commit the changes.$(NC)"; \
+			rm -f /tmp/requirements.lock.check; \
+			exit 1; \
+		else \
+			echo "$(GREEN)requirements.lock is up to date$(NC)"; \
+			rm -f /tmp/requirements.lock.check; \
+		fi; \
+	else \
+		echo "$(YELLOW)requirements.lock does not exist. Run 'make lock' to generate it.$(NC)"; \
+		exit 1; \
+	fi
 
 # Development
 dev: ## Start development server with hot reload
@@ -120,13 +143,13 @@ fmt-imports: ## Sort imports with isort
 
 check: ## Run all checks (lint, type, security)
 	@echo "$(GREEN)Running ruff check...$(NC)"
-	@ruff check app/ tests/ || true
+	@ruff check app/ tests/
 	@echo "$(GREEN)Running ruff format check...$(NC)"
-	@ruff format --check app/ tests/ || true
+	@ruff format --check app/ tests/
 	@echo "$(GREEN)Running mypy...$(NC)"
-	@mypy app/ --ignore-missing-imports --no-error-summary || true
+	@mypy app/ --ignore-missing-imports --no-error-summary
 	@echo "$(GREEN)Running bandit...$(NC)"
-	@bandit -r app/ -q || true
+	@bandit -r app/ -q
 	@echo "$(GREEN)All checks passed!$(NC)"
 
 # Virtual environment

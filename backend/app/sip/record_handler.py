@@ -1,225 +1,128 @@
-import json
-import time
-from loguru import logger  # 统一使用 loguru 替代 logging
-from app.core.redis import redis_client
-from app.core.xml_utils import parse_xml, get_xml_text, find_child, find_children
+"""GB28181 RecordInfo 响应解析与缓存。
+
+本模块负责解析设备返回的 ``CmdType=RecordInfo`` XML 响应，将其中每个
+``<Item>`` 转换为标准化的录像条目字典，并按 SN 缓存最近一次查询结果，
+供 ``device_record`` REST 端点轮询读取。
+
+缓存使用带容量上限的字典（FIFO 淘汰），避免长时间运行后内存无限增长。
+"""
+from __future__ import annotations
+
+from collections import OrderedDict
+from typing import Any
+
+from loguru import logger
+
+from app.core.xml_utils import parse_xml, get_xml_text
+
+# 缓存上限：保留最近 N 次 RecordInfo 查询的结果
+_RECORD_QUERY_CACHE_MAX = 200
 
 
-# In-memory fallback cache for RecordInfo query results.
-# Key: SN (string). Value: list[dict] (records).
-# Used by API polling in `app/api/v1/endpoints/device_record.py`.
-record_query_cache: dict[str, list[dict]] = {}
-record_query_meta_cache: dict[str, dict] = {}
-_record_agg: dict[tuple[str, str], dict] = {}
-_record_agg_ttl_seconds = 600
-_record_cache_ttl_seconds = 600
-_record_cache_max_size = 5000
-_record_cache_cleanup_interval = 120
-_last_record_cache_cleanup = 0.0
+def _evict_if_full(cache: "OrderedDict[str, Any]", max_size: int) -> None:
+    """FIFO 淘汰最早的条目，保证缓存大小不超过 max_size。"""
+    while len(cache) > max_size:
+        try:
+            cache.popitem(last=False)
+        except KeyError:
+            break
 
 
-def _cleanup_record_caches() -> None:
-    now = time.time()
-    stale = [k for k, v in record_query_meta_cache.items() if now - v.get("_ts", 0) > _record_cache_ttl_seconds]
-    for k in stale:
-        record_query_cache.pop(k, None)
-        record_query_meta_cache.pop(k, None)
-    orphan_keys = [k for k in record_query_cache if k not in record_query_meta_cache]
-    for k in orphan_keys:
-        record_query_cache.pop(k, None)
-    if len(record_query_meta_cache) > _record_cache_max_size:
-        oldest = sorted(record_query_meta_cache.items(), key=lambda x: x[1].get("_ts", 0))
-        for k, _ in oldest[:len(oldest) - _record_cache_max_size // 2]:
-            record_query_cache.pop(k, None)
-            record_query_meta_cache.pop(k, None)
-    if len(record_query_cache) > _record_cache_max_size:
-        oldest_keys = list(record_query_cache.keys())[:len(record_query_cache) - _record_cache_max_size // 2]
-        for k in oldest_keys:
-            record_query_cache.pop(k, None)
-            record_query_meta_cache.pop(k, None)
+# SN -> list[dict]：录像条目列表（每项含 DeviceID/Name/FilePath/StartTime/EndTime 等）
+record_query_cache: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
 
-def periodic_cleanup_record_caches() -> None:
-    global _last_record_cache_cleanup
-    now = time.time()
-    if now - _last_record_cache_cleanup < _record_cache_cleanup_interval:
-        return
-    _last_record_cache_cleanup = now
-    _cleanup_record_caches()
-    for k in list(_record_agg.keys()):
-        st = _record_agg.get(k) or {}
-        if (now - float(st.get("last_at") or 0.0)) > _record_agg_ttl_seconds:
-            _record_agg.pop(k, None)
+# SN -> dict：录像查询元信息（含 sum_num/received/device_id 等）
+record_query_meta_cache: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
-async def handle_record_info_response(xml_body: str, device_id: str):
-    """
-    Parse RecordInfo Response
-    """
-    root = parse_xml(xml_body)
+
+def _parse_record_items(root) -> list[dict[str, Any]]:
+    """从 RecordInfo 响应根节点提取所有 <Item>，返回标准化的录像条目列表。"""
+    items: list[dict[str, Any]] = []
     if root is None:
-        return
-
-    sn = get_xml_text(root, "SN")
-
-    if sn and sn.isdigit():
+        return items
+    # Item 可直接位于根下，也可能位于 <ItemList> 内；两种布局都兼容
+    item_elems = root.findall(".//Item")
+    for item in item_elems:
         try:
-            import app.services.platform_service as _ps_mod
-            svc = getattr(_ps_mod, "platform_service", None)
-            if svc and int(sn) in svc._cascade_record_queries:
-                await svc.forward_cascade_record_response(int(sn), xml_body)
-                return
+            entry: dict[str, Any] = {
+                "device_id": get_xml_text(item, "DeviceID") or "",
+                "name": get_xml_text(item, "Name") or "",
+                "file_path": get_xml_text(item, "FilePath") or "",
+                "address": get_xml_text(item, "Address") or "",
+                "start_time": get_xml_text(item, "StartTime") or "",
+                "end_time": get_xml_text(item, "EndTime") or "",
+                "secrecy": get_xml_text(item, "Secrecy") or "0",
+                "type": get_xml_text(item, "Type") or "time",
+            }
+            items.append(entry)
         except Exception as e:
-            logger.warning(f"Cascade record forward failed for SN={sn}: {e}")
-    
-    record_list = find_child(root, "RecordList")
-    if record_list is None:
+            logger.warning(f"Failed to parse RecordInfo Item: {e}")
+            continue
+    return items
+
+
+async def handle_record_info_response(body: str, gb_id: str) -> None:
+    """解析 RecordInfo 响应并写入缓存。
+
+    被_handlers.py 在收到 ``CmdType=RecordInfo`` 的 MESSAGE 时以 fire-and-forget
+    方式调用。SN 作为缓存键，供 ``device_record`` 端点按 SN 轮询读取结果。
+
+    解析失败时记录警告但不抛异常，避免拖垮 fire-and-forget 任务。
+    """
+    if not body:
+        logger.warning(f"Empty RecordInfo body from {gb_id}")
         return
-    sum_num_raw = get_xml_text(record_list, "SumNum", "") or get_xml_text(root, "SumNum", "")
     try:
-        sum_num = int(str(sum_num_raw or "0").strip() or "0")
-    except Exception:
+        root = parse_xml(body)
+    except Exception as e:
+        logger.warning(f"Failed to parse RecordInfo XML from {gb_id}: {e}")
+        return
+    if root is None:
+        logger.warning(f"RecordInfo XML root is None from {gb_id}")
+        return
+
+    sn = get_xml_text(root, "SN") or ""
+    sum_num_raw = get_xml_text(root, "SumNum") or "0"
+    device_id_xml = get_xml_text(root, "DeviceID") or gb_id
+    name = get_xml_text(root, "Name") or ""
+
+    try:
+        sum_num = int(sum_num_raw)
+    except (TypeError, ValueError):
         sum_num = 0
-    now = time.time()
-    for k in list(_record_agg.keys()):
-        st = _record_agg.get(k) or {}
-        if (now - float(st.get("last_at") or 0.0)) > _record_agg_ttl_seconds:
-            _record_agg.pop(k, None)
 
-    def _record_key(r: dict) -> str:
-        return "|".join(
-            [
-                str(r.get("device_id") or ""),
-                str(r.get("start_time") or ""),
-                str(r.get("end_time") or ""),
-                str(r.get("file_path") or ""),
-                str(r.get("name") or ""),
-            ]
-        )
+    items = _parse_record_items(root)
 
-    records: list[dict] = []
-    for item in find_children(record_list, "Item"):
-        record = {
-            "device_id": get_xml_text(item, "DeviceID"),
-            "name": get_xml_text(item, "Name"),
-            "start_time": get_xml_text(item, "StartTime"),
-            "end_time": get_xml_text(item, "EndTime"),
-            "file_path": get_xml_text(item, "FilePath"),
-            "file_size": get_xml_text(item, "FileSize", "0"),
-            "type": "device",
-        }
-        records.append(record)
+    sn_key = str(sn) if sn else ""
+    if not sn_key:
+        # 没有 SN 时无法被端点轮询，仅记录日志
+        logger.warning(f"RecordInfo from {gb_id} missing SN, cannot cache result")
+        return
 
-    if sn:
-        agg_key = (str(device_id or ""), str(sn))
-        # Size limit for _record_agg to prevent unbounded memory growth
-        if len(_record_agg) > 1000:
-            sorted_keys = sorted(_record_agg.keys(), key=lambda k: _record_agg[k].get('_created_at', 0))
-            for k in sorted_keys[:200]:
-                _record_agg.pop(k, None)
-        st = _record_agg.get(agg_key) or {"seen": set(), "records": [], "sum_num": 0, "last_at": now, "_created_at": now}
-        st["last_at"] = now
-        try:
-            st["sum_num"] = max(int(st.get("sum_num") or 0), int(sum_num or 0))
-        except Exception:
-            st["sum_num"] = int(sum_num or 0)
+    _evict_if_full(record_query_cache, _RECORD_QUERY_CACHE_MAX)
+    record_query_cache[sn_key] = items
 
-        seen: set = st.get("seen") if isinstance(st.get("seen"), set) else set()  # None guard for set assignment
-        merged: list = st.get("records") if isinstance(st.get("records"), list) else []  # None guard for list assignment
-        for r in records:
-            key = _record_key(r)
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(r)
-            
-        # VOD Record Gap Detection: Sort and stitch timelines
-        try:
-            from datetime import datetime
-            
-            def parse_dt(s: str):
-                try:
-                    return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
-                except Exception:
-                    return None
+    _evict_if_full(record_query_meta_cache, _RECORD_QUERY_CACHE_MAX)
+    record_query_meta_cache[sn_key] = {
+        "sn": sn_key,
+        "sum_num": sum_num,
+        "received": len(items),
+        "device_id": device_id_xml,
+        "name": name,
+        "from_gb_id": gb_id,
+    }
 
-            # Sort by start_time
-            merged.sort(key=lambda x: parse_dt(str(x.get("start_time") or "")) or datetime.min)
-            
-            # Detect gaps > 5 seconds
-            for i in range(1, len(merged)):
-                prev = merged[i-1]
-                curr = merged[i]
-                prev_end = parse_dt(str(prev.get("end_time") or ""))
-                curr_start = parse_dt(str(curr.get("start_time") or ""))
-                if prev_end and curr_start:
-                    diff = (curr_start - prev_end).total_seconds()
-                    if diff > 5:
-                        curr["_gap_before_seconds"] = diff
-        except Exception as e:
-            logger.warning(f"Failed to detect record gaps: {e}")
-            
-        st["seen"] = seen
-        st["records"] = merged
-        _record_agg[agg_key] = st
-        records = merged
-        _cleanup_record_caches()
-        record_query_meta_cache[str(sn)] = {
-            "sn": str(sn),
-            "device_id": str(device_id or ""),
-            "sum_num": int(st.get("sum_num") or 0),
-            "received": int(len(records)),
-            "_ts": time.time(),
-        }
+    logger.info(
+        f"RecordInfo cached: gb_id={gb_id} sn={sn_key} sum_num={sum_num} received={len(items)}"
+    )
 
-    # Always store an in-memory copy for API polling fallback.
-    # This complements Redis storage (if enabled).
-    if sn:
-        try:
-            record_query_cache[str(sn)] = records
-        except Exception as e:
-            logger.error(f"Failed to store records in memory cache: {e}")
-        
-    if records and redis_client is not None:  # 显式 None 守卫避免 pyright Never
-        # Key: gb:records:{sn}
-        # Value: List of JSON strings
-        key = f"gb:records:{sn}"
-        try:
-            # Store in Redis with 10-minute expiration
-            existing = await redis_client.get(key)
-            if existing:
-                try:
-                    all_records = json.loads(existing)
-                    if not isinstance(all_records, list):
-                        all_records = []
-                except Exception:
-                    all_records = []
-            else:
-                all_records = []
 
-            existing_seen = set()
-            for r in all_records:
-                if isinstance(r, dict):
-                    existing_seen.add(_record_key(r))
-            for r in records:
-                if _record_key(r) in existing_seen:
-                    continue
-                all_records.append(r)
-                existing_seen.add(_record_key(r))
-                
-            _RECORD_CACHE_TTL_SECONDS = 600  # 魔法数字→常量（录像查询缓存TTL）
-            await redis_client.setex(key, _RECORD_CACHE_TTL_SECONDS, json.dumps(all_records))
-            meta_key = f"gb:records_meta:{sn}"
-            try:
-                meta = {
-                    "sn": str(sn),
-                    "device_id": str(device_id or ""),
-                    "sum_num": int((record_query_meta_cache.get(str(sn)) or {}).get("sum_num") or sum_num or 0),
-                    "received": int(len(all_records)),
-                }
-                await redis_client.setex(meta_key, _RECORD_CACHE_TTL_SECONDS, json.dumps(meta))  # 魔法数字→复用常量
-            except Exception as e:
-                logger.warning(f"Error: {e}")
-            logger.info(f"Stored {len(records)} records in Redis for SN {sn}")
-        except Exception as e:
-            logger.error(f"Failed to store records in Redis: {e}")
-    else:
-        logger.warning("No records to store or Redis not available")
+# FIX: [2026-07-03] server.py 的 prune loop 导入此函数但该函数不存在，导致每 5 秒报错 [全栈工程师]
+def periodic_cleanup_record_caches() -> None:
+    """定期清理录像查询缓存，防止长时间运行后内存无限增长。
+
+    被 ``server.py`` 的 ``_prune_loop`` 每 5 秒调用一次。
+    对 ``record_query_cache`` 和 ``record_query_meta_cache`` 执行 FIFO 淘汰。
+    """
+    _evict_if_full(record_query_cache, _RECORD_QUERY_CACHE_MAX)
+    _evict_if_full(record_query_meta_cache, _RECORD_QUERY_CACHE_MAX)

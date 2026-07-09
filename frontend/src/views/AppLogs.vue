@@ -2,77 +2,77 @@
   <div class="app-page space-y-4">
     <PageContainer>
       <template #header>
-        <PageHeader title="应用日志" description="移动端与小程序上报的崩溃与行为日志">
+        <PageHeader :title="t('appLogs.title')" :description="t('appLogs.description')">
           <template #actions>
-            <el-button type="primary" :loading="loading" @click="reload">刷新</el-button>
+            <el-button type="primary" :loading="loading" @click="reload">{{ t('common.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
 
-      <QueryFormSection title="筛选" :default-collapsed="true">
-        <el-form-item label="应用">
-          <el-select v-model="pluginId" placeholder="应用" clearable style="width: 160px">
-            <el-option label="全部" :value="''" />
-            <el-option label="手机版" value="mobile_app_suite" />
-            <el-option label="小程序" value="mini_program_suite" />
+      <QueryFormSection :title="t('appLogs.filter')" :default-collapsed="true">
+        <el-form-item :label="t('appLogs.appLabel')">
+          <el-select v-model="pluginId" :placeholder="t('appLogs.appPlaceholder')" clearable style="width: 160px">
+            <el-option :label="t('common.all')" :value="''" />
+            <el-option :label="t('appLogs.mobileApp')" value="mobile_app_suite" />
+            <el-option :label="t('appLogs.miniProgram')" value="mini_program_suite" />
           </el-select>
         </el-form-item>
-        <el-form-item label="平台">
-          <el-select v-model="platform" placeholder="平台" clearable style="width: 120px">
-            <el-option label="全部" :value="''" />
-            <el-option label="安卓" value="android" />
+        <el-form-item :label="t('common.platform')">
+          <el-select v-model="platform" :placeholder="t('appLogs.platformPlaceholder')" clearable style="width: 120px">
+            <el-option :label="t('common.all')" :value="''" />
+            <el-option :label="t('appLogs.android')" value="android" />
             <el-option label="iOS" value="ios" />
-            <el-option label="小程序" value="miniprogram" />
+            <el-option :label="t('appLogs.miniProgram')" value="miniprogram" />
           </el-select>
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="logType" placeholder="类型" clearable style="width: 120px">
-            <el-option label="全部" :value="''" />
-            <el-option label="崩溃" value="crash" />
-            <el-option label="行为" value="behavior" />
+        <el-form-item :label="t('common.type')">
+          <el-select v-model="logType" :placeholder="t('appLogs.typePlaceholder')" clearable style="width: 120px">
+            <el-option :label="t('common.all')" :value="''" />
+            <el-option :label="t('appLogs.crash')" value="crash" />
+            <el-option :label="t('appLogs.behavior')" value="behavior" />
           </el-select>
         </el-form-item>
-        <el-form-item label="时间范围">
+        <el-form-item :label="t('common.timeRange')">
           <el-date-picker
             v-model="timeRange"
             type="datetimerange"
-            range-separator="至"
-            start-placeholder="开始"
-            end-placeholder="结束"
+            :range-separator="t('appLogs.rangeSeparator')"
+            :start-placeholder="t('appLogs.startPlaceholder')"
+            :end-placeholder="t('appLogs.endPlaceholder')"
             format="YYYY-MM-DD HH:mm"
             value-format="YYYY-MM-DDTHH:mm:ss"
           />
         </el-form-item>
         <el-form-item>
-          <el-button @click="reload" :loading="loading" type="primary">查询</el-button>
+          <el-button @click="reload" :loading="loading" type="primary">{{ t('common.search') }}</el-button>
         </el-form-item>
       </QueryFormSection>
 
       <TableCard class="mt-4">
         <template #header>
           <div class="flex items-center justify-between">
-            <div class="font-medium">列表</div>
-            <div class="text-xs" style="color: var(--el-text-color-secondary)">共 {{ total }} 条</div>
+            <div class="font-medium">{{ t('appLogs.list') }}</div>
+            <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('appLogs.totalCount', { n: total }) }}</div>
           </div>
         </template>
       <el-table :data="items" v-loading="loading" stripe>
-        <el-table-column prop="created_at" label="时间" width="180" />
-        <el-table-column prop="plugin_id" label="应用" width="140">
+        <el-table-column prop="created_at" :label="t('common.time')" width="180" />
+        <el-table-column prop="plugin_id" :label="t('appLogs.appLabel')" width="140">
           <template #default="{ row }">
-            <el-tag size="small">{{ row.plugin_id === 'mini_program_suite' ? '小程序' : '手机版' }}</el-tag>
+            <el-tag size="small">{{ row.plugin_id === 'mini_program_suite' ? t('appLogs.miniProgram') : t('appLogs.mobileApp') }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="app_version" label="版本" width="100" />
-        <el-table-column prop="platform" label="平台" width="100" />
-        <el-table-column prop="log_type" label="类型" width="80">
+        <el-table-column prop="app_version" :label="t('common.version')" width="100" />
+        <el-table-column prop="platform" :label="t('common.platform')" width="100" />
+        <el-table-column prop="log_type" :label="t('common.type')" width="80">
           <template #default="{ row }">
             <el-tag :type="row.log_type === 'crash' ? 'danger' : 'info'" size="small">
-              {{ row.log_type === 'crash' ? '崩溃' : '行为' }}
+              {{ row.log_type === 'crash' ? t('appLogs.crash') : t('appLogs.behavior') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="message" label="内容" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="extra" label="扩展" width="120" show-overflow-tooltip />
+        <el-table-column prop="message" :label="t('appLogs.content')" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="extra" :label="t('appLogs.extra')" width="120" show-overflow-tooltip />
       </el-table>
       <div class="flex justify-end mt-4">
         <el-pagination
@@ -81,8 +81,8 @@
           :total="total"
           layout="total, sizes, prev, pager, next, jumper"
           :page-sizes="[10, 20, 50, 100]"
-          prev-text="上一页"
-          next-text="下一页"
+          :prev-text="t('appLogs.prevPage')"
+          :next-text="t('appLogs.nextPage')"
           size="small"
           @current-change="handlePageChange"
           @size-change="() => { page = 1; fetchLogs() }"
@@ -95,6 +95,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import { getFriendlyError } from '../utils/errorMessage'
@@ -102,6 +103,8 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import QueryFormSection from '../components/QueryFormSection.vue'
+
+const { t } = useI18n()
 
 interface LogItem {
   id: string

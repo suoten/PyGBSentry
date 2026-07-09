@@ -100,7 +100,7 @@
   <StreamPlayerDialog
     v-model="recordPlaybackVisible"
     width="84vw"
-    title="视频回放"
+    :title="t('device.videoPlayback')"
     :subtitle="recordPlaybackSubtitle"
     :urls="recordPlaybackUrls"
     :play-url="recordPlaybackPlayUrl"
@@ -111,6 +111,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import ChannelEditDialog from '../../components/channel/ChannelEditDialog.vue'
@@ -123,6 +124,8 @@ import StreamPlayerDialog from '../../components/StreamPlayerDialog.vue'
 import { getFriendlyError } from '../../utils/errorMessage'
 import { parseDeviceChannelsResponse } from '../../utils/deviceApi'
 import type { Device } from '@/types/models'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   currentDevice: Device | null
@@ -216,7 +219,8 @@ const playbackPaused = ref(false)
 const playbackSpeed = ref<number>(1)
 const playbackSeekAt = ref<Date | null>(null)
 const playbackActionLoading = ref(false)
-const playbackSpeedOptions = [0.25, 0.5, 1, 2, 4, 8]
+// FIX: [2026-07-03] 增加 16x 倍速选项 [全栈工程师]
+const playbackSpeedOptions = [0.25, 0.5, 1, 2, 4, 8, 16]
 const playbackCursorSec = ref<number | null>(null)
 
 // ━━ 流状态缓存 ━━
@@ -264,23 +268,23 @@ const getChannelPreviewStatus = (row: Record<string, unknown>) => {
   for (const k of keys) {
     if (cache[k]) { status = cache[k]; break }
   }
-  if (!status) return { label: '未知', type: 'info', icon: 'InfoFilled' }
+  if (!status) return { label: t('common.unknown'), type: 'info', icon: 'InfoFilled' }
   if (status.streamActive && status.hasVideo) {
-    return { label: '在线', type: 'success', icon: 'VideoPlay' }
+    return { label: t('common.online'), type: 'success', icon: 'VideoPlay' }
   }
   if (status.streamActive && !status.hasVideo) {
-    return { label: '仅音频', type: 'warning', icon: 'Microphone' }
+    return { label: t('device.audioOnly'), type: 'warning', icon: 'Microphone' }
   }
   if (!status.streamActive && status.hasVideo === false) {
-    return { label: '离线', type: 'danger', icon: 'CloseBold' }
+    return { label: t('common.offline'), type: 'danger', icon: 'CloseBold' }
   }
   if (!status.streamActive && status.reason === 'no_active_stream') {
-    return { label: '无活跃流', type: 'default', icon: 'VideoPlay' }
+    return { label: t('device.noActiveStream'), type: 'default', icon: 'VideoPlay' }
   }
   if (!status.streamActive) {
-    return { label: '未知状态', type: 'warning', icon: 'Warning' }
+    return { label: t('device.unknownStatus'), type: 'warning', icon: 'Warning' }
   }
-  return { label: '无流', type: 'info', icon: 'InfoFilled' }
+  return { label: t('device.noStream'), type: 'info', icon: 'InfoFilled' }
 }
 
 const canPreviewChannel = (row: Record<string, unknown>) => {
@@ -293,13 +297,13 @@ const canPreviewChannel = (row: Record<string, unknown>) => {
 
 const playTooltip = (row: Record<string, unknown>) => {
   const ss = _lookupStreamStatus(row)
-  if (!ss) return '未获取到流状态'
-  if (ss.streamActive && ss.hasVideo) return '通道实时视频'
-  if (ss.streamActive && !ss.hasVideo) return '当前仅有音频流，点击播放音频'
-  if (ss.hasVideo === false) return '通道无视频流'
-  if (ss.reason === 'zlm_unreachable') return '流媒体服务不可达，无法预览'
-  if (ss.reason === 'stream_not_found_in_zlm') return '该通道在流媒体中未找到'
-  return '在线通道可预览'
+  if (!ss) return t('device.streamStatusNotFetched')
+  if (ss.streamActive && ss.hasVideo) return t('device.channelLiveVideo')
+  if (ss.streamActive && !ss.hasVideo) return t('device.audioOnlyTip')
+  if (ss.hasVideo === false) return t('device.channelNoVideo')
+  if (ss.reason === 'zlm_unreachable') return t('device.mediaServerUnreachable')
+  if (ss.reason === 'stream_not_found_in_zlm') return t('device.channelNotFoundInMedia')
+  return t('device.onlineChannelPreviewable')
 }
 
 // ━━ 频道加载 ━━
@@ -392,7 +396,7 @@ const handleRecordPlay = (payload: Record<string, unknown>) => {
   const { raw, webrtc, flv, hls } = inferRecordUrls(payload)
   const direct = String(webrtc || flv || hls || raw).trim()
   if (!direct) {
-    ElMessage.warning('没有获取到可播放的地址')
+    ElMessage.warning(t('device.noPlayableAddress'))
     return
   }
   recordPlaybackUrls.raw = raw
@@ -402,8 +406,8 @@ const handleRecordPlay = (payload: Record<string, unknown>) => {
   recordPlaybackPlayUrl.value = direct
   recordPlaybackCodec.value = String(payload?.codec || '')
   recordPlaybackMode.value = webrtc ? 'webrtc' : flv ? 'flv' : hls ? 'hls' : 'raw'
-  const deviceName = String(props.currentDevice?.name || props.currentDevice?.gb_id || '未知设备')
-  const channelName = String(props.currentChannel?.name || props.currentChannel?.gb_id || '未知通道')
+  const deviceName = String(props.currentDevice?.name || props.currentDevice?.gb_id || t('device.unknownDevice'))
+  const channelName = String(props.currentChannel?.name || props.currentChannel?.gb_id || t('device.unknownChannel'))
   recordPlaybackSubtitle.value = `${deviceName} / ${channelName}`
   recordPlaybackVisible.value = true
 }
@@ -463,36 +467,36 @@ const getChannelSnapSrc = (row: Record<string, unknown>) => {
   if (row?.snap_url) return String(row.snap_url)
   const channelKey = String(row?.id ?? row?.gb_id ?? '').trim()
   if (!channelKey) return ''
-  const token = String(localStorage.getItem('token') || '').trim()
-  const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : ''
-  const snapUrl = `/api/v1/devices/channels/${encodeURIComponent(channelKey)}/snap?allow_invite=false&t=${channelSnapReloadToken.value}${tokenQuery}`
+  // P0-6: 移除 URL 中的 token 查询参数，改由 HttpOnly cookie 认证（login 已设置 access_token cookie）
+  // 硬约束 #1: 禁止通过 URL 查询参数暴露 JWT token
+  const snapUrl = `/api/v1/devices/channels/${encodeURIComponent(channelKey)}/snap?allow_invite=false&t=${channelSnapReloadToken.value}`
   return snapUrl
 }
 
 const getResourceTypeLabel = (row: Record<string, unknown>) => {
-  const t = Number(row?.resource_type)
-  if (t === 2) return '报警输入'
-  if (t === 3) return '报警输出'
-  return '视频'
+  const rt = Number(row?.resource_type)
+  if (rt === 2) return t('device.alarmInput')
+  if (rt === 3) return t('device.alarmOutput')
+  return t('device.video')
 }
 const getResourceTypeTagType = (row: Record<string, unknown>) => {
-  const t = Number(row?.resource_type)
-  if (t === 2) return 'warning'
-  if (t === 3) return 'info'
+  const rt = Number(row?.resource_type)
+  if (rt === 2) return 'warning'
+  if (rt === 3) return 'info'
   return 'success'
 }
 const getPtzTypeLabel = (row: Record<string, unknown>) => {
-  const t = Number(row?.ptz_type)
-  if (t === 1) return '云台'
-  if (t === 2) return '半球'
-  return '无云台'
+  const pt = Number(row?.ptz_type)
+  if (pt === 1) return t('device.ptz')
+  if (pt === 2) return t('device.hemisphere')
+  return t('device.noPtz')
 }
 const getPtzTypeTagType = (row: Record<string, unknown>) => Number(row?.ptz_type) === 1 ? 'success' : 'info'
 
 const saveChannelAudioInline = async (row: Record<string, unknown>) => {
   const channelId = String(row?.id || '').trim()
   if (!channelId) {
-    ElMessage.warning('请先选择通道再操作')
+    ElMessage.warning(t('device.selectChannelFirst'))
     return
   }
   const oldValue = !row.has_audio
@@ -501,7 +505,7 @@ const saveChannelAudioInline = async (row: Record<string, unknown>) => {
     await api.put(`/api/v1/devices/channels/${encodeURIComponent(channelId)}`, {
       has_audio: !!row.has_audio
     })
-    ElMessage.success('通道流类型修改成功')
+    ElMessage.success(t('device.streamTypeUpdateSuccess'))
   } catch (e: unknown) {
     row.has_audio = oldValue
     const friendly = getFriendlyError(e)
@@ -514,7 +518,7 @@ const saveChannelAudioInline = async (row: Record<string, unknown>) => {
 const saveChannelStreamTypeInline = async (row: Record<string, unknown>) => {
   const channelId = String(row?.id || '').trim()
   if (!channelId) {
-    ElMessage.warning('请先选择通道再操作')
+    ElMessage.warning(t('device.selectChannelFirst'))
     return
   }
   const oldValue = String(row?.default_stream_type || 'main')
@@ -523,7 +527,7 @@ const saveChannelStreamTypeInline = async (row: Record<string, unknown>) => {
     await api.put(`/api/v1/devices/channels/${encodeURIComponent(channelId)}`, {
       default_stream_type: String(row?.default_stream_type || 'main')
     })
-    ElMessage.success('通道音频修改成功')
+    ElMessage.success(t('device.audioUpdateSuccess'))
   } catch (e: unknown) {
     row.default_stream_type = oldValue
     const friendly = getFriendlyError(e)
@@ -558,11 +562,11 @@ const resetVisibleChannelsStreamType = async () => {
     }
   }
   if (failed === 0) {
-    ElMessage.success(`已更改 ${success} 个通道流类型`)
+    ElMessage.success(t('device.streamTypeChanged', { count: success }))
   } else if (success > 0) {
-    ElMessage.warning(`部分成功：${success} 成功，${failed} 失败`)
+    ElMessage.warning(t('device.partialSuccess', { success, failed }))
   } else {
-    ElMessage.error('保存通道流类型失败')
+    ElMessage.error(t('device.streamTypeSaveFailed'))
   }
 }
 

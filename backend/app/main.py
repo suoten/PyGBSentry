@@ -8,6 +8,7 @@
 from contextlib import asynccontextmanager
 from loguru import logger
 import asyncio
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 import random
 import sys
 import os
@@ -49,6 +50,13 @@ if sys.platform != "win32":
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     except ImportError:
         pass  # uvloop is optional
+else:
+    # FIX: [2026-07-04] Windows 默认使用 ProactorEventLoop，其 UDP 实现存在已知问题
+    # (datagram_received 延迟回调/高并发丢包)，导致 SIP UDP 传输不响应。
+    # 强制使用 SelectorEventLoop 以获得可靠的 UDP 支持。
+    # 副作用：asyncio.create_subprocess_exec 在 Windows 上不可用（仅影响 certbot
+    # 等 Linux 专属功能，subprocess.run 同步调用不受影响）。 [全栈工程师]
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Configure Loguru
 from app.core.config import settings as _settings_for_log
@@ -59,7 +67,18 @@ else:
     _log_format = "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
 _log_dir = getattr(_settings_for_log, "LOG_DIR", None) or "logs"
 logger.remove()
-logger.add(sys.stderr, level="INFO", format=_log_format, enqueue=True)
+# P3-05: 生产环境日志级别动态化 — prod=WARNING, dev=INFO, debug=DEBUG
+# 可通过 LOG_LEVEL_STDERR 环境变量覆盖默认值
+_app_env_for_log = (getattr(_settings_for_log, "APP_ENV", "dev") or "dev").lower()
+_log_level_stderr = getattr(_settings_for_log, "LOG_LEVEL_STDERR", None) or ""
+if not _log_level_stderr:
+    if _app_env_for_log in {"prod", "production"}:
+        _log_level_stderr = "WARNING"
+    elif _app_env_for_log in {"debug"}:
+        _log_level_stderr = "DEBUG"
+    else:
+        _log_level_stderr = "INFO"
+logger.add(sys.stderr, level=_log_level_stderr, format=_log_format, enqueue=True)
 # 哈希链审计日志 Sink — 每条日志包含前一条的 SHA256 摘要，实现防篡改链式校验
 import json as _json
 import hashlib as _hashlib_mod
@@ -85,8 +104,10 @@ class HashChainSink:
                         if last:
                             data = _json.loads(last)
                             self._prev_hash = data.get("hash", "0" * 64)
-        except Exception:
-            pass  # Start fresh if recovery fails
+        except Exception as init_err:
+            # P1-10: 恢复失败不阻断启动，但记录警告
+            import logging as _logging
+            _logging.getLogger(__name__).warning(f"HashChainSink prev_hash recovery failed, starting fresh: {init_err}")
         self._file = open(path, "a", encoding="utf-8")
 
     def write(self, message: str) -> None:
@@ -116,8 +137,10 @@ class HashChainSink:
             # Rotation support: close current file and open new one when size exceeds limit
             try:
                 self._check_rotation()
-            except Exception:
-                pass
+            except Exception as rot_ex:
+                # P1-11: _check_rotation 内部已有错误处理，此处为兜底安全网
+                import logging as _logging
+                _logging.getLogger(__name__).warning(f"HashChainSink rotation outer guard: {rot_ex}")
 
     def _check_rotation(self) -> None:
         """Check if file needs rotation based on size limit."""
@@ -132,34 +155,57 @@ class HashChainSink:
             else:
                 return
             if os.path.exists(self._path) and os.path.getsize(self._path) > max_bytes:
-                self._file.close()
-                # Rename current file with timestamp
+                # P1-10: 使用 try/except 保证文件句柄完整性 — 轮转失败时在 except 块重新打开文件
                 import datetime as _dt
-                ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-                rotated_path = f"{self._path}.{ts}"
+                self._file.close()
                 try:
-                    os.rename(self._path, rotated_path)
-                except OSError:
-                    pass
-                # Preserve hash chain continuity: write a chain-link entry
-                # in the new file referencing the last hash from the rotated file
-                last_hash = self._prev_hash
-                self._file = open(self._path, "a", encoding="utf-8")
-                link_entry = {
-                    "timestamp": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
-                    "level": "INFO",
-                    "module": "audit",
-                    "message": f"hash_chain_continuation_from={rotated_path}",
-                    "prev_hash": last_hash,
-                }
-                link_bytes = _json.dumps(link_entry, ensure_ascii=False).encode("utf-8")
-                link_hash = _hashlib_mod.sha256(link_bytes).hexdigest()
-                link_entry["hash"] = link_hash
-                self._prev_hash = link_hash
-                self._file.write(_json.dumps(link_entry, ensure_ascii=False) + "\n")
-                self._file.flush()
-        except Exception:
-            pass
+                    ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    rotated_path = f"{self._path}.{ts}"
+                    try:
+                        os.rename(self._path, rotated_path)
+                    except OSError as rename_err:
+                        # Windows fallback: os.rename 在文件被其他进程锁定时会失败
+                        # 使用 shutil.copy2 + os.remove 作为后备，确保日志轮转仍可完成
+                        try:
+                            shutil.copy2(self._path, rotated_path)
+                            os.remove(self._path)
+                        except Exception as copy_err:
+                            import logging as _logging
+                            _logging.getLogger(__name__).warning(
+                                f"HashChainSink rotation rename failed: {rename_err}; "
+                                f"copy2+remove fallback also failed: {copy_err}"
+                            )
+                            rotated_path = self._path  # 两种方式均失败，原文件保留
+                    # Preserve hash chain continuity: write a chain-link entry
+                    last_hash = self._prev_hash
+                    self._file = open(self._path, "a", encoding="utf-8")
+                    link_entry = {
+                        "timestamp": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3],
+                        "level": "INFO",
+                        "module": "audit",
+                        "message": f"hash_chain_continuation_from={rotated_path}",
+                        "prev_hash": last_hash,
+                    }
+                    link_bytes = _json.dumps(link_entry, ensure_ascii=False).encode("utf-8")
+                    link_hash = _hashlib_mod.sha256(link_bytes).hexdigest()
+                    link_entry["hash"] = link_hash
+                    self._prev_hash = link_hash
+                    self._file.write(_json.dumps(link_entry, ensure_ascii=False) + "\n")
+                    self._file.flush()
+                except Exception as rot_err:
+                    # P1-10: 轮转失败后确保文件句柄可用
+                    import logging as _logging
+                    _logging.getLogger(__name__).error(f"HashChainSink rotation failed: {rot_err}")
+                    if not getattr(self._file, 'closed', True):
+                        try:
+                            self._file.close()
+                        except Exception:
+                            logger.warning("silently_swallowed_exception", exc_info=True)
+                    self._file = open(self._path, "a", encoding="utf-8")
+        except Exception as outer_err:
+            # P1-10: 外层异常不再静默吞掉
+            import logging as _logging
+            _logging.getLogger(__name__).warning(f"HashChainSink _check_rotation error: {outer_err}")
 
     def stop(self) -> None:
         with self._lock:
@@ -170,7 +216,7 @@ class HashChainSink:
         try:
             self.stop()
         except Exception:
-            pass
+            logger.warning("silently_swallowed_exception", exc_info=True)
 
 logger.add(f"{_log_dir}/app.log", rotation="50 MB", retention="180 days", compression="gz", level="INFO", format=_log_format, enqueue=True)  # 日志保留180天(等保2.0三级要求)
 # 日志防篡改 — 哈希链审计日志，每条日志包含前一条的SHA256摘要
@@ -195,7 +241,8 @@ class _LoguruLoggingHandler(logging.Handler):
             self.handleError(record)
 
 _root = logging.getLogger()
-_root.setLevel(logging.DEBUG)
+# SECURITY: root logger level based on environment — INFO in production, DEBUG in dev
+_root.setLevel(logging.INFO if str(getattr(_settings_for_log, "APP_ENV", "dev") or "dev").lower() in ("prod", "production") else logging.DEBUG)
 _root.handlers.clear()
 _root.addHandler(_LoguruLoggingHandler())
 
@@ -256,18 +303,61 @@ async def _session_call(fn):
     """
     在 AsyncSession 内执行 async fn(db)。
     wait_for 必须包住「获取连接」整段，否则卡在 sqlite 等锁时超时不会触发。
-    SQLite 下先 PRAGMA busy_timeout，减轻与其它进程抢锁时的长阻塞。
+    PRAGMA busy_timeout 已由 session.py 的 connect 事件处理器统一设置（每次新建连接自动执行），无需在此重复。
     """
     async with AsyncSessionLocal() as db:
-        if (getattr(engine.dialect, "name", None) or "").lower() == "sqlite":
-            await db.execute(text(f"PRAGMA busy_timeout={settings.SQLITE_BUSY_TIMEOUT_MS}"))
         return await fn(db)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Application lifespan context manager — handles startup and shutdown.
+
+    **Startup sequence** (in order):
+    1. Database connectivity pre-check (configurable via ``DB_STARTUP_REQUIRED``)
+    2. Schema migration via ``ensure_business_schema()``
+    3. Settings cache warm-up and validation
+    4. Redis connection pool initialization
+    5. SIP server start (UDP/TCP/TLS transports)
+    6. Plugin manager initialization and plugin loading
+    7. Media node health probes and ZLMediaKit configuration sync
+    8. Background task scheduling (health checks, watchdog, catalog sync)
+    9. SSL/TLS certificate auto-renewal setup (if enabled)
+
+    **Shutdown sequence** (reverse order):
+    1. Cancel all background tasks and watchdogs
+    2. Stop SIP server transports
+    3. Close media node connections
+    4. Flush plugin state and persist caches
+    5. Close database and Redis connection pools
+
+    Note: This function is long (~790 lines) because it orchestrates the
+    entire application lifecycle. Each step is clearly commented and
+    wrapped in error handling to ensure partial failures don't prevent
+    the remaining steps from executing.
+    """
     # Startup
     logger.info(f"Using Database Dialect: {engine.dialect.name}")
+
+    # CRITICAL: 数据库连接预检查 — DB 不可用时根据 DB_STARTUP_REQUIRED 决定是否中止启动
+    logger.info("Startup step: DB connectivity pre-check...")
+    try:
+        async with engine.connect() as _conn:
+            await _conn.execute(text("SELECT 1"))
+        logger.info("Startup step: DB connectivity pre-check passed.")
+    except Exception as _db_conn_err:
+        if bool(getattr(settings, "DB_STARTUP_REQUIRED", True)):
+            logger.error(
+                f"FATAL: DB connectivity check failed: {_db_conn_err}. "
+                "DB_STARTUP_REQUIRED=true, aborting startup. "
+                "Check DATABASE_TYPE/HOST/PORT/USER/PASSWORD in .env, "
+                "or set DB_STARTUP_REQUIRED=false for dev environments without a running DB."
+            )
+            raise
+        logger.warning(
+            f"Startup step: DB connectivity check failed: {_db_conn_err}. "
+            "DB_STARTUP_REQUIRED=false, continuing startup in degraded mode (DB-dependent features will be unavailable)."
+        )
 
     # Schema migration: use Alembic if USE_ALEMBIC=true, otherwise legacy schema_upgrade
     use_alembic = getattr(app_settings, 'USE_ALEMBIC', False)
@@ -329,7 +419,7 @@ async def lifespan(app: FastAPI):
                         if _bt_result.scalar():
                             _need_stamp = True
         except Exception as _stamp_check_err:
-            logger.debug(f"alembic stamp pre-check error: {_stamp_check_err}")
+            logger.warning(f"alembic stamp pre-check error: {_stamp_check_err}")
 
         if _need_stamp:
             logger.info("Startup step: stamping alembic version (database has tables but no alembic_version)...")
@@ -442,8 +532,12 @@ async def lifespan(app: FastAPI):
         plugin_manager._runtime_plugin_config = {}
     # Load Plugins
     logger.info("Startup step: plugin_manager.load_plugins...")
-    plugin_manager.load_plugins()
-    logger.info("Startup step: plugin_manager.load_plugins done.")
+    try:
+        plugin_manager.load_plugins()
+        logger.info("Startup step: plugin_manager.load_plugins done.")
+    except Exception as _plugins_err:
+        # NON-CRITICAL: 插件加载失败记录 error 并继续启动（不影响核心 SIP/媒体服务）
+        logger.error(f"Startup step: plugin_manager.load_plugins failed: {_plugins_err}, continue startup without plugins.")
     app_pkg.services.notify_manager.init_notify_manager()
     logger.info("Startup step: plugin_manager.emit(HOOK_ON_STARTUP)...")
     try:
@@ -474,7 +568,7 @@ async def lifespan(app: FastAPI):
     # 续费即时推送：订阅 Redis license:refresh 频道（仅在 PLUGIN_MARKETPLACE_ENABLED=True 时启用）
     if bool(getattr(settings, "PLUGIN_MARKETPLACE_ENABLED", False)):
         try:
-            asyncio.create_task(plugin_manager.start_license_refresh_subscriber())
+            fire_and_forget(plugin_manager.start_license_refresh_subscriber())  # P0-16: 保存引用防 GC + 异常日志
             logger.info("Startup step: license refresh Redis subscriber started.")
         except Exception as e:
             logger.warning(f"Startup step: license refresh subscriber failed: {e}, continue startup.")
@@ -600,38 +694,40 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Startup step: SipStateBackend init failed: {e}, continue startup.")
 
     # SECRET 一致性校验：对比 settings.MEDIA_SERVER_SECRET 与 DB 中 MediaNode.secret
+    # P0-02: secret 列已加密存储，需通过 decrypted_secret 取明文后比较
     try:
         async def _check_secret_consistency(db):
             from app.models.media_node import MediaNode as _MN
             from sqlalchemy import select as _sel
-            result = await db.execute(_sel(_MN.id, _MN.secret).where(_MN.is_embedded == True).limit(1))
-            row = result.first()
-            return row
+            result = await db.execute(_sel(_MN).where(_MN.is_embedded).limit(1))
+            return result.scalars().first()
 
-        secret_row = await asyncio.wait_for(_session_call(_check_secret_consistency), timeout=10)
-        if secret_row and secret_row[1] and secret_row[1] != settings.MEDIA_SERVER_SECRET:
-            _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
-            if _app_env in {"prod", "production"}:
-                logger.error(
-                    "FATAL: MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls will FAIL. Please ensure MEDIA_SERVER_SECRET in .env matches the secret in DB media_nodes table, "
-                    "or run 'python scripts/update_media_node_secret.py' to sync DB with .env.",
-                    secret_row[0],
-                )
-                raise RuntimeError(
-                    "MEDIA_SERVER_SECRET mismatch between .env and DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls will fail. Please fix and restart." % secret_row[0]
-                )
-            else:
-                logger.warning(
-                    "MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
-                    "ZLM API calls may fail. This is acceptable in dev, but please ensure they match.",
-                    secret_row[0],
-                )
+        _secret_node = await asyncio.wait_for(_session_call(_check_secret_consistency), timeout=10)
+        if _secret_node:
+            _db_secret_plain = _secret_node.decrypted_secret
+            if _db_secret_plain and _db_secret_plain != settings.MEDIA_SERVER_SECRET:
+                _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+                if _app_env in {"prod", "production"}:
+                    logger.error(
+                        "FATAL: MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls will FAIL. Please ensure MEDIA_SERVER_SECRET in .env matches the secret in DB media_nodes table, "
+                        "or run 'python scripts/update_media_node_secret.py' to sync DB with .env.",
+                        _secret_node.id,
+                    )
+                    raise RuntimeError(
+                        "MEDIA_SERVER_SECRET mismatch between .env and DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls will fail. Please fix and restart." % _secret_node.id
+                    )
+                else:
+                    logger.warning(
+                        "MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
+                        "ZLM API calls may fail. This is acceptable in dev, but please ensure they match.",
+                        _secret_node.id,
+                    )
     except asyncio.TimeoutError:
         logger.warning("Startup step: secret consistency check timeout (10s), skipped.")
     except Exception as e:
-        logger.debug(f"Startup step: secret consistency check skipped: {e}")
+        logger.warning(f"Startup step: secret consistency check skipped: {e}")
 
     # Print required ports and (optionally) auto-open firewall rules
     logger.info("Startup step: ensure_firewall_ports...")
@@ -657,16 +753,41 @@ async def lifespan(app: FastAPI):
                     raise exc
                 logger.info("Startup step: init_redis done.")
                 start_redis_watchdog()
+                # P2-21: 从 Redis 恢复自定义脱敏规则（失败不影响启动）
+                try:
+                    from app.core.log_masker import load_custom_rules_from_redis
+                    loaded = await load_custom_rules_from_redis()
+                    if loaded:
+                        logger.info(f"Startup step: loaded {loaded} custom mask rules from Redis.")
+                except Exception as _mask_load_err:
+                    logger.warning(f"Startup step: load custom mask rules failed: {_mask_load_err}")
             else:
                 for t in pending:
                     t.cancel()
-                logger.warning("Startup step: init_redis timeout (10s). Continue startup without Redis.")
+                # CRITICAL: INIT_REDIS_ON_STARTUP=true 时 Redis 为关键服务，超时直接中止启动
+                logger.error(
+                    "FATAL: init_redis timeout (10s). "
+                    "INIT_REDIS_ON_STARTUP=true, aborting startup. "
+                    "Set INIT_REDIS_ON_STARTUP=false in .env if Redis is not required."
+                )
+                raise asyncio.TimeoutError("init_redis timeout (10s)")
         except Exception as e:
-            logger.warning(f"Startup step: init_redis failed: {e}. Continue startup without Redis.")
+            # CRITICAL: INIT_REDIS_ON_STARTUP=true 时 Redis 为关键服务，初始化失败直接中止启动
+            logger.error(
+                f"FATAL: init_redis failed: {e}. "
+                "INIT_REDIS_ON_STARTUP=true, aborting startup. "
+                "Set INIT_REDIS_ON_STARTUP=false in .env if Redis is not required."
+            )
+            raise
 
     logger.info("Startup step: init_handlers...")
-    init_handlers()
-    logger.info("Startup step: init_handlers done.")
+    try:
+        init_handlers()
+        logger.info("Startup step: init_handlers done.")
+    except Exception as _handlers_err:
+        # CRITICAL: SIP handlers 初始化失败将导致信令无法处理，中止启动
+        logger.error(f"FATAL: init_handlers failed: {_handlers_err}, aborting startup.")
+        raise
 
     # Init Commanders
     app_pkg.sip.commander.sip_commander = SipCommander(sip_server)
@@ -711,7 +832,7 @@ async def lifespan(app: FastAPI):
         await ha_cluster.start_subscriber()
         logger.info("Startup step: cluster subscriber started.")
     except Exception as e:
-        logger.debug(f"Startup step: cluster subscriber start failed (non-critical): {e}")
+        logger.warning(f"Startup step: cluster subscriber start failed (non-critical): {e}")
 
     logger.info("Startup step: platform_subscription_service.start...")
     try:
@@ -736,7 +857,15 @@ async def lifespan(app: FastAPI):
         from app.sip.catalog import start_catalog_agg_prune
         start_catalog_agg_prune()
     except Exception as e:
-        logger.debug(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
+        logger.warning(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
+
+    # FIX R23-SEVERE: 周期性清理 catalog_runtime 内存缓存，避免 _RUNTIME_STATE 无限增长
+    try:
+        from app.sip.catalog_runtime import start_catalog_runtime_cleanup
+        start_catalog_runtime_cleanup()
+        logger.info("Startup step: catalog_runtime cleanup loop started.")
+    except Exception as e:
+        logger.warning(f"Startup step: catalog_runtime cleanup loop start failed (non-critical): {e}")
 
     # Start AI Vision Hub
     app_pkg.services.vision_hub.vision_hub = VisionHub()
@@ -774,8 +903,12 @@ async def lifespan(app: FastAPI):
         logger.warning("Startup step: health_service.start timeout (20s), continue startup.")
 
     # Start default background tasks
-    from app.services.tasks.task_manager import start_all_background_tasks
-    await start_all_background_tasks(plugin_manager=plugin_manager)
+    try:
+        from app.services.tasks.task_manager import start_all_background_tasks
+        await start_all_background_tasks(plugin_manager=plugin_manager)
+    except Exception as _bg_tasks_err:
+        # NON-CRITICAL: 后台任务启动失败记录 error 并继续启动
+        logger.error(f"Startup step: start_all_background_tasks failed: {_bg_tasks_err}, continue startup.")
 
     # Start talk session cleanup loop
     _talk_cleanup_task = None
@@ -830,11 +963,13 @@ async def lifespan(app: FastAPI):
     sync_enabled = bool(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_ENABLED", True))
     try:
         configured_interval = int(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_INTERVAL_SECONDS", 0) or 0)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid PLUGIN_PAID_LICENSE_SYNC_INTERVAL_SECONDS, using 0: {e}")
         configured_interval = 0
     try:
         fallback_interval = int(getattr(settings, "PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS", 60) or 0)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS, using 0: {e}")
         fallback_interval = 0
     paid_license_sync_interval = configured_interval if configured_interval > 0 else fallback_interval
     if bool(getattr(settings, "PLUGIN_LICENSE_DAILY_CHECK_MODE", False)):
@@ -845,7 +980,8 @@ async def lifespan(app: FastAPI):
             paid_license_sync_interval = daily_interval
     try:
         paid_license_sync_jitter = max(0, int(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_JITTER_SECONDS", 5) or 0))
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Invalid PLUGIN_PAID_LICENSE_SYNC_JITTER_SECONDS, using 0: {e}")
         paid_license_sync_jitter = 0
     run_sync_on_startup = bool(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_ON_STARTUP", True))
 
@@ -913,25 +1049,31 @@ async def lifespan(app: FastAPI):
             try:
                 await _task
             except asyncio.CancelledError:
-                pass
+                logger.debug("task_cancelled")
+    # FIX R23-SEVERE: 停止 catalog_runtime 周期性清理后台任务
+    try:
+        from app.sip.catalog_runtime import stop_catalog_runtime_cleanup
+        stop_catalog_runtime_cleanup()
+    except Exception as e:
+        logger.warning(f"Shutdown step: catalog_runtime cleanup loop stop failed (non-critical): {e}")
     if paid_license_sync_task is not None:
         paid_license_sync_task.cancel()
         try:
             await paid_license_sync_task
         except asyncio.CancelledError:
-            pass
+            logger.debug("task_cancelled")
     if oss_heartbeat_task is not None:
         oss_heartbeat_task.cancel()
         try:
             await oss_heartbeat_task
         except asyncio.CancelledError:
-            pass
+            logger.debug("task_cancelled")
 
     try:
         _log_drain_task.cancel()
         await _log_drain_task
     except asyncio.CancelledError:
-        pass
+        logger.debug("task_cancelled")
     except NameError:
         logger.warning("NameError occurred")
 
@@ -1004,11 +1146,55 @@ app = FastAPI(
 try:
     from app.core.tracing import setup_tracing
     setup_tracing(app=app)
-except Exception:
-    pass
+except Exception as e:
+    logger.warning(f"OpenTelemetry tracing setup failed (non-fatal): {e}")
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app):
+        super().__init__(app)
+        # 预计算 CSP connect-src 源列表：'self' + 自动推导的流媒体公网源 + 配置白名单。
+        # SECURITY: 不再使用通配的 http:/https:/ws:/wss:，仅允许 'self' 和显式白名单。
+        # 流媒体源从 STREAM_PUBLIC_SCHEME/HOST/PORT 自动推导（覆盖 FLV fetch / WHEP POST / WS-FLV）。
+        self._csp_connect_sources = self._build_connect_sources()
+
+    @staticmethod
+    def _build_connect_sources() -> list:
+        """构建 connect-src 源列表：'self' + 流媒体公网源(http+ws) + 配置白名单。"""
+        sources = ["'self'"]
+
+        # 自动推导 ZLMediaKit 流媒体公网源 — 前端播放 FLV/fMP4/WHEP/WS-FLV 时连接此源
+        scheme = str(getattr(settings, "STREAM_PUBLIC_SCHEME", "http") or "http").lower()
+        stream_host = str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "").strip()
+        stream_port = int(getattr(settings, "STREAM_PUBLIC_HTTP_PORT", 0) or 0)
+        if stream_host:
+            # 默认端口省略（http→80, https→443），避免冗余写法
+            is_default_port = (scheme == "http" and stream_port == 80) or (
+                scheme == "https" and stream_port == 443
+            )
+            host_part = stream_host if is_default_port else f"{stream_host}:{stream_port}"
+            sources.append(f"{scheme}://{host_part}")
+            # WebSocket 变体（WS-FLV / WSS-FLV）：http→ws, https→wss
+            ws_scheme = "wss" if scheme == "https" else "ws"
+            sources.append(f"{ws_scheme}://{host_part}")
+
+        # 配置的额外白名单（ArcGIS 矢量瓦片、外置 ZLM 节点等）
+        extra = str(getattr(settings, "CSP_CONNECT_SRC_DOMAINS", "") or "").strip()
+        if extra:
+            for part in extra.split(","):
+                s = part.strip()
+                if s:
+                    sources.append(s)
+
+        # 去重（保持顺序）
+        seen = set()
+        unique = []
+        for s in sources:
+            if s not in seen:
+                seen.add(s)
+                unique.append(s)
+        return unique
+
     async def dispatch(self, request, call_next) -> Response:
         response: Response = await call_next(request)
         if not bool(getattr(settings, "ENABLE_SECURITY_HEADERS", True)):
@@ -1034,25 +1220,31 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             logger.warning(f"Error: {e}")
 
         if bool(getattr(settings, "ENABLE_CSP", False)):
-            # NOTE: CSP currently uses unsafe-inline/unsafe-eval for compatibility with
-            # OpenLayers map library and Jessibuca/H265 video players.
-            # TODO: Migrate to nonce-based CSP once player components support it.
-            #   1. Generate a random nonce per request: nonce = secrets.token_urlsafe(16)
-            #   2. Set script-src to 'self' 'nonce-{nonce}' (remove unsafe-inline/unsafe-eval)
-            #   3. Pass nonce to frontend templates via header or meta tag
-            #   4. Update Jessibuca/OpenLayers script tags to include nonce attribute
-            # Production deployments should use a reverse proxy (Nginx) with stricter CSP.
-            # Keep CSP permissive-by-default to avoid breaking maps/players.
+            # SECURITY: nonce-based CSP — removes 'unsafe-inline' and 'unsafe-eval'.
+            # A fresh nonce is generated per request and exposed via the X-CSP-Nonce
+            # response header so templates/inline scripts can opt-in with nonce="{nonce}".
+            import secrets as _secrets_csp
+            _csp_nonce = _secrets_csp.token_urlsafe(16)
+            try:
+                request.state.csp_nonce = _csp_nonce
+            except Exception:
+                logger.warning("silently_swallowed_exception", exc_info=True)
+            response.headers.setdefault("X-CSP-Nonce", _csp_nonce)
+            # SECURITY: connect-src 收紧 — 移除通配的 http:/https:/ws:/wss:，
+            # 仅允许 'self' + 自动推导的流媒体公网源 + CSP_CONNECT_SRC_DOMAINS 白名单。
+            # img-src 修正通配符（CSP 用 * 而非 ?）并补充 OSM 瓦片源。
             response.headers.setdefault(
                 "Content-Security-Policy",
                 "default-src 'self'; "
                 "base-uri 'self'; "
                 "frame-ancestors 'none'; "
-                "img-src 'self' data: blob: tile: https://t?.tianditu.gov.cn https://web?.is.autonavi.com https://maponline?.bdimg.com https://*.arcgisonline.com; "
+                "img-src 'self' data: blob: tile: https://*.tianditu.gov.cn https://*.is.autonavi.com https://*.bdimg.com https://*.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
                 "media-src 'self' data: blob:; "
-                "connect-src 'self' http: https: ws: wss:; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline'",
+                f"connect-src {' '.join(self._csp_connect_sources)}; "
+                f"script-src 'self' 'nonce-{_csp_nonce}'; "
+                f"style-src 'self' 'nonce-{_csp_nonce}'; "
+                "object-src 'none'; "
+                "worker-src 'self' blob:'",
             )
 
         return response
@@ -1060,17 +1252,60 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(SecurityHeadersMiddleware)
 
+# P1-08: HTTPS 强制重定向中间件 — 生产环境自动将 HTTP 请求重定向到 HTTPS
+class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
+    """生产环境强制 HTTPS：检查 X-Forwarded-Proto 头，非 HTTPS 请求 301 重定向。"""
+
+    async def dispatch(self, request, call_next) -> Response:
+        _is_prod = (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}
+        _force_https = bool(getattr(settings, "FORCE_HTTPS_IN_PRODUCTION", True))
+        if _is_prod and _force_https:
+            # 检查 X-Forwarded-Proto（Nginx/ALB 等反向代理设置）
+            fwd_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+            if fwd_proto == "http":
+                # 构建 HTTPS 重定向 URL
+                from fastapi.responses import RedirectResponse
+                original_url = str(request.url)
+                https_url = original_url.replace("http://", "https://", 1)
+                return RedirectResponse(url=https_url, status_code=301)
+        return await call_next(request)
+
+
+app.add_middleware(HTTPSRedirectMiddleware)
+
+# ARCHITECTURE: API 版本协商中间件 — 为每个 /api/ 请求添加 X-API-Version 响应头，
+# 对已弃用版本自动添加 Deprecation/Sunset/Link 头（见 app.api.versioning）
+from app.api.versioning import APIVersionMiddleware
+app.add_middleware(APIVersionMiddleware)
+
 # Production safety checks: refuse known default secrets
 # Note: config.py 中已有先序检查（SystemExit），此处为兜底防护（RuntimeError）
-import hashlib as _hashlib
 import os as _os
 
 # Common weak passwords list
+# P2-22: 内置基线 + 外部文件扩展（支持 HaveIBeenPwned 下载的密码列表）
 _DEFAULT_PASSWORDS = {
     "password", "12345678", "admin", "root", "administrator",
     "123456", "123456789", "1234567890", "admin123", "admin1234",
     "Abc12345", "Passw0rd", "Passw0rd!", "rootroot", "testtest",
 }
+
+# P2-22: 从外部文件加载额外弱密码（每行一个，# 开头为注释）
+# 用法：在 .env 中设置 WEAK_PASSWORD_LIST_FILE=/path/to/weak_passwords.txt
+# 可从 HaveIBeenPwned 下载密码列表（https://haveibeenpwned.com/Passwords）
+_weak_list_file = str(getattr(settings, "WEAK_PASSWORD_LIST_FILE", "") or "").strip()
+if _weak_list_file and _os.path.exists(_weak_list_file):
+    try:
+        _loaded_count = 0
+        with open(_weak_list_file, "r", encoding="utf-8", errors="replace") as _f:
+            for _line in _f:
+                _pwd = _line.strip().lower()
+                if _pwd and not _pwd.startswith("#"):
+                    _DEFAULT_PASSWORDS.add(_pwd)
+                    _loaded_count += 1
+        logger.info(f"P2-22: Loaded {_loaded_count} additional weak passwords from {_weak_list_file} (total: {len(_DEFAULT_PASSWORDS)})")
+    except Exception as _e:
+        logger.warning(f"P2-22: Failed to load weak password list from {_weak_list_file}: {_e}")
 
 def _is_weak_secret(key_value: str) -> bool:
     """Check if a secret key is obviously weak (too short, all same char, sequential, or in common list)."""
@@ -1242,58 +1477,76 @@ async def root():
 @app.get("/health")
 @app.get("/api/v1/health/")
 async def health():
-    """无鉴权健康检查，供负载均衡/容器探针使用。"""
-    checks = {"status": "ok", "db": "ok"}
+    """无鉴权健康检查，供负载均衡/容器探针使用。检查 DB + Redis + SIP 关键服务状态。"""
+    import time as _health_time
+    from datetime import datetime, timezone
+    checks = {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    # DB check (critical) — 记录延迟
+    _t0 = _health_time.time()
     try:
         from app.db.session import AsyncSessionLocal
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
+        checks["database"] = {"status": "ok", "latency_ms": round((_health_time.time() - _t0) * 1000, 1)}
     except Exception as e:
         checks["status"] = "degraded"
-        checks["db"] = f"error: {e}"
+        checks["database"] = {"status": "error", "error": str(e)[:200]}
     # Check Redis: distinguish "not configured" vs "configured but unreachable"
+    _t1 = _health_time.time()
     try:
         from app.core.redis import redis_client as _rc
         if _rc is not None:
             await _rc.ping()
-            checks["redis"] = "ok"
+            checks["redis"] = {"status": "ok", "latency_ms": round((_health_time.time() - _t1) * 1000, 1)}
         else:
-            checks["redis"] = "not_configured"
+            checks["redis"] = {"status": "not_configured"}
     except Exception as e:
-        checks["redis"] = f"error: {e}"
+        checks["redis"] = {"status": "error", "error": str(e)[:200]}
         if checks["status"] == "ok":
             checks["status"] = "degraded"
+    # SIP check — reports whether the SIP signaling server is running
+    try:
+        checks["sip"] = {"status": "running" if sip_server.running else "stopped"}
+    except Exception as e:
+        checks["sip"] = {"status": "error", "error": str(e)[:200]}
+    # FIX: [2026-07-04] 健康检查仅读取配置的 media_nodes 数量并硬编码 status=ok，
+    # 未实际探测 ZLM 端口/HTTP API，导致 ZLM 未运行时仍报告 ok。改为调用
+    # media_manager.is_running() 执行真实 HTTP 探活。 [全栈工程师]
+    try:
+        from app.core.media_nodes import get_media_nodes
+        _nodes = get_media_nodes()
+        _zlm_running = await media_manager.is_running()
+        checks["zlm"] = {
+            "total_nodes": len(_nodes),
+            "online_nodes": 1 if _zlm_running else 0,
+            "status": "ok" if _zlm_running else "down",
+        }
+        if not _zlm_running and checks["status"] == "ok":
+            checks["status"] = "degraded"
+    except Exception as e:
+        checks["zlm"] = {"status": "error", "error": str(e)[:200]}
+    # P3-06: Plugin check — 报告已加载插件数
+    try:
+        _plugin_count = len(plugin_manager.list_plugins()) if hasattr(plugin_manager, "list_plugins") else 0
+        checks["plugins"] = {"loaded": _plugin_count, "status": "ok"}
+    except Exception:
+        checks["plugins"] = {"status": "unknown"}
     status_code = 200 if checks["status"] == "ok" else 503
     from fastapi.responses import JSONResponse
     return JSONResponse(content=checks, status_code=status_code)
 
 
 @app.get("/health/ready")
-@app.get("/api/v1/health/readiness")
 async def health_ready():
-    """Readiness probe: checks if the application is ready to accept traffic (DB + Redis must be up)."""
-    checks = {"status": "ready", "db": "ok"}
-    try:
-        from app.db.session import AsyncSessionLocal
-        async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1"))
-    except Exception as e:
-        checks["status"] = "not_ready"
-        checks["db"] = f"error: {e}"
-    try:
-        from app.core.redis import redis_client as _rc
-        if _rc is not None:
-            await _rc.ping()
-            checks["redis"] = "ok"
-        else:
-            checks["redis"] = "not_configured"
-    except Exception as e:
-        checks["redis"] = f"error: {e}"
-        if checks["status"] == "ready":
-            checks["status"] = "not_ready"
-    status_code = 200 if checks["status"] == "ready" else 503
-    from fastapi.responses import JSONResponse
-    return JSONResponse(content=checks, status_code=status_code)
+    """Readiness probe: delegates to the shared readiness implementation.
+
+    P1-33: Previously duplicated the readiness logic inline (DB + Redis probes).
+    Now backed by the same single source of truth as ``/api/v1/health/readiness``
+    (defined in ``app.api.v1.endpoints.health``), so both paths return identical
+    results driven by ``health_service.is_ready``.
+    """
+    from app.api.v1.endpoints.health import build_readiness_response
+    return build_readiness_response()
 
 
 @app.get("/health/live")

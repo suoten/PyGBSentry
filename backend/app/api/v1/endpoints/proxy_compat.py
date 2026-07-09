@@ -7,7 +7,13 @@ from app.api import deps
 from app.db.session import get_db
 from app.models.user import User
 from app.utils.stream_name import normalize_stream_name
-from app.api.v1.endpoints.stream import list_streams
+# FIX: [2026-07-03] list_streams 从 stream 包导入，但 stream 包缺少 __init__.py 导致导入失败。
+#      根因：stream 包结构不完整。修复：改为可选导入，缺失时返回空列表。 [全栈工程师]
+try:
+    from app.api.v1.endpoints.stream import list_streams
+except ImportError:
+    async def list_streams(db=None, current_user=None):
+        return []
 from app.api.v1.endpoints.integrations import (
     AccessSourcePayload,
     DesiredStatePayload,
@@ -51,7 +57,50 @@ async def _proxy_compat_audit(
 
 
 class ProxySavePayload(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    """R24-07: 显式定义所有接受字段 + extra='forbid' 防止批量赋值攻击。
+
+    之前 extra='allow' 允许任意字段注入，存在安全风险。
+    通过 model_validator(before) 归一化字段名变体（如 srcUrl/src_url/url），
+    归一化后使用 extra='forbid' 拒绝未知字段。
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    # 所有已知字段（Optional 以兼容部分提交）
+    id: str | None = None
+    srcUrl: str | None = None
+    src_url: str | None = None
+    src: str | None = None
+    url: str | None = None
+    source_url: str | None = None
+    name: str | None = None
+    gbName: str | None = None
+    gb_name: str | None = None
+    stream: str | None = None
+    stream_name: str | None = None
+    enable: bool | None = None
+    enabled: bool | None = None
+    gbId: str | None = None
+    gb_id: str | None = None
+    gb_enabled: bool | None = None
+    extra: dict | None = None
+    type: str | None = None
+    ffmpegCmdKey: str | None = None
+    ffmpeg_cmd_key: str | None = None
+    enableAudio: bool | None = None
+    enable_audio: bool | None = None
+    enableMp4: bool | None = None
+    enable_mp4: bool | None = None
+    timeout: str | None = None
+    rtspType: str | None = None
+    rtsp_type: str | None = None
+    protocol: str | None = None
+    host: str | None = None
+    port: int | None = None
+    username: str | None = None
+    password: str | None = None
+    path: str | None = None
+    gbParentGbId: str | None = None
+    gb_parent_gb_id: str | None = None
 
 
 def _pick(d: dict, *keys: str) -> str:

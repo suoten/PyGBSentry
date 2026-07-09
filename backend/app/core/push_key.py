@@ -1,32 +1,34 @@
-import secrets
+"""Push-key parsing and hashing for ZLM on_publish authentication.
 
-from app.core.api_key import hash_api_key
+A push key has the format ``<prefix>.<raw_secret>`` where ``prefix`` is a
+short public identifier stored on the PushChannel and ``raw_secret`` is the
+client-held secret. Only the HMAC of the full key is persisted.
+"""
+from __future__ import annotations
 
-
-def generate_push_key(prefix_len: int = 8) -> tuple[str, str]:
-    raw = secrets.token_urlsafe(24)
-    prefix = raw[:prefix_len].lower()
-    full = f"push_{prefix}.{raw}"
-    return full, prefix
-
-
-def hash_push_key(raw: str, secret_salt: str) -> str:
-    return hash_api_key(raw=raw, secret_salt=secret_salt)
+import hashlib
+import hmac
+from typing import Optional
 
 
-def parse_push_key(value: str) -> tuple[str, str] | None:
+def parse_push_key(value: str) -> Optional[tuple[str, str]]:
+    """Split a push key into ``(prefix, raw_secret)``; return ``None`` if invalid."""
     if not value:
         return None
-    v = value.strip()
-    if not v.startswith("push_"):
+    s = str(value).strip()
+    if "." not in s:
         return None
-    rest = v[5:]
-    if "." not in rest:
-        return None
-    prefix, raw = rest.split(".", 1)
-    prefix = prefix.strip().lower()
+    prefix, _, raw = s.partition(".")
+    prefix = prefix.strip()
     raw = raw.strip()
     if not prefix or not raw:
         return None
     return prefix, raw
 
+
+def hash_push_key(value: str, secret: str) -> str:
+    """Return the HMAC-SHA256 hex digest of the push key using ``secret``."""
+    if not value:
+        return ""
+    key = str(secret or "").encode("utf-8")
+    return hmac.new(key, str(value).strip().encode("utf-8"), hashlib.sha256).hexdigest()

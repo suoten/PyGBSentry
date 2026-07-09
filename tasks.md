@@ -11,7 +11,7 @@
     - Initialize Vue 3 + Vite project structure.
     - Set up Docker Compose for DB (PostgreSQL) and Redis.
 - **Database Implementation**
-    - Implement SQLAlchemy models based on `database_design.md`.
+    - Implement SQLAlchemy models based on `docs/database_design.md`.
     - Create Alembic migration scripts.
 - **Embedded ZLMediaKit Manager**
     - Download/Compile ZLMediaKit binaries for Windows & Linux.

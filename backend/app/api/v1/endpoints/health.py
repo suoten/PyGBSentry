@@ -17,21 +17,34 @@ from pydantic import BaseModel
 from typing import Optional, List, Literal
 from datetime import datetime, timezone
 from loguru import logger
+import json as _json
 
 router = APIRouter()
+
+
+def build_readiness_response() -> Response:
+    """Single source of truth for readiness checks.
+
+    Returns HTTP 503 when any critical component is degraded, otherwise HTTP 200.
+    Shared by the ``/readiness`` route (mounted at ``/api/v1/health/readiness``)
+    and the top-level ``/health/ready`` route defined in ``main.py`` so that both
+    paths are backed by the same implementation.
+    """
+    from app.services.health_service import health_service
+    if not health_service.is_ready:
+        body = _json.dumps(
+            {"status": "degraded", "reasons": health_service.degraded_reasons},
+            ensure_ascii=False,
+        )
+        return Response(content=body, status_code=503, media_type="application/json")
+    body = _json.dumps({"status": "ready"})
+    return Response(content=body, status_code=200, media_type="application/json")
 
 
 @router.get("/readiness")
 async def readiness_probe():
     """K8s/Docker readiness probe: returns 503 if any critical component is degraded."""
-    from app.services.health_service import health_service
-    if not health_service.is_ready:
-        return Response(
-            content='{"status":"degraded","reasons":' + str(health_service.degraded_reasons).replace("'", '"') + '}',
-            status_code=503,
-            media_type="application/json",
-        )
-    return {"status": "ready"}
+    return build_readiness_response()
 
 
 @router.get("/liveness")
@@ -191,7 +204,7 @@ async def get_ops_overview(
         try:
             sip_rate_limit = sip_invite_module.get_invite_rate_limit_metrics()
         except Exception as e:
-            logger.debug(f"操作失败,返回默认值: {e}")
+            logger.warning(f"操作失败,返回默认值: {e}")
             sip_rate_limit = {}
     return {
         "device_total": device_total,
@@ -215,7 +228,7 @@ async def get_sip_rate_limit_metrics(
         try:
             metrics = sip_invite_module.get_invite_rate_limit_metrics()
         except Exception as e:
-            logger.debug(f"操作失败,返回默认值: {e}")
+            logger.warning(f"操作失败,返回默认值: {e}")
             metrics = {}
     return {"status": "ok", "metrics": metrics}
 
@@ -240,7 +253,7 @@ async def get_capacity_baseline(
         try:
             sip_metrics = sip_invite_module.get_invite_rate_limit_metrics()
         except Exception as e:
-            logger.debug(f"操作失败,返回默认值: {e}")
+            logger.warning(f"操作失败,返回默认值: {e}")
             sip_metrics = {}
     health_level = "green"
     if high_risk_ratio >= 0.3 or unstable_ratio >= 0.35 or p95_failure_rate >= 60:

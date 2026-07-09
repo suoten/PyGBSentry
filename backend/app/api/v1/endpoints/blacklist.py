@@ -6,7 +6,7 @@ from app.models.ip_blacklist import IpBlacklist
 from app.models.user import User
 from app.api import deps
 from app.services.auth_audit import safe_auth_audit
-import asyncio
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 router = APIRouter()
 
@@ -71,6 +71,6 @@ async def remove_blacklist(
                 except Exception as e:
                     from loguru import logger
                     logger.warning(f"reload_ip_blacklist failed: {e}")
-            asyncio.create_task(_reload_with_catch())
+            fire_and_forget(_reload_with_catch())  # P0-16: 保存引用防 GC + 异常日志
 
     return {"message": "Success"}

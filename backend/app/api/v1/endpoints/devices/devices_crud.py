@@ -17,7 +17,8 @@ try:
     # 可选依赖：部分部署/版本可能没有该模型与对应表
     from app.models.device_subscription import DeviceSubscription
 except ModuleNotFoundError:  # pragma: no cover
-    DeviceSubscription = None  # type: ignore
+    # P1-9: 运行时为 None 时所有调用点已做 `if DeviceSubscription is None` 守卫
+    DeviceSubscription = None  # type: ignore[assignment]
 from app.models.user import User
 from app.api import deps
 from app.api.deps import get_or_404
@@ -27,7 +28,7 @@ from app.sip.catalog_runtime import get_device_catalog_runtime_batch
 from app.services.auth_audit import safe_auth_audit
 from typing import Any
 from datetime import datetime, timezone
-import asyncio
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 from . _common import (
     _tenant_id_for_user,
@@ -161,10 +162,11 @@ async def get_devices(
             "model": asset.model,
             "firmware": asset.firmware,
             "status": asset.status,
+            "is_online": asset.status == 1,  # FIX: [2026-07-04] 响应缺少 is_online 布尔字段，前端/审计读取恒为 None [全栈工程师]
             "last_keepalive": asset.last_keepalive,
             "register_time": asset.register_time,
             "expires": asset.expires,
-            "domain": asset.domain,
+            "domain": getattr(asset, "domain", None),  # FIX: [2026-07-03] Asset 模型无 domain 列，使用 getattr 防止 AttributeError [全栈工程师]
             "charset": asset.charset,
             "ssrc_check": asset.ssrc_check,
             "geo_coord_sys": asset.geo_coord_sys,
@@ -405,10 +407,21 @@ async def create_device(
 
     tenant_id = _tenant_id_for_user(current_user)
 
+    # FIX R22-SEVERE: GB28181 gb_id 全局唯一，需跨租户查重；但需避免跨租户信息泄露
+    # 原实现问题：查询所有租户的 gb_id 重复，错误消息"Device ID already exists"会泄露其他租户设备存在性
+    # 修复方案：
+    #   - 仍跨租户查重（GB28181 国标要求 gb_id 全局唯一）
+    #   - 如果 duplicate 属于当前租户 → 400 "Device ID already exists"
+    #   - 如果 duplicate 属于其他租户 → 403 "Permission denied"（不泄露具体信息）
     dup_stmt = select(Asset).where(Asset.gb_id == gb_id)
     duplicate = (await db.execute(dup_stmt)).scalars().first()
     if duplicate:
-        raise HTTPException(status_code=400, detail="Device ID already exists")  # i18n
+        dup_tenant = (getattr(duplicate, "tenant_id", None) or "default").strip() or "default"
+        if dup_tenant == (tenant_id or "default").strip():
+            # 当前租户已有此 gb_id
+            raise HTTPException(status_code=400, detail="Device ID already exists")  # i18n
+        # 其他租户已占用此 gb_id（GB28181 国标全局唯一），不泄露具体信息
+        raise HTTPException(status_code=403, detail="Permission denied")  # i18n
 
     transport = (payload.transport or "UDP").strip().upper()
     if transport not in {"UDP", "TCP"}:
@@ -417,14 +430,14 @@ async def create_device(
     asset = Asset(
         gb_id=gb_id,
         name=name,
-        password=payload.password.strip() if payload.password else None,
+        decrypted_password=payload.password.strip() if payload.password else None,
         ip_addr=payload.ip_addr.strip() if payload.ip_addr else None,
         port=payload.port,
         transport=transport,
         manufacturer=payload.manufacturer.strip() if payload.manufacturer else None,
         model=payload.model.strip() if payload.model else None,
         firmware=payload.firmware.strip() if payload.firmware else None,
-        domain=payload.domain.strip() if payload.domain else None,
+        domain=payload.domain.strip() if payload.domain and hasattr(Asset, "domain") else None,  # FIX: [2026-07-03] Asset 模型无 domain 列，条件赋值 [全栈工程师]
         charset=payload.charset,
         ssrc_check=payload.ssrc_check,
         geo_coord_sys=payload.geo_coord_sys,
@@ -457,7 +470,7 @@ async def update_device(
     if payload.name is not None:
         asset.name = payload.name.strip()
     if payload.password is not None:
-        asset.password = payload.password.strip() or None
+        asset.decrypted_password = payload.password.strip() or None
     if payload.ip_addr is not None:
         asset.ip_addr = payload.ip_addr.strip() or None
     if payload.port is not None:
@@ -584,7 +597,7 @@ async def blacklist_device(
 
             # 刷新内存黑名单缓存（server.py 中维护的集合）
             if hasattr(sip_server, "reload_ip_blacklist"):
-                asyncio.create_task(sip_server.reload_ip_blacklist())
+                fire_and_forget(sip_server.reload_ip_blacklist())  # P0-16: 保存引用防 GC + 异常日志
 
     # 2. 删除该 IP 下所有设备
     if req.delete_all_from_ip:
@@ -652,6 +665,12 @@ async def export_devices(
         stmt = stmt.where(Asset.tenant_id == tenant_id)
     if payload.gb_ids:
         stmt = stmt.where(Asset.gb_id.in_(payload.gb_ids))
+    # FIX R22-SEVERE: 在 SQL 层直接 limit，避免全表加载到内存再截断
+    # 原实现问题：assets = (await db.execute(stmt)).scalars().all() 先加载所有设备到内存
+    #   - 10万+ 设备时内存占用巨大，可能导致 OOM
+    #   - 即使有 _EXPORT_MAX_ROWS 截断，也已先全量加载
+    # 修复方案：查询时 limit(_EXPORT_MAX_ROWS + 1)，多查 1 行用于判断是否截断
+    stmt = stmt.limit(_EXPORT_MAX_ROWS + 1)
     assets = (await db.execute(stmt)).scalars().all()
 
     if not assets:

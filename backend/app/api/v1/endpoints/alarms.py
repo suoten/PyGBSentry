@@ -14,7 +14,7 @@ from app.api import deps
 from app.core.config import settings
 from app.services.auth_audit import safe_auth_audit
 from app.services.audit_center_service import audit_center_service
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, Literal, Any
 import json
 from loguru import logger
@@ -195,7 +195,7 @@ async def ensure_alarm_escalation_schema(db: AsyncSession):
             if d is not None:
                 dialect = str(getattr(d, "name", "") or "").lower()
         except Exception as e:
-            logger.debug(f"获取数据库方言失败: {e}")
+            logger.warning(f"获取数据库方言失败: {e}")
         for idx_name, idx_col in [
             ("idx_alarm_escalations_alarm_id", "alarm_id"),
             ("idx_alarm_escalations_state", "state"),
@@ -406,11 +406,17 @@ async def get_sla_overview(
             total_open += 1
             if level > 0:
                 escalated_open += 1
-            if alarm.time and (now - alarm.time).total_seconds() >= overdue_minutes * 60:
-                overdue_open += 1
+            # FIX: [2026-07-03] SQLite 返回 naive datetime，与 aware now 比较触发 TypeError。根因：DB 层未统一时区。修复：比较前统一为 aware UTC。 [全栈工程师]
+            if alarm.time:
+                _alarm_time = alarm.time.replace(tzinfo=timezone.utc) if alarm.time.tzinfo is None else alarm.time
+                if (now - _alarm_time).total_seconds() >= overdue_minutes * 60:
+                    overdue_open += 1
         if escalation and escalation.ack_at and escalation.ack_at.date() == today and alarm.time:
             ack_count += 1
-            ack_minutes_sum += max((escalation.ack_at - alarm.time).total_seconds(), 0) / 60
+            # FIX: [2026-07-03] 同上，ack_at 与 alarm.time 均可能为 naive datetime [全栈工程师]
+            _ack_at = escalation.ack_at.replace(tzinfo=timezone.utc) if escalation.ack_at.tzinfo is None else escalation.ack_at
+            _alarm_time2 = alarm.time.replace(tzinfo=timezone.utc) if alarm.time.tzinfo is None else alarm.time
+            ack_minutes_sum += max((_ack_at - _alarm_time2).total_seconds(), 0) / 60
     return SlaOverview(
         total_open=total_open,
         escalated_open=escalated_open,
@@ -717,8 +723,8 @@ async def acknowledge_alarm(
         if _platform_svc:
             plat_stmt = select(ParentPlatform).where(
                 ParentPlatform.tenant_id == (alarm.tenant_id or "default"),
-                ParentPlatform.is_online == True,
-                ParentPlatform.enable == True,
+                ParentPlatform.is_online,
+                ParentPlatform.enable,
             )
             plat_result = await db.execute(plat_stmt)
             platforms = plat_result.scalars().all()
@@ -805,8 +811,8 @@ async def escalate_alarm(
         if _platform_svc:
             plat_stmt = select(ParentPlatform).where(
                 ParentPlatform.tenant_id == (alarm.tenant_id or "default"),
-                ParentPlatform.is_online == True,
-                ParentPlatform.enable == True,
+                ParentPlatform.is_online,
+                ParentPlatform.enable,
             )
             plat_result = await db.execute(plat_stmt)
             platforms = plat_result.scalars().all()
@@ -861,6 +867,7 @@ async def get_alarm_config(
 
 
 class AlarmConfigPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     alarm_record_link_enabled: bool = False
 
 
@@ -1080,18 +1087,15 @@ async def delete_alarm_link_rule(
 
 
 @router.websocket("/ws")
-async def websocket_alarms(websocket: WebSocket, token: str = ""):
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
+async def websocket_alarms(websocket: WebSocket, ticket: str = ""):
+    # P0-6: 改用短期一次性 ws-ticket 认证，消除 URL 暴露 JWT token
+    if not ticket:
+        await websocket.close(code=4001, reason="Missing ticket")
         return
-    try:
-        from app.core import security
-        payload = security.verify_token(token)
-        if not payload or not payload.get("sub"):
-            await websocket.close(code=4001, reason="Invalid token")
-            return
-    except Exception:
-        await websocket.close(code=4001, reason="Invalid token")
+    from app.core.ws_ticket import consume_ws_ticket
+    payload = await consume_ws_ticket(ticket)
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=4001, reason="Invalid or expired ticket")
         return
     user_role = (payload.get("role") or "").strip().lower()
     is_superuser = payload.get("is_superuser", False)

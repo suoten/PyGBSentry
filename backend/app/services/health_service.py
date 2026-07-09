@@ -3,9 +3,12 @@ from loguru import logger
 import time
 import datetime
 import smtplib
+import os
+import shutil
 from email.message import EmailMessage
 from app.db.session import AsyncSessionLocal
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.models.asset import Asset
 from app.models.asset_stream_policy import AssetStreamPolicy
 from app.models.asset_stream_health import AssetStreamHealth
@@ -16,6 +19,8 @@ from app.services.media_manager import media_manager
 from app.services.stream_strategy import should_probe_back_to_tcp_passive, recommend_stream_mode, normalize_stream_mode
 from app.services.commercial_guard import is_subscription_near_expiry
 from app.services.notification_template_service import render_webhook_payload, render_email
+# FIX: [2026-07-03] 引入 plugin_manager 用于磁盘空间告警事件发射 [可靠性工程师]
+from app.core.plugin_manager import plugin_manager
 from app.models.media_node import MediaNode
 from app.models.platform import ParentPlatform
 from sqlalchemy import select, update  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
@@ -51,6 +56,12 @@ class HealthService:
         self._last_auto_backup_date: datetime.date | None = None
         # Readiness state: tracks degraded conditions for k8s/docker health probes
         self._degraded_reasons: list[str] = []
+        # FIX: [2026-07-03] 系统资源监控状态 — 内存增长追踪和磁盘空间告警 [可靠性工程师]
+        self._memory_baseline_mb: float = 0.0
+        self._memory_last_mb: float = 0.0
+        self._memory_check_history: list[tuple[float, float]] = []  # (timestamp, memory_mb)
+        self._disk_alert_cooldown_until: datetime.datetime | None = None
+        self._disk_recording_stopped: bool = False
 
     @property
     def is_ready(self) -> bool:
@@ -95,6 +106,15 @@ class HealthService:
     async def _run_loop(self):
         while self.running:
             try:
+                # FIX: [2026-07-03] DB 连接健康检查，断开时指数退避重连 [可靠性工程师]
+                from app.db.session import _db_health_check_failed
+                if _db_health_check_failed:
+                    from app.db.session import ensure_db_connection_with_retry
+                    reconnected = await ensure_db_connection_with_retry()
+                    if reconnected:
+                        self.clear_degraded("db_disconnected")
+                    else:
+                        self.mark_degraded("db_disconnected")
                 await self._check_device_expiration()
                 await self._check_parent_platform_expiration()
                 await self._check_zlm_health()
@@ -109,16 +129,25 @@ class HealthService:
                 await self._cleanup_stale_media_port_leases()
                 await self._cleanup_sip_tx_cache()
                 await self._auto_backup_check()
+                # FIX: [2026-07-03] 系统资源监控 — 内存增长检测和磁盘空间告警 [可靠性工程师]
+                await self._check_memory_growth()
+                await self._check_disk_space()
+                # FIX: [2026-07-04] 清理已关闭的 per-node HTTP 客户端，防止媒体节点移除后客户端残留 [可靠性工程师]
+                try:
+                    from app.services.zlm_rtp_server_service import cleanup_stale_node_clients
+                    await cleanup_stale_node_clients()
+                except Exception as e:
+                    logger.debug(f"Stale node clients cleanup error: {e}")
             except Exception as e:
                 logger.error(f"Health check error: {e}")
-            
+
             await asyncio.sleep(self.check_interval)
 
     async def _cleanup_sip_tx_cache(self):
         """定期清理 SIP 事务缓存和陈旧的 Response 缓存"""
         from app.sip.transactions import tx_manager
         from app.sip.server import sip_server
-        
+
         # Clean SipServer response cache
         now = time.time()
         expired_keys = []
@@ -127,7 +156,7 @@ class HealthService:
                 expired_keys.append(key)
         for key in expired_keys:
             sip_server._response_cache.pop(key, None)
-            
+
         # tx_manager cleanup is handled by its own timers, but we can do a sweep here just in case
         # of memory leaks.
         async with tx_manager._lock:
@@ -148,7 +177,8 @@ class HealthService:
         from app.core.media_nodes_db import cleanup_stale_leases, cleanup_invalid_bound_leases
         try:
             async with AsyncSessionLocal() as session:
-                cleaned_stale = await cleanup_stale_leases(session, max_age_seconds=300, limit=settings.HEALTH_CHECK_LIMIT)
+                # FIX: [2026-07-03] 孤儿租约清理延迟从 300s 降至 120s，避免端口假性耗尽 [全栈工程师]
+                cleaned_stale = await cleanup_stale_leases(session, max_age_seconds=120, limit=settings.HEALTH_CHECK_LIMIT)
                 cleaned_invalid = await cleanup_invalid_bound_leases(session, limit=settings.HEALTH_CHECK_LIMIT)
                 if cleaned_stale or cleaned_invalid:
                     logger.info(f"Auto-cleaned media port leases: {cleaned_stale} stale, {cleaned_invalid} invalid")
@@ -182,7 +212,7 @@ class HealthService:
                     continue
                 app = str(item.get("app") or "")
                 stream = str(item.get("stream") or "")
-                
+
                 # Active streaming means it's producing bytes
                 bytes_speed = int(item.get("bytesSpeed") or 0)
                 if app and stream and bytes_speed > 0:
@@ -249,7 +279,8 @@ class HealthService:
                 if getattr(n, "is_embedded", False):
                     host = str(getattr(settings, "MEDIA_SERVER_HOST", "") or "").strip()  # I3 回退值不再硬编码127.0.0.1，避免配置缺失时静默使用错误地址
                 port = int(getattr(n, "http_port", 0) or 0)
-                secret = getattr(n, "secret", None)
+                # P0-02: n 是 ORM MediaNode，secret 列存储密文，须用 decrypted_secret 取明文
+                secret = getattr(n, "decrypted_secret", None)
                 if not host or port <= 0 or not secret:
                     continue
                 ok = False
@@ -258,7 +289,8 @@ class HealthService:
                     url = f"http://{host}:{port}/index/api/getServerConfig"
                     from app.core.http_client import get_http_client
                     client = await get_http_client()
-                    r = await client.get(url, params={"secret": secret}, timeout=2.0)
+                    # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
+                    r = await client.post(url, data={"secret": secret}, timeout=2.0)
                     if r.status_code == 200:
                         data = r.json() or {}
                         ok = data.get("code") in {0, "0"}
@@ -354,7 +386,7 @@ class HealthService:
                     from app.core.plugin_manager import plugin_manager, HOOK_ON_DEVICE_OFFLINE
                     for dev in devices:
                         if dev.status == 0 and dev.gb_id:
-                            asyncio.create_task(plugin_manager.emit(HOOK_ON_DEVICE_OFFLINE, dev.gb_id))
+                            fire_and_forget(plugin_manager.emit(HOOK_ON_DEVICE_OFFLINE, dev.gb_id))  # P0-16: 保存引用防 GC + 异常日志
                 except Exception as e:
                     logger.warning(f"Failed to emit HOOK_ON_DEVICE_OFFLINE: {e}")
 
@@ -368,7 +400,7 @@ class HealthService:
         offline_ids: list[tuple[str, str]] = []
         async with AsyncSessionLocal() as session:
             rows = (await session.execute(
-                select(ParentPlatform).where(ParentPlatform.is_online == True)
+                select(ParentPlatform).where(ParentPlatform.is_online)
             )).scalars().all()
             for p in rows:
                 last = getattr(p, "last_keepalive", None)
@@ -389,7 +421,7 @@ class HealthService:
             svc = getattr(platform_service_mod, "platform_service", None)
             if svc and getattr(svc, "running", False):
                 for pid, _ in offline_ids:
-                    asyncio.create_task(svc.handle_platform_offline(pid, reason="health_expiration"))
+                    fire_and_forget(svc.handle_platform_offline(pid, reason="health_expiration"))  # P0-16: 保存引用防 GC + 异常日志
 
     async def _probe_device_before_offline(self, device) -> bool:
         try:
@@ -444,7 +476,7 @@ class HealthService:
                     return True
             return False
         except Exception as e:
-            logger.debug(f"Probe device {getattr(device, 'gb_id', '?')} before offline failed: {e}")
+            logger.warning(f"Probe device {getattr(device, 'gb_id', '?')} before offline failed: {e}")
             return False
 
     async def _check_zlm_health(self):
@@ -460,9 +492,9 @@ class HealthService:
                         self.clear_degraded("zlm_down")
                         return
                 except Exception as e:
-                    logger.debug(f"Error detecting external media nodes: {e}")
+                    logger.warning(f"Error detecting external media nodes: {e}")
         except Exception as e:
-            logger.debug(f"Error in ZLM health check pre-conditions: {e}")
+            logger.warning(f"Error in ZLM health check pre-conditions: {e}")
         if not await media_manager.is_running():
             if media_manager.embedded_deploy_known_failed():
                 self.mark_degraded("zlm_down")
@@ -925,8 +957,164 @@ class HealthService:
                     _os.remove(fp)
                     removed += 1
             except OSError:
-                pass
+                logger.debug("swallowed_exception", exc_info=True)
         if removed > 0:
             logger.info(f"Cleaned up {removed} old auto backup(s)")
+
+    # FIX: [2026-07-03] 内存增长检测 — 追踪进程内存使用，持续增长时告警并清理缓存 [可靠性工程师]
+    async def _check_memory_growth(self):
+        """检测进程内存增长趋势。
+
+        策略：
+        1. 每 30 秒采样一次进程 RSS 内存
+        2. 保留最近 120 个采样点（约 1 小时）
+        3. 若内存持续增长超过阈值（默认 500MB 增量），触发缓存清理和 WARNING 日志
+        """
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            mem_mb = round(process.memory_info().rss / 1024 / 1024, 1)
+        except Exception:
+            return
+
+        now_ts = time.time()
+        self._memory_last_mb = mem_mb
+        if self._memory_baseline_mb == 0.0:
+            self._memory_baseline_mb = mem_mb
+        self._memory_check_history.append((now_ts, mem_mb))
+        # 保留最近 120 个采样点（约 1 小时，每 30 秒一次）
+        if len(self._memory_check_history) > 120:
+            self._memory_check_history = self._memory_check_history[-120:]
+
+        # 检查内存增长阈值
+        growth_threshold_mb = int(getattr(settings, "MEMORY_GROWTH_ALERT_THRESHOLD_MB", 500) or 500)
+        growth = mem_mb - self._memory_baseline_mb
+        if growth > growth_threshold_mb:
+            logger.warning(
+                f"Memory growth alert: current={mem_mb}MB, baseline={self._memory_baseline_mb}MB, "
+                f"growth={growth:.1f}MB (threshold={growth_threshold_mb}MB). Triggering cache cleanup."
+            )
+            # 清理各模块缓存
+            try:
+                from app.core.settings_cache import invalidate as invalidate_settings_cache
+                invalidate_settings_cache()
+            except Exception as e:
+                logger.warning(f"Memory cleanup: settings cache invalidation failed: {e}")
+            try:
+                from app.sip.catalog_data_manager import catalog_data_manager
+                if hasattr(catalog_data_manager, '_cache'):
+                    catalog_data_manager._cache.clear()
+            except Exception as e:
+                logger.warning(f"Memory cleanup: catalog data cache clear failed: {e}")
+            try:
+                from app.sip.sip_trace_store import sip_trace_store
+                if hasattr(sip_trace_store, 'clear'):
+                    sip_trace_store.clear()
+            except Exception as e:
+                logger.warning(f"Memory cleanup: sip trace store clear failed: {e}")
+            # 重置基线，避免重复告警
+            self._memory_baseline_mb = mem_mb
+
+        # 内存绝对阈值告警
+        absolute_threshold_mb = int(getattr(settings, "MEMORY_ABSOLUTE_ALERT_THRESHOLD_MB", 2048) or 2048)
+        if mem_mb > absolute_threshold_mb:
+            self.mark_degraded("memory_high")
+        else:
+            self.clear_degraded("memory_high")
+
+    # FIX: [2026-07-03] 磁盘空间监控 — 磁盘空间不足时停止录像并告警 [可靠性工程师]
+    async def _check_disk_space(self):
+        """检测录像存储磁盘空间，不足时停止录像并发送告警。
+
+        策略：
+        1. 检查录像存储路径所在磁盘的使用率
+        2. 超过 DISK_SPACE_CRITICAL_THRESHOLD（默认 95%）时停止录像并告警
+        3. 超过 DISK_SPACE_WARNING_THRESHOLD（默认 85%）时发出告警
+        4. 恢复到 DISK_SPACE_RECOVERY_THRESHOLD（默认 80%）以下时恢复录像
+        """
+        disk_check_enabled = bool(getattr(settings, "DISK_SPACE_MONITOR_ENABLED", True))
+        if not disk_check_enabled:
+            return
+
+        # 获取录像存储路径
+        record_path = ""
+        try:
+            async with AsyncSessionLocal() as session:
+                from app.models.system_setting import SystemSetting
+                from sqlalchemy import select as _sel
+                result = await session.execute(_sel(SystemSetting).where(SystemSetting.setting_key == "record_storage_root"))
+                row = result.scalars().first()
+                record_path = (row.setting_value if row else "").strip()
+        except Exception as e:
+            logger.debug(f"Disk space check: failed to load record_storage_root from DB: {e}")
+
+        if not record_path:
+            record_path = os.path.join(os.getcwd(), "data", "record")
+
+        try:
+            disk_usage = shutil.disk_usage(record_path)
+            used_percent = (disk_usage.used / disk_usage.total) * 100
+        except Exception as e:
+            logger.debug(f"Disk space check failed for path {record_path}: {e}")
+            return
+
+        critical_threshold = int(getattr(settings, "DISK_SPACE_CRITICAL_THRESHOLD", 95) or 95)
+        warning_threshold = int(getattr(settings, "DISK_SPACE_WARNING_THRESHOLD", 85) or 85)
+        recovery_threshold = int(getattr(settings, "DISK_SPACE_RECOVERY_THRESHOLD", 80) or 80)
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+
+        if used_percent >= critical_threshold:
+            if not self._disk_recording_stopped:
+                logger.error(
+                    f"Disk space critical: {used_percent:.1f}% used (threshold={critical_threshold}%). "
+                    f"Stopping recording to prevent disk full."
+                )
+                self._disk_recording_stopped = True
+                self.mark_degraded("disk_space_critical")
+                # 通过插件事件通知录像模块停止
+                fire_and_forget(
+                    plugin_manager.emit("ON_DISK_SPACE_CRITICAL", {
+                        "path": record_path,
+                        "used_percent": round(used_percent, 1),
+                        "action": "stop_recording",
+                    })
+                )
+            # 告警冷却 30 分钟
+            if not self._disk_alert_cooldown_until or now > self._disk_alert_cooldown_until:
+                self._disk_alert_cooldown_until = now + datetime.timedelta(minutes=30)
+                await self._post_webhook(
+                    settings.HEALTH_ALERT_WEBHOOK_URL,
+                    "disk_space_critical",
+                    {
+                        "event": "disk_space_critical",
+                        "path": record_path,
+                        "used_percent": round(used_percent, 1),
+                        "threshold": critical_threshold,
+                        "timestamp": now.isoformat(),
+                    },
+                )
+        elif used_percent >= warning_threshold:
+            if not self._disk_alert_cooldown_until or now > self._disk_alert_cooldown_until:
+                self._disk_alert_cooldown_until = now + datetime.timedelta(minutes=30)
+                logger.warning(
+                    f"Disk space warning: {used_percent:.1f}% used (threshold={warning_threshold}%)"
+                )
+        else:
+            # 恢复
+            if self._disk_recording_stopped and used_percent < recovery_threshold:
+                logger.info(
+                    f"Disk space recovered: {used_percent:.1f}% used (below recovery threshold {recovery_threshold}%). "
+                    f"Resuming recording."
+                )
+                self._disk_recording_stopped = False
+                self.clear_degraded("disk_space_critical")
+                fire_and_forget(
+                    plugin_manager.emit("ON_DISK_SPACE_RECOVERED", {
+                        "path": record_path,
+                        "used_percent": round(used_percent, 1),
+                        "action": "resume_recording",
+                    })
+                )
 
 health_service = HealthService()

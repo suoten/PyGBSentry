@@ -1,0 +1,153 @@
+# ============================================================================
+# PyGBSentry — Project-wide Python tooling configuration
+# ============================================================================
+# This file consolidates ruff (linting/formatting) and mypy (type checking)
+# configuration at the project root so that IDE integrations and CI/CD can
+# discover them without searching subdirectories.
+#
+# The backend-specific ruff.toml is kept for backward compatibility; ruff
+# merges settings from both files (root pyproject.toml takes precedence for
+# keys present in both).
+# ============================================================================
+
+[tool.ruff]
+# ---- General settings ---------------------------------------------------
+target-version = "py311"
+line-length = 150
+src = ["backend/app", "backend/tests"]
+extend-exclude = [
+    "frontend",
+    "mobile",
+    "deploy",
+    "docs",
+    "tools",
+    "scripts",
+    ".ruff_cache",
+    ".pytest_cache",
+]
+
+[tool.ruff.lint]
+# Enabled rule sets — aligned with backend/ruff.toml
+select = [
+    "F",         # pyflakes: unused imports, undefined variables
+    "E",         # pycodestyle errors
+    "W",         # pycodestyle warnings
+    "I",         # isort: import sorting
+    "A",         # flake8-builtins: shadowing builtins
+    "PLC0414",   # import shadowing in functions
+    "PLW0406",   # import self-shadowing
+    "RUF100",    # unused noqa comments
+    "B",         # flake8-bugbear: common pitfalls
+    "UP",        # pyupgrade: modernize syntax
+    "SIM",       # flake8-simplify: code simplification
+]
+
+# Ignored rules (project-specific exemptions)
+ignore = [
+    "E501",      # line length (existing long lines, incremental fix)
+    "E402",      # module-level import not at top (delayed import is by design)
+    "I001",      # import sorting (663 historical instances, not enforced yet)
+    "A002",      # function parameter shadowing builtins (API naming convention)
+    "B008",      # function call in default argument (FastAPI Depends pattern)
+    "SIM117",    # nested with statements (readability preference)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]           # re-export imports
+"tests/*" = ["S101", "PLR2004"]    # asserts and magic numbers in tests
+"alembic/versions/*" = ["E402"]    # migration scripts use delayed imports
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ============================================================================
+# Mypy — Static type checking
+# ============================================================================
+[tool.mypy]
+python_version = "3.11"
+# Gradual typing: start permissive, tighten over time
+strict = false
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+disallow_untyped_decorators = false
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+show_error_codes = true
+show_column_numbers = true
+# Don't fail on missing stubs for third-party packages
+ignore_missing_imports = true
+# Exclude generated/vendored code
+exclude = [
+    "frontend/",
+    "mobile/",
+    "deploy/",
+    "docs/",
+    "tools/",
+    "alembic/versions/",
+    ".pytest_cache/",
+]
+
+# Per-module overrides for gradual typing adoption
+[[tool.mypy.overrides]]
+module = "app.*"
+disallow_untyped_defs = false  # Will tighten to true once migration complete
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# ============================================================================
+# Pytest — Test runner configuration
+# ============================================================================
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["backend/tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+]
+
+# ============================================================================
+# Coverage — Test coverage configuration
+# ============================================================================
+[tool.coverage.run]
+source = ["backend/app"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__init__.py",
+    "*/alembic/*",
+    "*/migrations/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "pass",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+show_missing = true
+precision = 2
+fail_under = 70

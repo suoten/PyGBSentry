@@ -3,7 +3,7 @@
     <el-container class="h-screen flex-col">
       <el-dialog
         v-model="showGuideDialog"
-        title="首次使用引导"
+        :title="$t('app.guideTitle')"
         width="520px"
         :close-on-click-modal="false"
         :show-close="true"
@@ -12,58 +12,58 @@
       >
         <!-- 服务器版引导：插件市场 + 购买授权 -->
         <el-steps v-if="isServerEdition" direction="vertical" :active="guideStep" finish-status="success">
-          <el-step title="浏览插件市场">
+          <el-step :title="$t('app.browsePluginMarket')">
             <template #description>
-              <span>在插件中心查看并安装所需插件。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/plugins')">前往</el-button>
+              <span>{{ $t('app.browsePluginMarketDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/plugins')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
-          <el-step title="购买与授权">
+          <el-step :title="$t('app.purchaseAndAuth')">
             <template #description>
-              <span>在插件购买页完成支付后自动发放授权。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/billing')">前往</el-button>
+              <span>{{ $t('app.purchaseAndAuthDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/billing')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
         </el-steps>
         <!-- 开源版引导：设备接入 + 监控预览 + 录像告警 + 插件扩展 -->
         <el-steps v-else direction="vertical" :active="guideStep" finish-status="success">
-          <el-step title="添加第一台设备">
+          <el-step :title="$t('app.addFirstDevice')">
             <template #description>
-              <span>在设备列表或多协议接入中添加国标/RTSP 等设备。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/devices')">前往</el-button>
+              <span>{{ $t('app.addFirstDeviceDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/devices')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
-          <el-step title="监控中心预览">
+          <el-step :title="$t('app.monitorPreview')">
             <template #description>
-              <span>在监控中心分屏预览实时视频。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/monitor')">前往</el-button>
+              <span>{{ $t('app.monitorPreviewDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/monitor')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
-          <el-step title="配置录像与告警">
+          <el-step :title="$t('app.configRecordAlarm')">
             <template #description>
-              <span>在录像计划中配置录制策略，在告警中心查看告警。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/record-schedule')">前往</el-button>
+              <span>{{ $t('app.configRecordAlarmDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/record-schedule')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
-          <el-step title="可选：安装插件">
+          <el-step :title="$t('app.optionalInstallPlugin')">
             <template #description>
-              <span>在插件中心安装电视墙、智能分析等扩展插件。</span>
-              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/plugins')">前往</el-button>
+              <span>{{ $t('app.optionalInstallPluginDesc') }}</span>
+              <el-button size="small" type="primary" class="ml-2" @click="goGuide('/plugins')">{{ $t('app.goto') }}</el-button>
             </template>
           </el-step>
         </el-steps>
         <template #footer>
-          <el-button @click="showGuideDialog = false">跳过</el-button>
-          <el-button type="primary" @click="dismissFirstVisit(); showGuideDialog = false">我知道了，不再提示</el-button>
+          <el-button @click="showGuideDialog = false">{{ $t('app.skip') }}</el-button>
+          <el-button type="primary" @click="dismissFirstVisit(); showGuideDialog = false">{{ $t('app.gotIt') }}</el-button>
         </template>
       </el-dialog>
 
       <div v-if="licenseExpiryList.length && !licenseExpiryDismissed" class="license-expiry-banner">
-        <span>以下插件授权即将到期（30 天内）：{{ licenseExpiryList.join('、') }}。请前往服务器版完成续费，续费后开源端会继续识别已购状态。</span>
+        <span>{{ $t('app.licenseExpiryBanner', { list: licenseExpiryList.join('、') }) }}</span>
         <div class="flex items-center gap-2">
-          <el-button v-if="isServerEdition" size="small" type="primary" @click="goGuide('/billing')">前往续费</el-button>
-          <el-button v-else size="small" type="primary" @click="openMarketplaceShop">前往服务器版续费</el-button>
-          <el-button size="small" text @click="dismissLicenseExpiry">不再提示</el-button>
+          <el-button v-if="isServerEdition" size="small" type="primary" @click="goGuide('/billing')">{{ $t('app.renewNow') }}</el-button>
+          <el-button v-else size="small" type="primary" @click="openMarketplaceShop">{{ $t('app.renewOnServer') }}</el-button>
+          <el-button size="small" text @click="dismissLicenseExpiry">{{ $t('app.doNotRemind') }}</el-button>
         </div>
       </div>
 
@@ -173,8 +173,10 @@ import TagsView from './components/TagsView.vue'
 import { useTagsViewStore } from './stores/tagsView'
 import { useAppPrefsStore } from './stores/appPrefs'
 import appRouter from './router'
-import { getRoleInfo, hasPermission } from './utils/auth'
+import { getCachedRoleInfo, getVerifiedRoleInfo, hasPermission, EMPTY_ROLE_INFO, type RoleInfo } from './utils/auth' // FIX C-3: 改用后端验证角色
 import { logger } from '@/utils/logger'
+import { getBrandingCache, setBrandingCache } from '@/utils/brandingCache'  // FIX: [2026-07-04] 缺失品牌缓存导入 [全栈工程师]
+import { startSessionTimeout, stopSessionTimeout } from '@/utils/sessionTimeout'  // P0-5: 会话超时
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化
@@ -196,9 +198,13 @@ const guideStep = ref(0)
 const licenseExpiryList = ref<string[]>([])
 const licenseExpiryDismissed = ref(false)
 const marketplaceShopUrl = ref('')
-const collapsed = ref(false)
 const tagsStore = useTagsViewStore()
 const prefsStore = useAppPrefsStore()
+// 侧边栏折叠状态从 store 读取（持久化到 localStorage，非敏感 UI 偏好）
+const collapsed = computed({
+  get: () => prefsStore.sidebarCollapsed,
+  set: (val: boolean) => { prefsStore.sidebarCollapsed = val }
+})
 const APP_LOGS_PAID_PLUGIN_IDS = ['mobile_app_suite', 'mini_program_suite'] as const
 
 const hasPurchased = (pluginId: string) => purchasedPluginIds.value.includes(pluginId)
@@ -218,17 +224,17 @@ type DynRoute = {
 }
 
 const dynamicPaidRoutes: DynRoute[] = [
-  { pluginId: 'mobile_app_suite', routeName: 'MobileApp', path: '/mobile-app', title: '手机版', component: () => import('./views/MobileAppCenter.vue') },
-  { pluginId: 'mini_program_suite', routeName: 'MiniProgram', path: '/mini-program', title: '小程序', component: () => import('./views/MiniProgramCenter.vue') },
-  { pluginId: 'mobile_app_suite', routeName: 'AppLogs', path: '/app-logs', title: 'App 日志', component: () => import('./views/AppLogs.vue') },
-  { pluginId: 'tv_wall_suite', routeName: 'TvWall', path: '/tv-wall', title: '电视墙', component: () => import('./views/TvWall.vue') },
-  { pluginId: 'tv_wall_suite', routeName: 'MobileTvWall', path: '/m/tv-wall', title: '电视墙（移动端）', component: () => import('./views/TvWall.vue') },
-  { pluginId: 'visual_command_suite', routeName: 'VisualCommand', path: '/visual-command', title: '可视化指挥', component: () => import('./views/VisualCommand.vue') },
-  { pluginId: 'visual_command_suite', routeName: 'MobileVisualCommand', path: '/m/visual-command', title: '可视化指挥（移动端）', component: () => import('./views/VisualCommand.vue') },
-  { pluginId: 'visual_command_suite', routeName: 'MobileCommand', path: '/mobile-command', title: '移动指挥', component: () => import('./views/MobileCommand.vue') },
-  { pluginId: 'face_recognition_suite', routeName: 'MobileFaceRecognition', path: '/m/face-recognition', title: '人脸识别（移动端）', component: () => import('./views/FaceRecognitionMobile.vue') },
-  { pluginId: 'plate_recognition_suite', routeName: 'MobilePlateRecognition', path: '/m/plate-recognition', title: '车牌识别（移动端）', component: () => import('./views/PlateRecognitionMobile.vue') },
-  { pluginId: 'behavior_recognition_suite', routeName: 'MobileBehaviorRecognition', path: '/m/behavior-recognition', title: '行为识别（移动端）', component: () => import('./views/BehaviorRecognitionMobile.vue') },
+  { pluginId: 'mobile_app_suite', routeName: 'MobileApp', path: '/mobile-app', title: t('menu.mobileApp'), component: () => import('./views/MobileAppCenter.vue') },
+  { pluginId: 'mini_program_suite', routeName: 'MiniProgram', path: '/mini-program', title: t('menu.miniProgram'), component: () => import('./views/MiniProgramCenter.vue') },
+  { pluginId: 'mobile_app_suite', routeName: 'AppLogs', path: '/app-logs', title: t('menu.appLogs'), component: () => import('./views/AppLogs.vue') },
+  { pluginId: 'tv_wall_suite', routeName: 'TvWall', path: '/tv-wall', title: t('menu.tvWall'), component: () => import('./views/TvWall.vue') },
+  { pluginId: 'tv_wall_suite', routeName: 'MobileTvWall', path: '/m/tv-wall', title: t('app.tvWallMobile'), component: () => import('./views/TvWall.vue') },
+  { pluginId: 'visual_command_suite', routeName: 'VisualCommand', path: '/visual-command', title: t('menu.visualCommand'), component: () => import('./views/VisualCommand.vue') },
+  { pluginId: 'visual_command_suite', routeName: 'MobileVisualCommand', path: '/m/visual-command', title: t('app.visualCommandMobile'), component: () => import('./views/VisualCommand.vue') },
+  { pluginId: 'visual_command_suite', routeName: 'MobileCommand', path: '/mobile-command', title: t('menu.mobileCommand'), component: () => import('./views/MobileCommand.vue') },
+  { pluginId: 'face_recognition_suite', routeName: 'MobileFaceRecognition', path: '/m/face-recognition', title: t('app.faceRecognitionMobile'), component: () => import('./views/FaceRecognitionMobile.vue') },
+  { pluginId: 'plate_recognition_suite', routeName: 'MobilePlateRecognition', path: '/m/plate-recognition', title: t('app.plateRecognitionMobile'), component: () => import('./views/PlateRecognitionMobile.vue') },
+  { pluginId: 'behavior_recognition_suite', routeName: 'MobileBehaviorRecognition', path: '/m/behavior-recognition', title: t('app.behaviorRecognitionMobile'), component: () => import('./views/BehaviorRecognitionMobile.vue') },
 ]
 
 const syncPaidPluginRoutes = () => {
@@ -264,6 +270,7 @@ const canViewAppLogsMenu = computed(() => {
 })
 
 function dismissFirstVisit() {
+  // SECURITY: 非敏感 UI 标记（引导已阅）— 仅存 '1'，无敏感信息，可安全存入 localStorage
   localStorage.setItem('first_visit_done', '1')
   showGuideDialog.value = false
 }
@@ -272,6 +279,7 @@ function goGuide(path: string) {
   router.push(path)
 }
 function dismissLicenseExpiry() {
+  // SECURITY: 非敏感 UI 标记（本月授权到期提示已忽略）— key 含月份后缀，值仅 '1'，可安全存入 localStorage
   const key = 'license_expiry_dismissed_' + new Date().toISOString().slice(0, 7)
   localStorage.setItem(key, '1')
   licenseExpiryDismissed.value = true
@@ -284,10 +292,11 @@ function checkLicenseExpiry() {
       if (item.plugin_name && !expiring.includes(item.plugin_name)) expiring.push(item.plugin_name)
     }
     if (expiring.length > 5) {
-      licenseExpiryList.value = [...expiring.slice(0, 5), `等 ${expiring.length} 个`]
+      licenseExpiryList.value = [...expiring.slice(0, 5), t('app.etcCount', { count: expiring.length })]
     } else {
       licenseExpiryList.value = expiring
     }
+    // SECURITY: 读取非敏感 UI 标记（见 dismissLicenseExpiry 注释）
     const key = 'license_expiry_dismissed_' + new Date().toISOString().slice(0, 7)
     licenseExpiryDismissed.value = !!localStorage.getItem(key)
   }).catch(() => {})
@@ -361,7 +370,10 @@ const menuGroups = computed<MenuGroup[]>(() => {
   const runtime = pluginMenus.value.map(item => ({ path: item.path, title: item.title, icon: Box }))
   const all = [...base, ...runtime]
 
-  const roleInfo = getRoleInfo()
+  // FIX: [2026-07-04] verifiedRoleInfo 从未声明为 ref，运行时 ReferenceError。
+  // computed 中无法 await getVerifiedRoleInfo()，改用同步 getCachedRoleInfo()
+  // 读取已由 onMounted 预热缓存的后端权威角色信息。[全栈工程师]
+  const roleInfo = getCachedRoleInfo() ?? EMPTY_ROLE_INFO
   const filterPerms = (items: MenuItem[]) => {
     if (roleInfo.isSuperuser || roleInfo.permissions.includes('*')) return items
     return items.filter(item => {
@@ -397,19 +409,19 @@ const menuGroups = computed<MenuGroup[]>(() => {
   }
 
   const groups: MenuGroup[] = [
-    { title: '概览', icon: Odometer, base: '/_g1', children: filterPerms(all.filter(i => ['/dashboard', '/plugins'].includes(i.path))) },
-    { title: '业务', icon: Monitor, base: '/_g2', children: filterPerms(all.filter(i => ['/monitor','/tv-wall','/devices','/push-streams','/pull-proxies','/channelmanager','/device-records','/cloud-records','/record-schedule','/legacy-gateway','/platforms'].includes(i.path))) },
-    { title: '告警', icon: Bell, base: '/_g3', children: filterPerms(all.filter(i => ['/alarms','/alarm-notifications','/work-orders'].includes(i.path))) },
-    { title: '可视化', icon: MapLocation, base: '/_g4', children: filterPerms(all.filter(i => ['/map','/visual-command','/mobile-command'].includes(i.path))) },
-    { title: '运维', icon: Setting, base: '/_g5', children: filterPerms(all.filter(i => ['/health','/sla','/ops','/app-logs','/network','/asset-management'].includes(i.path))) },
-    { title: '系统', icon: User, base: '/_g6', children: filterPerms(all.filter(i => ['/users','/roles','/organizations','/api-keys','/map-providers','/config-center','/release-center','/audit-center','/reports','/suite-center','/account-security','/help'].includes(i.path))) }
+    { title: 'app.menuGroupOverview', icon: Odometer, base: '/_g1', children: filterPerms(all.filter(i => ['/dashboard', '/plugins'].includes(i.path))) },
+    { title: 'app.menuGroupBusiness', icon: Monitor, base: '/_g2', children: filterPerms(all.filter(i => ['/monitor','/tv-wall','/devices','/push-streams','/pull-proxies','/channelmanager','/device-records','/cloud-records','/record-schedule','/legacy-gateway','/platforms'].includes(i.path))) },
+    { title: 'app.menuGroupAlarm', icon: Bell, base: '/_g3', children: filterPerms(all.filter(i => ['/alarms','/alarm-notifications','/work-orders'].includes(i.path))) },
+    { title: 'app.menuGroupVisualization', icon: MapLocation, base: '/_g4', children: filterPerms(all.filter(i => ['/map','/visual-command','/mobile-command'].includes(i.path))) },
+    { title: 'app.menuGroupOps', icon: Setting, base: '/_g5', children: filterPerms(all.filter(i => ['/health','/sla','/ops','/app-logs','/network','/asset-management'].includes(i.path))) },
+    { title: 'app.menuGroupSystem', icon: User, base: '/_g6', children: filterPerms(all.filter(i => ['/users','/roles','/organizations','/api-keys','/map-providers','/config-center','/release-center','/audit-center','/reports','/suite-center','/account-security','/help'].includes(i.path))) }
   ]
 
   return groups.filter(g => g.children.length > 0)
 })
 
 const loadPluginMenus = async () => {
-  const token = localStorage.getItem('token')
+  const token = sessionStorage.getItem('token')  // P0-4: sessionStorage
   if (!token) {
     pluginMenus.value = []
     return
@@ -458,7 +470,7 @@ const syncPurchasedPluginIds = async (options?: { announce?: boolean; forceEvent
   if (changed || options?.forceEvent) emitPurchasedPluginSyncEvent(focusPluginId)
   if (options?.announce && changed) {
     if (focusPluginId && purchasedPluginIds.value.includes(focusPluginId)) {
-      ElMessage.success(`已同步 ${focusPluginId} 的购买状态，可回到插件中心继续安装`)
+      ElMessage.success(t('app.syncedPurchaseStatus', { pluginId: focusPluginId }))
     } else {
       ElMessage.success(t('plugin.syncedServerPurchase'))
     }
@@ -511,6 +523,7 @@ const onPluginUpdated = async () => {
 }
 
 onMounted(async () => {
+  // SECURITY: 读取非敏感 UI 标记（引导已阅），仅 '1'，无敏感信息
   const isFirstVisit = !localStorage.getItem('first_visit_done')
   if (isFirstVisit) {
     showGuideDialog.value = true
@@ -530,19 +543,15 @@ onMounted(async () => {
       logger.warn('安装向导状态检查失败:', e)
     }
   }
-  const cached = localStorage.getItem('tenant_branding_cache')
+  const cached = getBrandingCache()
   if (cached) {
-    try {
-      branding.value = JSON.parse(cached)
-    } catch {
-      // invalid cache, ignore
-    }
+    branding.value = { product_name: cached.product_name || 'PyGBSentry' }
   }
   if (isServerEdition) {
     try {
       const res = await api.get('/api/v1/billing/branding/me')
       branding.value = { product_name: res.data.product_name || 'PyGBSentry' }
-      localStorage.setItem('tenant_branding_cache', JSON.stringify(res.data))
+      setBrandingCache(res.data)
     } catch (e) {
       logger.warn('品牌信息获取失败:', e)
     }
@@ -555,6 +564,29 @@ onMounted(async () => {
   window.addEventListener('message', onMarketplacePurchaseMessage)
   document.addEventListener('visibilitychange', onVisibilityReturn)
   await consumePurchaseSyncQuery()
+  // P0-5: 启动 30 分钟会话超时 + 活动监听 + exp 检测
+  if (sessionStorage.getItem('token')) {
+    startSessionTimeout({
+      onTimeout: () => {
+        ElMessage.warning(t('common.sessionTimeout'))
+        import('./stores/user').then(({ useUserStore }) => {
+          useUserStore().logout().finally(() => {
+            router.push({ path: '/login', query: { redirect: route.fullPath } })
+          })
+        })
+      },
+      onWarning: () => {
+        ElMessage.warning(t('common.sessionExpiringSoon'))
+      },
+      onTokenExpired: () => {
+        ElMessage.warning(t('common.sessionExpired'))
+        import('./stores/user').then(({ useUserStore }) => {
+          useUserStore().clearAuth()
+        })
+        router.push({ path: '/login', query: { redirect: route.fullPath } })
+      },
+    })
+  }
 })
 
 onUnmounted(() => {
@@ -562,6 +594,7 @@ onUnmounted(() => {
   window.removeEventListener('focus', onWindowFocus)
   window.removeEventListener('message', onMarketplacePurchaseMessage)
   document.removeEventListener('visibilitychange', onVisibilityReturn)
+  stopSessionTimeout()  // P0-5: 清理会话超时监听
 })
 
 watch(

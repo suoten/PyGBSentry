@@ -3,7 +3,7 @@
 Exposes Prometheus metrics for external monitoring systems (Grafana/Prometheus).
 All metrics here must be reconciled with deploy/monitoring/alert_rules.yml.
 """
-from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, generate_latest
 
 # Use a custom registry to avoid conflicts with other libraries
 registry = CollectorRegistry()
@@ -51,16 +51,10 @@ invite_duration_seconds = Histogram(
     buckets=(0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0),
     registry=registry,
 )
-invite_total = Counter(
-    "pygbsentry_invite_total",
-    "Total INVITE requests",
-    ["result"],
-    registry=registry,
-)
-# Alias for alert rule compatibility: pygbsentry_invite_result_total
+# P2-19: 合并冗余别名 — 仅保留 invite_result_total（alert_rules.yml 引用此指标名）
 invite_result_total = Counter(
     "pygbsentry_invite_result_total",
-    "Total INVITE requests (alias for alert rule compatibility)",
+    "Total INVITE requests by result",
     ["result"],
     registry=registry,
 )

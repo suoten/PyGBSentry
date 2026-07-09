@@ -1,6 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from app.core.plugin_manager import plugin_manager
-from app.core import security
 import json
 import asyncio
 from loguru import logger
@@ -27,28 +26,33 @@ class SipTraceManager:
         if not self.active_connections:
             return
         msg = json.dumps({"type": "trace", "data": trace_data})
+        # FIX: [2026-07-03] 广播时清理已断开的连接，防止 WebSocket 连接泄漏 [可靠性工程师]
+        dead_connections: list[WebSocket] = []
         for connection, conn_tid in list(self.active_connections):
             if conn_tid != tenant_id:
                 continue
             try:
                 await connection.send_text(msg)
-            except Exception as e:
-                logger.warning(f"Error: {e}")
+            except (RuntimeError, ConnectionError, OSError):
+                dead_connections.append(connection)
+        if dead_connections:
+            self.active_connections = [
+                (ws, tid) for ws, tid in self.active_connections if ws not in dead_connections
+            ]
+            logger.debug(f"Cleaned up {len(dead_connections)} dead SIP trace WebSocket connections")
 
 sip_trace_manager = SipTraceManager()
 
 @router.websocket("/ws/sip-trace")
-async def websocket_sip_trace(websocket: WebSocket, token: str = ""):
-    if not token:
-        await websocket.close(code=4001, reason="Missing token")
+async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
+    # P0-6: 改用短期一次性 ws-ticket 认证，消除 URL 暴露 JWT token
+    if not ticket:
+        await websocket.close(code=4001, reason="Missing ticket")
         return
-    try:
-        payload = security.verify_token(token)
-        if not payload or not payload.get("sub"):
-            await websocket.close(code=4001, reason="Invalid token")
-            return
-    except Exception:
-        await websocket.close(code=4001, reason="Invalid token")
+    from app.core.ws_ticket import consume_ws_ticket
+    payload = await consume_ws_ticket(ticket)
+    if not payload or not payload.get("sub"):
+        await websocket.close(code=4001, reason="Invalid or expired ticket")
         return
 
     user_role = (payload.get("role") or "").strip().lower()
@@ -73,7 +77,7 @@ async def websocket_sip_trace(websocket: WebSocket, token: str = ""):
             while True:
                 await websocket.receive_text()
         except WebSocketDisconnect:
-            pass
+            logger.debug("swallowed_exception", exc_info=True)
         finally:
             heartbeat_task.cancel()
     finally:

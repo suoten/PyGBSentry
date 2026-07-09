@@ -17,6 +17,7 @@ from app.api import deps
 import app.sip.invite as sip_invite_module
 from app.sip.server import sip_server
 from app.core.plugin_manager import plugin_manager
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.services.stream_session_service import release_stream_session, finalize_stream_session
 from typing import Any
 from types import SimpleNamespace
@@ -328,7 +329,7 @@ async def _async_invite_wait_with_retry(
                             loop.run_until_complete(_try_snap_async(host, http_port, secret, matched_app, matched_stream, cache_file, 2))
                         finally:
                             loop.close()
-                    
+
                     _snap_future = asyncio.get_running_loop().run_in_executor(None, _take_background_snapshot)
 
                     def _on_snap_done(t):
@@ -462,7 +463,7 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
             retryable=True,
             diagnostics=diagnostics
         )
-    
+
     if not getattr(session_record, "media_server_id", None):
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
@@ -482,14 +483,14 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
     app_name = session_record.app
     stream_id = session_record.stream
     node_id = session_record.media_server_id
-    
+
     db_node = await get_db_media_node_by_id(db, node_id) if node_id else None
     node = None if db_node else get_node_by_id(node_id)
     selected_node = db_node or node
-    
+
     if not selected_node:
         raise HTTPException(status_code=500, detail="Media node info missing")
-        
+
     if db_node:
         media_host, media_port = db_node.public_host, db_node.public_http_port
         node_host, node_http_port = db_node.host, int(db_node.http_port or 0)
@@ -500,7 +501,7 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
         is_embedded_node = bool(node.get("is_embedded", False))
         node_host, node_http_port = node.get("host"), int(node.get("http_port") or 0)
         secret = str(node.get("secret") or "")
-        
+
     max_attempts = max(8, min(20, int(default_attempts or 40)))
     zlm_probe_ok, zlm_stream_ready, media_item, probe_detail = await _wait_zlm_stream_ready(
         node_host or "",
@@ -514,7 +515,7 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
         extra_apps=["rtp"],
         ssrc=str(getattr(session_record, "ssrc", "") or ""),
     )
-    
+
     if not zlm_stream_ready:
         stream_hints = _build_stream_match_hints(stream_id, str(getattr(session_record, "ssrc", "") or ""))
         cluster_ready, cluster_node, cluster_media_item, cluster_detail = await _probe_stream_across_nodes(
@@ -569,7 +570,7 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
         await db.commit()
 
     resource = (await db.execute(select(Resource).where(Resource.id == session_record.resource_id))).scalars().first()
-    
+
     result = {
         "call_id": session_record.call_id,
         "sdp_ip": session_record.media_ip,
@@ -577,7 +578,7 @@ async def _play_status_inner(session_id: str, db: AsyncSession, current_user: Us
         "media_protocol": session_record.protocol,
         "selection_reason": "async_polled",
     }
-    
+
     res = await _build_full_play_response(
         db=db,
         app_name=app_name,
@@ -673,7 +674,7 @@ async def play_stream(
         result = await db.execute(stmt)
         resource = result.scalars().first()
 
-        if not asset or not resource:
+        if not asset:
             await _stream_audit(
                 db,
                 current_user,
@@ -684,6 +685,28 @@ async def play_stream(
                 extra_summary=f"device_id={device_id}; channel_id={channel_id}",
             )
             raise HTTPException(status_code=404, detail="Device or channel not found")
+
+        if not resource:
+            # FIX: [2026-07-04] GB28181 IPC设备(type=132)的device_id==channel_id，
+            # 当设备未完成Catalog同步时无Resource记录，导致预览返回404。
+            # 回退：用设备自身作为通道（device-as-channel）。 [全栈工程师]
+            if channel_id == asset.gb_id:
+                resource = SimpleNamespace(
+                    id=asset.id,
+                    gb_id=asset.gb_id,
+                    name=asset.name,
+                )
+            else:
+                await _stream_audit(
+                    db,
+                    current_user,
+                    action="play_stream",
+                    result="failed",
+                    status_code=404,
+                    detail="asset_or_channel_not_found",
+                    extra_summary=f"device_id={device_id}; channel_id={channel_id}",
+                )
+                raise HTTPException(status_code=404, detail="Device or channel not found")
 
         if not asset.ip_addr:
             await _stream_audit(
@@ -767,7 +790,7 @@ async def play_stream(
             .order_by(StreamSession.start_time.desc())
         )
         existing_ss = (await db.execute(existing_ss_stmt)).scalars().first()
-    
+
         if existing_ss and existing_ss.stream:
             ss_stream = str(existing_ss.stream or "")
             device_gb_id = str(device_id or "")
@@ -783,13 +806,13 @@ async def play_stream(
                 alt_ss = (await db.execute(alt_stmt)).scalars().first()
                 if alt_ss:
                     existing_ss = alt_ss
-    
+
         stream_session_id = None
         node_id = None
         app_name = "live"
         stream_id = live_session_stream_key
         result = {}
-    
+
         if async_mode:
             default_interval = float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25) or 0.25)
             default_attempts = int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40) or 40)
@@ -1161,10 +1184,10 @@ async def play_stream(
                             await db.commit()
                 if not media_host or not media_port:
                     media_host, media_port = settings.STREAM_PUBLIC_HOST, settings.STREAM_PUBLIC_HTTP_PORT
-            
+
                 url_app = str(probe_detail.get("matched_app") or app_name or "live")
                 url_stream = str(probe_detail.get("matched_stream") or stream_id or "")
-            
+
                 sla_metrics = {}
                 if bool(getattr(settings, "STREAM_SLA_ENABLED", True)):
                     total_ms = round((time.perf_counter() - req_t0) * 1000, 2)
@@ -1174,7 +1197,7 @@ async def play_stream(
                         "total_ms": total_ms,
                         "probe_ready": bool(zlm_stream_ready),
                     }
-            
+
                 # 预热 HTTP-FLV 端点（同步模式）——直接 await，确保端点就绪后再返回 URL
                 _sync_flv_suffix = "" if url_app == "rtp" else ".live"
                 _sync_flv_url = f"http://{node_host}:{node_http_port}/{url_app}/{url_stream}{_sync_flv_suffix}.flv"
@@ -1261,6 +1284,248 @@ async def play_stream(
         await guard.release()
 
 
+# FIX: [2026-07-04] 后端缺失 POST /api/v1/stream/playback/{device_id}/{channel_id} 端点，
+#      前端 RecordTimeline.vue:373 调用该端点进行回放点播时返回 404，录像管理模块"回放"
+#      功能完全不可用。根因：实时预览端点包拆分时遗漏了回放端点的迁移。
+#      修复：镜像 device_record.py 的 download/start 模式调用 send_playback_invite，
+#      并复用 _wait_zlm_stream_ready + _build_full_play_response 构建回放播放地址，
+#      返回前端 RecordTimeline.vue 期望的扁平结构 {app, stream, codec, flv, hls, webrtc, ...}。 [全栈工程师]
+@router.post("/playback/{device_id}/{channel_id}")
+async def playback_stream(
+    device_id: str,
+    channel_id: str,
+    start_time: int = Query(..., description="回放开始时间（Unix 秒，前端 RecordTimeline.vue 传入）"),
+    end_time: int = Query(..., description="回放结束时间（Unix 秒，前端 RecordTimeline.vue 传入）"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """设备录像回放点播 — 向设备发送 Playback INVITE，等待 ZLM 流注册后返回回放播放地址。
+
+    与 `/play/{device_id}/{channel_id}`（直播）的区别：
+    - 携带 start_time/end_time，SDP 中包含 a=startTime 和 a=endTime（GB28181 回放语义）
+    - app 默认为 "playback"（而非 "live"），ZLM 会按回放应用隔离录像与直播流
+    - 不走异步点播模式（playback INVITE 通常较快，且前端需要立即拿到播放地址）
+    """
+    # 1. 参数校验
+    if start_time >= end_time:
+        raise HTTPException(status_code=400, detail="start_time must be less than end_time")
+    if (end_time - start_time) > 7 * 24 * 3600:
+        raise HTTPException(status_code=400, detail="Time range too large, please limit to 7 days")
+
+    # 2. 查询资产与通道（含租户隔离，镜像 play_stream 第 665-675 行）
+    tenant_id = current_user.tenant_id or "default"
+    asset_stmt = select(Asset).where(Asset.gb_id == device_id)
+    if not current_user.is_superuser:
+        asset_stmt = asset_stmt.where(Asset.tenant_id == tenant_id)
+    asset = (await db.execute(asset_stmt)).scalars().first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Device not found")
+
+    resource_stmt = select(Resource).where(Resource.gb_id == channel_id, Resource.asset_id == asset.id)
+    resource = (await db.execute(resource_stmt)).scalars().first()
+    if not resource:
+        # FIX: [2026-07-04] GB28181 IPC设备(type=132)的device_id==channel_id，
+        # 当设备未完成Catalog同步时无Resource记录，导致回放返回404。
+        # 回退：用设备自身作为通道（device-as-channel）。 [全栈工程师]
+        if channel_id == asset.gb_id:
+            resource = SimpleNamespace(
+                id=asset.id,
+                gb_id=asset.gb_id,
+                name=asset.name,
+            )
+        else:
+            raise HTTPException(status_code=404, detail="Channel not found under this device")
+
+    if not asset.ip_addr:
+        raise HTTPException(status_code=500, detail="Device network information missing")
+    if getattr(asset, "status", 1) == 0:
+        raise HTTPException(status_code=503, detail="Device is offline, cannot perform playback")
+
+    # 3. SIP 信令传输可用性检查
+    signal_targets = await _build_signal_targets(db, asset)
+    if not signal_targets:
+        raise _play_http_exception(
+            503, "device_transport_unavailable", "Device signaling transport unavailable",
+            "Please verify the device is online and SIP transport is available", retryable=True,
+        )
+    target_ip, target_port, target_proto = signal_targets[0]
+    transport = sip_server.get_transport(target_ip, target_port, target_proto)
+    if transport is None and target_proto == "TCP":
+        target_proto = "UDP"
+        transport = sip_server.get_transport(target_ip, target_port, target_proto)
+    if transport is None:
+        raise _play_http_exception(
+            503, "device_transport_unavailable", "Device signaling transport unavailable",
+            "Please verify the device is online and SIP transport is available", retryable=True,
+        )
+    if not sip_invite_module.sip_invite:
+        raise _play_http_exception(
+            503, "sip_service_unavailable", "SIP service not ready",
+            "请检查平台 SIP 服务是否已启动完成", retryable=True,
+        )
+
+    # 4. INVITE 前释放 DB 连接，避免 SIP/ZLM 等待期间持有连接（R22-SEVERE 模式，与 device_record.py:656-659 一致）
+    await db.commit()
+    await db.close()
+
+    # 5. 发送 Playback INVITE
+    try:
+        invite_ret = await sip_invite_module.sip_invite.send_playback_invite(
+            asset,
+            resource,
+            ((target_ip, target_port), target_proto, transport),
+            start_time=start_time,
+            end_time=end_time,
+        )
+    except Exception as e:
+        logger.warning(f"[playback_stream] INVITE failed for device={device_id} channel={channel_id}: {e}")
+        raise _play_http_exception(
+            502, "play_request_failed", "Playback INVITE failed",
+            "Please check device status and try again", retryable=True,
+        )
+
+    stream_session_id = str(invite_ret.get("stream_session_id") or "")
+    call_id = str(invite_ret.get("call_id") or "")
+    ssrc = str(invite_ret.get("ssrc") or "")
+    app_name = str(invite_ret.get("app") or "playback")
+    stream_id = str(invite_ret.get("stream") or "")
+    node_id = str(invite_ret.get("node_id") or "")
+
+    if not stream_id:
+        # INVITE 成功但 stream id 缺失，释放已分配的 ZLM 资源避免泄漏（R22-SEVERE 模式）
+        if stream_session_id:
+            try:
+                async with AsyncSessionLocal() as _cleanup_db:
+                    _ss_row = (await _cleanup_db.execute(
+                        select(StreamSession).where(StreamSession.id == stream_session_id)
+                    )).scalars().first()
+                    if _ss_row:
+                        await release_stream_session(_cleanup_db, _ss_row, reason="playback_stream_id_missing")
+                        await _cleanup_db.commit()
+            except Exception as _cleanup_err:
+                logger.warning(f"[playback_stream] cleanup for missing stream failed: {_cleanup_err}")
+        raise _play_http_exception(
+            502, "play_request_failed", "INVITE succeeded but stream id missing. Resources released.",
+            "", retryable=False,
+        )
+
+    # 6. 标记回放会话已开始（供 playback_control 状态机使用，与 device_record.py:704-707 一致）
+    if call_id:
+        try:
+            from app.sip.playback_control import playback_control as _pb_ctrl
+            if _pb_ctrl:
+                # FIX: [2026-07-04] 传入 start_time 用于 NPT 相对时间计算 [全栈工程师]
+                _pb_ctrl.set_playback_started(call_id, start_time=start_time)
+        except Exception as e:
+            logger.warning(f"stream_play: failed to set playback started for call_id={call_id}: {e}")
+
+    # 7. 查询媒体节点信息（db 已 close，使用独立 session）
+    async with AsyncSessionLocal() as probe_db:
+        db_node = await get_db_media_node_by_id(probe_db, node_id) if node_id else None
+    node = None if db_node else get_node_by_id(node_id)
+    if db_node:
+        host, http_port, secret = db_node.host, int(db_node.http_port or 0), str(db_node.secret or "")
+    elif node:
+        host, http_port, secret = node.get("host") or "", int(node.get("http_port") or 0), str(node.get("secret") or "")
+    else:
+        host, http_port, secret = settings.STREAM_PUBLIC_HOST, int(settings.STREAM_PUBLIC_HTTP_PORT or 0), ""
+
+    # 8. 等待 ZLM 流注册就绪（回放流可能在 rtp/playback/live 任一 app 下注册）
+    stream_hints = _build_stream_match_hints(stream_id, ssrc)
+    zlm_probe_ok, zlm_stream_ready, media_item, probe_detail = await _wait_zlm_stream_ready(
+        host, http_port, secret, app_name, stream_id,
+        max_attempts=int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40)),
+        interval_seconds=float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25)),
+        stream_hints=stream_hints,
+        extra_apps=["rtp", "playback"],
+        ssrc=ssrc,
+    )
+
+    # 跨节点探测回退（db 已 close，使用独立 session）
+    if not zlm_stream_ready:
+        async with AsyncSessionLocal() as probe_db:
+            cluster_ready, cluster_node, cluster_media_item, cluster_detail = await _probe_stream_across_nodes(
+                probe_db, app=app_name, stream=stream_id,
+                stream_hints=stream_hints, preferred_node_id=node_id,
+                extra_apps=["rtp", "playback"],
+            )
+        if cluster_ready:
+            zlm_probe_ok = True
+            zlm_stream_ready = True
+            media_item = cluster_media_item
+            probe_detail = {**(probe_detail or {}), **(cluster_detail or {})}
+            host = str(cluster_node.get("host") or host)
+            http_port = int(cluster_node.get("http_port") or http_port)
+            secret = str(cluster_node.get("secret") or secret)
+            node_id = str(cluster_node.get("id") or node_id or "")
+
+    if not zlm_stream_ready:
+        # 流未就绪，释放资源避免泄漏
+        if stream_session_id:
+            try:
+                async with AsyncSessionLocal() as _cleanup_db:
+                    _ss_row = (await _cleanup_db.execute(
+                        select(StreamSession).where(StreamSession.id == stream_session_id)
+                    )).scalars().first()
+                    if _ss_row:
+                        await release_stream_session(_cleanup_db, _ss_row, reason="playback_stream_not_ready")
+                        await _cleanup_db.commit()
+            except Exception as _cleanup_err:
+                logger.warning(f"[playback_stream] cleanup for not-ready failed: {_cleanup_err}")
+        raise _play_http_exception(
+            504, "stream_not_ready", "回放流尚未就绪",
+            "请确认设备支持回放并已响应历史录像查询", retryable=True,
+            diagnostics={"app": app_name, "stream": stream_id, "probe": probe_detail},
+        )
+
+    # 9. 构建回放播放地址（复用 _build_full_play_response，db 参数不使用故传 None）
+    node_host = host
+    node_http_port = http_port
+    if db_node:
+        media_host = str(getattr(db_node, "public_host", "") or "") or settings.STREAM_PUBLIC_HOST
+        media_port = int(getattr(db_node, "public_http_port", 0) or 0) or int(settings.STREAM_PUBLIC_HTTP_PORT or 0)
+        is_embedded_node = bool(getattr(db_node, "is_embedded", False))
+        selected_node = {"host": host, "http_port": http_port, "public_host": media_host,
+                         "public_http_port": media_port, "secret": secret, "is_embedded": is_embedded_node}
+    elif node:
+        media_host = str(node.get("public_host") or "") or settings.STREAM_PUBLIC_HOST
+        media_port = int(node.get("public_http_port") or 0) or int(settings.STREAM_PUBLIC_HTTP_PORT or 0)
+        is_embedded_node = bool(node.get("is_embedded", False))
+        selected_node = node
+    else:
+        media_host = settings.STREAM_PUBLIC_HOST
+        media_port = int(settings.STREAM_PUBLIC_HTTP_PORT or 0)
+        is_embedded_node = False
+        selected_node = None
+
+    full_resp = await _build_full_play_response(
+        db=None,
+        app_name=app_name,
+        stream_id=stream_id,
+        stream_type="main",
+        selected_node=selected_node,
+        media_host=media_host,
+        media_port=media_port,
+        node_host=node_host,
+        node_http_port=node_http_port,
+        is_embedded_node=is_embedded_node,
+        zlm_probe_ok=zlm_probe_ok,
+        zlm_stream_ready=zlm_stream_ready,
+        media_item=media_item,
+        result=invite_ret,
+        resource=resource,
+        node_id=node_id,
+    )
+
+    # 10. 解包为前端期望的扁平结构（RecordTimeline.vue:380-385 读取 res.data.app/stream/codec/flv/hls/webrtc）
+    flat = full_resp.get("data", {}) if isinstance(full_resp, dict) else {}
+    flat["codec"] = str((media_item or {}).get("codec") or "")
+    flat["session_id"] = flat.get("session_id") or stream_session_id
+    flat["call_id"] = flat.get("call_id") or call_id
+    flat["ssrc"] = flat.get("ssrc") or ssrc
+    return flat
+
+
 @router.post("/play/{stream_id}/switch")
 async def switch_stream_type(
     stream_id: str,
@@ -1284,14 +1549,14 @@ async def switch_stream_type(
     ss = result.scalars().first()
     if not ss:
         raise HTTPException(status_code=404, detail="Stream session not found")  # i18n
-        
+
     try:
         success = await sip_invite_module.sip_invite.send_stream_switch_reinvite(ss, target_type)
         if not success:
             raise HTTPException(status_code=500, detail="Stream switch signal send failed")  # i18n
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Stream switch error: {e}")  # i18n
-    
+
     await _stream_audit(
         db,
         current_user,
@@ -1301,7 +1566,7 @@ async def switch_stream_type(
         detail=f"Re-INVITE sent to switch to {target_type} stream",  # i18n
         extra_summary=f"stream_id={stream_id}; target={target_type}"
     )
-    
+
     return {"code": 0, "msg": f"Stream switch command sent for {target_type} stream"}  # i18n
 
 
@@ -1408,8 +1673,7 @@ async def stop_stream(
             data["sentry_channel_id"] = ctx.get("sentry_channel_id")
         if ctx.get("sentry_asset_gb_id"):
             data["sentry_asset_gb_id"] = ctx.get("sentry_asset_gb_id")
-        _emit_task = asyncio.create_task(plugin_manager.emit("ON_ZLM_STREAM_REG", app_name, stream_id, ssrc, data))
-        _emit_task.add_done_callback(lambda t: t.exception() if not t.cancelled() else None)
+        fire_and_forget(plugin_manager.emit("ON_ZLM_STREAM_REG", app_name, stream_id, ssrc, data))  # P0-16: 保存引用防 GC + 异常日志
 
     await _stream_audit(
         db,
@@ -1421,3 +1685,190 @@ async def stop_stream(
         extra_summary=f"stopped={stopped}",
     )
     return {"stopped": stopped}
+
+
+# ---------------------------------------------------------------------------
+# FIX: [2026-07-04] 普通回放控制端点（pause/resume/seek/speed）[全栈工程师]
+# 根因：普通回放 /playback/{device_id}/{channel_id} 返回 call_id 后，前端无法控制
+# 暂停/恢复/拖动/倍速，因为只有 download 回放有控制端点。
+# 修复：新增 4 个端点，通过 call_id 查 StreamSession 获取对话上下文，调用 PlaybackControl。
+# ---------------------------------------------------------------------------
+
+async def _get_playback_session_context(call_id: str, db: AsyncSession, current_user: User) -> tuple[Asset, Resource, StreamSession, str]:
+    """通过 call_id 查找回放会话上下文（Asset, Resource, StreamSession, channel_id）。"""
+    stmt = select(StreamSession).where(StreamSession.call_id == call_id)
+    if not current_user.is_superuser:
+        tenant_id = current_user.tenant_id or "default"
+        stmt = stmt.where(StreamSession.tenant_id == tenant_id)
+    ss = (await db.execute(stmt)).scalars().first()
+    if not ss:
+        raise HTTPException(status_code=404, detail=f"StreamSession not found for call_id={call_id}")
+
+    asset_stmt = select(Asset).where(Asset.id == ss.asset_id)
+    asset = (await db.execute(asset_stmt)).scalars().first()
+    if not asset or not asset.ip_addr:
+        raise HTTPException(status_code=503, detail="Device not found or offline")
+
+    resource_stmt = select(Resource).where(Resource.id == ss.resource_id)
+    resource = (await db.execute(resource_stmt)).scalars().first()
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    channel_id = str(resource.gb_id or "")
+    return asset, resource, ss, channel_id
+
+
+@router.post("/playback/{call_id}/pause")
+async def pause_playback(
+    call_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """暂停普通回放流。"""
+    from app.sip.playback_control import playback_control
+
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
+
+    asset, resource, ss, channel_id = await _get_playback_session_context(call_id, db, current_user)
+
+    transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
+    if transport is None:
+        raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
+
+    cseq = int(ss.cseq or 1) + 1
+    result = await playback_control.send_pause(
+        asset,
+        channel_id=channel_id,
+        transport_info=((asset.ip_addr, asset.port), asset.transport, transport),
+        call_id=call_id,
+        cseq=cseq,
+        from_tag=ss.from_tag,
+        to_tag=ss.to_tag,
+    )
+    if not result:
+        raise HTTPException(status_code=409, detail="Pause rejected (state machine or send failure)")
+
+    # 更新 cseq
+    ss.cseq = cseq
+    await db.commit()
+    return {"code": 200, "msg": "ok", "data": {"call_id": call_id, "state": "paused"}}
+
+
+@router.post("/playback/{call_id}/resume")
+async def resume_playback(
+    call_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """恢复普通回放流。"""
+    from app.sip.playback_control import playback_control
+
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
+
+    asset, resource, ss, channel_id = await _get_playback_session_context(call_id, db, current_user)
+
+    transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
+    if transport is None:
+        raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
+
+    cseq = int(ss.cseq or 1) + 1
+    result = await playback_control.send_resume(
+        asset,
+        channel_id=channel_id,
+        transport_info=((asset.ip_addr, asset.port), asset.transport, transport),
+        call_id=call_id,
+        cseq=cseq,
+        from_tag=ss.from_tag,
+        to_tag=ss.to_tag,
+    )
+    if not result:
+        raise HTTPException(status_code=409, detail="Resume rejected (state machine or send failure)")
+
+    ss.cseq = cseq
+    await db.commit()
+    return {"code": 200, "msg": "ok", "data": {"call_id": call_id, "state": "playing"}}
+
+
+@router.post("/playback/{call_id}/seek")
+async def seek_playback(
+    call_id: str,
+    seek_time: int = Query(..., description="拖动到的目标时间（Unix 秒）"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """拖动普通回放流到指定时间点（Unix 秒）。"""
+    from app.sip.playback_control import playback_control
+
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
+
+    asset, resource, ss, channel_id = await _get_playback_session_context(call_id, db, current_user)
+
+    transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
+    if transport is None:
+        raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
+
+    cseq = int(ss.cseq or 1) + 1
+    result = await playback_control.send_seek(
+        asset,
+        channel_id=channel_id,
+        transport_info=((asset.ip_addr, asset.port), asset.transport, transport),
+        call_id=call_id,
+        seek_time=seek_time,
+        cseq=cseq,
+        from_tag=ss.from_tag,
+        to_tag=ss.to_tag,
+    )
+    if not result:
+        raise HTTPException(status_code=409, detail="Seek rejected (rate-limited or send failure)")
+
+    ss.cseq = cseq
+    await db.commit()
+    return {"code": 200, "msg": "ok", "data": {"call_id": call_id, "seek_time": seek_time, "state": "playing"}}
+
+
+@router.post("/playback/{call_id}/speed")
+async def set_playback_speed(
+    call_id: str,
+    speed: float = Query(..., description="倍速值（0.1~4.0，1.0 为正常速度）"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """设置普通回放倍速。
+
+    FIX: [2026-07-04] 新增倍速播放端点 [全栈工程师]
+    """
+    from app.sip.playback_control import playback_control
+
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
+
+    # 参数校验
+    if speed <= 0 or speed > 8.0:
+        raise HTTPException(status_code=400, detail="speed must be between 0.1 and 8.0")
+
+    asset, resource, ss, channel_id = await _get_playback_session_context(call_id, db, current_user)
+
+    transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
+    if transport is None:
+        raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
+
+    cseq = int(ss.cseq or 1) + 1
+    result = await playback_control.send_play_with_speed(
+        asset,
+        channel_id=channel_id,
+        transport_info=((asset.ip_addr, asset.port), asset.transport, transport),
+        call_id=call_id,
+        speed=speed,
+        cseq=cseq,
+        from_tag=ss.from_tag,
+        to_tag=ss.to_tag,
+    )
+    if not result:
+        raise HTTPException(status_code=409, detail="Speed control failed (send failure or invalid speed)")
+
+    ss.cseq = cseq
+    await db.commit()
+    return {"code": 200, "msg": "ok", "data": {"call_id": call_id, "speed": speed, "state": "playing"}}

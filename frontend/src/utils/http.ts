@@ -3,6 +3,7 @@ import { ElMessage } from 'element-plus'
 import { getFriendlyError } from './errorMessage'
 import { HTTP_STATUS } from '@/constants/httpStatus'
 import i18n from '@/locales'  // FIXED: 国际化
+import { safeSSGet, safeSSSet, safeSSRemove } from '@/utils/storage'  // P0-4: token 迁移到 sessionStorage
 
 const API_TIMEOUT = Number(import.meta.env.VITE_API_TIMEOUT) || 30000
 const TOKEN_CACHE_TTL = Number(import.meta.env.VITE_TOKEN_CACHE_TTL) || 5000
@@ -16,21 +17,11 @@ const api = axios.create({
 let _tokenCache: string | null = null
 let _tokenCacheExpiry = 0
 
-function safeLSGet(key: string): string | null {
-  try { return localStorage.getItem(key) } catch { return null }
-}
-function safeLSSet(key: string, value: string): void {
-  try { localStorage.setItem(key, value) } catch { /* quota/privacy */ }
-}
-function safeLSRemove(key: string): void {
-  try { localStorage.removeItem(key) } catch { /* privacy */ }
-}
-
 function getCachedToken(): string | null {
   if (_tokenCache && Date.now() < _tokenCacheExpiry) {
     return _tokenCache
   }
-  _tokenCache = safeLSGet('token')
+  _tokenCache = safeSSGet('token')
   _tokenCacheExpiry = Date.now() + TOKEN_CACHE_TTL
   return _tokenCache
 }
@@ -61,16 +52,22 @@ function onTokenRefreshed(token: string) {
   _refreshSubscribers.forEach(({ resolve }) => {
     try {
       resolve(token)
-    } catch { /* ignore individual subscriber error */ }
+    } catch (e) {
+      // SECURITY: 不再静默忽略订阅者错误，记录日志便于排查
+      console.error('[http] Token refresh subscriber resolve error:', e)
+    }
   })
   _refreshSubscribers = []
 }
 
 function onRefreshFailed(err: unknown) {
+  // SECURITY: 统一处理所有订阅者的刷新失败 — 不静默忽略，确保所有请求被正确拒绝
   _refreshSubscribers.forEach(({ reject: rej }) => {
     try {
       rej(err)
-    } catch { /* ignore */ }
+    } catch (e) {
+      console.error('[http] Token refresh subscriber reject error:', e)
+    }
   })
   _refreshSubscribers = []
 }
@@ -98,7 +95,7 @@ api.interceptors.response.use(
     const status = error.response.status
     const originalRequest = error.config
     if (status === HTTP_STATUS.UNAUTHORIZED && !originalRequest._retry) {
-      const token = safeLSGet('token')
+      const token = safeSSGet('token')
       if (!token) {
         if (!window.location.pathname.includes('/login')) {
           ElMessage.info(i18n.global.t('common.pleaseLogin'))  // FIXED: 国际化
@@ -121,7 +118,7 @@ api.interceptors.response.use(
       originalRequest._retry = true
       _isRefreshing = true
       try {
-        const refreshToken = safeLSGet('refresh_token')
+        const refreshToken = safeSSGet('refresh_token')
         if (!refreshToken) throw new Error('No refresh token')
         const res = await axios.post(
           `${import.meta.env.VITE_API_BASE_URL || '/'}/api/v1/login/refresh-token`,
@@ -130,9 +127,9 @@ api.interceptors.response.use(
         )
         const newToken = res.data?.access_token || res.data?.token
         if (newToken && typeof newToken === 'string') {
-          safeLSSet('token', newToken)
+          safeSSSet('token', newToken)
           if (res.data?.refresh_token && typeof res.data.refresh_token === 'string') {
-            safeLSSet('refresh_token', res.data.refresh_token)
+            safeSSSet('refresh_token', res.data.refresh_token)
           }
           invalidateTokenCache()
           onTokenRefreshed(newToken)
@@ -141,8 +138,8 @@ api.interceptors.response.use(
         }
         throw new Error('No token in refresh response')
       } catch {
-        safeLSRemove('token')
-        safeLSRemove('refresh_token')
+        safeSSRemove('token')
+        safeSSRemove('refresh_token')
         invalidateTokenCache()
         onRefreshFailed(error)
         _refreshSubscribers = []
@@ -156,8 +153,8 @@ api.interceptors.response.use(
       }
     }
     if (status === HTTP_STATUS.UNAUTHORIZED) {
-      safeLSRemove('token')
-      safeLSRemove('refresh_token')
+      safeSSRemove('token')
+      safeSSRemove('refresh_token')
       invalidateTokenCache()
       if (!window.location.pathname.includes('/login')) {
         ElMessage.warning(i18n.global.t('common.sessionExpired'))  // FIXED: 国际化

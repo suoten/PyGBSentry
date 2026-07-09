@@ -2,12 +2,16 @@
 # 多流媒体节点集群：自动选节点（开源默认）
 # 解析 MEDIA_NODES 配置，按负载（当前流数）选择最优节点。
 # -------------------------------------------------------------------------
+#
+# P-SEC 安全说明：ZLMediaKit RESTful API 的 secret 鉴权仅支持 URL 查询参数
+# 或 POST 表单体，不支持 HTTP Header 方式。为避免 secret 出现在代理/访问日志
+# 的 URL 中，所有 ZLM API 调用统一使用 POST 方法并将 secret 放入 POST body。
 
 import asyncio
 import json
 from loguru import logger
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TypedDict
 
 from app.core.config import settings
 from app.services.zlm_stream_control import _get_zlm_client
@@ -15,7 +19,24 @@ from app.services.zlm_stream_control import _get_zlm_client
 DEFAULT_NODE_ID = "default"
 
 
-def _single_node() -> Dict[str, Any]:
+class MediaNode(TypedDict):
+    """单个媒体节点配置信息（TypedDict，纯类型标注，不影响运行时 dict 行为）。
+
+    运行时不需要验证（节点字典由本模块内部构造，结构已知），
+    故使用 TypedDict 而非 Pydantic BaseModel，以保持 dict 访问语义
+    （``node["host"]`` / ``node.get("id")``）不变。
+    """
+
+    id: str
+    host: str
+    http_port: int
+    rtp_port: int
+    public_host: str
+    public_http_port: int
+    secret: str
+
+
+def _single_node() -> MediaNode:
     return {
         "id": DEFAULT_NODE_ID,
         "host": settings.MEDIA_SERVER_HOST,
@@ -27,7 +48,7 @@ def _single_node() -> Dict[str, Any]:
     }
 
 
-def get_media_nodes() -> List[Dict[str, Any]]:
+def get_media_nodes() -> List[MediaNode]:
     raw = getattr(settings, "MEDIA_NODES", None)
     if not raw or not str(raw).strip():
         return [_single_node()]
@@ -41,7 +62,7 @@ def get_media_nodes() -> List[Dict[str, Any]]:
     if not isinstance(nodes, list) or len(nodes) == 0:
         return [_single_node()]
 
-    out: List[Dict[str, Any]] = []
+    out: List[MediaNode] = []
     for i, n in enumerate(nodes):
         if not isinstance(n, dict):
             continue
@@ -66,7 +87,7 @@ def get_media_nodes() -> List[Dict[str, Any]]:
     return out
 
 
-def get_node_by_id(node_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def get_node_by_id(node_id: Optional[str]) -> Optional[MediaNode]:
     if not node_id:
         nodes = get_media_nodes()
         return nodes[0] if nodes else None
@@ -76,15 +97,16 @@ def get_node_by_id(node_id: Optional[str]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _zlm_secret(node: Dict[str, Any]) -> str:
+def _zlm_secret(node: MediaNode) -> str:
     return str(node.get("secret") or "").strip() or str(getattr(settings, "MEDIA_SERVER_SECRET", "") or "").strip()
 
 
-async def _async_get_stream_count_for_node(node: Dict[str, Any]) -> int:
+async def _async_get_stream_count_for_node(node: MediaNode) -> int:
     url = f"http://{node['host']}:{node['http_port']}/index/api/getMediaList"
     try:
         client = await _get_zlm_client()
-        r = await client.get(url, params={"secret": _zlm_secret(node)}, timeout=2.0)
+        # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
+        r = await client.post(url, data={"secret": _zlm_secret(node)}, timeout=2.0)
         if r.status_code >= 400:
             return 999999
         data = r.json()
@@ -93,24 +115,28 @@ async def _async_get_stream_count_for_node(node: Dict[str, Any]) -> int:
         media_list = data.get("data")
         return len(media_list) if isinstance(media_list, list) else 0
     except Exception as e:
-        logger.debug(f"节点 {node.get('id')} getMediaList 失败: {e}")
+        logger.warning(f"节点 {node.get('id')} getMediaList 失败: {e}")
         return 999999
 
 
-async def _get_stream_count_for_node(node: Dict[str, Any]) -> int:
+async def _get_stream_count_for_node(node: MediaNode) -> int:
     return await _async_get_stream_count_for_node(node)
 
 
+# 注: 以下函数返回/收集的 media item 来自 ZLM getMediaList API 响应，
+# 字段集是动态的（随媒体类型变化），且仅在响应中追加 "node_id" 键。
+# 故保留 Dict[str, Any] 而非建模为 TypedDict/Pydantic（动态键名，向后兼容）。
 async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
     nodes = get_media_nodes()
     out: List[Dict[str, Any]] = []
 
-    async def _fetch_node(node: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def _fetch_node(node: MediaNode) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
         url = f"http://{node['host']}:{node['http_port']}/index/api/getMediaList"
         try:
             client = await _get_zlm_client()
-            r = await client.get(url, params={"secret": _zlm_secret(node)}, timeout=2.0)
+            # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
+            r = await client.post(url, data={"secret": _zlm_secret(node)}, timeout=2.0)
             if r.status_code >= 400:
                 return items
             data = r.json()
@@ -122,7 +148,7 @@ async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
             for item in media_list:
                 items.append({**item, "node_id": node["id"]})
         except Exception as e:
-            logger.debug(f"节点 {node.get('id')} getMediaList 失败: {e}")
+            logger.warning(f"节点 {node.get('id')} getMediaList 失败: {e}")
         return items
 
     results = await asyncio.gather(*[_fetch_node(n) for n in nodes])
@@ -132,7 +158,6 @@ async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
 
 
 def get_all_media_from_nodes() -> List[Dict[str, Any]]:
-    import concurrent.futures
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -157,36 +182,82 @@ def get_all_media_from_nodes() -> List[Dict[str, Any]]:
     return asyncio.run(get_all_media_from_nodes_async())
 
 
-_select_best_cache: dict = {}
-_select_best_cache_lock = asyncio.Lock()
-_SELECT_BEST_CACHE_TTL = 2.0
+# FIX R22-SEVERE: 移除 2s 全局缓存 + 全局锁串行化
+# 原实现问题：
+#   - 第 1 路进入锁，查询 count，写入缓存
+#   - 第 2~10 路进入锁后命中缓存（2s 内）返回同一节点
+#   - 导致突发并发全部命中同一节点，ZLM 线程池打满、RTP 端口耗尽
+# 修复方案：
+#   - 移除全局缓存（实时查询每次都获取最新 count）
+#   - 移除全局锁（允许并发查询）
+#   - 添加 in-flight 计数跟踪：选中节点后追加 timestamp，下次排序时加入 in-flight 计数
+#     30s TTL 自动过期，无需调用方显式释放
+_node_inflight: Dict[str, List[float]] = {}
+_INFLIGHT_TTL = 30.0
 
 
-async def select_best_node() -> Dict[str, Any] | None:
+def _prune_inflight(node_id: str, now: float) -> int:
+    """清理过期 in-flight 条目并返回当前有效计数。"""
+    timestamps = _node_inflight.get(node_id)
+    if not timestamps:
+        return 0
+    fresh = [t for t in timestamps if now - t < _INFLIGHT_TTL]
+    if fresh:
+        _node_inflight[node_id] = fresh
+    else:
+        _node_inflight.pop(node_id, None)
+    return len(fresh)
+
+
+def _add_inflight(node_id: str) -> None:
+    """标记节点为 in-flight 分配状态。"""
+    now = time.time()
+    _prune_inflight(node_id, now)
+    _node_inflight.setdefault(node_id, []).append(now)
+
+
+def _decr_inflight(node_id: str) -> None:
+    """显式释放 in-flight 计数（可选，TTL 兜底）。"""
+    timestamps = _node_inflight.get(node_id)
+    if not timestamps:
+        return
+    now = time.time()
+    fresh = [t for t in timestamps if now - t < _INFLIGHT_TTL]
+    if fresh:
+        # 移除最早的一个 timestamp（FIFO）
+        fresh.pop(0)
+        if fresh:
+            _node_inflight[node_id] = fresh
+        else:
+            _node_inflight.pop(node_id, None)
+    else:
+        _node_inflight.pop(node_id, None)
+
+
+async def select_best_node() -> MediaNode | None:
     nodes = get_media_nodes()
     if not nodes:
         return _single_node()
     if len(nodes) == 1:
         return nodes[0]
 
-    async with _select_best_cache_lock:
-        now = time.time()
-        cached = _select_best_cache.get("result")
-        cached_at = _select_best_cache.get("ts", 0)
-        if cached and (now - cached_at) < _SELECT_BEST_CACHE_TTL:
-            return cached
-
-        counts = await asyncio.gather(*[_async_get_stream_count_for_node(n) for n in nodes])
-        best_idx = -1
-        best_count = float('inf')
-        for i, count in enumerate(counts):
-            if count < best_count and count < 999999:
-                best_idx = i
-                best_count = count
-        if best_idx < 0:
-            logger.warning("select_best_node: all ENV nodes unreachable")
-            return None
-        result = nodes[best_idx]
-        _select_best_cache["result"] = result
-        _select_best_cache["ts"] = now
-        return result
+    # FIX R22-SEVERE: 移除全局锁和缓存，允许并发查询；加入 in-flight 计数到排序
+    counts = await asyncio.gather(*[_async_get_stream_count_for_node(n) for n in nodes])
+    now = time.time()
+    best_idx = -1
+    best_score = float('inf')
+    for i, count in enumerate(counts):
+        if count >= 999999:
+            continue
+        node_id = nodes[i].get("id") or f"node{i}"
+        # 实际 count + in-flight 计数，避免突发并发全部命中同一节点
+        score = count + _prune_inflight(node_id, now)
+        if score < best_score:
+            best_idx = i
+            best_score = score
+    if best_idx < 0:
+        logger.warning("select_best_node: all ENV nodes unreachable")
+        return None
+    result = nodes[best_idx]
+    _add_inflight(result.get("id") or f"node{best_idx}")
+    return result

@@ -2,6 +2,20 @@
 
 import 'vue-router'
 
+// P1-24: ImportMetaEnv 接口 — 提供前端环境变量的类型安全
+interface ImportMetaEnv {
+  readonly VITE_API_BASE_URL: string
+  readonly VITE_API_TIMEOUT: string
+  readonly VITE_TOKEN_CACHE_TTL: string
+  readonly VITE_APP_EDITION: string
+  readonly VITE_ALLOW_PUBLIC_REGISTRATION: string
+  readonly VITE_DEV_API_TARGET: string
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv
+}
+
 declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean
@@ -15,8 +29,9 @@ declare module 'vue-router' {
 }
 
 declare module '*.vue' {
+  // P2-10: 收紧类型 — 使用 DefineComponent 默认泛型而非显式 any
   import type { DefineComponent } from 'vue'
-  const component: DefineComponent<{}, {}, any>
+  const component: DefineComponent
   export default component
 }
 
@@ -44,6 +59,5 @@ declare module '@element-plus/icons-vue' {
   export const Loading: Component
   export const InfoFilled2: Component
   export const QuestionFilled: Component
-  export const Plus: Component
 }
 

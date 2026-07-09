@@ -1,7 +1,7 @@
 <template>
   <div class="plugin-runtime h-full flex flex-col">
     <div v-if="loading" class="flex-1 flex items-center justify-center" style="color: var(--el-text-color-secondary)">
-      加载中...
+      {{ t('common.loading') }}
     </div>
     <template v-else>
       <div v-show="iframeUrl" class="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -12,14 +12,16 @@
               ? 'w-full flex-1 min-h-[38vh] border-0 rounded-lg'
               : 'w-full h-full border-0 rounded-lg'
           "
-          title="插件运行页"
+          :title="t('pluginRuntime.iframeTitle')"
+          referrerpolicy="no-referrer"
+          sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
         />
         <TableCard
           v-if="isEmbedOpsSplitIframe"
           class="flex-shrink-0 !rounded-none border-t border-[var(--el-border-color)] max-h-[52vh] flex flex-col overflow-hidden"
         >
           <template #header>
-            <span class="text-sm font-medium" style="color: var(--el-text-color-primary)">运维数据</span>
+            <span class="text-sm font-medium" style="color: var(--el-text-color-primary)">{{ t('pluginRuntime.opsData') }}</span>
           </template>
           <div id="plugin-runtime-embed-anchor" class="min-h-0 max-h-[calc(52vh-3.5rem)] overflow-auto"></div>
         </TableCard>
@@ -35,7 +37,7 @@
           <template #header>
             <PageHeader
               :title="pluginTitle"
-              :description="showConfigForm ? '插件配置（运行时）' : '插件已安装（后端能力为主）'"
+              :description="showConfigForm ? t('pluginRuntime.configFormTitle') : t('pluginRuntime.installedBackendOnly')"
             />
           </template>
           <TableCard>
@@ -58,7 +60,7 @@
               >
                 <template #default>
                   <div class="mt-2 flex flex-wrap gap-3">
-                    <el-button size="small" type="primary" @click="router.push('/plugins')">返回插件中心</el-button>
+                    <el-button size="small" type="primary" @click="router.push('/plugins')">{{ t('plugin.backToCenter') }}</el-button>
                     <el-button
                       v-if="runtimeSaveQuickActionLabel"
                       size="small"
@@ -136,7 +138,7 @@
                   :class="{ 'runtime-save-button--highlight': highlightSaveConfigButton }"
                   @click="saveRuntimeConfig"
                 >
-                  保存配置
+                  {{ t('pluginRuntime.saveConfig') }}
                 </el-button>
               </div>
               </el-form>
@@ -177,7 +179,7 @@ const { t } = useI18n()  // FIXED: 国际化
 const router = useRouter()
 const pluginId = computed(() => String(route.params.pluginId || ''))
 const pluginDisplayName = ref<string>('')
-const pluginTitle = computed(() => `插件运行页 - ${pluginDisplayName.value || pluginId.value}`)
+const pluginTitle = computed(() => t('pluginRuntime.titleWithName', { name: pluginDisplayName.value || pluginId.value }))
 
 const loading = ref(true)
 const iframeUrl = ref('')
@@ -220,15 +222,15 @@ const isPluginInstalled = computed(() => installedPluginIds.value.includes(plugi
 const pluginCenterActionLabel = computed(() => {
   switch (runtimeGuidanceState.value) {
     case 'install':
-      return '返回插件中心安装'
+      return t('pluginRuntime.backToInstall')
     case 'upgrade':
-      return '返回插件中心查看升级'
+      return t('pluginRuntime.backToUpgrade')
     case 'reinstall':
-      return '返回插件中心重新安装'
+      return t('pluginRuntime.backToReinstall')
     case 'configure':
-      return '返回插件中心查看说明'
+      return t('pluginRuntime.backToViewDocs')
     default:
-      return '返回插件中心'
+      return t('plugin.backToCenter')
   }
 })
 
@@ -316,7 +318,7 @@ const fetchStreamHealth = async () => {
     streamHealthRows.value = Array.isArray(data.rows) ? data.rows : []
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('stream_health')) return
-    streamHealthError.value = getApiErrorMessage(e, '拉取健康快照失败')
+    streamHealthError.value = getApiErrorMessage(e, t('plugin.panels.fetchHealthFailed'))
     streamHealthRows.value = []
   } finally {
     streamHealthLoading.value = false
@@ -361,7 +363,7 @@ const fetchSipLoggerLogs = async () => {
     sipLogHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('sip_logger')) return
-    sipLogError.value = getApiErrorMessage(e, '拉取 SIP 日志失败')
+    sipLogError.value = getApiErrorMessage(e, t('plugin.panels.fetchSipLogFailed'))
     sipLogRows.value = []
     sipLogHasMore.value = false
   } finally {
@@ -402,7 +404,7 @@ const fetchNetworkWatchdogEvents = async () => {
     nwHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('network_watchdog')) return
-    nwError.value = getApiErrorMessage(e, '拉取网络告警失败')
+    nwError.value = getApiErrorMessage(e, t('plugin.panels.fetchNetworkAlarmFailed'))
     nwRows.value = []
     nwHasMore.value = false
   } finally {
@@ -445,7 +447,7 @@ const fetchStreamIdleEvents = async () => {
     siHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('stream_idle')) return
-    siError.value = getApiErrorMessage(e, '拉取断流事件失败')
+    siError.value = getApiErrorMessage(e, t('plugin.panels.fetchStreamBreakFailed'))
     siRows.value = []
     siHasMore.value = false
   } finally {
@@ -486,7 +488,7 @@ const fetchTimelapseEvents = async () => {
     tlHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('timelapse')) return
-    tlError.value = getApiErrorMessage(e, '拉取截图事件失败')
+    tlError.value = getApiErrorMessage(e, t('plugin.panels.fetchScreenshotFailed'))
     tlRows.value = []
     tlHasMore.value = false
   } finally {
@@ -530,7 +532,7 @@ const fetchWebhookPusherEvents = async () => {
     wpHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('webhook_pusher')) return
-    wpError.value = getApiErrorMessage(e, '拉取 Webhook 事件失败')
+    wpError.value = getApiErrorMessage(e, t('plugin.panels.fetchWebhookFailed'))
     wpRows.value = []
     wpHasMore.value = false
   } finally {
@@ -572,7 +574,7 @@ const fetchS3SyncEvents = async () => {
     s3HasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('s3_sync')) return
-    s3Error.value = getApiErrorMessage(e, '拉取 S3 同步事件失败')
+    s3Error.value = getApiErrorMessage(e, t('plugin.panels.fetchS3SyncFailed'))
     s3Rows.value = []
     s3HasMore.value = false
   } finally {
@@ -616,7 +618,7 @@ const fetchPtzTourEvents = async () => {
     ptzHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('ptz_tour')) return
-    ptzError.value = getApiErrorMessage(e, '拉取 PTZ 轮巡事件失败')
+    ptzError.value = getApiErrorMessage(e, t('plugin.panels.fetchPtzPatrolFailed'))
     ptzRows.value = []
     ptzHasMore.value = false
   } finally {
@@ -660,7 +662,7 @@ const fetchAutoRecordEvents = async () => {
     arHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('auto_record')) return
-    arError.value = getApiErrorMessage(e, '拉取自动录像事件失败')
+    arError.value = getApiErrorMessage(e, t('plugin.panels.fetchAutoRecordFailed'))
     arRows.value = []
     arHasMore.value = false
   } finally {
@@ -702,7 +704,7 @@ const fetchRecordScheduleExecutorEvents = async () => {
     rseHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('record_schedule_executor')) return
-    rseError.value = getApiErrorMessage(e, '拉取录像计划执行事件失败')
+    rseError.value = getApiErrorMessage(e, t('plugin.panels.fetchRecordPlanFailed'))
     rseRows.value = []
     rseHasMore.value = false
   } finally {
@@ -745,7 +747,7 @@ const fetchRecordIndexVerifierEvents = async () => {
     rivHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('record_index_verifier')) return
-    rivError.value = getApiErrorMessage(e, '拉取录像索引校验事件失败')
+    rivError.value = getApiErrorMessage(e, t('plugin.panels.fetchRecordVerifyFailed'))
     rivRows.value = []
     rivHasMore.value = false
   } finally {
@@ -788,7 +790,7 @@ const fetchSnapshotRefreshEvents = async () => {
     snapHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('snapshot_refresh')) return
-    snapError.value = getApiErrorMessage(e, '拉取快照刷新事件失败')
+    snapError.value = getApiErrorMessage(e, t('plugin.panels.fetchSnapshotRefreshFailed'))
     snapRows.value = []
     snapHasMore.value = false
   } finally {
@@ -830,7 +832,7 @@ const fetchRtmpPushMonitorEvents = async () => {
     rtmpHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('rtmp_push_channel_monitor')) return
-    rtmpError.value = getApiErrorMessage(e, '拉取 RTMP 推流监控事件失败')
+    rtmpError.value = getApiErrorMessage(e, t('plugin.panels.fetchRtmpMonitorFailed'))
     rtmpRows.value = []
     rtmpHasMore.value = false
   } finally {
@@ -873,7 +875,7 @@ const fetchPullProxyMonitorEvents = async () => {
     ppmHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('pull_proxy_monitor')) return
-    ppmError.value = getApiErrorMessage(e, '拉取拉流代理监控事件失败')
+    ppmError.value = getApiErrorMessage(e, t('plugin.panels.fetchPullProxyMonitorFailed'))
     ppmRows.value = []
     ppmHasMore.value = false
   } finally {
@@ -918,7 +920,7 @@ const fetchMqttBridgeEvents = async () => {
     mqttHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('mqtt_bridge')) return
-    mqttError.value = getApiErrorMessage(e, '拉取 MQTT 桥接事件失败')
+    mqttError.value = getApiErrorMessage(e, t('plugin.panels.fetchMqttBridgeFailed'))
     mqttRows.value = []
     mqttHasMore.value = false
   } finally {
@@ -961,7 +963,7 @@ const fetchFeishuAlertEvents = async () => {
     feishuHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('feishu_alert')) return
-    feishuError.value = getApiErrorMessage(e, '拉取飞书告警事件失败')
+    feishuError.value = getApiErrorMessage(e, t('plugin.panels.fetchFeishuAlarmFailed'))
     feishuRows.value = []
     feishuHasMore.value = false
   } finally {
@@ -1004,7 +1006,7 @@ const fetchWecomAlertEvents = async () => {
     wecomHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('wecom_alert')) return
-    wecomError.value = getApiErrorMessage(e, '拉取企业微信告警事件失败')
+    wecomError.value = getApiErrorMessage(e, t('plugin.panels.fetchWecomAlarmFailed'))
     wecomRows.value = []
     wecomHasMore.value = false
   } finally {
@@ -1047,7 +1049,7 @@ const fetchSmsAlertEvents = async () => {
     smsHasMore.value = Boolean(data?.meta?.has_more)
   } catch (e: unknown) {
     if (!isCurrentRuntimePlugin('sms_alert')) return
-    smsError.value = getApiErrorMessage(e, '拉取短信告警事件失败')
+    smsError.value = getApiErrorMessage(e, t('plugin.panels.fetchSmsAlarmFailed'))
     smsRows.value = []
     smsHasMore.value = false
   } finally {
@@ -1112,16 +1114,16 @@ const buildAlarmNotificationFollowupRoute = (focusLatest = false) => {
 const resolveRuntimeSaveFollowup = () => {
   if (['feishu_alert', 'wecom_alert', 'sms_alert'].includes(pluginId.value)) {
     return {
-      message: '配置已保存，可前往告警通知记录验证消息是否正常发送。',
+      message: t('pluginRuntime.saveSuccessAlertTest'),
       quickActionType: 'alert_test' as const,
       quickActionLabel:
         pluginId.value === 'sms_alert'
-          ? '发送测试短信'
+          ? t('pluginRuntime.sendTestSms')
           : pluginId.value === 'wecom_alert'
-            ? '发送测试企微'
-            : '发送测试飞书',
+            ? t('pluginRuntime.sendTestWecom')
+            : t('pluginRuntime.sendTestFeishu'),
       route: buildAlarmNotificationFollowupRoute(false),
-      label: '查看告警通知记录'
+      label: t('pluginRuntime.viewAlarmNotifications')
     }
   }
   if (
@@ -1144,15 +1146,15 @@ const resolveRuntimeSaveFollowup = () => {
     ].includes(pluginId.value)
   ) {
     return {
-      message: '配置已保存，可继续查看当前页下方运维数据，或前往运维中心验证该插件是否开始生效。',
+      message: t('pluginRuntime.saveSuccessRuntimeData'),
       quickActionType: 'refresh_runtime_data' as const,
-      quickActionLabel: '刷新当前数据',
+      quickActionLabel: t('pluginRuntime.refreshCurrentData'),
       route: '/ops',
-      label: '前往运维中心'
+      label: t('pluginRuntime.gotoOps')
     }
   }
   return {
-    message: '配置已保存。若该插件主要提供后端能力，可返回插件中心或相关业务页继续验证效果。',
+    message: t('pluginRuntime.saveSuccessBackend'),
     quickActionType: 'none' as const,
     quickActionLabel: '',
     route: '',
@@ -1195,7 +1197,7 @@ const triggerAlertChannelTest = async (channelOverride?: string) => {
   const expectedAfter = Date.now()
   const res = await api.post('/api/v1/plugins/alert-test', { channel })
   if (pluginId.value !== pid) return
-  runtimeSaveSuccessMessage.value = res.data?.message || '测试告警已触发，可前往告警通知记录确认消息是否已送达。'
+  runtimeSaveSuccessMessage.value = res.data?.message || t('pluginRuntime.alertTestTriggered')
   if (!alertChannel) {
     runtimeSaveFollowupRoute.value = '/alarm-notifications'
   } else {
@@ -1205,7 +1207,7 @@ const triggerAlertChannelTest = async (channelOverride?: string) => {
     params.set('expected_after', String(expectedAfter))
     runtimeSaveFollowupRoute.value = `/alarm-notifications?${params.toString()}`
   }
-  runtimeSaveFollowupLabel.value = '查看告警通知记录'
+  runtimeSaveFollowupLabel.value = t('pluginRuntime.viewAlarmNotifications')
   ElMessage.success(runtimeSaveSuccessMessage.value)
 }
 
@@ -1242,24 +1244,24 @@ const performRuntimeSaveQuickAction = async () => {
       }
       const refreshAction = refreshByPluginId[actionPid]
       if (!refreshAction) {
-        ElMessage.warning('当前插件暂无可直接刷新的运行数据，请前往相关业务页验证效果。')
+        ElMessage.warning(t('pluginRuntime.noRefreshableData'))
         return
       }
       await refreshAction()
       if (pluginId.value !== actionPid) return
       const rowCount = getRuntimeDataCount()
       if (rowCount > 0) {
-        runtimeSaveSuccessMessage.value = `已刷新当前插件运行数据，当前可见 ${rowCount} 条记录，可继续在本页验证插件是否生效。`
-        ElMessage.success('已刷新当前插件运行数据')
+        runtimeSaveSuccessMessage.value = t('pluginRuntime.refreshedWithCount', { count: rowCount })
+        ElMessage.success(t('pluginRuntime.refreshedData'))
       } else {
-        runtimeSaveSuccessMessage.value = '已刷新当前插件运行数据，但暂未看到新的结果。若业务事件尚未触发，这是正常现象，可稍后重试或前往相关业务页继续验证。'
-        ElMessage.info('已刷新数据，当前暂无新记录')
+        runtimeSaveSuccessMessage.value = t('pluginRuntime.refreshedNoNew')
+        ElMessage.info(t('pluginRuntime.refreshedNoNewShort'))
       }
     }
   } catch (error: unknown) {
     if (pluginId.value !== actionPid) return
     const friendly = getFriendlyError(error)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     runtimeSaveQuickActionLoading.value = false
   }
@@ -1308,7 +1310,7 @@ const focusRuntimeFieldByKey = async (fieldKey?: string) => {
 
   const fieldRoot = document.querySelector(`[data-runtime-field-key="${targetKey}"]`) as HTMLElement | null
   if (!fieldRoot) {
-    ElMessage.warning(`当前插件未找到配置项 ${targetKey}`)
+    ElMessage.warning(t('pluginRuntime.fieldNotFound', { key: targetKey }))
     return
   }
 
@@ -1376,8 +1378,8 @@ const loadRuntimeConfig = async (lockPluginId?: string) => {
     runtimeGuidanceState.value = 'default'
     clearRuntimeSaveSuccess()
     runtimeMessage.value = showConfigForm.value
-      ? `插件 ${pluginDisplayName.value || targetPid} 可配置`
-      : `插件 ${pluginDisplayName.value || targetPid} 未提供 config_schema`
+      ? t('plugin.panels.pluginConfigurable', { name: pluginDisplayName.value || targetPid })
+      : t('plugin.panels.pluginNoSchema', { name: pluginDisplayName.value || targetPid })
     if (showConfigForm.value) {
       await focusRuntimeConfigEntry()
       await focusRuntimeFieldFromRoute()
@@ -1405,8 +1407,9 @@ const saveRuntimeConfig = async () => {
     const configToSend: Record<string, unknown> = {}
     for (const f of runtimeFields.value) {
       const key = String(f.key)
-      const t = String(f.type || '').toLowerCase()
-      if (t === 'json') {
+      // FIX: [2026-07-04] 局部变量 t 遮蔽 useI18n 的 t 函数，JSON 解析失败时 TypeError [全栈工程师]
+      const fieldType = String(f.type || '').toLowerCase()
+      if (fieldType === 'json') {
         const txt = String(jsonText[key] ?? '').trim()
         if (!txt) {
           configToSend[key] = {}
@@ -1415,7 +1418,7 @@ const saveRuntimeConfig = async () => {
         try {
           configToSend[key] = JSON.parse(txt)
         } catch {
-          throw new Error(`字段 ${key} 的 JSON 解析失败，请检查格式`)
+          throw new Error(t('plugin.panels.jsonParseFailed', { key }))
         }
       } else {
         configToSend[key] = runtimeConfig[key]
@@ -1432,21 +1435,18 @@ const saveRuntimeConfig = async () => {
     ElMessage.success(followup.message)
   } catch (e: unknown) {
     if (pluginId.value !== pid) return
-    configError.value = e instanceof Error ? e.message : '保存失败'
+    configError.value = e instanceof Error ? e.message : t('plugin.panels.saveFailed')
     ElMessage.error(configError.value)
   } finally {
     savingConfig.value = false
   }
 }
 
-/** iframe 无法带 Bearer，plugin-assets 依赖 deps 的 query token，与 axios 使用同一 localStorage token。 */
+/** P0-6: iframe 无法带 Bearer，plugin-assets 改由 HttpOnly cookie 认证（login 已设置 access_token cookie）。
+ * 不再将 token 拼入 URL 查询参数，消除 token 暴露到日志/Referer/history 的风险（硬约束 #1）。
+ */
 const withPluginAssetsAuthToken = (url: unknown) => {
-  const u = String(url || '').trim()
-  if (!u || !u.includes('plugin-assets')) return u
-  const token = localStorage.getItem('token')
-  if (!token) return u
-  const sep = u.includes('?') ? '&' : '?'
-  return `${u}${sep}token=${encodeURIComponent(token)}`
+  return String(url || '').trim()
 }
 
 const withRuntimeSuggestion = (message: string, suggestion?: string) => {
@@ -1465,12 +1465,12 @@ const buildRuntimeLoadFailureState = (detail?: unknown, suggestion?: string) => 
     if (isPluginPurchased.value && !isPluginInstalled.value) {
       return {
         state: 'install' as const,
-        message: '已同步到该插件的购买状态，但当前实例尚未完成安装。请返回插件中心安装后再进入运行页。'
+        message: t('pluginRuntime.failure.syncedNotInstalled')
       }
     }
     return {
       state: 'buy' as const,
-      message: '未检测到该付费插件授权，请先前往服务器版完成购买或续费，再回到开源端安装。'
+      message: t('pluginRuntime.failure.noLicenseBuyFirst')
     }
   }
 
@@ -1478,40 +1478,40 @@ const buildRuntimeLoadFailureState = (detail?: unknown, suggestion?: string) => 
     if (isPluginPurchased.value) {
       return {
         state: 'reinstall' as const,
-        message: '已检测到购买记录，但当前实例缺少授权文件。请返回插件中心重新安装或同步授权后，再进入运行页。'
+        message: t('pluginRuntime.failure.purchasedMissingLicense')
       }
     }
     return {
       state: 'buy' as const,
-      message: '当前实例尚未同步到该插件授权，请先到服务器版完成购买后再返回安装。'
+      message: t('pluginRuntime.failure.noSyncedLicense')
     }
   }
 
   if (includesAny('授权无效', 'license 无效', 'license invalid')) {
     return {
       state: 'renew' as const,
-      message: '当前插件授权无效、已过期或与当前实例不匹配。请到服务器版续费或重新发放授权后，再回到插件中心重新安装。'
+      message: t('pluginRuntime.failure.licenseInvalid')
     }
   }
 
   if (includesAny('开源版') && includesAny('版本', '兼容')) {
     return {
       state: 'upgrade' as const,
-      message: '当前开源版版本与该插件不兼容，请先升级开源版到要求版本后，再继续安装或运行。'
+      message: t('pluginRuntime.failure.versionIncompatible')
     }
   }
 
   if (includesAny('废弃')) {
     return {
       state: 'configure' as const,
-      message: '该插件已进入废弃态，当前实例不再建议继续运行。请返回插件中心查看替代插件或迁移说明。'
+      message: t('pluginRuntime.failure.deprecated')
     }
   }
 
   if (includesAny('灰度', '白名单')) {
     return {
       state: 'configure' as const,
-      message: '当前租户暂未开通该插件运行权限，请联系管理员确认灰度范围、购买状态或授权开通情况。'
+      message: t('pluginRuntime.failure.noPermission')
     }
   }
 
@@ -1519,29 +1519,29 @@ const buildRuntimeLoadFailureState = (detail?: unknown, suggestion?: string) => 
     return {
       state: isPluginInstalled.value ? 'reinstall' as const : 'install' as const,
       message: isPluginInstalled.value
-        ? '该插件已安装，但运行入口资源缺失或不可达。请返回插件中心重新安装或升级插件后再试。'
-        : '当前实例尚未准备好该插件运行入口，请先返回插件中心完成安装。'
+        ? t('pluginRuntime.failure.installedResourceMissing')
+        : t('pluginRuntime.failure.notReady')
     }
   }
 
   if (includesAny('config_schema', 'schema')) {
     return {
       state: 'configure' as const,
-      message: '该插件未提供可视化运行配置，请返回插件中心查看文档说明，或仅使用其后端能力。'
+      message: t('pluginRuntime.failure.noSchema')
     }
   }
 
   if (isPluginPurchased.value && !isPluginInstalled.value) {
     return {
       state: 'install' as const,
-      message: '已检测到该插件已购买，但当前开源端实例尚未安装。请返回插件中心完成安装后再进入运行页。'
+      message: t('pluginRuntime.failure.purchasedNotInstalled')
     }
   }
 
   if (!isPluginPurchased.value && !isPluginInstalled.value) {
     return {
       state: 'buy' as const,
-      message: '当前实例尚未安装该插件；若为付费插件，请先到服务器版完成购买，再回到插件中心安装。'
+      message: t('pluginRuntime.failure.notInstalledBuyFirst')
     }
   }
 
@@ -1549,7 +1549,7 @@ const buildRuntimeLoadFailureState = (detail?: unknown, suggestion?: string) => 
     return {
       state: 'configure' as const,
       message: withRuntimeSuggestion(
-        '该插件已安装，但当前版本未提供独立运行入口。请返回插件中心查看说明，或前往配置页继续配置。',
+        t('pluginRuntime.failure.installedNoRuntimeEntry'),
         suggestion
       )
     }
@@ -1558,7 +1558,7 @@ const buildRuntimeLoadFailureState = (detail?: unknown, suggestion?: string) => 
   return {
     state: 'default' as const,
     message: withRuntimeSuggestion(
-      '加载插件运行入口失败，请返回插件中心检查该插件是否已购买、已安装并满足版本要求。',
+      t('pluginRuntime.failure.loadFailed'),
       suggestion
     )
   }
@@ -1592,8 +1592,8 @@ const onPurchaseSync = async () => {
   await loadPluginAccessState()
   if (!previousPurchased && isPluginPurchased.value && !isPluginInstalled.value && !iframeUrl.value) {
     runtimeGuidanceState.value = 'install'
-    runtimeMessage.value = '已同步到服务器版购买结果，当前实例仍未安装该插件，请返回插件中心安装后再进入运行页。'
-    ElMessage.success('购买状态已同步，请先返回插件中心安装插件')
+    runtimeMessage.value = t('pluginRuntime.syncedServerPurchaseNotInstalled')
+    ElMessage.success(t('pluginRuntime.syncedPleaseInstall'))
   }
 }
 
@@ -1605,7 +1605,7 @@ async function bootstrapPluginRuntime() {
   clearStreamHealthAutoRefresh()
   const bootstrapId = pluginId.value
   if (!bootstrapId) {
-    runtimeMessage.value = '缺少 pluginId，无法加载插件运行入口'
+    runtimeMessage.value = t('plugin.panels.missingPluginId')
     loading.value = false
     return
   }
@@ -1627,7 +1627,7 @@ async function bootstrapPluginRuntime() {
       iframeUrl.value = withPluginAssetsAuthToken(entry.frontend_url)
       pluginDisplayName.value = String(entry.title || bootstrapId)
       runtimeGuidanceState.value = 'default'
-      runtimeMessage.value = `插件 ${pluginDisplayName.value} 已安装，可在其运行页中继续配置业务功能。`
+      runtimeMessage.value = t('plugin.panels.pluginInstalled', { name: pluginDisplayName.value })
     } else {
       // 无 frontend_url 代表该插件未提供 oss 运行入口（后端能力为主时常见）。
       iframeUrl.value = ''

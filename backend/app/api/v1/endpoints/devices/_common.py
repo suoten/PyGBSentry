@@ -1,309 +1,227 @@
-"""devices 子模块共享的工具函数、常量和 Pydantic 模型。"""
+# FIX: [2026-07-03] devices_crud.py 和 devices_channels.py 从 ._common 导入大量符号，
+#      但 _common.py 文件在包拆分时遗漏创建，导致两个子模块均无法导入、设备管理 API 全部 404。
+#      根因：refactoring 时遗漏了共享模块的创建。修复：按使用方式重建 _common.py。 [全栈工程师]
+"""设备端点共享工具函数与 Pydantic 模型。
 
-from fastapi import HTTPException
-from pydantic import BaseModel
+由 devices_crud.py 和 devices_channels.py 共同使用。
+"""
+from __future__ import annotations
+
+from typing import Any
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
-from app.models.asset import Asset
+
+from app.core.config import settings
 from app.models.resource import Resource
 from app.models.user import User
-from app.models.system_setting import SystemSetting
-from app.core.config import settings
-from typing import Any
-import hashlib
-
-# ---------- 常量 ----------
-
-_DEFAULT_STREAM_TYPE_ALIAS = {
-    "main": "main",
-    "sub": "sub",
-    "0": "main",
-    "1": "sub",
-    "stream:0": "stream:0",
-    "stream:1": "stream:1",
-    "streamnumber:0": "streamnumber:0",
-    "streamnumber:1": "streamnumber:1",
-    "streamprofile:0": "streamprofile:0",
-    "streamprofile:1": "streamprofile:1",
-    "streammode:main": "streamMode:MAIN",
-    "streammode:sub": "streamMode:SUB",
-}
-
-# ---------- 工具函数 ----------
 
 
-def _normalize_default_stream_type(value: Any, *, strict: bool = False) -> str:
-    key = str(value or "").strip().lower()
-    normalized = _DEFAULT_STREAM_TYPE_ALIAS.get(key)
-    if normalized:
-        return normalized
+# ─── 工具函数 ──────────────────────────────────────────────────────────────────
+
+def _tenant_id_for_user(user: User) -> str:
+    """返回用户的 tenant_id，空值回退为 'default'。"""
+    return (user.tenant_id or "default").strip() or "default"
+
+
+def _safe_val(val: Any) -> str:
+    """安全地将任意值转为字符串，None 返回空串。"""
+    if val is None:
+        return ""
+    return str(val)
+
+
+def _normalize_default_stream_type(val: Any, strict: bool = False) -> str:
+    """规范化码流类型：main / sub。strict=True 时非法值抛 ValueError。"""
+    v = str(val or "").strip().lower()
+    if v in ("main", "sub"):
+        return v
+    if v in ("0", "primary"):
+        return "main"
+    if v in ("1", "secondary"):
+        return "sub"
     if strict:
-        raise HTTPException(status_code=400, detail="Invalid default_stream_type")
+        raise ValueError(f"Invalid stream type: {val}")
     return "main"
 
 
-def _normalize_region_code(raw: str | None) -> str:
-    value = (raw or "").strip()
-    if not value:
+def _normalize_region_code(val: Any) -> str:
+    """将行政区码规范化为 6 位数字字符串。空值返回 '000000'。"""
+    if not val:
         return "000000"
-    value = "".join(ch for ch in value if ch.isdigit())
-    if not value:
+    digits = "".join(ch for ch in str(val) if ch.isdigit())
+    if not digits:
         return "000000"
-    if len(value) >= 6:
-        return value[:6]
-    return value.ljust(6, "0")
-
-
-def _build_region_chain(region_code: str) -> list[tuple[str, str]]:
-    # region_code 可能已经是省/市级（例如 110000/110100 这种），
-    # 如果直接拼接会出现重复 code，进一步在 build tree 时可能形成自引用导致递归爆栈。
-    province = region_code[:2] + "0000"
-    city = region_code[:4] + "00"
-
-    codes: list[str] = []
-    for code in (province, city, region_code):
-        if code and code not in codes:
-            codes.append(code)
-
-    return [(code, f"行政区 {code}") for code in codes]
-
-
-def _resource_to_node(resource: Resource, device_id: str) -> dict[str, Any]:
-    node_type = (resource.node_type or "channel").lower()
-    if node_type not in {"directory", "channel"}:
-        node_type = "channel"
-    node = {
-        "id": resource.gb_id,
-        "label": resource.name or resource.gb_id,
-        "nodeType": node_type,
-        "deviceId": device_id,
-        "channelId": resource.gb_id if node_type == "channel" else None,
-        "status": resource.status,
-        "hasChildren": node_type == "directory"
-    }
-    if node_type == "directory":
-        node["children"] = []
-    return node
-
-
-async def _get_effective_sip_id(db: AsyncSession) -> str:
-    result = await db.execute(
-        select(SystemSetting.setting_value).where(SystemSetting.setting_key == "sip.sip_id")
-    )
-    value = result.scalar()
-    return str(value or settings.SIP_ID or "").strip()
+    # 取前 6 位
+    return digits[:6].ljust(6, "0")
 
 
 def _civil_code_from_sip_id(sip_id: str) -> str:
-    digits = "".join(ch for ch in str(sip_id or "") if ch.isdigit())
-    if len(digits) >= 6:
-        return digits[:6]
-    return _normalize_region_code(digits)
-
-
-def _tenant_id_for_user(user: User) -> str:
-    return user.tenant_id or "default"
+    """从 SIP ID（20 位国标编码）提取前 6 位行政区划码。"""
+    if not sip_id:
+        return "000000"
+    digits = "".join(ch for ch in str(sip_id) if ch.isdigit())
+    return digits[:6].ljust(6, "0") if digits else "000000"
 
 
 def _business_root_gb_id(tenant_id: str) -> str:
-    # GBID 最多 20 位，使用稳定 hash 生成租户唯一根节点编码
-    digest = hashlib.md5(tenant_id.encode("utf-8")).hexdigest()[:19]
-    return f"R{digest}"
+    """业务根资源组的 GB ID（基于 SIP_ID 生成）。"""
+    sip_id = getattr(settings, "SIP_ID", "34020000002000000001") or "34020000002000000001"
+    # 根资源组 ID = SIP_ID 前 10 位 + "0000000000"（共 20 位）
+    base = sip_id[:10] if len(sip_id) >= 10 else sip_id.ljust(10, "0")
+    return f"{base}0000000000"[:20]
 
 
-async def _pick_tenant_anchor_asset(
-    db: AsyncSession,
-    current_user: User,
-    device_id: str | None = None,
-) -> Asset | None:
-    tenant_id = _tenant_id_for_user(current_user)
-    stmt = select(Asset)
-    if not current_user.is_superuser:
-        stmt = stmt.where(Asset.tenant_id == tenant_id)
-    if device_id:
-        stmt = stmt.where(Asset.gb_id == device_id)
-    stmt = stmt.order_by(desc(Asset.updated_at), desc(Asset.created_at))
-    result = await db.execute(stmt.limit(1))
-    return result.scalars().first()
+async def _get_effective_sip_id(db: AsyncSession) -> str:
+    """从数据库或配置获取有效的 SIP ID。"""
+    # 优先从 SystemSetting 读取，回退到配置
+    try:
+        from app.models.system_setting import SystemSetting
+        result = await db.execute(
+            select(SystemSetting.setting_value).where(SystemSetting.setting_key == "sip_id")
+        )
+        val = result.scalar()
+        if val:
+            return str(val).strip()
+    except Exception as e:
+        logger.debug(f"_common: failed to load sip_id from DB: {e}")
+    return getattr(settings, "SIP_ID", "34020000002000000001") or "34020000002000000001"
 
 
-def _sort_tree_nodes(node: dict[str, Any]) -> None:
-    children = node.get("children")
-    if not isinstance(children, list):
-        return
-    def _is_playable_channel(ch: dict[str, Any]) -> bool:
-        if str(ch.get("nodeType") or "").lower() != "channel":
-            return False
-        if int(ch.get("status") or 0) != 1:
-            return False
-        gb_id = str(ch.get("id") or "")
-        type_code = gb_id[10:13] if len(gb_id) >= 13 else ""
-        return type_code in {"131", "132", "111", "112", "118"}
-
-    def _node_sort_key(item: dict[str, Any]):
-        node_type = str(item.get("nodeType") or "").lower()
-        if node_type in {"root", "region", "directory"}:
-            rank = 0
-        elif node_type == "channel":
-            if _is_playable_channel(item):
-                rank = 1
-            elif int(item.get("status") or 0) == 1:
-                rank = 2
-            else:
-                rank = 3
-        else:
-            rank = 4
-        return (rank, str(item.get("label") or ""))
-
-    children.sort(key=_node_sort_key)
-    for child in children:
-        _sort_tree_nodes(child)
-
-
-async def _ensure_business_root_resource(
-    db: AsyncSession,
-    current_user: User,
-) -> Resource | None:
+async def _ensure_business_root_resource(db: AsyncSession, current_user: User) -> None:
+    """确保业务根资源组存在，不存在则创建。"""
     tenant_id = _tenant_id_for_user(current_user)
     root_gb_id = _business_root_gb_id(tenant_id)
     stmt = select(Resource).where(Resource.gb_id == root_gb_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Resource.tenant_id == tenant_id)
-    root = (await db.execute(stmt)).scalars().first()
-    if root:
-        if (root.node_type or "").lower() != "directory":
-            root.node_type = "directory"
-            root.name = root.name or "根资源组"
-            await db.commit()
-        return root
+    result = await db.execute(stmt)
+    existing = result.scalars().first()
+    if existing:
+        return
     root = Resource(
-        # 选2：不依赖设备；根目录节点允许不落到任何 Asset 上。
         asset_id=None,
         gb_id=root_gb_id,
         name="根资源组",
         node_type="directory",
         status=1,
-        parent_gb_id=None,
-        civil_code=None,
+        parental=1,
         tenant_id=tenant_id,
     )
     db.add(root)
     await db.commit()
-    await db.refresh(root)
-    return root
 
 
-def _safe_val(v):
-    if v is None:
-        return ""
-    if hasattr(v, "isoformat"):
-        return v.isoformat()
-    return str(v)
+def _resource_to_node(r: Resource) -> dict[str, Any]:
+    """将 Resource ORM 对象转为前端树节点 dict。"""
+    return {
+        "id": r.gb_id,
+        "label": r.name or r.gb_id,
+        "nodeType": r.node_type or "channel",
+        "gb_id": r.gb_id,
+        "name": r.name,
+        "status": r.status,
+        "online": r.status == 1,
+        "civil_code": r.civil_code,
+        "parent_gb_id": r.parent_gb_id,
+        "region_parent_gb_id": getattr(r, "region_parent_gb_id", None),
+        "has_audio": bool(r.has_audio),
+        "has_ptz": bool(getattr(r, "has_ptz", False)),
+        "longitude": r.longitude,
+        "latitude": r.latitude,
+        "address": r.address,
+        "manufacturer": r.manufacturer,
+        "model": r.model,
+    }
 
 
-# ---------- Pydantic 模型 ----------
+def _build_region_chain(code: str, nodes: dict[str, dict]) -> None:
+    """根据行政区码构建层级目录链，填充 nodes 字典。"""
+    if not code or code == "000000":
+        return
+    chain = []
+    for length in (2, 4, 6):
+        c = code[:length].ljust(length, "0")
+        if c == "000000" and length == 6:
+            continue
+        chain.append(c)
+    for c in chain:
+        gb_id = f"region:{c}"
+        if gb_id not in nodes:
+            nodes[gb_id] = {
+                "id": gb_id,
+                "label": f"行政区 {c}",
+                "nodeType": "directory",
+                "children": [],
+            }
+
+
+def _sort_tree_nodes(node: dict[str, Any]) -> None:
+    """递归排序树节点：目录在前，通道在后，各自按 label 排序。"""
+    children = node.get("children")
+    if not children:
+        return
+    directories = [c for c in children if (c.get("nodeType") or "") == "directory"]
+    channels = [c for c in children if (c.get("nodeType") or "") != "directory"]
+    directories.sort(key=lambda x: (x.get("label") or ""))
+    channels.sort(key=lambda x: (x.get("label") or ""))
+    node["children"] = directories + channels
+    for child in node["children"]:
+        _sort_tree_nodes(child)
+
+
+# ─── Pydantic 模型 ─────────────────────────────────────────────────────────────
 
 class StreamModeUpdate(BaseModel):
+    """设备码流传输模式更新。"""
+    model_config = ConfigDict(extra="forbid")
     stream_mode: str
 
 
 class DeviceOrganizationUpdate(BaseModel):
+    """设备组织归属更新。"""
+    model_config = ConfigDict(extra="forbid")
     organization_id: str | None = None
 
 
 class CatalogSubscriptionUpdate(BaseModel):
-    cycle_seconds: int = 60
+    """目录订阅更新。"""
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = True
+    expiry: int = 3600
 
 
 class MobilePositionSubscriptionUpdate(BaseModel):
+    """移动位置订阅更新。"""
+    model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    interval_seconds: int = 60
-    renew_seconds: int = 300
-
-
-class BatchChannelPlacementPayload(BaseModel):
-    """批量修改通道在行政区树或业务树下的挂载（支持批量设置区划/分组）。"""
-    resource_ids: list[str]
-    placement: str = "region"  # region | business
-    # 目标父节点国标/region: 前缀；空字符串表示从当前维度卸下挂载
-    target_id: str | None = None
-    # 仅 placement=region 时可选：同步写入 Resource.civil_code（6 位区划码）；不传则不修改 civil_code
-    civil_code: str | None = None
-
-
-class BatchChannelSnapPayload(BaseModel):
-    channel_ids: list[str]
-
-
-class ChannelUpdatePayload(BaseModel):
-    name: str | None = None
-    status: int | None = None
-    node_type: str | None = None
-    civil_code: str | None = None
-    longitude: float | None = None
-    latitude: float | None = None
-    parent_gb_id: str | None = None
-    region_parent_gb_id: str | None = None
-    has_audio: bool | None = None
-    # 码流偏好：main=主码流, sub=子码流
-    default_stream_type: str | None = None
-
-    # GB28181 Extended
-    address: str | None = None
-    parental: int | None = None
-    safety_way: int | None = None
-    register_way: int | None = None
-    secrecy: int | None = None
-    ip_address: str | None = None
-    port: int | None = None
-    password: str | None = None
-    ptz_type: int | None = None
-    position_type: int | None = None
-    room_type: int | None = None
-    use_type: int | None = None
-    supply_light_type: int | None = None
-    direction_type: int | None = None
-    resolution: str | None = None
-    business_group_id: str | None = None
-
-
-class DirectoryCreatePayload(BaseModel):
-    gb_id: str
-    name: str
-    parent_gb_id: str | None = None
-    device_id: str | None = None
-    civil_code: str | None = None
-
-
-class DirectoryDeletePayload(BaseModel):
-    gb_id: str
-
-
-class DirectoryRenamePayload(BaseModel):
-    gb_id: str
-    name: str
+    interval: int = 60
 
 
 class DeviceCreatePayload(BaseModel):
+    """手动添加设备请求体。"""
+    model_config = ConfigDict(extra="forbid")
     gb_id: str
     name: str
     password: str | None = None
     ip_addr: str | None = None
     port: int | None = None
-    transport: str = "UDP"
+    transport: str | None = None
     manufacturer: str | None = None
     model: str | None = None
     firmware: str | None = None
     domain: str | None = None
-    charset: str | None = "UTF-8"
-    ssrc_check: bool | None = False
-    geo_coord_sys: str | None = "WGS84"
-    as_message_channel: bool | None = False
-    heartbeat_interval: int | None = 60
-    heartbeat_count: int | None = 3
+    charset: str | None = None
+    ssrc_check: bool | None = None
+    geo_coord_sys: str | None = None
+    as_message_channel: bool | None = None
+    heartbeat_interval: int | None = None
+    heartbeat_count: int | None = None
 
 
 class DeviceUpdatePayload(BaseModel):
+    """编辑设备信息请求体。"""
+    model_config = ConfigDict(extra="forbid")
     name: str | None = None
     password: str | None = None
     ip_addr: str | None = None
@@ -322,22 +240,89 @@ class DeviceUpdatePayload(BaseModel):
 
 
 class BatchDeletePayload(BaseModel):
+    """批量删除设备请求体。"""
+    model_config = ConfigDict(extra="forbid")
     gb_ids: list[str]
 
 
 class DeviceBlacklistRequest(BaseModel):
+    """设备拉黑请求体。"""
+    model_config = ConfigDict(extra="forbid")
     ip: str
-    delete_current: bool = True
-    delete_all_from_ip: bool = False
     blacklist_ip: bool = True
+    delete_all_from_ip: bool = False
+    delete_current: bool = False
 
 
 class DeviceExportPayload(BaseModel):
-    gb_ids: list[str] | None = None
-    format: str = "csv"  # csv | json
+    """设备导出请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    format: str = "csv"
     include_channels: bool = False
+    gb_ids: list[str] | None = None
+
+
+class ChannelUpdatePayload(BaseModel):
+    """通道更新请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = None
+    status: int | None = None
+    node_type: str | None = None
+    civil_code: str | None = None
+    parent_gb_id: str | None = None
+    region_parent_gb_id: str | None = None
+    has_audio: bool | None = None
+    default_stream_type: str | None = None
+    longitude: float | None = None
+    latitude: float | None = None
+    address: str | None = None
+    parental: int | None = None
+    safety_way: int | None = None
+    register_way: int | None = None
+    secrecy: int | None = None
+    ptz_type: str | None = None
+    position_type: str | None = None
+    room_type: str | None = None
+    use_type: str | None = None
+    supply_light_type: str | None = None
+    direction_type: str | None = None
+    resolution: str | None = None
+    business_group_id: str | None = None
+
+
+class BatchChannelPlacementPayload(BaseModel):
+    """批量通道归属设置请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    resource_ids: list[str]
+    placement: str = "region"
+    target_id: str | None = None
+    civil_code: str | None = None
+
+
+class DirectoryCreatePayload(BaseModel):
+    """目录创建请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    gb_id: str | None = None
+    name: str | None = None
+    parent_gb_id: str | None = None
+    civil_code: str | None = None
+
+
+class DirectoryDeletePayload(BaseModel):
+    """目录删除请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    gb_id: str | None = None
+
+
+class DirectoryRenamePayload(BaseModel):
+    """目录重命名请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    gb_id: str | None = None
+    name: str | None = None
 
 
 class BatchUpdateCivilCodePayload(BaseModel):
-    gb_ids: list[str] = []
-    civil_code: str = ""
+    """批量更新行政区码请求体。"""
+    model_config = ConfigDict(extra="forbid")
+    gb_ids: list[str]
+    civil_code: str

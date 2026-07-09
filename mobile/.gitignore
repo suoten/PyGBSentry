@@ -4,3 +4,9 @@ dist
 .idea
 .DS_Store
 pnpm-lock.yaml
+
+# 治理脚本状态文件与测试数据残留（P0-3）
+scripts/mobile-regression.rotation-*.json
+scripts/mobile-regression.rotation-*.md
+scripts/mobile-regression-rotation.*.json
+scripts/native-player-integration.*.test*.json

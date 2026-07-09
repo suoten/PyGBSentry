@@ -1,9 +1,9 @@
 <template>
   <slot v-if="!hasError" />
   <div v-else class="app-error-boundary">
-    <el-result icon="warning" title="页面加载异常" sub-title="请刷新重试">
+    <el-result icon="warning" :title="t('appError.loadFailed')" :sub-title="t('common.refreshRetry')">
       <template #extra>
-        <el-button type="primary" @click="retry">刷新页面</el-button>
+        <el-button type="primary" @click="retry">{{ t('common.refreshPage') }}</el-button>
       </template>
     </el-result>
   </div>
@@ -11,11 +11,15 @@
 
 <script setup lang="ts">
 import { ref, onErrorCaptured } from 'vue'
+import { useI18n } from 'vue-i18n'  // FIXED: 国际化
+import { logger } from '@/utils/logger'
+
+const { t } = useI18n()  // FIXED: 国际化
 
 const hasError = ref(false)
 
 onErrorCaptured((err, instance, info) => {
-  console.error('[AppErrorBoundary]', err, info)
+  logger.error('[AppErrorBoundary]', err, info)
   hasError.value = true
   return false
 })

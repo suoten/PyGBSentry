@@ -1,51 +1,8 @@
-"""PyGBSentry 数据模型集合。"""
+"""ORM model package.
 
-from app.models.access_source import AccessSource
-from app.models.alarm import Alarm
-from app.models.alarm_escalation import AlarmEscalation
-from app.models.alarm_link_rule import AlarmLinkRule
-from app.models.alarm_notification import AlarmNotification
-from app.models.app_log import AppLog
-from app.models.asset import Asset
-from app.models.asset_maintenance import AssetMaintenance
-from app.models.asset_stream_health import AssetStreamHealth
-from app.models.asset_stream_policy import AssetStreamPolicy
-from app.models.billing import BillingPlan, TenantSubscription, TenantBranding, PluginOrder, SubscriptionDowngradeLog
-from app.models.cloud_cluster import CloudCluster
-from app.models.command_instruction import CommandInstruction
-from app.models.command_participant import CommandParticipant
-from app.models.command_session import CommandSession
-from app.models.config_draft import ConfigDraft
-from app.models.config_revision import ConfigRevision
-from app.models.device_cluster import DeviceCluster
-from app.models.device_position import DevicePosition
-from app.models.device_record_download_task import DeviceRecordDownloadTask
-from app.models.device_subscription import DeviceSubscription
-from app.models.ffmpeg_cmd import FfmpegCmd
-from app.models.ip_blacklist import IpBlacklist
-from app.models.map_config import MapConfig
-from app.models.media_node import MediaNode
-from app.models.media_port_lease import MediaPortLease
-from app.models.network_metric import NetworkMetric
-from app.models.operation_audit import OperationAudit
-from app.models.organization import Organization
-from app.models.platform import ParentPlatform
-from app.models.platform_catalog_resource import PlatformCatalogResource
-from app.models.platform_runtime import PlatformRuntime
-from app.models.platform_subscription import PlatformSubscription
-from app.models.publish_record import PublishRecord
-from app.models.push_channel import PushChannel
-from app.models.record import Record
-from app.models.record_schedule import RecordSchedule
-from app.models.record_schedule_runtime import RecordScheduleRuntime
-from app.models.region import Region
-from app.models.resource import Resource
-from app.models.role import Role
-from app.models.rtp_receive_task import RtpReceiveTask
-from app.models.sip_trace_event import SipTraceEvent
-from app.models.stream_session import StreamSession
-from app.models.structured_event import StructuredEvent
-from app.models.system_setting import SystemSetting
-from app.models.user import User
-from app.models.user_api_key import UserApiKey
-from app.models.work_order import WorkOrder
+This package intentionally has no explicit imports here — model modules are
+discovered and imported on demand by :func:`app.db.model_registry.ensure_model_registry_loaded`
+which walks this package's directory. Keeping ``__init__`` empty avoids import
+cycles (many models are referenced lazily from services that must not be loaded
+at model-import time).
+"""

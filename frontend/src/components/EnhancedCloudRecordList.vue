@@ -5,8 +5,8 @@
       <div class="toolbar-left">
         <div class="flex items-center gap-2">
           <div class="status-dot status-dot--cloud"></div>
-          <h3 class="text-base font-semibold">云端录像</h3>
-          <span class="text-xs text-gray-500">快速点播与无缝回放</span>
+          <h3 class="text-base font-semibold">{{ t('common.cloudRecord') }}</h3>
+          <span class="text-xs text-gray-500">{{ t('cloudRecord.subtitle') }}</span>
         </div>
       </div>
       <div class="toolbar-right flex items-center gap-3">
@@ -14,9 +14,9 @@
         <el-date-picker
           v-model="dateRange"
           type="datetimerange"
-          range-separator="至"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
+          :range-separator="t('record.rangeSeparator')"
+          :start-placeholder="t('common.startTime')"
+          :end-placeholder="t('common.endTime')"
           size="small"
           :shortcuts="dateShortcuts"
           @change="handleDateChange"
@@ -30,26 +30,26 @@
           @click="fetchRecords"
         >
           <el-icon v-if="!loading" class="mr-1"><Search /></el-icon>
-          查询
+          {{ t('common.query') }}
         </el-button>
         
         <!-- 重置按钮 -->
         <el-button size="small" @click="resetRange">
           <el-icon class="mr-1"><Refresh /></el-icon>
-          重置
+          {{ t('common.reset') }}
         </el-button>
         
         <!-- 批量操作 -->
         <el-dropdown v-if="selectedRecords.length > 0" @command="handleBatchCommand">
           <el-button size="small" type="success">
-            批量操作 ({{ selectedRecords.length }})
+            {{ t('common.batchOps') }} ({{ selectedRecords.length }})
             <el-icon class="ml-1"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="download">批量下载</el-dropdown-item>
-              <el-dropdown-item command="play">连续播放</el-dropdown-item>
-              <el-dropdown-item command="export">导出列表</el-dropdown-item>
+              <el-dropdown-item command="download">{{ t('cloudRecord.batchDownload') }}</el-dropdown-item>
+              <el-dropdown-item command="play">{{ t('cloudRecord.continuousPlay') }}</el-dropdown-item>
+              <el-dropdown-item command="export">{{ t('cloudRecord.exportList') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -59,19 +59,19 @@
     <!-- 质量信息提示 -->
     <div v-if="recordStats" class="stats-bar mb-3">
       <div class="stats-item">
-        <span class="stats-label">录像数量</span>
+        <span class="stats-label">{{ t('cloudRecord.recordCount') }}</span>
         <span class="stats-value">{{ recordStats.totalCount }}</span>
       </div>
       <div class="stats-item">
-        <span class="stats-label">总时长</span>
+        <span class="stats-label">{{ t('cloudRecord.totalDuration') }}</span>
         <span class="stats-value">{{ formatDuration(recordStats.totalDuration) }}</span>
       </div>
       <div class="stats-item">
-        <span class="stats-label">总大小</span>
+        <span class="stats-label">{{ t('cloudRecord.totalSize') }}</span>
         <span class="stats-value">{{ formatFileSize(recordStats.totalSize) }}</span>
       </div>
       <div class="stats-item">
-        <span class="stats-label">平均码率</span>
+        <span class="stats-label">{{ t('cloudRecord.avgBitrate') }}</span>
         <span class="stats-value">{{ recordStats.avgBitrate }} kbps</span>
       </div>
     </div>
@@ -79,7 +79,7 @@
     <!-- 时间轴视图 -->
     <div v-if="records.length > 0" class="timeline-section mb-4">
       <div class="timeline-header flex justify-between items-center mb-2">
-        <span class="text-sm font-medium">录像时间轴</span>
+        <span class="text-sm font-medium">{{ t('record.timelineTitle') }}</span>
         <span class="text-xs text-gray-500">
           {{ timelineAxisStart }} - {{ timelineAxisEnd }}
         </span>
@@ -122,7 +122,7 @@
         size="small"
         :row-class-name="tableRowClassName"
         @selection-change="handleSelectionChange"
-        empty-text="当前时间范围暂无云端录像"
+        :empty-text="t('record.noRecordsInRange')"
         :max-height="400"
         table-layout="auto"
         @row-click="handleRowClick"
@@ -130,7 +130,7 @@
       >
         <el-table-column type="selection" width="40" />
         
-        <el-table-column prop="start_time" label="开始时间" min-width="180" sortable>
+        <el-table-column prop="start_time" :label="t('common.startTime')" min-width="180" sortable>
           <template #default="scope">
             <div class="flex items-center gap-2">
               <div 
@@ -142,25 +142,25 @@
           </template>
         </el-table-column>
         
-        <el-table-column prop="end_time" label="结束时间" min-width="180">
+        <el-table-column prop="end_time" :label="t('common.endTime')" min-width="180">
           <template #default="scope">
             {{ formatTime(scope.row.end_time) }}
           </template>
         </el-table-column>
         
-        <el-table-column label="时长" width="100" sortable>
+        <el-table-column :label="t('cloudRecord.duration')" width="100" sortable>
           <template #default="scope">
             <span class="font-mono">{{ formatDuration(scope.row.duration) }}</span>
           </template>
         </el-table-column>
         
-        <el-table-column label="大小" width="110">
+        <el-table-column :label="t('common.size')" width="110">
           <template #default="scope">
             <span>{{ formatFileSize(scope.row.file_size) }}</span>
           </template>
         </el-table-column>
         
-        <el-table-column label="质量" width="80">
+        <el-table-column :label="t('cloudRecord.quality')" width="80">
           <template #default="scope">
             <el-tag 
               :type="getQualityType(scope.row)" 
@@ -171,29 +171,29 @@
           </template>
         </el-table-column>
         
-        <el-table-column label="状态" width="80">
+        <el-table-column :label="t('common.status')" width="80">
           <template #default="scope">
             <el-tag 
               v-if="scope.row.url_ok === false" 
               type="danger" 
               size="small"
             >
-              异常
+              {{ t('cloudRecord.abnormal') }}
             </el-tag>
-            <el-tag 
-              v-else-if="scope.row.url_status_code === 200" 
-              type="success" 
+            <el-tag
+              v-else-if="scope.row.url_status_code === 200"
+              type="success"
               size="small"
             >
-              正常
+              {{ t('common.normal') }}
             </el-tag>
             <el-tag v-else size="small">
-              未知
+              {{ t('common.unknown') }}
             </el-tag>
           </template>
         </el-table-column>
         
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column :label="t('common.action')" width="200" fixed="right">
           <template #default="scope">
             <div class="flex items-center gap-2">
               <el-button 
@@ -202,13 +202,13 @@
                 :type="scope.$index === playingIndex ? 'warning' : 'primary'"
                 @click.stop="playRecord(scope.row, scope.$index)"
               >
-                {{ scope.$index === playingIndex ? '停止' : '播放' }}
+                {{ scope.$index === playingIndex ? t('record.stop') : t('cloudRecord.play') }}
               </el-button>
               <el-button 
                 size="small"
                 @click.stop="previewRecord(scope.row)"
               >
-                预览
+                {{ t('cloudRecord.preview') }}
               </el-button>
               <el-dropdown size="small" @command="(cmd: string) => handleCommand(cmd, scope.row)">
                 <el-button size="small">
@@ -216,10 +216,10 @@
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="download">下载</el-dropdown-item>
-                    <el-dropdown-item command="share">分享</el-dropdown-item>
-                    <el-dropdown-item command="clip">剪辑</el-dropdown-item>
-                    <el-dropdown-item command="verify">校验</el-dropdown-item>
+                    <el-dropdown-item command="download">{{ t('common.download') }}</el-dropdown-item>
+                    <el-dropdown-item command="share">{{ t('cloudRecord.share') }}</el-dropdown-item>
+                    <el-dropdown-item command="clip">{{ t('cloudRecord.clip') }}</el-dropdown-item>
+                    <el-dropdown-item command="verify">{{ t('cloudRecord.verify') }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -237,8 +237,8 @@
         :total="records.length"
         :page-sizes="[10, 20, 50, 100]"
         layout="total, sizes, prev, pager, next, jumper"
-        prev-text="上一页"
-        next-text="下一页"
+        :prev-text="t('pagination.prev')"
+        :next-text="t('pagination.next')"
         size="small"
         @current-change="handlePageChange"
         @size-change="handleSizeChange"
@@ -277,20 +277,20 @@
             {{ currentRecordInfo }}
           </div>
           <div class="flex gap-2">
-            <el-button @click="playerDialogVisible = false">关闭</el-button>
+            <el-button @click="playerDialogVisible = false">{{ t('common.close') }}</el-button>
             <el-button 
               v-if="!isSeamlessMode" 
               type="primary" 
               @click="switchToSeamlessMode"
             >
-              开启无缝回放
+              {{ t('cloudRecord.enableSeamless') }}
             </el-button>
-            <el-button 
-              v-else 
+            <el-button
+              v-else
               type="warning"
               @click="isSeamlessMode = false"
             >
-              退出无缝模式
+              {{ t('cloudRecord.exitSeamless') }}
             </el-button>
           </div>
         </div>
@@ -300,7 +300,7 @@
     <!-- 预览对话框 -->
     <el-dialog
       v-model="previewDialogVisible"
-      title="录像预览"
+      :title="t('cloudRecord.previewTitle')"
       width="60%"
       top="15vh"
       :destroy-on-close="true"
@@ -318,33 +318,33 @@
     <!-- 分享对话框 -->
     <el-dialog
       v-model="shareDialogVisible"
-      title="分享录像"
+      :title="t('cloudRecord.shareTitle')"
       width="500px"
     >
       <el-form label-width="80px">
-        <el-form-item label="分享类型">
+        <el-form-item :label="t('cloudRecord.shareType')">
           <el-radio-group v-model="shareType">
-            <el-radio label="link">链接分享</el-radio>
-            <el-radio label="embed">嵌入代码</el-radio>
+            <el-radio label="link">{{ t('cloudRecord.linkShare') }}</el-radio>
+            <el-radio label="embed">{{ t('share.embedCode') }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="有效期">
+        <el-form-item :label="t('share.expiry')">
           <el-select v-model="shareExpireHours" style="width: 100%">
-            <el-option label="1小时" :value="1" />
-            <el-option label="6小时" :value="6" />
-            <el-option label="24小时" :value="24" />
-            <el-option label="7天" :value="168" />
-            <el-option label="30天" :value="720" />
+            <el-option :label="t('share.expiry1h')" :value="1" />
+            <el-option :label="t('cloudRecord.expiry6h')" :value="6" />
+            <el-option :label="t('share.expiry24h')" :value="24" />
+            <el-option :label="t('share.expiry7d')" :value="168" />
+            <el-option :label="t('cloudRecord.expiry30d')" :value="720" />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="shareType === 'link'" label="分享链接">
+        <el-form-item v-if="shareType === 'link'" :label="t('player.shareLink')">
           <el-input v-model="shareLink" readonly>
             <template #append>
-              <el-button @click="copyShareLink">复制</el-button>
+              <el-button @click="copyShareLink">{{ t('player.copy') }}</el-button>
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item v-else label="嵌入代码">
+        <el-form-item v-else :label="t('share.embedCode')">
           <el-input v-model="embedCode" type="textarea" :rows="4" readonly />
         </el-form-item>
       </el-form>
@@ -353,7 +353,7 @@
     <!-- 剪辑对话框 -->
     <el-dialog
       v-model="clipDialogVisible"
-      title="录像剪辑"
+      :title="t('cloudRecord.clipTitle')"
       width="70%"
       top="5vh"
       :destroy-on-close="true"
@@ -361,24 +361,24 @@
       <div class="clip-container">
         <div class="clip-form mb-4">
           <el-form inline>
-            <el-form-item label="开始时间">
+            <el-form-item :label="t('common.startTime')">
               <el-date-picker
                 v-model="clipStartTime"
                 type="datetime"
                 value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="选择开始时间"
+                :placeholder="t('cloudRecord.selectStartTime')"
               />
             </el-form-item>
-            <el-form-item label="结束时间">
+            <el-form-item :label="t('common.endTime')">
               <el-date-picker
                 v-model="clipEndTime"
                 type="datetime"
                 value-format="YYYY-MM-DD HH:mm:ss"
-                placeholder="选择结束时间"
+                :placeholder="t('cloudRecord.selectEndTime')"
               />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="applyClip">应用</el-button>
+              <el-button type="primary" @click="applyClip">{{ t('cloudRecord.apply') }}</el-button>
             </el-form-item>
           </el-form>
         </div>
@@ -398,6 +398,7 @@
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { Search, Refresh, ArrowDown, MoreFilled, Loading } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import type { VodSource } from '../types/vod'
 import { getApiErrorMessage } from '../utils/errorMessage'
@@ -437,6 +438,8 @@ const emit = defineEmits<{
   (e: 'download', record: CloudRecord): void
 }>()
 
+const { t } = useI18n()
+
 // 状态
 const records = ref<CloudRecord[]>([])
 const selectedRecords = ref<CloudRecord[]>([])
@@ -450,7 +453,7 @@ const hoverTimelineIndex = ref(-1)
 
 // 播放器相关
 const playerDialogVisible = ref(false)
-const playerDialogTitle = ref('录像播放')
+const playerDialogTitle = ref(t('cloudRecord.recordPlayback'))
 const currentPlayUrl = ref('')
 const currentPlaySources = ref<VodSource>({})
 const currentPlayingRecord = ref<CloudRecord | null>(null)
@@ -490,7 +493,7 @@ const clipPlayerRef = ref<InstanceType<typeof EnhancedVodPlayer> | null>(null)
 // 日期快捷选项
 const dateShortcuts = [
   {
-    text: '最近1小时',
+    text: t('cloudRecord.last1Hour'),
     value: () => {
       const end = new Date()
       const start = new Date()
@@ -499,7 +502,7 @@ const dateShortcuts = [
     }
   },
   {
-    text: '最近6小时',
+    text: t('cloudRecord.last6Hours'),
     value: () => {
       const end = new Date()
       const start = new Date()
@@ -508,7 +511,7 @@ const dateShortcuts = [
     }
   },
   {
-    text: '最近24小时',
+    text: t('cloudRecord.last24Hours'),
     value: () => {
       const end = new Date()
       const start = new Date()
@@ -517,7 +520,7 @@ const dateShortcuts = [
     }
   },
   {
-    text: '最近7天',
+    text: t('cloudRecord.last7Days'),
     value: () => {
       const end = new Date()
       const start = new Date()
@@ -569,7 +572,7 @@ const timelineAxisEnd = computed(() => formatTime(new Date(timelineRange.value.e
 const currentRecordInfo = computed(() => {
   if (!currentPlayingRecord.value) return ''
   const record = currentPlayingRecord.value
-  return `${formatTime(record.start_time)} - ${formatTime(record.end_time)} | 时长: ${formatDuration(record.duration)}`
+  return t('cloudRecord.currentRecordInfo', { start: formatTime(record.start_time), end: formatTime(record.end_time), duration: formatDuration(record.duration) })
 })
 
 // 方法
@@ -598,10 +601,10 @@ async function getPlayUrl(recordId: string): Promise<VodSource> {
 
 /**
  * 获取备用下载 URL
+ * P0-6: 移除 URL 中的 token，改由 HttpOnly cookie 认证（硬约束 #1）
  */
 function getDownloadUrl(recordId: string, inline = false): string {
-  const token = localStorage.getItem('token') || ''
-  return `/api/v1/record/download/${recordId}?inline=${inline}&token=${encodeURIComponent(token)}`
+  return `/api/v1/record/download/${recordId}?inline=${inline}`
 }
 
 /**
@@ -621,13 +624,13 @@ async function playRecord(record: CloudRecord, index: number) {
     currentPlaySources.value = sources
     currentPlayingRecord.value = record
     playbackStartTime.value = 0
-    playerDialogTitle.value = `云端录像 - ${formatTime(record.start_time)}`
+    playerDialogTitle.value = t('cloudRecord.cloudRecordAt', { time: formatTime(record.start_time) })
     playingIndex.value = index
     playerDialogVisible.value = true
     
     emit('play', record, sources)
   } catch (error: unknown) {
-    ElMessage.error(`获取播放地址失败: ${getApiErrorMessage(error, '获取播放地址失败')}`)
+    ElMessage.error(t('cloudRecord.getPlayUrlFailed', { msg: getApiErrorMessage(error, t('cloudRecord.getPlayUrlFailedShort')) }))
   } finally {
     loading.value = false
   }
@@ -704,23 +707,23 @@ function getQualityLabel(record: CloudRecord): string {
   const duration = record.duration || 1
   const bitrate = (size * 8) / duration / 1000
   
-  if (bitrate > 4000) return '超清'
-  if (bitrate > 2000) return '高清'
-  if (bitrate > 1000) return '标清'
-  return '流畅'
+  if (bitrate > 4000) return t('cloudRecord.qualityUhd')
+  if (bitrate > 2000) return t('cloudRecord.qualityHd')
+  if (bitrate > 1000) return t('cloudRecord.qualitySd')
+  return t('cloudRecord.qualityFluent')
 }
 
 /**
  * 获取质量类型
  */
 function getQualityType(record: CloudRecord): string {
-  const label = getQualityLabel(record)
-  switch (label) {
-    case '超清': return 'success'
-    case '高清': return 'primary'
-    case '标清': return 'warning'
-    default: return 'info'
-  }
+  const size = record.file_size || 0
+  const duration = record.duration || 1
+  const bitrate = (size * 8) / duration / 1000
+  if (bitrate > 4000) return 'success'
+  if (bitrate > 2000) return 'primary'
+  if (bitrate > 1000) return 'warning'
+  return 'info'
 }
 
 /**
@@ -777,7 +780,7 @@ function formatFileSize(bytes: number): string {
  */
 async function fetchRecords() {
   if (!dateRange.value || dateRange.value.length < 2) {
-    ElMessage.warning('请选择时间范围')
+    ElMessage.warning(t('cloudRecord.selectTimeRange'))
     return
   }
   
@@ -798,9 +801,9 @@ async function fetchRecords() {
     records.value = Array.isArray(res.data) ? res.data : []
     page.value = 1
     
-    ElMessage.success(`查询完成，共 ${records.value.length} 条录像`)
+    ElMessage.success(t('cloudRecord.queryComplete', { n: records.value.length }))
   } catch (error: unknown) {
-    ElMessage.error(`查询失败: ${getApiErrorMessage(error, '查询失败')}`)
+    ElMessage.error(t('cloudRecord.queryFailed', { msg: getApiErrorMessage(error, t('cloudRecord.queryFailedShort')) }))
     records.value = []
   } finally {
     loading.value = false
@@ -851,7 +854,7 @@ async function handleBatchCommand(command: string) {
       for (const record of selectedRecords.value) {
         window.open(getDownloadUrl(record.id), '_blank')
       }
-      ElMessage.success(`已打开 ${selectedRecords.value.length} 个下载链接`)
+      ElMessage.success(t('cloudRecord.openedDownloadLinks', { n: selectedRecords.value.length }))
       break
     case 'play':
       emit('batch-play', selectedRecords.value)
@@ -875,7 +878,7 @@ function exportRecordList() {
   }))
   
   const csv = [
-    ['开始时间', '结束时间', '时长(秒)', '大小(字节)', '质量'].join(','),
+    [t('common.startTime'), t('common.endTime'), t('record.durationSeconds'), t('cloudRecord.sizeBytes'), t('cloudRecord.quality')].join(','),
     ...data.map(row => Object.values(row).join(','))
   ].join('\n')
   
@@ -887,7 +890,7 @@ function exportRecordList() {
   a.click()
   URL.revokeObjectURL(url)
   
-  ElMessage.success('录像列表已导出')
+  ElMessage.success(t('cloudRecord.exported'))
 }
 
 /**
@@ -924,11 +927,11 @@ async function openShareDialog(record: CloudRecord) {
     shareLink.value = res.data?.url || ''
     
     const baseUrl = window.location.origin
-    embedCode.value = `<iframe src="${baseUrl}/#/play/${encodeURIComponent(shareLink.value)}" width="960" height="540" frameborder="0"></iframe>`
+    embedCode.value = `<iframe src="${baseUrl}/#/play/${encodeURIComponent(shareLink.value)}" width="960" height="540" frameborder="0" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin"></iframe>`
     
     shareDialogVisible.value = true
   } catch (error: unknown) {
-    ElMessage.error(`生成分享链接失败: ${getApiErrorMessage(error, '生成分享链接失败')}`)
+    ElMessage.error(t('cloudRecord.generateShareLinkFailed', { msg: getApiErrorMessage(error, t('cloudRecord.generateShareLinkFailedShort')) }))
   }
 }
 
@@ -938,9 +941,9 @@ async function openShareDialog(record: CloudRecord) {
 async function copyShareLink() {
   try {
     await navigator.clipboard.writeText(shareLink.value)
-    ElMessage.success('分享链接已复制')
+    ElMessage.success(t('share.linkCopied'))
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('cloudRecord.copyFailed'))
   }
 }
 
@@ -976,12 +979,12 @@ async function verifyRecord(record: CloudRecord) {
     const data = res.data || {}
     
     if (data.ok) {
-      ElMessage.success('录像可用')
+      ElMessage.success(t('cloudRecord.recordAvailable'))
     } else {
-      ElMessage.warning(`录像异常: ${data.error || '链接不可达'}`)
+      ElMessage.warning(t('cloudRecord.recordAbnormal', { msg: data.error || t('cloudRecord.linkUnreachable') }))
     }
   } catch (error: unknown) {
-    ElMessage.error(`校验失败: ${getApiErrorMessage(error, '校验失败')}`)
+    ElMessage.error(t('cloudRecord.verifyFailed', { msg: getApiErrorMessage(error, t('cloudRecord.verifyFailedShort')) }))
   }
 }
 
@@ -994,12 +997,12 @@ function switchToSeamlessMode() {
   }
   
   if (selectedRecords.value.length < 2) {
-    ElMessage.warning('无缝回放需要选择多条录像')
+    ElMessage.warning(t('cloudRecord.seamlessNeedMultiple'))
     return
   }
   
   isSeamlessMode.value = true
-  ElMessage.info('已开启无缝回放模式，录像将连续播放')
+  ElMessage.info(t('cloudRecord.seamlessEnabled'))
 }
 
 /**
@@ -1024,7 +1027,7 @@ function handlePlayerEnded() {
 }
 
 function handlePlayerError(error: { code: string; message: string }) {
-  ElMessage.error(`播放错误: ${getApiErrorMessage(error, '播放失败')}`)
+  ElMessage.error(t('cloudRecord.playError', { msg: getApiErrorMessage(error, t('cloudRecord.playFailed')) }))
 }
 
 function handleTimeUpdate(time: number) {

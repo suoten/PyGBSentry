@@ -1,78 +1,103 @@
+"""后台任务管理器（统一启动/停止）。
+
+在 ``main.py`` lifespan 启动阶段调用 :func:`start_all_background_tasks` 启动所有
+周期性后台任务，在关闭阶段调用 :func:`stop_all_background_tasks` 优雅停止。
+
+当前管理的后台任务：
+    * ``device_watchdog`` —— 设备心跳看门狗（定期检测离线设备）
+    * ``record_cleanup`` —— 录像清理任务（可选，DB 可用时启动）
+
+所有任务通过 :class:`asyncio.Task` 跟踪，``stop_all`` 时逐一 cancel 并等待退出。
+"""
+from __future__ import annotations
+
 import asyncio
+from typing import Any
+
 from loguru import logger
 
-from app.services.tasks import record_schedule_executor
-from app.services.tasks import pull_proxy_monitor
-from app.services.tasks import rtmp_push_channel_monitor
-from app.services.tasks import snapshot_refresh
-from app.services.tasks import webhook_pusher
-from app.services.tasks import sip_logger
-from app.services.tasks import network_watchdog
-from app.services.tasks import stream_health
-from app.services.tasks import stream_idle
-from app.services.tasks import timelapse
-from app.services.tasks import ptz_tour
-from app.services.tasks import auto_record
-from app.services.tasks import record_index_verifier
-from app.services.tasks import snmp_trap
-from app.services.tasks import api_gateway
-from app.services.tasks import log_collector
-from app.services.tasks import event_bridge
-from app.services.tasks import ssl_certbot_renewer
-from app.services.tasks import device_watchdog
-
-TASKS = [
-    record_schedule_executor,
-    pull_proxy_monitor,
-    rtmp_push_channel_monitor,
-    snapshot_refresh,
-    webhook_pusher,
-    sip_logger,
-    network_watchdog,
-    stream_health,
-    stream_idle,
-    timelapse,
-    ptz_tour,
-    auto_record,
-    record_index_verifier,
-    snmp_trap,
-    api_gateway,
-    log_collector,
-    event_bridge,
-    ssl_certbot_renewer,
-    device_watchdog,
-]
-
-# Hook-based services: 在启动时注册 Hook
-_HOOK_TASKS = [snmp_trap, api_gateway, log_collector, event_bridge, webhook_pusher, sip_logger]
+# 已启动的后台任务句柄
+_tasks: list[asyncio.Task] = []
+# 已注册的 stop 回调（按注册逆序调用）
+_stop_callbacks: list = []
 
 
-async def _register_hooks(plugin_manager):
-    for t in _HOOK_TASKS:
-        if hasattr(t, "register"):
-            try:
-                t.register(plugin_manager)
-                logger.info("Registered hooks from: %s", t.__name__)
-            except Exception as e:
-                logger.error(f"Failed to register hooks from {t.__name__}: {e}")
+async def start_all_background_tasks(plugin_manager: Any = None) -> None:
+    """启动所有后台周期任务。
 
-async def start_all_background_tasks(plugin_manager=None):
-    logger.info("Starting default background tasks...")
-    for t in TASKS:
+    Args:
+        plugin_manager: 插件管理器单例（供插件 hook 使用，当前未直接使用）。
+
+    每个任务独立启动，单个任务启动失败不影响其他任务。
+    """
+    global _tasks, _stop_callbacks
+    _tasks.clear()
+    _stop_callbacks.clear()
+
+    # 1. 设备心跳看门狗
+    try:
+        from app.services.tasks import device_watchdog
+        await device_watchdog.start()
+        _stop_callbacks.append(device_watchdog.stop)
+        logger.info("Background task started: device_watchdog")
+    except Exception as e:
+        logger.warning(f"Failed to start device_watchdog: {e}")
+
+    # 2. 录像过期清理（可选，DB 不可用时静默跳过）
+    try:
+        from app.services.record_cleanup import start_record_cleanup_loop
+        task = asyncio.create_task(start_record_cleanup_loop())
+        _tasks.append(task)
+        _stop_callbacks.append(lambda: _cancel_task(task))
+        logger.info("Background task started: record_cleanup")
+    except ImportError:
+        logger.debug("record_cleanup module not available, skipping")
+    except Exception as e:
+        logger.debug(f"Failed to start record_cleanup: {e}")
+
+    logger.info(f"start_all_background_tasks: {len(_tasks)} task(s) + {len(_stop_callbacks)} stop callback(s) registered")
+
+
+async def stop_all_background_tasks() -> None:
+    """优雅停止所有后台任务。
+
+    按注册逆序调用 stop 回调，然后 cancel 所有剩余的 asyncio.Task。
+    总超时 10s（由调用方 ``asyncio.wait_for`` 控制）。
+    """
+    global _tasks, _stop_callbacks
+
+    # 逆序调用 stop 回调
+    for cb in reversed(_stop_callbacks):
         try:
-            if hasattr(t, "start"):
-                await t.start()
+            result = cb()
+            if asyncio.iscoroutine(result):
+                await asyncio.wait_for(result, timeout=5.0)
         except Exception as e:
-            logger.error(f"Failed to start task {t.__name__}: {e}")
-    if plugin_manager:
-        await _register_hooks(plugin_manager)
+            logger.warning(f"Background task stop callback error: {e}")
+    _stop_callbacks.clear()
 
-async def stop_all_background_tasks():
-    logger.info("Stopping default background tasks...")
-    async def _stop_one(t):
-        if hasattr(t, "stop"):
-            try:
-                await asyncio.wait_for(t.stop(), timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
-                logger.warning("(asyncio.CancelledError, asyncio.TimeoutError, Exception) occurred")
-    await asyncio.gather(*[_stop_one(t) for t in TASKS], return_exceptions=True)
+    # Cancel 剩余的 asyncio.Task
+    for task in _tasks:
+        if not task.done():
+            task.cancel()
+    for task in _tasks:
+        try:
+            await asyncio.wait_for(task, timeout=3.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            logger.debug("task_cancelled")
+        except Exception as e:
+            logger.debug(f"Background task shutdown error: {e}")
+    _tasks.clear()
+    logger.info("stop_all_background_tasks: all tasks stopped")
+
+
+async def _cancel_task(task: asyncio.Task) -> None:
+    """取消单个 asyncio.Task 并等待退出。"""
+    if not task.done():
+        task.cancel()
+    try:
+        await asyncio.wait_for(task, timeout=3.0)
+    except (asyncio.CancelledError, asyncio.TimeoutError):
+        logger.debug("task_cancelled")
+    except Exception as e:
+        logger.debug(f"task_manager: unexpected error during task cancellation: {e}")

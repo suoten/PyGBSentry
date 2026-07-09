@@ -4,6 +4,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from app.core.config import settings
+from loguru import logger
 
 
 def get_app_timezone_name() -> str:
@@ -28,6 +29,9 @@ def now_in_app_timezone() -> datetime:
 def apply_process_timezone() -> str:
     tz_name = get_app_timezone_name()
     os.environ["TZ"] = tz_name
-    if hasattr(time, "tzset"):
+    try:
         time.tzset()
+    except Exception:
+        # Windows does not support time.tzset(); silently ignore.
+        logger.debug(f"time.tzset() unsupported on this platform; TZ env set to {tz_name}")
     return tz_name

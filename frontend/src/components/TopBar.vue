@@ -4,7 +4,7 @@
       <el-button
         class="collapse-btn"
         @click="$emit('toggle-collapse')"
-        :aria-label="collapsed ? '展开侧边栏' : '收起侧边栏'"
+        :aria-label="collapsed ? t('topbar.expandSidebar') : t('topbar.collapseSidebar')"
         :aria-expanded="!collapsed"
         aria-controls="app-sidebar"
       >
@@ -21,7 +21,7 @@
     </div>
     <div class="topbar-right">
       <el-dropdown trigger="click" @command="handleThemeCommand">
-        <div class="theme-dropdown mr-4 cursor-pointer" role="button" aria-label="切换主题模式" tabindex="0">
+        <div class="theme-dropdown mr-4 cursor-pointer" role="button" :aria-label="t('topbar.toggleTheme')" tabindex="0">
           <el-icon :size="18">
             <Sunny v-if="prefsStore.themeMode === 'light'" />
             <Moon v-else-if="prefsStore.themeMode === 'dark'" />
@@ -30,27 +30,27 @@
         </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="light" :class="{ 'is-active': prefsStore.themeMode === 'light' }">浅色模式</el-dropdown-item>
-            <el-dropdown-item command="dark" :class="{ 'is-active': prefsStore.themeMode === 'dark' }">深色模式</el-dropdown-item>
-            <el-dropdown-item command="auto" :class="{ 'is-active': prefsStore.themeMode === 'auto' }">跟随系统</el-dropdown-item>
+            <el-dropdown-item command="light" :class="{ 'is-active': prefsStore.themeMode === 'light' }">{{ t('topbar.lightMode') }}</el-dropdown-item>
+            <el-dropdown-item command="dark" :class="{ 'is-active': prefsStore.themeMode === 'dark' }">{{ t('topbar.darkMode') }}</el-dropdown-item>
+            <el-dropdown-item command="auto" :class="{ 'is-active': prefsStore.themeMode === 'auto' }">{{ t('topbar.autoMode') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
 
       <el-dropdown trigger="click" @command="handleLocaleCommand">
-        <div class="locale-dropdown mr-4 cursor-pointer" role="button" aria-label="切换语言" tabindex="0">
+        <div class="locale-dropdown mr-4 cursor-pointer" role="button" :aria-label="t('topbar.toggleLanguage')" tabindex="0">
           <el-icon :size="18"><Promotion /></el-icon>
         </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="zh-CN" :class="{ 'is-active': locale === 'zh-CN' }">中文</el-dropdown-item>
+            <el-dropdown-item command="zh-CN" :class="{ 'is-active': locale === 'zh-CN' }">{{ t('topbar.chinese') }}</el-dropdown-item>
             <el-dropdown-item command="en-US" :class="{ 'is-active': locale === 'en-US' }">English</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
 
       <el-dropdown trigger="click" @command="handleCommand">
-        <div class="user-dropdown" role="button" aria-label="用户菜单" tabindex="0">
+        <div class="user-dropdown" role="button" :aria-label="t('topbar.userMenu')" tabindex="0">
           <el-avatar :size="30" class="user-avatar">{{ initials }}</el-avatar>
           <span class="user-name">{{ username }}</span>
           <el-icon class="dropdown-icon"><ArrowDown /></el-icon>
@@ -59,15 +59,15 @@
           <el-dropdown-menu>
             <el-dropdown-item command="user-profile">
               <el-icon><User /></el-icon>
-              <span>个人资料</span>
+              <span>{{ t('topbar.userProfile') }}</span>
             </el-dropdown-item>
             <el-dropdown-item command="account-security">
               <el-icon><Lock /></el-icon>
-              <span>账号安全</span>
+              <span>{{ t('topbar.accountSecurity') }}</span>
             </el-dropdown-item>
             <el-dropdown-item divided command="logout">
               <el-icon><SwitchButton /></el-icon>
-              <span>退出登录</span>
+              <span>{{ t('topbar.logout') }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -77,13 +77,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowDown, Fold, Expand, User, Lock, SwitchButton, Sunny, Moon, Monitor, Promotion } from '@element-plus/icons-vue'
 import { useAppPrefsStore } from '../stores/appPrefs'
+import { useUserStore } from '../stores/user'
 import api from '@/utils/http'
 import { showError, confirmDangerous } from '../utils/feedback'
+import { safeLSSet } from '@/utils/storage'
 
 defineEmits<{ (e: 'toggle-collapse'): void }>()
 
@@ -91,18 +93,26 @@ const props = defineProps<{ collapsed: boolean }>()
 const route = useRoute()
 const router = useRouter()
 const prefsStore = useAppPrefsStore()
-const { locale } = useI18n()
+const userStore = useUserStore()
+const { t, locale } = useI18n()
+
+// SECURITY: username 不持久化到任何 storage，组件挂载时从 API 实时获取
+onMounted(() => {
+  if (userStore.isLoggedIn && !userStore.username) {
+    void userStore.fetchUserInfo()
+  }
+})
 
 function handleLocaleCommand(command: string) {
   locale.value = command as 'zh-CN' | 'en-US'
-  localStorage.setItem('locale', command)
+  safeLSSet('locale', command)  // locale is a non-sensitive UI preference
 }
 
 function handleThemeCommand(command: 'light' | 'dark' | 'auto') {
   prefsStore.setThemeMode(command)
 }
 
-const username = computed(() => String(localStorage.getItem('username') || ''))
+const username = computed(() => userStore.username)
 const initials = computed(() => username.value.slice(0, 1).toUpperCase())
 
 const crumbs = computed(() => {
@@ -110,7 +120,7 @@ const crumbs = computed(() => {
   const list = matched
     .filter(r => r.meta && r.meta.title && !r.meta.hidden)
     .map(r => ({ path: r.path, title: String(r.meta.title) }))
-  return list.length ? list : [{ path: route.path, title: String(route.meta?.title || '首页') }]
+  return list.length ? list : [{ path: route.path, title: String(route.meta?.title || t('topbar.home')) }]
 })
 
 async function handleCommand(command: string) {
@@ -120,13 +130,13 @@ async function handleCommand(command: string) {
     router.push('/account-security')
   } else if (command === 'logout') {
     try {
-      await confirmDangerous('退出登录')
+      await confirmDangerous(t('topbar.logout'))
     } catch { return }
     try {
       await api.post('/api/v1/login/logout')
-    } catch (e) { showError('退出登录', e) }
-    localStorage.removeItem('token')
-    localStorage.removeItem('refresh_token')
+    } catch (e) { showError(t('topbar.logout'), e) }
+    sessionStorage.removeItem('token')  // P0-4: sessionStorage
+    sessionStorage.removeItem('refresh_token')
     document.cookie = 'access_token=; path=/; max-age=0; secure; samesite=lax'
     router.push('/login')
   }

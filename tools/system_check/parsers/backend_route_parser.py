@@ -11,10 +11,43 @@ from tools.system_check.shared.models import RouteInfo
 
 class BackendRouteParser:
     _HTTP_METHODS = {"get", "post", "put", "delete", "patch", "head", "options"}
-    _INCLUDE_ROUTER_RE = re.compile(r"include_router\s*\(")
+    _INCLUDE_ROUTER_RE = re.compile(r"(?:include_router|_mount)\s*\(")
     _PREFIX_RE = re.compile(r"prefix\s*=\s*['\"]([^'\"]+)['\"]")
     _CONDITIONAL_RE = re.compile(r"is_server_edition")
     _DEPRECATED_RE = re.compile(r"deprecated|DEPRECATED", re.IGNORECASE)
+
+    @classmethod
+    def parse_runtime_routes(cls, app_module_path: str = "app.main") -> list[dict]:
+        """通过导入 FastAPI app 运行时枚举所有注册路由。
+
+        比AST解析更准确，能处理 _mount() 等间接调用。
+        """
+        try:
+            import importlib
+            mod = importlib.import_module(app_module_path)
+            app = getattr(mod, "app", None)
+            if app is None:
+                return []
+            routes = []
+            from fastapi.routing import APIRoute, APIWebSocketRoute
+            for route in app.routes:
+                if isinstance(route, APIRoute):
+                    routes.append({
+                        "method": list(route.methods)[0] if route.methods else "GET",
+                        "path": route.path,
+                        "function_name": route.name or "",
+                        "is_deprecated": False,
+                    })
+                elif isinstance(route, APIWebSocketRoute):
+                    routes.append({
+                        "method": "WEBSOCKET",
+                        "path": route.path,
+                        "function_name": route.name or "",
+                        "is_deprecated": False,
+                    })
+            return routes
+        except Exception:
+            return []
 
     @classmethod
     def parse_api_registration(cls, api_py_path: str | Path) -> list[dict]:
@@ -56,7 +89,7 @@ class BackendRouteParser:
                         router_var = arg.split("=")[1].strip() if "=" in arg else arg
                         break
                     if not arg.startswith("prefix") and not arg.startswith("tags") and not arg.startswith("dependencies"):
-                        if not arg.startswith(")") and not arg.startswith("include_router"):
+                        if not arg.startswith(")") and not arg.startswith("include_router") and not arg.startswith("_mount"):
                             router_var = arg
 
                 edition_scope = "server" if in_server_block else "both"

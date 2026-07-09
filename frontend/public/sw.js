@@ -1,4 +1,7 @@
-const CACHE_NAME = 'pygbsentry-v1';
+// P1-22: CACHE_NAME 应在每次发布时更新（或通过构建期注入版本号）
+// 当前使用与 package.json 版本一致的标识，发布新版时需同步更新
+const CACHE_VERSION = '1.0.0-rc.1';
+const CACHE_NAME = `pygbsentry-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -28,7 +31,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch: network-first for API, cache-first for static
+// Fetch: network-only for API, cache-first for static
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -37,20 +40,9 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
 
-  // API requests: network-first
+  // P1-22: API 请求不缓存 — 防止敏感数据/陈旧响应被缓存到 SW
+  // API 请求直接透传到网络，不经过 SW 缓存
   if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // Cache successful GET responses for offline resilience
-          if (response.ok) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
-          }
-          return response;
-        })
-        .catch(() => caches.match(request))
-    );
     return;
   }
 

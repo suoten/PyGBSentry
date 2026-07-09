@@ -1,250 +1,354 @@
+"""GB28181 SSRC 分配与管理器。
+
+GB28181 协议规定 SSRC（同步源标识）为 10 位十进制数字，编码规则如下：
+
+    位 1        : 流类型，0=实时流（点播/直播），1=回放流
+    位 2-6      : 域编码前缀（5 位，取自 SIP 域/行政区域码前 5 位）
+    位 7-10     : 序号（4 位，0000-9999，进程内递增并去重）
+
+本模块提供进程级单例 :data:`ssrc_manager`，负责：
+    * :meth:`allocate` —— 分配一个新的 SSRC
+    * :meth:`allocate_specific_ssrc` —— 预占设备指定的 SSRC（级联/设备主动指定）
+    * :meth:`release` / :meth:`release_ssrc` —— 释放 SSRC
+    * :meth:`bind_stream` / :meth:`lookup_ssrc_by_stream` —— SSRC 与流ID双向绑定
+    * :meth:`cleanup_loop` —— 周期清理过期/泄漏的 SSRC
+    * :meth:`restore_from_db` —— 启动时从 ``stream_sessions`` 表恢复在用 SSRC
+
+线程安全：所有公开方法均为 ``async``，内部用 :class:`asyncio.Lock` 保护。
+模块导入绝不抛异常 —— DB 模型在方法内延迟导入。
+"""
+from __future__ import annotations
+
 import asyncio
-import secrets
-import time
+
 from loguru import logger
+
+from app.core.config import settings
+
+
+# SSRC 编码位数
+_SSRC_LEN = 10
+_SERIAL_MAX = 10000  # 4 位序号上限（0000-9999）
+_DOMAIN_PREFIX_LEN = 5
+
+
+def _domain_prefix(domain: str | None) -> str:
+    """从 SIP 域 / 行政区域码提取 5 位前缀。
+
+    GB28181 设备 ID 前 6 位为行政区域码（如 ``340200``），SSRC 取前 5 位。
+    若域过长取前 5 位数字；过短则右补 0；完全无数字则回退 ``"00000"``。
+    """
+    raw = (domain or "").strip()
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return "00000"
+    if len(digits) >= _DOMAIN_PREFIX_LEN:
+        return digits[:_DOMAIN_PREFIX_LEN]
+    return digits.ljust(_DOMAIN_PREFIX_LEN, "0")
+
+
+def _is_valid_ssrc(ssrc: str) -> bool:
+    """校验 SSRC 是否为 10 位纯数字。"""
+    if not ssrc:
+        return False
+    s = str(ssrc).strip()
+    if len(s) != _SSRC_LEN:
+        return False
+    return s.isdigit()
+
+
+def _ssrc_stream_type(ssrc: str) -> int:
+    """返回 SSRC 首位（0=实时, 1=回放）；非法返回 -1。"""
+    if not _is_valid_ssrc(ssrc):
+        return -1
+    return int(str(ssrc)[0])
 
 
 class SsrcManager:
-    def __init__(
-        self,
-        live_range: tuple[int, int] = (1, 999999999),
-        playback_range: tuple[int, int] = (1000000001, 1999999999),
-    ):
-        self._lock = asyncio.Lock()
-        self._live_allocated: set[int] = set()
-        self._playback_allocated: set[int] = set()
-        self._live_range = live_range
-        self._playback_range = playback_range
-        self._ssrc_to_stream: dict[int, str] = {}
-        self._stream_to_ssrc: dict[str, int] = {}
-        self._ssrc_timestamps: dict[int, float] = {}
-        self._max_ssrc = 999999999
-        self._live_counter = secrets.randbelow(100000000) + 1
-        self._playback_counter = secrets.randbelow(100000000) + 1
+    """SSRC 分配与管理器（进程级单例 :data:`ssrc_manager`）。"""
 
-    # 启动时从DB StreamSession恢复活跃SSRC，防止进程重启后SSRC冲突
+    def __init__(self) -> None:
+        """Internal helper:   init  ."""
+        self._lock = asyncio.Lock()
+        # 已分配的 SSRC 集合（按流类型分桶，便于按桶统计/去重）
+        self._live_allocated: set[str] = set()
+        self._playback_allocated: set[str] = set()
+        # 序号计数器：外部可在 restore_from_db 失败时设置为 secrets.randbelow(500000000)+1
+        # 以降低与历史 SSRC 冲突概率（见 server.py / invite.py 中的恢复逻辑）
+        self._live_counter: int = 1
+        self._playback_counter: int = 1
+        # 流绑定：stream_id -> ssrc，及反向 ssrc -> stream_id
+        self._stream_to_ssrc: dict[str, str] = {}
+        self._ssrc_to_stream: dict[str, str] = {}
+        # SSRC 分配时间（用于 cleanup_loop 清理泄漏）
+        self._alloc_time: dict[str, float] = {}
+        # cleanup_loop 控制位
+        self._cleanup_running: bool = False
+        # 默认清理周期与过期阈值（秒）
+        self._cleanup_interval = float(getattr(settings, "SSRC_CLEANUP_INTERVAL_SECONDS", 300.0) or 300.0)
+        self._stale_threshold = float(getattr(settings, "SSRC_STALE_THRESHOLD_SECONDS", 3600.0) or 3600.0)
+
+    # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    def _bucket(self, is_playback: bool) -> set[str]:
+        """Internal helper:  bucket."""
+        return self._playback_allocated if is_playback else self._live_allocated
+
+    def _next_serial(self, is_playback: bool) -> int:
+        """取下一个 4 位序号（0-9999），并在 10000 范围内去重。"""
+        bucket = self._bucket(is_playback)
+        counter_attr = "_playback_counter" if is_playback else "_live_counter"
+        # 最多尝试 10000 次（覆盖全部序号空间）
+        for _ in range(_SERIAL_MAX):
+            serial = getattr(self, counter_attr) % _SERIAL_MAX
+            setattr(self, counter_attr, getattr(self, counter_attr) + 1)
+            candidate = self._assemble(serial, is_playback)
+            if candidate not in bucket:
+                return serial
+        # 序号空间耗尽
+        return -1
+
+    def _assemble(self, serial: int, is_playback: bool) -> str:
+        """Internal helper:  assemble."""
+        type_digit = "1" if is_playback else "0"
+        prefix = _domain_prefix(getattr(settings, "SIP_DOMAIN", "") or "")
+        return f"{type_digit}{prefix}{serial:04d}"
+
+    # ------------------------------------------------------------------
+    # 分配
+    # ------------------------------------------------------------------
+
+    async def allocate(self, is_playback: bool = False) -> str:
+        """分配一个新的 SSRC。
+
+        Returns:
+            10 位 SSRC 字符串；序号空间耗尽时返回空串（调用方需容忍并报错）。
+        """
+        import time as _time
+        async with self._lock:
+            serial = self._next_serial(is_playback)
+            if serial < 0:
+                logger.error(
+                    f"SSRC allocation exhausted: is_playback={is_playback}, "
+                    f"allocated={len(self._bucket(is_playback))}"
+                )
+                return ""
+            ssrc = self._assemble(serial, is_playback)
+            self._bucket(is_playback).add(ssrc)
+            self._alloc_time[ssrc] = _time.monotonic()
+            return ssrc
+
+    async def allocate_specific_ssrc(self, ssrc: str, is_playback: bool = False) -> bool:
+        """预占设备/级联指定的 SSRC。
+
+        若该 SSRC 已被占用则返回 ``False``（调用方应回滚 DB 引用）。
+        ``is_playback`` 由调用方根据 SSRC 首位推断或显式传入。
+        """
+        if not _is_valid_ssrc(ssrc):
+            logger.warning(f"allocate_specific_ssrc: invalid SSRC '{ssrc}'")
+            return False
+        import time as _time
+        async with self._lock:
+            # 校验流类型一致性：若显式传入的 is_playback 与 SSRC 首位不符，按 SSRC 首位归桶
+            inferred = (_ssrc_stream_type(ssrc) == 1)
+            bucket = self._bucket(inferred)
+            other = self._bucket(not inferred)
+            if ssrc in bucket or ssrc in other:
+                logger.warning(f"allocate_specific_ssrc: SSRC {ssrc} already allocated")
+                return False
+            bucket.add(ssrc)
+            self._alloc_time[ssrc] = _time.monotonic()
+            return True
+
+    # ------------------------------------------------------------------
+    # 释放
+    # ------------------------------------------------------------------
+
+    async def release(self, ssrc: str) -> None:
+        """释放一个 SSRC（同时清除流绑定）。"""
+        if not ssrc:
+            return
+        async with self._lock:
+            self._live_allocated.discard(ssrc)
+            self._playback_allocated.discard(ssrc)
+            self._alloc_time.pop(ssrc, None)
+            stream_id = self._ssrc_to_stream.pop(ssrc, None)
+            if stream_id:
+                self._stream_to_ssrc.pop(stream_id, None)
+
+    async def release_ssrc(self, ssrc: str) -> None:
+        """``release`` 的别名，保持与现有调用方命名一致。"""
+        await self.release(ssrc)
+
+    # ------------------------------------------------------------------
+    # 流绑定
+    # ------------------------------------------------------------------
+
+    async def bind_stream(self, ssrc: str, stream_id: str) -> None:
+        """将 SSRC 与流ID双向绑定。
+
+        若该 stream_id 之前绑定了别的 SSRC，旧绑定会被清除。
+        """
+        if not ssrc or not stream_id:
+            return
+        async with self._lock:
+            # 清除该 stream_id 的旧绑定
+            old_ssrc = self._stream_to_ssrc.get(stream_id)
+            if old_ssrc and old_ssrc != ssrc:
+                self._ssrc_to_stream.pop(old_ssrc, None)
+            self._stream_to_ssrc[stream_id] = ssrc
+            self._ssrc_to_stream[ssrc] = stream_id
+
+    async def lookup_ssrc_by_stream(self, stream_id: str) -> str:
+        """按流ID查 SSRC；未绑定返回空串。"""
+        if not stream_id:
+            return ""
+        async with self._lock:
+            return self._stream_to_ssrc.get(stream_id, "")
+
+    # ------------------------------------------------------------------
+    # 恢复与清理
+    # ------------------------------------------------------------------
+
     async def restore_from_db(self) -> int:
+        """启动时从 ``stream_sessions`` 表恢复在用 SSRC。
+
+        扫描所有非 ``_ssrc_reserve`` 且 ssrc 非空的会话，将其 SSRC 重新标记为已分配，
+        并重建 stream 绑定。同时将计数器推进到避免与历史 SSRC 冲突的位置。
+
+        Returns:
+            恢复的 SSRC 数量。失败时返回 0（调用方通常会回退到随机大计数器）。
+        """
+        restored = 0
         try:
             from app.db.session import AsyncSessionLocal
             from app.models.stream_session import StreamSession
             from sqlalchemy import select
-            restored = 0
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(StreamSession.ssrc, StreamSession.stream, StreamSession.app).where(
-                        StreamSession.ssrc.isnot(None),
-                        StreamSession.ssrc != "",
-                    )
-                )
-                rows = result.all()
-                for ssrc_str, stream_id, app in rows:
-                    if not ssrc_str:
-                        continue
-                    try:
-                        ssrc_int = int(ssrc_str)
-                    except (ValueError, TypeError):
-                        continue
-                    is_playback = (app or "").lower() in ("playback", "download")
-                    allocated = self._playback_allocated if is_playback else self._live_allocated
-                    if ssrc_int not in allocated:
-                        allocated.add(ssrc_int)
-                        self._ssrc_timestamps[ssrc_int] = time.time()
-                        if stream_id:
-                            self._ssrc_to_stream[ssrc_int] = stream_id
-                            self._stream_to_ssrc[stream_id] = ssrc_int
-                        restored += 1
-            if restored > 0:
-                logger.info(f"SSRC Manager restored {restored} active SSRC allocations from DB")
-            return restored
         except Exception as e:
-            logger.warning(f"SSRC Manager DB restore failed (non-fatal): {e}")
+            logger.warning(f"restore_from_db: import failed: {e}")
             return 0
 
-    def _next_live_value(self) -> int:
-        self._live_counter += 1
-        if self._live_counter > self._max_ssrc:
-            self._live_counter = 1
-        # GB28181协议 — SSRC后缀不超过9位
-        return min(self._live_counter, self._max_ssrc)
-
-    def _next_playback_value(self) -> int:
-        self._playback_counter += 1
-        if self._playback_counter > self._max_ssrc:
-            self._playback_counter = 1
-        # GB28181协议 — SSRC后缀不超过9位
-        return min(self._playback_counter, self._max_ssrc)
-
-    async def allocate(self, is_playback: bool = False, stream_id: str = "") -> str:
-        async with self._lock:
-            allocated = self._playback_allocated if is_playback else self._live_allocated
-            prefix = "1" if is_playback else "0"
-
-            for _ in range(100):
-                if is_playback:
-                    suffix = self._next_playback_value()
-                else:
-                    suffix = self._next_live_value()
-                ssrc_int = int(f"{prefix}{suffix:09d}")
-                if ssrc_int not in allocated:
-                    allocated.add(ssrc_int)
-                    ssrc_str = f"{prefix}{suffix:09d}"
-                    self._ssrc_timestamps[ssrc_int] = time.time()
-                    if stream_id:
-                        self._ssrc_to_stream[ssrc_int] = stream_id
-                        self._stream_to_ssrc[stream_id] = ssrc_int
-                    return ssrc_str
-
-            logger.error("SSRC allocation exhausted all attempts, using timestamp fallback")
-            for _attempt in range(10):
-                fallback = int(time.time() * 1000 + _attempt) % 1000000000
-                fallback_ssrc = f"{prefix}{fallback:09d}"
-                fallback_int = int(fallback_ssrc)
-                if fallback_int not in allocated:
-                    allocated.add(fallback_int)
-                    self._ssrc_timestamps[fallback_int] = time.time()
-                    if stream_id:
-                        self._ssrc_to_stream[fallback_int] = stream_id
-                        self._stream_to_ssrc[stream_id] = fallback_int
-                    return fallback_ssrc
-            logger.critical("SSRC allocation completely exhausted, returning empty SSRC")
-            return ""
-
-    async def release(self, ssrc: str) -> None:
-        async with self._lock:
-            try:
-                ssrc_int = int(ssrc)
-            except (ValueError, TypeError):
-                return
-            self._live_allocated.discard(ssrc_int)
-            self._playback_allocated.discard(ssrc_int)
-            stream_id = self._ssrc_to_stream.pop(ssrc_int, None)
-            if stream_id:
-                self._stream_to_ssrc.pop(stream_id, None)
-            self._ssrc_timestamps.pop(ssrc_int, None)
-
-    async def allocate_specific_ssrc(self, ssrc: str, is_playback: bool = False) -> bool:
-        """Allocate a specific SSRC value (used when device modifies SSRC in 200 OK)."""
-        # allocate_specific_ssrc — 设备在200 OK中修改SSRC时需要注册新SSRC
-        async with self._lock:
-            try:
-                ssrc_int = int(ssrc)
-            except (ValueError, TypeError):
-                return False
-            # GB10 SSRC跨集合冲突检查 — 确保SSRC不在另一集合中已分配
-            if ssrc_int in self._live_allocated and not is_playback:
-                return True  # Already in live set, idempotent
-            if ssrc_int in self._playback_allocated and is_playback:
-                return True  # Already in playback set, idempotent
-            # Check cross-set conflict
-            if ssrc_int in self._live_allocated and is_playback:
-                logger.warning(f"SSRC {ssrc} conflict: already allocated in live set, cannot allocate as playback")
-                return False
-            if ssrc_int in self._playback_allocated and not is_playback:
-                logger.warning(f"SSRC {ssrc} conflict: already allocated in playback set, cannot allocate as live")
-                return False
-            # 仅使用is_playback参数决定集合，不根据SSRC首字符推断
-            # 之前：is_playback=False但SSRC以"1"开头时错误分配到playback集合，可能导致SSRC冲突
-            if is_playback:
-                allocated = self._playback_allocated
-            else:
-                allocated = self._live_allocated
-            allocated.add(ssrc_int)
-            self._ssrc_timestamps[ssrc_int] = time.time()
-            return True
-
-    # release_ssrc — alias for release() to fix method name mismatch in response_handler.py
-    async def release_ssrc(self, ssrc: str) -> None:
-        await self.release(ssrc)
-
-    async def bind_stream(self, ssrc: str, stream_id: str) -> None:
-        async with self._lock:
-            try:
-                ssrc_int = int(ssrc)
-            except (ValueError, TypeError):
-                return
-            self._ssrc_to_stream[ssrc_int] = stream_id
-            self._stream_to_ssrc[stream_id] = ssrc_int
-
-    async def lookup_stream_by_ssrc(self, ssrc: str) -> str | None:
         try:
-            ssrc_int = int(ssrc)
-        except (ValueError, TypeError):
-            return None
-        return self._ssrc_to_stream.get(ssrc_int)
+            async with AsyncSessionLocal() as session:
+                stmt = select(StreamSession.id, StreamSession.stream, StreamSession.ssrc).where(
+                    StreamSession.ssrc.is_not(None),
+                    StreamSession.ssrc != "",
+                    StreamSession.app != "_ssrc_reserve",
+                )
+                result = await session.execute(stmt)
+                rows = result.all()
+        except Exception as e:
+            logger.error(f"restore_from_db: query failed: {e}")
+            return 0
 
-    async def lookup_ssrc_by_stream(self, stream_id: str) -> str | None:
-        ssrc_int = self._stream_to_ssrc.get(stream_id)
-        if ssrc_int is not None:
-            return str(ssrc_int)
-        return None
-
-    async def is_allocated(self, ssrc: str) -> bool:
-        try:
-            ssrc_int = int(ssrc)
-        except (ValueError, TypeError):
-            return False
-        return ssrc_int in self._live_allocated or ssrc_int in self._playback_allocated
-
-    async def cleanup_stale(self, max_age_seconds: int = 3600) -> int:
-        # cleanup_stale now checks DB StreamSession activity instead of allocation time alone
-        # Default max_age raised to 86400 (24h) to avoid killing active long-running streams
         async with self._lock:
-            active_ssrcs: set[int] = set()
-            try:
-                from app.db.session import AsyncSessionLocal
-                from app.models.stream_session import StreamSession as DBStreamSession
-                from sqlalchemy import select
-                async with AsyncSessionLocal() as session:
-                    result = await session.execute(
-                        select(DBStreamSession.ssrc).where(
-                            DBStreamSession.ssrc.isnot(None),
-                            DBStreamSession.ssrc != "",
-                        )
-                    )
-                    for (ssrc_val,) in result.all():
-                        try:
-                            active_ssrcs.add(int(ssrc_val))
-                        except (ValueError, TypeError):
-                            pass
-            except Exception as e:
-                logger.warning(f"SSRC cleanup_stale DB check failed, skipping cleanup to avoid clearing active SSRCs: {e}")
-                return 0  # DB不可用时跳过清理，避免误清活跃流的SSRC
-
-            now = time.time()
-            stale_ssrcs = []
-            for ssrc_int, ts in list(self._ssrc_timestamps.items()):
-                if ssrc_int in active_ssrcs:
+            import time as _time
+            now = _time.monotonic()
+            for row in rows:
+                stream_session_id, stream_name, ssrc = row
+                if not _is_valid_ssrc(ssrc):
                     continue
-                if (now - ts) > max_age_seconds:
-                    stale_ssrcs.append(ssrc_int)
+                inferred = (_ssrc_stream_type(ssrc) == 1)
+                bucket = self._bucket(inferred)
+                bucket.add(ssrc)
+                self._alloc_time[ssrc] = now
+                # 重建流绑定：优先用 stream_session.id，回退 stream 字段
+                sid = stream_session_id or stream_name
+                if sid:
+                    self._stream_to_ssrc[sid] = ssrc
+                    self._ssrc_to_stream[ssrc] = sid
+                restored += 1
+            # 推进计数器，避免新分配的序号与已恢复的 SSRC 冲突
+            self._bump_counters_above_restored()
 
-            for ssrc_int in stale_ssrcs:
-                self._live_allocated.discard(ssrc_int)
-                self._playback_allocated.discard(ssrc_int)
-                stream_id = self._ssrc_to_stream.pop(ssrc_int, None)
-                if stream_id:
-                    self._stream_to_ssrc.pop(stream_id, None)
-                self._ssrc_timestamps.pop(ssrc_int, None)
-            return len(stale_ssrcs)
+        if restored:
+            logger.info(f"SSRC manager restored {restored} in-use SSRCs from DB")
+        return restored
 
-    async def cleanup_loop(self, interval: int = 300, max_age_seconds: int = 86400) -> None:
-        while True:
-            try:
-                await asyncio.sleep(interval)
-                cleaned = await self.cleanup_stale(max_age_seconds)
-                if cleaned > 0:
-                    logger.info(f"SSRC Manager cleaned up {cleaned} stale entries")
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.warning(f"SSRC Manager cleanup error: {e}")
+    def _bump_counters_above_restored(self) -> None:
+        """将 live/playback 计数器推进到超过已恢复 SSRC 的最大序号。"""
+        for is_playback, counter_attr in ((False, "_live_counter"), (True, "_playback_counter")):
+            bucket = self._bucket(is_playback)
+            max_serial = -1
+            prefix = _domain_prefix(getattr(settings, "SIP_DOMAIN", "") or "")
+            type_digit = "1" if is_playback else "0"
+            for ssrc in bucket:
+                # 仅统计与本进程域前缀一致的 SSRC
+                if len(ssrc) == _SSRC_LEN and ssrc[0] == type_digit and ssrc[1:6] == prefix:
+                    try:
+                        serial = int(ssrc[6:10])
+                        if serial > max_serial:
+                            max_serial = serial
+                    except ValueError:
+                        logger.debug("swallowed_exception", exc_info=True)
+            if max_serial >= 0:
+                cur = getattr(self, counter_attr)
+                if cur <= max_serial:
+                    setattr(self, counter_attr, max_serial + 1)
+
+    async def cleanup_loop(self) -> None:
+        """周期清理过期/泄漏的 SSRC。
+
+        - 清理已分配但超过 ``SSRC_STALE_THRESHOLD_SECONDS`` 未绑定流且未释放的 SSRC。
+        - 由 server.py 在启动时通过 fire_and_forget 调度。
+        """
+        if self._cleanup_running:
+            return
+        self._cleanup_running = True
+        logger.info(f"SSRC cleanup loop started: interval={self._cleanup_interval}s stale={self._stale_threshold}s")
+        try:
+            while True:
+                await asyncio.sleep(self._cleanup_interval)
+                try:
+                    await self._cleanup_once()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.error(f"SSRC cleanup loop error: {e}")
+        except asyncio.CancelledError:
+            logger.info("SSRC cleanup loop cancelled")
+        finally:
+            self._cleanup_running = False
+
+    async def _cleanup_once(self) -> int:
+        """执行一次清理，返回清理的 SSRC 数量。"""
+        import time as _time
+        released = 0
+        async with self._lock:
+            now = _time.monotonic()
+            stale: list[str] = []
+            for ssrc, alloc_at in list(self._alloc_time.items()):
+                # 已绑定流的 SSRC 不清理（仍在用）
+                if ssrc in self._ssrc_to_stream:
+                    continue
+                if (now - alloc_at) > self._stale_threshold:
+                    stale.append(ssrc)
+            for ssrc in stale:
+                self._live_allocated.discard(ssrc)
+                self._playback_allocated.discard(ssrc)
+                self._alloc_time.pop(ssrc, None)
+                released += 1
+        if released:
+            logger.info(f"SSRC cleanup released {released} stale entries")
+        return released
+
+    # ------------------------------------------------------------------
+    # 调试 / 状态
+    # ------------------------------------------------------------------
 
     def stats(self) -> dict:
+        """返回当前 SSRC 使用统计（调试用，非 async）。"""
         return {
             "live_allocated": len(self._live_allocated),
             "playback_allocated": len(self._playback_allocated),
-            "stream_bindings": len(self._ssrc_to_stream),
+            "live_counter": self._live_counter,
+            "playback_counter": self._playback_counter,
+            "stream_bindings": len(self._stream_to_ssrc),
+            "cleanup_running": self._cleanup_running,
         }
 
 
+# 进程级单例
 ssrc_manager = SsrcManager()

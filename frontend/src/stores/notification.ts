@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import api from '@/utils/http'
+import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
+import { logger } from '@/utils/logger'
 
 const WS_RECONNECT_DELAY = 3000
 const WS_MAX_RETRIES = 5
@@ -13,14 +15,17 @@ export const useNotificationStore = defineStore('notification', () => {
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let reconnectAttempts = 0
-  let wsUrl = ''
 
-  function connectWebSocket(url?: string) {
-    if (url) wsUrl = url
-    if (!wsUrl) {
-      const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-      const token = localStorage.getItem('token') || ''
-      wsUrl = `${protocol}://${location.host}/api/v1/alarms/ws?token=${encodeURIComponent(token)}`
+  async function connectWebSocket() {
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
+    // P0-6: 通过 ws-ticket 认证，消除 URL 暴露 JWT token
+    let wsUrl: string
+    try {
+      wsUrl = await buildWsUrlWithTicket('/api/v1/alarms/ws')
+    } catch (e) {
+      logger.warn('WebSocket connect: failed to fetch ws-ticket', e)
+      scheduleReconnect()
+      return
     }
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
 
@@ -40,11 +45,11 @@ export const useNotificationStore = defineStore('notification', () => {
       try {
         const data = JSON.parse(event.data)
         if (!data || typeof data !== 'object' || !data.id) {
-          console.warn('WebSocket: invalid notification format, missing id')  // FIXED: WebSocket消息结构校验
+          logger.warn('WebSocket: invalid notification format, missing id')  // FIXED: WebSocket消息结构校验
           return
         }
         addNotification(data)
-      } catch { console.warn('WebSocket received non-JSON message, ignored') }
+      } catch { logger.warn('WebSocket received non-JSON message, ignored') }
     }
 
     ws.onclose = () => {
@@ -64,7 +69,6 @@ export const useNotificationStore = defineStore('notification', () => {
     reconnectAttempts++
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
-      wsUrl = ''
       connectWebSocket()
     }, WS_RECONNECT_DELAY)
   }
@@ -92,7 +96,7 @@ export const useNotificationStore = defineStore('notification', () => {
       const res = await api.get('/api/v1/alarms/unread-count')
       unreadCount.value = res.data?.unread_count ?? res.data?.count ?? 0  // FIXED-P0: S-06-02 后端返回unread_count而非count
     } catch {
-      console.warn('获取未读报警计数失败')
+      logger.warn('获取未读报警计数失败')
       unreadCount.value = 0
     }
   }

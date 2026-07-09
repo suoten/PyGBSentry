@@ -13,12 +13,12 @@ from app.api.deps import get_or_404
 from datetime import datetime, timedelta
 from fastapi.responses import StreamingResponse, RedirectResponse
 from app.core.http_client import get_http_client
-import httpx
 import urllib.parse
 from pathlib import Path
 from datetime import timezone
 from app.core.media_nodes_db import get_db_media_node_by_id
 from app.services.auth_audit import safe_auth_audit
+from loguru import logger
 from app.core.config import settings
 import time
 import hmac
@@ -107,7 +107,7 @@ async def _verify_url_or_path(url: str, zlm_file_path: str | None) -> tuple[bool
                 if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
                     return False, None, f"blocked_private_ip:{addr[0]}"
         except Exception:
-            pass
+            logger.warning("silently_swallowed_exception", exc_info=True)
         try:
             resp = await (await get_http_client()).head(value, timeout=5, follow_redirects=True)
             code = int(resp.status_code)
@@ -434,14 +434,16 @@ async def query_records(
     start_time: datetime,
     end_time: datetime,
     skip: int = Query(0, ge=0),
-    limit: int = Query(5000, ge=1, le=5000),
+    limit: int = Query(200, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """
     Query cloud records
     """
-    limit = max(1, min(int(limit or 5000), 5000))
+    # FIX R22-GENERAL: 默认 5000 与 le=500 冲突（FastAPI 会拒绝默认请求），改为 200；
+    # 上限 5000 过大，10 路 × 5000 = 50000 行结果集，内存占用巨大
+    limit = max(1, min(int(limit or 200), 500))
     skip = max(0, int(skip or 0))
     if start_time > end_time:
         raise HTTPException(status_code=400, detail="start_time cannot be greater than end_time")
@@ -503,7 +505,8 @@ async def search_records(
     start_time: datetime | None = None,
     end_time: datetime | None = None,
     skip: int = Query(0, ge=0),
-    limit: int = Query(200, ge=1, le=10000),
+    # FIX R22-GENERAL: le=10000 与函数体内 clamp 1000 不一致，统一为 1000
+    limit: int = Query(200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
@@ -916,7 +919,10 @@ async def verify_record_url(
     url = str(row.file_path or "").strip()
     ok, status_code, error = await _verify_url_or_path(url, getattr(row, "zlm_file_path", None))  # 同步requests→异步httpx，避免阻塞事件循环
 
-    row.url_checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    # FIX: [2026-07-04] 在 commit 前缓存 checked_at，避免 commit 失败后 rollback
+    # 使 row 对象过期，导致 row.url_checked_at 触发异步懒加载异常 (MissingGreenlet)。 [全栈工程师]
+    _checked_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    row.url_checked_at = _checked_at
     row.url_ok = bool(ok)
     row.url_status_code = status_code
     row.url_error = error
@@ -924,7 +930,7 @@ async def verify_record_url(
         await db.commit()
     except Exception:
         await db.rollback()
-    return {"ok": bool(ok), "status_code": status_code, "error": error, "checked_at": row.url_checked_at.isoformat() if row.url_checked_at else None}
+    return {"ok": bool(ok), "status_code": status_code, "error": error, "checked_at": _checked_at.isoformat() if _checked_at else None}
 
 
 class VerifyBatchPayload(BaseModel):
@@ -947,8 +953,14 @@ async def verify_records_batch(
     ok_count = 0
     fail_count = 0
     updated = 0
+    # P0-N+1: 批量查询 Asset，避免循环内逐条查询
+    _asset_ids = list({str(r.asset_id) for r in rows if r.asset_id})
+    _asset_map: dict = {}
+    if _asset_ids:
+        _assets = (await db.execute(select(Asset).where(Asset.id.in_(_asset_ids)))).scalars().all()
+        _asset_map = {str(a.id): a for a in _assets}
     for r in rows:
-        asset = (await db.execute(select(Asset).where(Asset.id == r.asset_id))).scalars().first()
+        asset = _asset_map.get(str(r.asset_id)) if r.asset_id else None
         if not asset:
             continue
         if (not current_user.is_superuser) and asset.tenant_id != tenant_id:
@@ -988,8 +1000,14 @@ async def delete_records_batch(
     tenant_id = current_user.tenant_id or "default"
     rows = (await db.execute(select(Record).where(Record.id.in_(ids)))).scalars().all()
     deleted = 0
+    # P0-N+1: 批量查询 Asset，避免循环内逐条查询
+    _asset_ids = list({str(r.asset_id) for r in rows if r.asset_id})
+    _asset_map: dict = {}
+    if _asset_ids:
+        _assets = (await db.execute(select(Asset).where(Asset.id.in_(_asset_ids)))).scalars().all()
+        _asset_map = {str(a.id): a for a in _assets}
     for r in rows:
-        asset = (await db.execute(select(Asset).where(Asset.id == r.asset_id))).scalars().first()
+        asset = _asset_map.get(str(r.asset_id)) if r.asset_id else None
         if not asset:
             continue
         if (not current_user.is_superuser) and asset.tenant_id != tenant_id:
@@ -1040,8 +1058,14 @@ async def repair_records_batch(
     tenant_id = current_user.tenant_id or "default"
     rows = (await db.execute(select(Record).where(Record.id.in_(ids)))).scalars().all()
     repaired = 0
+    # P0-N+1: 批量查询 Asset，避免循环内逐条查询
+    _asset_ids = list({str(r.asset_id) for r in rows if r.asset_id})
+    _asset_map: dict = {}
+    if _asset_ids:
+        _assets = (await db.execute(select(Asset).where(Asset.id.in_(_asset_ids)))).scalars().all()
+        _asset_map = {str(a.id): a for a in _assets}
     for r in rows:
-        asset = (await db.execute(select(Asset).where(Asset.id == r.asset_id))).scalars().first()
+        asset = _asset_map.get(str(r.asset_id)) if r.asset_id else None
         if not asset:
             continue
         if (not current_user.is_superuser) and asset.tenant_id != tenant_id:

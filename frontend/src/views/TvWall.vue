@@ -546,13 +546,14 @@ import AdvancedPtzControl from '../components/AdvancedPtzControl.vue'
 import TalkControl from '../components/TalkControl.vue'
 import api from '@/utils/http'
 import { getApiErrorMessage } from '../utils/errorMessage'
+import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import { Close } from '@element-plus/icons-vue'
 import SharedChannelTree from '../components/channel/SharedChannelTree.vue'
 import { useChannelTreeStats } from '../utils/channelTreeStats'
 import { buildSourceTree } from '../utils/channelSourceTree'
-import type { TvWallScreen } from '@/types/models'
+import type { TvWallScreen, TreeNode } from '@/types/models'  // FIX: [2026-07-04] 补充 TreeNode 类型导入 [全栈工程师]
 import { logger } from '@/utils/logger'
 
 const route = useRoute()
@@ -585,6 +586,7 @@ const screens = ref<TvWallScreen[]>(new Array(maxScreens).fill(null))
 const settingsDrawerVisible = ref(false)
 const filterText = ref('')
 // 兼容旧模板/缓存产物：保留 highContrastTree，避免运行时变量缺失
+// SECURITY: 非敏感 UI 偏好（设备树状态高对比度开关）— 仅 'true'/'false'，不含敏感信息，可安全存入 localStorage
 const highContrastTree = ref(localStorage.getItem('tree_status_high_contrast') === 'true')
 type FilterableTreeRef = {
   filter?: (keyword: string) => void
@@ -1172,13 +1174,15 @@ const startCycle = () => {
   const visibleCount = layoutCount.value
   cycleTimer.value = window.setInterval(async () => {
     if (playQueue.value.length === 0) return
-    const tasks: Promise<void>[] = []
+    // P1-41: 200ms 错峰分批启动 — 避免同时拉流导致信令/网络瞬时拥塞（硬约束 #9）
     for (let i = 0; i < visibleCount; i++) {
       const node = playQueue.value[(queueIndex.value + i) % playQueue.value.length]
-      tasks.push(playInScreen(node, i))
+      playInScreen(node, i)
+      if (i < visibleCount - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+      }
     }
     queueIndex.value = (queueIndex.value + visibleCount) % playQueue.value.length
-    await Promise.all(tasks)
   }, interval * 1000)
 }
 
@@ -1189,6 +1193,20 @@ watch(cycleSeconds, () => {
 watch(layout, () => {
   roamMainIndex.value = Math.min(roamMainIndex.value, Math.max(0, layoutCount.value - 1))
   startCycle()
+  // P1-42: 16 路分屏时基于 hardwareConcurrency/deviceMemory 显示性能警告（硬约束 #6）
+  if (layout.value === '16') {
+    const cores = navigator.hardwareConcurrency || 4
+    const memory = (navigator as any).deviceMemory || 4
+    if (cores < 4 || memory < 4) {
+      ElMessage.warning(
+        t('tvWall.perfWarning16', {
+          cores,
+          memory,
+          defaultValue: `Performance warning: 16-screen grid on ${cores} cores / ${memory}GB RAM may cause lag. Consider using fewer screens.`,
+        })
+      )
+    }
+  }
 })
 
 onMounted(() => {
@@ -1233,15 +1251,22 @@ const handleAlarmMessage = async (alarm: Record<string, unknown>) => {
   await playInScreen(channel, target)
 }
 
-const initAlarmWebSocket = () => {
+const initAlarmWebSocket = async () => {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
   const host = location.host
   if (wsReconnectTimer.value != null) {
     clearTimeout(wsReconnectTimer.value)
     wsReconnectTimer.value = null
   }
-  // FIXED-P1: R-01 报警WebSocket连接添加token认证参数
-  ws.value = new WebSocket(`${protocol}://${host}/api/v1/alarms/ws?token=${encodeURIComponent(localStorage.getItem('token') || '')}`)
+  // P0-6: 通过 ws-ticket 认证，消除 URL 暴露 JWT token
+  let wsUrl: string
+  try {
+    wsUrl = await buildWsUrlWithTicket('/api/v1/alarms/ws')
+  } catch (e) {
+    logger.warn('initAlarmWebSocket: failed to fetch ws-ticket', e)
+    return
+  }
+  ws.value = new WebSocket(wsUrl)
   ws.value.onmessage = (event) => {
     try {
       const alarm = JSON.parse(event.data)

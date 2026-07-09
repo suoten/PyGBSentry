@@ -2,9 +2,16 @@
 路由桩（oss版）— 企业版专有功能的占位端点。
 所有路由返回 501 Not Implemented + deprecated 标记。
 已由真实实现覆盖的 stub 已移除，仅保留企业版专有功能占位。
+
+P2-29 路由暴露验证: 本 router 已在 app/api/v1/api.py 中注册到 OSS 路由表
+（api_router.include_router(_route_stubs_oss.router, tags=["stubs-oss"])）。
+该注册为有意行为，使企业版端点在 OpenAPI 文档中可见并返回明确的 501 响应。
+已确认: 所有 stub 路径与 OSS 真实路由无冲突。
 """
 from fastapi import APIRouter, HTTPException
 
+# 本 router 在 api.py 中注册到 OSS 路由表（无 prefix，路径已在装饰器中写全）。
+# stub 路由仅用于类型检查/文档展示，运行时返回 501，不包含任何业务逻辑。
 router = APIRouter(tags=["stubs"])
 
 

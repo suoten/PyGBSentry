@@ -2,22 +2,22 @@
   <div class="app-page space-y-4">
     <el-alert
       v-if="!canQueryAudit"
-      title="当前账号无审计日志查询权限"
+      :title="t('audit.noPermission')"
       type="warning"
       :closable="false"
       show-icon
     />
     <PageContainer>
       <template #header>
-        <PageHeader title="审计中心" :description="`当前页 ${page}`" />
+        <PageHeader :title="t('audit.title')" :description="t('audit.currentPage', { page })" />
       </template>
 
-    <QueryFormSection title="查询条件" :default-collapsed="true">
-      <el-form-item v-for="field in filterFields" :key="field.key" :label="field.label">
+    <QueryFormSection :title="t('audit.queryConditions')" :default-collapsed="true">
+      <el-form-item v-for="field in filterFields" :key="field.key" :label="t(field.label)">
         <el-input
           v-if="field.component === 'input'"
           :model-value="query[field.key]"
-          :placeholder="field.placeholder"
+          :placeholder="field.placeholder ? t(field.placeholder) : undefined"
           :disabled="!canQueryAudit"
           @update:model-value="(v: string) => setField(field.key, v)"
         />
@@ -35,9 +35,9 @@
           v-else
           :model-value="query[field.key]"
           type="datetimerange"
-          range-separator="至"
-          start-placeholder="开始时间"
-          end-placeholder="结束时间"
+          :range-separator="t('audit.dateRangeSeparator')"
+          :start-placeholder="t('audit.startTimePlaceholder')"
+          :end-placeholder="t('audit.endTimePlaceholder')"
           value-format="YYYY-MM-DDTHH:mm:ss"
           style="width: 100%"
           :disabled="!canQueryAudit"
@@ -46,8 +46,8 @@
       </el-form-item>
       <el-form-item>
         <ActionButtons
-          primary-text="执行日志查询"
-          secondary-text="执行条件重置"
+          :primary-text="t('audit.executeQuery')"
+          :secondary-text="t('audit.executeReset')"
           :primary-loading="loading"
           :primary-disabled="!canQueryAudit"
           :secondary-disabled="!canQueryAudit"
@@ -61,8 +61,8 @@
       <template #header>
         <div class="flex justify-between items-center flex-wrap gap-2">
           <div>
-            <div class="font-medium">审计日志</div>
-            <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">总数 {{ total }}</div>
+            <div class="font-medium">{{ t('audit.auditLogs') }}</div>
+            <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">{{ t('audit.totalCount', { total }) }}</div>
             <div class="mt-2 flex items-center gap-2 flex-wrap" v-if="quickStats.length > 0">
               <el-tag
                 v-for="s in quickStats"
@@ -78,7 +78,7 @@
           </div>
             <div class="mt-2 flex items-center gap-2 flex-wrap" v-if="upgradeFailureBuckets.length > 0">
               <span class="text-xs" style="color: var(--el-text-color-secondary)">
-                升级失败画像（{{ upgradeProfileWindowLabel }}）
+                {{ t('audit.upgradeFailureProfile', { window: upgradeProfileWindowLabel }) }}
               </span>
               <el-tooltip :content="upgradeWindowToggleHint" placement="top">
                 <el-tag
@@ -88,7 +88,7 @@
                   style="cursor: pointer"
                   @click="toggleRecommendedOnCallWindow"
                 >
-                  统计窗：{{ upgradeProfileWindowLabel }}
+                  {{ t('audit.statisticsWindow', { window: upgradeProfileWindowLabel }) }}
                 </el-tag>
               </el-tooltip>
               <span v-if="upgradeWindowRangeHint" class="text-xs" style="color: var(--el-text-color-secondary)">
@@ -100,7 +100,7 @@
                 :disabled="!canQueryAudit"
                 @click="resetUpgradeProfileFilters"
               >
-                重置画像筛选
+                {{ t('audit.resetProfileFilter') }}
               </el-button>
               <el-dropdown
                 split-button
@@ -110,12 +110,12 @@
                 @click="copySummaryWithLastFormat"
                 @command="handleCopySummaryCommand"
               >
-                复制摘要（{{ copyFormatLabel }})
+                {{ t('audit.copySummary', { format: copyFormatLabel }) }}
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item :disabled="lastCopyFormat === 'plain'" command="plain">复制排障摘要</el-dropdown-item>
-                    <el-dropdown-item :disabled="lastCopyFormat === 'markdown'" command="markdown">复制Markdown摘要</el-dropdown-item>
-                    <el-dropdown-item :disabled="lastCopyFormat === 'codeblock'" command="codeblock">复制Markdown代码块</el-dropdown-item>
+                    <el-dropdown-item :disabled="lastCopyFormat === 'plain'" command="plain">{{ t('audit.copyTroubleshootSummary') }}</el-dropdown-item>
+                    <el-dropdown-item :disabled="lastCopyFormat === 'markdown'" command="markdown">{{ t('audit.copyMarkdownSummary') }}</el-dropdown-item>
+                    <el-dropdown-item :disabled="lastCopyFormat === 'codeblock'" command="codeblock">{{ t('audit.copyMarkdownCodeblock') }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -157,7 +157,7 @@
                 :disabled="!canQueryAudit"
                 @click="clearTimeWindow"
               >
-                全时段
+                {{ t('audit.timeWindowAll') }}
               </el-button>
               <el-tag
                 v-for="b in upgradeFailureBuckets"
@@ -191,7 +191,7 @@
               :disabled="!canQueryAudit"
               @click="toggleLifecycleMode('install')"
             >
-              {{ lifecycleMode === 'install' ? '仅安装：开' : '仅安装：关' }}
+              {{ lifecycleMode === 'install' ? t('audit.installOnlyOn') : t('audit.installOnlyOff') }}
             </el-button>
             <el-button
               size="small"
@@ -200,7 +200,7 @@
               :disabled="!canQueryAudit"
               @click="toggleLifecycleMode('upgrade')"
             >
-              {{ lifecycleMode === 'upgrade' ? '版本变更链：开' : '版本变更链：关' }}
+              {{ lifecycleMode === 'upgrade' ? t('audit.upgradeChainOn') : t('audit.upgradeChainOff') }}
             </el-button>
             <el-button
               size="small"
@@ -209,7 +209,7 @@
               :disabled="!canQueryAudit"
               @click="toggleLifecycleMode('uninstall')"
             >
-              {{ lifecycleMode === 'uninstall' ? '仅卸载：开' : '仅卸载：关' }}
+              {{ lifecycleMode === 'uninstall' ? t('audit.uninstallOnlyOn') : t('audit.uninstallOnlyOff') }}
             </el-button>
             <el-button
               size="small"
@@ -218,7 +218,7 @@
               :disabled="!canQueryAudit"
               @click="toggleLifecycleMode('lifecycle')"
             >
-              {{ lifecycleMode === 'lifecycle' ? '全生命周期：开' : '全生命周期：关' }}
+              {{ lifecycleMode === 'lifecycle' ? t('audit.lifecycleAllOn') : t('audit.lifecycleAllOff') }}
             </el-button>
             <el-button
               size="small"
@@ -227,7 +227,7 @@
               :disabled="!canQueryAudit"
               @click="toggleTrajectoryPrioritySort"
             >
-              {{ trajectoryPrioritySort ? '轨迹优先：开' : '轨迹优先：关' }}
+              {{ trajectoryPrioritySort ? t('audit.trajectoryPriorityOn') : t('audit.trajectoryPriorityOff') }}
             </el-button>
             <el-button
               size="small"
@@ -236,7 +236,7 @@
               :disabled="!canQueryAudit"
               @click="toggleGroupByPlugin"
             >
-              {{ groupByPlugin ? '按插件分组：开' : '按插件分组：关' }}
+              {{ groupByPlugin ? t('audit.groupByPluginOn') : t('audit.groupByPluginOff') }}
             </el-button>
             <el-button
               size="small"
@@ -245,7 +245,7 @@
               :disabled="!canQueryAudit || !groupByPlugin"
               @click="toggleGroupByFailurePriority"
             >
-              {{ groupByFailurePriority ? '失败优先：开' : '失败优先：关' }}
+              {{ groupByFailurePriority ? t('audit.failurePriorityOn') : t('audit.failurePriorityOff') }}
             </el-button>
             <el-button
               size="small"
@@ -254,7 +254,7 @@
               :disabled="!canQueryAudit || !groupByPlugin"
               @click="toggleOnlyFailedGroups"
             >
-              {{ onlyFailedGroups ? '仅失败分组：开' : '仅失败分组：关' }}
+              {{ onlyFailedGroups ? t('audit.onlyFailedGroupsOn') : t('audit.onlyFailedGroupsOff') }}
             </el-button>
             <el-button
               size="small"
@@ -262,7 +262,7 @@
               :disabled="!canQueryAudit || !groupByPlugin || failedGroupCount <= 0"
               @click="toggleTopFailedGroupsOnly"
             >
-              {{ topFailedGroupsOnly ? `仅Top失败组(${topFailedGroupLimit})：开` : `仅Top失败组(${topFailedGroupLimit})：关` }}
+              {{ topFailedGroupsOnly ? t('audit.topFailedGroupsOn', { limit: topFailedGroupLimit }) : t('audit.topFailedGroupsOff', { limit: topFailedGroupLimit }) }}
             </el-button>
             <el-select
               v-if="groupByPlugin"
@@ -282,7 +282,7 @@
               :disabled="!canQueryAudit || !groupByPlugin"
               @click="expandAllPluginGroups"
             >
-              展开全部
+              {{ t('audit.expandAll') }}
             </el-button>
             <el-button
               size="small"
@@ -290,7 +290,7 @@
               :disabled="!canQueryAudit || !groupByPlugin"
               @click="collapseAllPluginGroups"
             >
-              收起全部
+              {{ t('audit.collapseAll') }}
             </el-button>
             <el-button
               size="small"
@@ -299,7 +299,7 @@
               :disabled="!canQueryAudit"
               @click="toggleUpgradeFailurePreset('401')"
             >
-              升级401
+              {{ t('audit.upgrade401') }}
             </el-button>
             <el-button
               size="small"
@@ -308,7 +308,7 @@
               :disabled="!canQueryAudit"
               @click="toggleUpgradeFailurePreset('402')"
             >
-              升级402
+              {{ t('audit.upgrade402') }}
             </el-button>
             <el-button
               size="small"
@@ -317,7 +317,7 @@
               :disabled="!canQueryAudit"
               @click="toggleUpgradeFailurePreset('403')"
             >
-              升级403
+              {{ t('audit.upgrade403') }}
             </el-button>
             <el-button
               size="small"
@@ -326,7 +326,7 @@
               :disabled="!canQueryAudit"
               @click="toggleUpgradeFailurePreset('409')"
             >
-              升级409
+              {{ t('audit.upgrade409') }}
             </el-button>
             <el-button
               size="small"
@@ -335,7 +335,7 @@
               :disabled="!canQueryAudit"
               @click="toggleUpgradeFailurePreset('5xx')"
             >
-              升级5xx
+              {{ t('audit.upgrade5xx') }}
             </el-button>
           <el-button
             type="primary"
@@ -345,7 +345,7 @@
             :loading="exportLoading"
             @click="handleExport"
           >
-            导出 CSV
+            {{ t('audit.exportCsv') }}
           </el-button>
             <el-tooltip :content="autoRefreshButtonHint" placement="top">
               <el-button
@@ -376,7 +376,7 @@
               :disabled="!canQueryAudit || loading"
               @click="resumeAutoRefresh"
             >
-              恢复自动刷新
+              {{ t('audit.resumeAutoRefresh') }}
             </el-button>
             <el-button
               v-if="autoRefreshErrorStreak > 0 || autoRefreshStoppedByError"
@@ -385,44 +385,43 @@
               :disabled="loading"
               @click="clearAutoRefreshErrorState"
             >
-              清除异常状态
+              {{ t('audit.clearErrorState') }}
             </el-button>
-            <el-tooltip content="仅清空刷新观测指标，不影响筛选和自动刷新状态" placement="top">
+            <el-tooltip :content="t('audit.resetRefreshStatsHint')" placement="top">
               <el-button size="small" text :disabled="loading" @click="resetRefreshTelemetry">
-                重置刷新统计
+                {{ t('audit.resetRefreshStats') }}
               </el-button>
             </el-tooltip>
-            <el-button size="small" text :disabled="!canQueryAudit || loading" @click="manualRefresh">立即刷新</el-button>
+            <el-button size="small" text :disabled="!canQueryAudit || loading" @click="manualRefresh">{{ t('audit.manualRefresh') }}</el-button>
           </div>
           <div class="text-xs mt-1 flex items-center gap-2" style="color: var(--el-text-color-secondary)">
-            <span>上次刷新：{{ lastRefreshAt || '-' }}</span>
-            <el-tag size="small" :type="lastRefreshResultTagType">结果：{{ lastRefreshResultLabel }}</el-tag>
-            <span v-if="lastRefreshErrorAt">失败时间：{{ lastRefreshErrorAt }}</span>
+            <span>{{ t('audit.lastRefresh') }}：{{ lastRefreshAt || '-' }}</span>
+            <el-tag size="small" :type="lastRefreshResultTagType">{{ t('audit.resultLabel') }}：{{ lastRefreshResultLabel }}</el-tag>
+            <span v-if="lastRefreshErrorAt">{{ t('audit.failureTime') }}：{{ lastRefreshErrorAt }}</span>
             <el-tag v-if="lastRefreshErrorAgoLabel" size="small" :type="lastRefreshErrorAgoTagType">
-              失败距今：{{ lastRefreshErrorAgoLabel }}
+              {{ t('audit.failureAgo') }}：{{ lastRefreshErrorAgoLabel }}
             </el-tag>
-            <span>连胜：{{ refreshSuccessStreak }}</span>
-            <span>连败：{{ refreshFailureStreak }}</span>
+            <span>{{ t('audit.winStreak') }}：{{ refreshSuccessStreak }}</span>
+            <span>{{ t('audit.loseStreak') }}：{{ refreshFailureStreak }}</span>
             <el-tooltip :content="refreshHealthHint" placement="top">
               <el-tag size="small" :type="refreshHealthType">{{ refreshHealthLabel }}</el-tag>
             </el-tooltip>
-            <span>耗时：{{ lastRefreshDurationLabel }}</span>
-            <span>下次刷新：{{ nextRefreshCountdownLabel }}</span>
+            <span>{{ t('audit.refreshDuration') }}：{{ lastRefreshDurationLabel }}</span>
+            <span>{{ t('audit.nextRefresh') }}：{{ nextRefreshCountdownLabel }}</span>
             <el-tooltip v-if="autoRefreshEnabled || autoRefreshStoppedByError" :content="autoRefreshStateHint" placement="top">
               <el-tag size="small" :type="autoRefreshStateType">{{ autoRefreshStateLabel }}</el-tag>
             </el-tooltip>
           </div>
           <div v-if="groupByPlugin" class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
-            分组统计：总分组 {{ totalGroupCount }}，失败分组 {{ failedGroupCount }}，
-            当前展示 {{ visibleGroupCount }}
+            {{ t('audit.groupStats', { total: totalGroupCount, failed: failedGroupCount, visible: visibleGroupCount }) }}
           </div>
         </div>
       </template>
       <el-table :data="displayRows" stripe style="width: 100%" :empty-text="EMPTY_TEXT" :row-class-name="getRowClassName">
-        <el-table-column prop="created_at" label="时间" width="200">
+        <el-table-column prop="created_at" :label="t('audit.timeCol')" width="200">
           <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="插件ID" min-width="150">
+        <el-table-column :label="t('audit.pluginId')" min-width="150">
           <template #default="{ row }">
             <span>{{ row.plugin_id || getSummaryField(row.summary, 'plugin_id') || '-' }}</span>
             <el-tag
@@ -431,8 +430,7 @@
               type="info"
               class="ml-2"
             >
-              组内 {{ getPluginGroupCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')) }} 条 / 失败
-              {{ getPluginGroupFailedCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')) }} 条
+              {{ t('audit.groupRowCount', { count: getPluginGroupCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')), failed: getPluginGroupFailedCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')) }) }}
             </el-tag>
             <el-button
               v-if="groupByPlugin && getPluginGroupCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')) > 1"
@@ -442,19 +440,19 @@
             >
               {{
                 isPluginGroupExpanded(row.plugin_id || getSummaryField(row.summary, 'plugin_id'))
-                  ? '收起'
-                  : `展开(${getPluginGroupCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id'))})`
+                  ? t('audit.collapse')
+                  : t('audit.expandCount', { count: getPluginGroupCount(row.plugin_id || getSummaryField(row.summary, 'plugin_id')) })
               }}
             </el-button>
           </template>
         </el-table-column>
-        <el-table-column label="来源" min-width="140">
+        <el-table-column :label="t('audit.source')" min-width="140">
           <template #default="{ row }">{{ row.source || getSummaryField(row.summary, 'source') || '-' }}</template>
         </el-table-column>
-        <el-table-column label="租户" min-width="120">
+        <el-table-column :label="t('audit.tenant')" min-width="120">
           <template #default="{ row }">{{ row.tenant_id || getSummaryField(row.summary, 'tenant_id') || '-' }}</template>
         </el-table-column>
-        <el-table-column label="状态码" width="110">
+        <el-table-column :label="t('audit.statusCode')" width="110">
           <template #default="{ row }">
             {{
               (row.status_code ?? undefined) ??
@@ -463,20 +461,20 @@
             }}
           </template>
         </el-table-column>
-        <el-table-column prop="module" label="模块" min-width="180" />
-        <el-table-column prop="action" label="动作" min-width="160" />
-        <el-table-column prop="operator" label="操作人" width="120" />
-        <el-table-column prop="result" label="结果" width="110" />
-        <el-table-column label="旧版本" width="130">
+        <el-table-column prop="module" :label="t('audit.module')" min-width="180" />
+        <el-table-column prop="action" :label="t('audit.actionLabel')" min-width="160" />
+        <el-table-column prop="operator" :label="t('audit.operator')" width="120" />
+        <el-table-column prop="result" :label="t('audit.resultLabel')" width="110" />
+        <el-table-column :label="t('audit.oldVersion')" width="130">
           <template #default="{ row }">{{ getSummaryField(row.summary, 'previous_version') || '-' }}</template>
         </el-table-column>
-        <el-table-column label="新版本" width="130">
+        <el-table-column :label="t('audit.newVersion')" width="130">
           <template #default="{ row }">{{ getSummaryField(row.summary, 'version') || '-' }}</template>
         </el-table-column>
-        <el-table-column prop="summary" label="摘要" min-width="320" />
-        <el-table-column label="详情" width="80" fixed="right">
+        <el-table-column prop="summary" :label="t('audit.summaryCol')" min-width="320" />
+        <el-table-column :label="t('audit.detail')" width="80" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" size="small" @click="viewDetail(row)">查看</el-button>
+            <el-button link type="primary" size="small" @click="viewDetail(row)">{{ t('audit.view') }}</el-button>
           </template>
         </el-table-column>
         <template #empty>
@@ -486,8 +484,8 @@
       <div class="mt-4 flex justify-end">
         <el-pagination
           layout="total, sizes, prev, pager, next, jumper"
-          prev-text="上一页"
-          next-text="下一页"
+          :prev-text="t('audit.prevPage')"
+          :next-text="t('audit.nextPage')"
           :page-sizes="[10, 20, 50, 100]"
           :current-page="page"
           :page-size="pageSize"
@@ -499,14 +497,14 @@
         />
       </div>
     </TableCard>
-    <AppDialog v-model="detailDialogVisible" title="审计详情" size="large">
+    <AppDialog v-model="detailDialogVisible" :title="t('audit.auditDetail')" size="large">
       <el-descriptions :column="2" border>
-        <el-descriptions-item label="时间">{{ detailRow ? formatDateTime(detailRow.created_at) : '-' }}</el-descriptions-item>
-        <el-descriptions-item label="状态">{{ detailRow?.result || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="模块">{{ detailRow?.module || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="动作">{{ detailRow?.action || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="操作人">{{ detailRow?.operator || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="状态码">
+        <el-descriptions-item :label="t('audit.timeCol')">{{ detailRow ? formatDateTime(detailRow.created_at) : '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.statusLabel')">{{ detailRow?.result || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.module')">{{ detailRow?.module || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.actionLabel')">{{ detailRow?.action || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.operator')">{{ detailRow?.operator || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.statusCode')">
           {{
             detailRow
               ? ((detailRow.status_code ?? undefined) ??
@@ -515,23 +513,23 @@
               : '-'
           }}
         </el-descriptions-item>
-        <el-descriptions-item label="插件ID">{{ detailRow?.plugin_id || (detailRow ? getSummaryField(detailRow.summary || '', 'plugin_id') : '') || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="租户">{{ detailRow?.tenant_id || (detailRow ? getSummaryField(detailRow.summary || '', 'tenant_id') : '') || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="来源">{{ detailRow?.source || (detailRow ? getSummaryField(detailRow.summary || '', 'source') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.pluginId')">{{ detailRow?.plugin_id || (detailRow ? getSummaryField(detailRow.summary || '', 'plugin_id') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.tenant')">{{ detailRow?.tenant_id || (detailRow ? getSummaryField(detailRow.summary || '', 'tenant_id') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.source')">{{ detailRow?.source || (detailRow ? getSummaryField(detailRow.summary || '', 'source') : '') || '-' }}</el-descriptions-item>
       </el-descriptions>
       <div class="audit-detail-block">
-        <div class="audit-detail-title">摘要原文</div>
+        <div class="audit-detail-title">{{ t('audit.summaryOriginal') }}</div>
         <el-input :model-value="detailRow?.summary || '-'" type="textarea" :rows="4" readonly />
       </div>
       <div class="audit-detail-block">
-        <div class="audit-detail-title">摘要字段</div>
+        <div class="audit-detail-title">{{ t('audit.summaryFields') }}</div>
         <el-table :data="detailSummaryRows" size="small" border>
-          <el-table-column prop="key" label="字段" min-width="180" />
-          <el-table-column prop="value" label="值" min-width="260" />
+          <el-table-column prop="key" :label="t('audit.field')" min-width="180" />
+          <el-table-column prop="value" :label="t('audit.value')" min-width="260" />
         </el-table>
       </div>
       <template #footer>
-        <el-button @click="detailDialogVisible = false">关闭</el-button>
+        <el-button @click="detailDialogVisible = false">{{ t('audit.close') }}</el-button>
       </template>
     </AppDialog>
     </PageContainer>
@@ -541,9 +539,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { downloadAuditCsv, getAuditStats, listAuditLogs, type AuditLogItem, type AuditStatsResponse } from '../api/auditCenter'
-import { getRoleInfo } from '../utils/auth'
+import { getVerifiedRoleInfo, getCachedRoleInfo, type RoleInfo } from '../utils/auth' // FIX H-8: 改用后端验证角色
 import { EMPTY_TEXT, buildErrorMessage, buildSuccessMessage } from '../utils/ui'
 import { getApiErrorMessage } from '../utils/errorMessage'
 import { formatDateTime } from '../utils/time'
@@ -555,6 +554,8 @@ import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { auditFilterFields, type AuditFilterFieldKey } from '../configs/center-fields'
 import { validateFields } from '../utils/field-validation'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const total = ref(0)
@@ -605,6 +606,8 @@ const roleInfo = getRoleInfo()
 const canQueryAudit = roleInfo.canQueryAudit
 const route = useRoute()
 const router = useRouter()
+// SECURITY: 以下均为非敏感 UI 偏好 — 复制格式（plain/markdown/codeblock）、自动刷新开关与间隔秒数，
+// 不含用户身份或鉴权信息，可安全存入 localStorage 跨会话保留。读取见 onMounted/startAutoRefresh，写入见 saveAutoRefreshPrefs/runCopyByFormat。
 const COPY_FORMAT_KEY = 'audit.summary.copy.format'
 const AUTO_REFRESH_ENABLED_KEY = 'audit.auto_refresh.enabled'
 const AUTO_REFRESH_SECONDS_KEY = 'audit.auto_refresh.seconds'
@@ -636,32 +639,32 @@ const setField = (key: AuditFilterFieldKey, value: string | string[] | null) => 
 
 const refreshActiveFilterTags = () => {
   const tags: Array<{ key: string; label: string }> = []
-  if (query.module.trim()) tags.push({ key: 'module', label: `模块=${query.module.trim()}` })
-  if (query.operator.trim()) tags.push({ key: 'operator', label: `操作人=${query.operator.trim()}` })
-  if (query.result) tags.push({ key: 'result', label: `结果=${query.result}` })
-  if (query.plugin_id.trim()) tags.push({ key: 'plugin_id', label: `插件=${query.plugin_id.trim()}` })
-  if (query.source.trim()) tags.push({ key: 'source', label: `来源=${query.source.trim()}` })
-  if (query.tenant_id.trim()) tags.push({ key: 'tenant_id', label: `租户=${query.tenant_id.trim()}` })
-  if (query.date_range?.[0] || query.date_range?.[1]) tags.push({ key: 'date_range', label: '时间范围已设置' })
+  if (query.module.trim()) tags.push({ key: 'module', label: t('audit.tagModule', { value: query.module.trim() }) })
+  if (query.operator.trim()) tags.push({ key: 'operator', label: t('audit.tagOperator', { value: query.operator.trim() }) })
+  if (query.result) tags.push({ key: 'result', label: t('audit.tagResult', { value: query.result }) })
+  if (query.plugin_id.trim()) tags.push({ key: 'plugin_id', label: t('audit.tagPlugin', { value: query.plugin_id.trim() }) })
+  if (query.source.trim()) tags.push({ key: 'source', label: t('audit.tagSource', { value: query.source.trim() }) })
+  if (query.tenant_id.trim()) tags.push({ key: 'tenant_id', label: t('audit.tagTenant', { value: query.tenant_id.trim() }) })
+  if (query.date_range?.[0] || query.date_range?.[1]) tags.push({ key: 'date_range', label: t('audit.tagDateRangeSet') })
   if (lifecycleMode.value) {
     const labelMap: Record<string, string> = {
-      install: '生命周期=仅安装',
-      upgrade: '生命周期=版本变更链',
-      uninstall: '生命周期=仅卸载',
-      lifecycle: '生命周期=全生命周期'
+      install: t('audit.tagLifecycleInstall'),
+      upgrade: t('audit.tagLifecycleUpgrade'),
+      uninstall: t('audit.tagLifecycleUninstall'),
+      lifecycle: t('audit.tagLifecycleAll')
     }
-    tags.push({ key: 'lifecycle_mode', label: labelMap[lifecycleMode.value] || `生命周期=${lifecycleMode.value}` })
+    tags.push({ key: 'lifecycle_mode', label: labelMap[lifecycleMode.value] || t('audit.tagLifecycleOther', { value: lifecycleMode.value }) })
   }
-  if (trajectoryPrioritySort.value) tags.push({ key: 'trajectory_sort', label: '排序=轨迹优先' })
-  if (groupByPlugin.value) tags.push({ key: 'group_by_plugin', label: '视图=按插件分组' })
-  if (groupByFailurePriority.value) tags.push({ key: 'group_failure_priority', label: '分组=失败优先' })
-  if (onlyFailedGroups.value) tags.push({ key: 'only_failed_groups', label: '分组=仅失败' })
-  if (topFailedGroupsOnly.value) tags.push({ key: 'top_failed_groups', label: `分组=仅Top失败组(${topFailedGroupLimit.value})` })
-  if (quickActionFilter.value) tags.push({ key: 'quick_action', label: `动作=${quickActionFilter.value}` })
-  if (quickActionPrefixFilter.value) tags.push({ key: 'quick_action_prefix', label: `动作族=${quickActionPrefixFilter.value}*` })
-  if (quickStatusCodeFilter.value) tags.push({ key: 'quick_status', label: `状态码=${quickStatusCodeFilter.value}` })
-  if (upgradeFailurePreset.value) tags.push({ key: 'upgrade_preset', label: `升级失败画像=${upgradeFailurePreset.value}` })
-  if (autoRefreshEnabled.value) tags.push({ key: 'auto_refresh', label: `自动刷新=${autoRefreshSeconds.value}s` })
+  if (trajectoryPrioritySort.value) tags.push({ key: 'trajectory_sort', label: t('audit.tagTrajectorySort') })
+  if (groupByPlugin.value) tags.push({ key: 'group_by_plugin', label: t('audit.tagGroupByPlugin') })
+  if (groupByFailurePriority.value) tags.push({ key: 'group_failure_priority', label: t('audit.tagGroupFailurePriority') })
+  if (onlyFailedGroups.value) tags.push({ key: 'only_failed_groups', label: t('audit.tagOnlyFailed') })
+  if (topFailedGroupsOnly.value) tags.push({ key: 'top_failed_groups', label: t('audit.tagTopFailedGroups', { limit: topFailedGroupLimit.value }) })
+  if (quickActionFilter.value) tags.push({ key: 'quick_action', label: t('audit.tagAction', { value: quickActionFilter.value }) })
+  if (quickActionPrefixFilter.value) tags.push({ key: 'quick_action_prefix', label: t('audit.tagActionPrefix', { value: quickActionPrefixFilter.value }) })
+  if (quickStatusCodeFilter.value) tags.push({ key: 'quick_status', label: t('audit.tagStatusCode', { value: quickStatusCodeFilter.value }) })
+  if (upgradeFailurePreset.value) tags.push({ key: 'upgrade_preset', label: t('audit.tagUpgradeProfile', { value: upgradeFailurePreset.value }) })
+  if (autoRefreshEnabled.value) tags.push({ key: 'auto_refresh', label: t('audit.tagAutoRefresh', { seconds: autoRefreshSeconds.value }) })
   activeFilterTags.value = tags
 }
 
@@ -850,14 +853,15 @@ const quickStats = computed(() => {
     filterType: 'failed' | 'action' | 'status' | 'action_prefix'
     filterValue: string
   }> = []
-  items.push({ key: 'failed', label: `失败 ${failedValue}/${totalValue}`, type: failedValue > 0 ? 'danger' : 'success', filterType: 'failed', filterValue: 'failed' })
-  items.push({ key: 'family-runtime', label: '动作族 plugin_runtime_*', type: 'info', filterType: 'action_prefix', filterValue: 'plugin_runtime_' })
-  items.push({ key: 'family-plugin', label: '动作族 plugin_*', type: 'success', filterType: 'action_prefix', filterValue: 'plugin_' })
-  for (const [k, v] of topActions) items.push({ key: `action-${k}`, label: `动作 ${k}: ${v}`, type: 'info', filterType: 'action', filterValue: k })
+  items.push({ key: 'failed', label: t('audit.quickStatFailed', { failed: failedValue, total: totalValue }), type: failedValue > 0 ? 'danger' : 'success', filterType: 'failed', filterValue: 'failed' })
+  items.push({ key: 'family-runtime', label: t('audit.quickStatFamilyRuntime'), type: 'info', filterType: 'action_prefix', filterValue: 'plugin_runtime_' })
+  items.push({ key: 'family-plugin', label: t('audit.quickStatFamilyPlugin'), type: 'success', filterType: 'action_prefix', filterValue: 'plugin_' })
+  for (const [k, v] of topActions) items.push({ key: `action-${k}`, label: t('audit.quickStatAction', { key: k, count: v }), type: 'info', filterType: 'action', filterValue: k })
   for (const [k, v] of topStatus) {
     const n = Number(k)
-    const t: 'info' | 'warning' | 'danger' = Number.isFinite(n) ? (n >= 500 ? 'danger' : (n >= 400 ? 'warning' : 'info')) : 'info'
-    items.push({ key: `status-${k}`, label: `状态码 ${k}: ${v}`, type: t, filterType: 'status', filterValue: k })
+    // FIX: [2026-07-04] 局部变量 t 遮蔽了 useI18n 的 t 函数，运行时 TypeError: t is not a function [全栈工程师]
+    const tagType: 'info' | 'warning' | 'danger' = Number.isFinite(n) ? (n >= 500 ? 'danger' : (n >= 400 ? 'warning' : 'info')) : 'info'
+    items.push({ key: `status-${k}`, label: t('audit.quickStatStatusCode', { key: k, count: v }), type: tagType, filterType: 'status', filterValue: k })
   }
   return items
 })
@@ -876,15 +880,15 @@ const upgradeFailureBuckets = computed(() => {
 const upgradeProfileWindowLabel = computed(() => {
   const start = query.date_range?.[0]
   const end = query.date_range?.[1]
-  if (!start || !end) return '全时段'
+  if (!start || !end) return t('audit.timeWindowAll')
   const startTs = Date.parse(start)
   const endTs = Date.parse(end)
-  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) return '自定义时间窗'
+  if (!Number.isFinite(startTs) || !Number.isFinite(endTs) || endTs <= startTs) return t('audit.timeWindowCustom')
   const diffMin = Math.round((endTs - startTs) / 60000)
-  if (diffMin >= 0 && diffMin <= 20) return '近15分钟'
-  if (diffMin > 20 && diffMin <= 90) return '近1小时'
-  if (diffMin > 90 && diffMin <= 24 * 60 + 60) return '近24小时'
-  return '自定义时间窗'
+  if (diffMin >= 0 && diffMin <= 20) return t('audit.timeWindowNear15m')
+  if (diffMin > 20 && diffMin <= 90) return t('audit.timeWindowNear1h')
+  if (diffMin > 90 && diffMin <= 24 * 60 + 60) return t('audit.timeWindowNear24h')
+  return t('audit.timeWindowCustom')
 })
 
 const activeTimeWindow = computed<'15m' | '1h' | '24h' | 'all' | 'custom'>(() => {
@@ -915,9 +919,9 @@ const upgradeWindowRangeHint = computed(() => {
 })
 
 const upgradeWindowToggleHint = computed(() => {
-  if (!canQueryAudit) return '当前无查询权限'
-  if (activeTimeWindow.value === '15m') return '点击恢复全时段'
-  return '点击切换到值班推荐窗口（近15分钟）'
+  if (!canQueryAudit) return t('audit.noQueryPermission')
+  if (activeTimeWindow.value === '15m') return t('audit.clickRestoreAllTime')
+  return t('audit.clickSwitchToOnCall')
 })
 
 const autoRefreshStateType = computed<'success' | 'warning' | 'info' | 'danger'>(() => {
@@ -931,15 +935,15 @@ const autoRefreshStateType = computed<'success' | 'warning' | 'info' | 'danger'>
 })
 
 const autoRefreshStateLabel = computed(() => {
-  if (autoRefreshStoppedByError.value) return `自动刷新已停止（连续失败${autoRefreshMaxErrorStreak}次）`
-  if (!autoRefreshEnabled.value) return '自动刷新已关闭'
-  if (autoRefreshPausedByOffline.value) return '自动刷新已暂停（网络离线）'
-  if (autoRefreshPausedByHidden.value) return '自动刷新已暂停（页面后台）'
-  if (autoRefreshErrorStreak.value > 0) return `自动刷新异常（连续失败${autoRefreshErrorStreak.value}/${autoRefreshMaxErrorStreak}）`
-  if (autoRefreshAdaptiveSlowMode.value) return '自动刷新降频中（30s）'
-  if (lastRefreshDurationMs.value > autoRefreshSeconds.value * 1000) return '自动刷新滞后（请求耗时超过刷新间隔）'
-  if (autoRefreshIdleRounds.value >= 3) return `自动刷新空转中（连续${autoRefreshIdleRounds.value}轮无变化）`
-  return '自动刷新活跃'
+  if (autoRefreshStoppedByError.value) return t('audit.autoRefreshStopped', { max: autoRefreshMaxErrorStreak })
+  if (!autoRefreshEnabled.value) return t('audit.autoRefreshStateOff')
+  if (autoRefreshPausedByOffline.value) return t('audit.autoRefreshStatePausedOffline')
+  if (autoRefreshPausedByHidden.value) return t('audit.autoRefreshStatePausedHidden')
+  if (autoRefreshErrorStreak.value > 0) return t('audit.autoRefreshStateError', { streak: autoRefreshErrorStreak.value, max: autoRefreshMaxErrorStreak })
+  if (autoRefreshAdaptiveSlowMode.value) return t('audit.autoRefreshStateSlowMode')
+  if (lastRefreshDurationMs.value > autoRefreshSeconds.value * 1000) return t('audit.autoRefreshStateLagging')
+  if (autoRefreshIdleRounds.value >= 3) return t('audit.autoRefreshStateIdle', { rounds: autoRefreshIdleRounds.value })
+  return t('audit.autoRefreshStateActive')
 })
 
 const autoRefreshStateHint = computed(() => {
@@ -959,26 +963,26 @@ const effectiveAutoRefreshSeconds = computed(() => {
 })
 
 const autoRefreshButtonLabel = computed(() => {
-  const base = autoRefreshEnabled.value ? '开' : '关'
+  const base = autoRefreshEnabled.value ? t('audit.autoRefreshOn') : t('audit.autoRefreshOff')
   if (autoRefreshAdaptiveSlowMode.value) {
-    return `自动刷新(${effectiveAutoRefreshSeconds.value}s，降频)：${base}`
+    return t('audit.autoRefreshLabelSlow', { seconds: effectiveAutoRefreshSeconds.value, state: base })
   }
-  return `自动刷新(${effectiveAutoRefreshSeconds.value}s)：${base}`
+  return t('audit.autoRefreshLabel', { seconds: effectiveAutoRefreshSeconds.value, state: base })
 })
 
 const autoRefreshButtonHint = computed(() => {
   const configured = `${autoRefreshSeconds.value}s`
   const effective = `${effectiveAutoRefreshSeconds.value}s`
   if (autoRefreshAdaptiveSlowMode.value) {
-    return `配置间隔 ${configured}，当前生效 ${effective}（异常后临时降频）`
+    return t('audit.autoRefreshHintSlow', { configured, effective })
   }
-  return `配置间隔 ${configured}，当前生效 ${effective}`
+  return t('audit.autoRefreshHint', { configured, effective })
 })
 
 const nextRefreshCountdownLabel = computed(() => {
   if (!autoRefreshEnabled.value) return '-'
   if (autoRefreshStoppedByError.value) return '-'
-  if (autoRefreshPausedByOffline.value || autoRefreshPausedByHidden.value) return '暂停中'
+  if (autoRefreshPausedByOffline.value || autoRefreshPausedByHidden.value) return t('audit.pausing')
   if (!nextAutoRefreshAtMs.value) return '-'
   const remainSec = Math.max(0, Math.ceil((nextAutoRefreshAtMs.value - nowMs.value) / 1000))
   return `${remainSec}s`
@@ -989,10 +993,10 @@ const lastRefreshErrorAgoLabel = computed(() => {
   const ts = Date.parse(lastRefreshErrorAt.value.replace(' ', 'T'))
   if (!Number.isFinite(ts)) return ''
   const diffSec = Math.max(0, Math.floor((nowMs.value - ts) / 1000))
-  if (diffSec < 60) return `${diffSec}s前`
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m前`
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h前`
-  return `${Math.floor(diffSec / 86400)}d前`
+  if (diffSec < 60) return t('audit.secondsAgo', { seconds: diffSec })
+  if (diffSec < 3600) return t('audit.minutesAgo', { minutes: Math.floor(diffSec / 60) })
+  if (diffSec < 86400) return t('audit.hoursAgo', { hours: Math.floor(diffSec / 3600) })
+  return t('audit.daysAgo', { days: Math.floor(diffSec / 86400) })
 })
 
 const lastRefreshErrorAgoTagType = computed<'danger' | 'warning' | 'info'>(() => {
@@ -1007,7 +1011,7 @@ const lastRefreshErrorAgoTagType = computed<'danger' | 'warning' | 'info'>(() =>
 
 const lastRefreshResultLabel = computed(() => {
   if (lastRefreshOk.value === null) return '-'
-  return lastRefreshOk.value ? '成功' : '失败'
+  return lastRefreshOk.value ? t('audit.refreshSuccess') : t('audit.refreshFailed')
 })
 
 const lastRefreshResultTagType = computed<'success' | 'danger' | 'info'>(() => {
@@ -1023,29 +1027,29 @@ const refreshHealthType = computed<'success' | 'warning' | 'danger' | 'info'>(()
 })
 
 const refreshHealthLabel = computed(() => {
-  if (refreshFailureStreak.value >= 3) return '健康度：不稳定'
-  if (refreshFailureStreak.value > 0) return '健康度：恢复中'
-  if (refreshSuccessStreak.value >= 5) return '健康度：稳定'
-  return '健康度：观察中'
+  if (refreshFailureStreak.value >= 3) return t('audit.healthUnstable')
+  if (refreshFailureStreak.value > 0) return t('audit.healthRecovering')
+  if (refreshSuccessStreak.value >= 5) return t('audit.healthStable')
+  return t('audit.healthObserving')
 })
 
 const refreshHealthHint = computed(() => {
   if (refreshFailureStreak.value >= 3) {
-    return `连续失败 ${refreshFailureStreak.value} 次（阈值>=3），建议检查服务或网络`
+    return t('audit.healthHintUnstable', { streak: refreshFailureStreak.value })
   }
   if (refreshFailureStreak.value > 0) {
-    return `连续失败 ${refreshFailureStreak.value} 次，等待连续成功恢复稳定`
+    return t('audit.healthHintRecovering', { streak: refreshFailureStreak.value })
   }
   if (refreshSuccessStreak.value >= 5) {
-    return `连续成功 ${refreshSuccessStreak.value} 次（阈值>=5）`
+    return t('audit.healthHintStable', { streak: refreshSuccessStreak.value })
   }
-  return '样本不足，继续观察刷新结果'
+  return t('audit.healthHintObserving')
 })
 
 const copyFormatLabel = computed(() => {
   if (lastCopyFormat.value === 'markdown') return 'Markdown'
-  if (lastCopyFormat.value === 'codeblock') return '代码块'
-  return '文本'
+  if (lastCopyFormat.value === 'codeblock') return t('audit.copyFormatCodeblock')
+  return t('audit.copyFormatPlain')
 })
 
 const formatLocalDateTime = (d: Date): string => {
@@ -1089,7 +1093,7 @@ const clearTimeWindow = async () => {
 }
 
 const toggleRecommendedOnCallWindow = async () => {
-  if (!canQueryAudit) return
+  if (!canQueryAudit.value) return
   if (activeTimeWindow.value === '15m') {
     await clearTimeWindow()
     return
@@ -1237,50 +1241,57 @@ const resetUpgradeProfileFilters = async () => {
 
 const buildTroubleshootingSummaryParts = () => {
   const kv: string[] = []
-  kv.push(`窗口=${upgradeProfileWindowLabel.value}`)
-  kv.push(`总数=${total.value}`)
+  kv.push(`${t('audit.summaryWindow')}=${upgradeProfileWindowLabel.value}`)
+  kv.push(`${t('audit.summaryTotal')}=${total.value}`)
   if (autoRefreshEnabled.value || autoRefreshStoppedByError.value) {
-    kv.push(`自动刷新状态=${autoRefreshStateLabel.value}`)
-    kv.push(`自动刷新配置间隔=${autoRefreshSeconds.value}s`)
-    kv.push(`自动刷新生效间隔=${effectiveAutoRefreshSeconds.value}s`)
-    kv.push(`下次刷新倒计时=${nextRefreshCountdownLabel.value}`)
+    kv.push(`${t('audit.summaryAutoRefreshStatus')}=${autoRefreshStateLabel.value}`)
+    kv.push(`${t('audit.summaryAutoRefreshConfigInterval')}=${autoRefreshSeconds.value}s`)
+    kv.push(`${t('audit.summaryAutoRefreshEffectiveInterval')}=${effectiveAutoRefreshSeconds.value}s`)
+    kv.push(`${t('audit.summaryNextRefreshCountdown')}=${nextRefreshCountdownLabel.value}`)
   }
-  if (lastRefreshAt.value) kv.push(`上次刷新=${lastRefreshAt.value}`)
-  if (lastRefreshOk.value !== null) kv.push(`上次刷新结果=${lastRefreshOk.value ? '成功' : '失败'}`)
-  if (lastRefreshErrorAt.value) kv.push(`最近失败时间=${lastRefreshErrorAt.value}`)
-  if (lastRefreshErrorAgoLabel.value) kv.push(`失败距今=${lastRefreshErrorAgoLabel.value}`)
-  if (refreshSuccessStreak.value > 0) kv.push(`连续成功=${refreshSuccessStreak.value}`)
-  if (refreshFailureStreak.value > 0) kv.push(`连续失败=${refreshFailureStreak.value}`)
-  kv.push(refreshHealthLabel.value.replace('：', '='))
-  kv.push(`健康度依据=${refreshHealthHint.value}`)
-  if (lastRefreshDurationLabel.value !== '-') kv.push(`刷新耗时=${lastRefreshDurationLabel.value}`)
-  if (lifecycleMode.value) kv.push(`生命周期=${lifecycleMode.value}`)
-  if (upgradeFailurePreset.value) kv.push(`升级画像=${upgradeFailurePreset.value}`)
-  if (quickActionFilter.value) kv.push(`动作=${quickActionFilter.value}`)
-  if (quickActionPrefixFilter.value) kv.push(`动作族=${quickActionPrefixFilter.value}*`)
-  if (quickStatusCodeFilter.value) kv.push(`状态码=${quickStatusCodeFilter.value}`)
-  if (query.module.trim()) kv.push(`模块=${query.module.trim()}`)
-  if (query.operator.trim()) kv.push(`操作人=${query.operator.trim()}`)
-  if (query.result) kv.push(`结果=${query.result}`)
+  if (lastRefreshAt.value) kv.push(`${t('audit.summaryLastRefresh')}=${lastRefreshAt.value}`)
+  if (lastRefreshOk.value !== null) kv.push(`${t('audit.summaryLastRefreshResult')}=${lastRefreshOk.value ? t('audit.refreshSuccess') : t('audit.refreshFailed')}`)
+  if (lastRefreshErrorAt.value) kv.push(`${t('audit.summaryLastFailureTime')}=${lastRefreshErrorAt.value}`)
+  if (lastRefreshErrorAgoLabel.value) kv.push(`${t('audit.summaryFailureAgo')}=${lastRefreshErrorAgoLabel.value}`)
+  if (refreshSuccessStreak.value > 0) kv.push(`${t('audit.summaryConsecutiveSuccess')}=${refreshSuccessStreak.value}`)
+  if (refreshFailureStreak.value > 0) kv.push(`${t('audit.summaryConsecutiveFailure')}=${refreshFailureStreak.value}`)
+  const healthStatusPart = refreshFailureStreak.value >= 3
+    ? t('audit.healthStatusUnstable')
+    : refreshFailureStreak.value > 0
+      ? t('audit.healthStatusRecovering')
+      : refreshSuccessStreak.value >= 5
+        ? t('audit.healthStatusStable')
+        : t('audit.healthStatusObserving')
+  kv.push(`${t('audit.summaryHealth')}=${healthStatusPart}`)
+  kv.push(`${t('audit.summaryHealthBasis')}=${refreshHealthHint.value}`)
+  if (lastRefreshDurationLabel.value !== '-') kv.push(`${t('audit.summaryRefreshDuration')}=${lastRefreshDurationLabel.value}`)
+  if (lifecycleMode.value) kv.push(`${t('audit.summaryLifecycle')}=${lifecycleMode.value}`)
+  if (upgradeFailurePreset.value) kv.push(`${t('audit.summaryUpgradeProfile')}=${upgradeFailurePreset.value}`)
+  if (quickActionFilter.value) kv.push(`${t('audit.summaryAction')}=${quickActionFilter.value}`)
+  if (quickActionPrefixFilter.value) kv.push(`${t('audit.summaryActionFamily')}=${quickActionPrefixFilter.value}*`)
+  if (quickStatusCodeFilter.value) kv.push(`${t('audit.summaryStatusCode')}=${quickStatusCodeFilter.value}`)
+  if (query.module.trim()) kv.push(`${t('audit.module')}=${query.module.trim()}`)
+  if (query.operator.trim()) kv.push(`${t('audit.operator')}=${query.operator.trim()}`)
+  if (query.result) kv.push(`${t('audit.resultLabel')}=${query.result}`)
   const topAction = stats.value?.top_actions?.[0]
   const topStatus = stats.value?.top_status_codes?.[0]
   const failed = Number(stats.value?.failed ?? 0)
   const statTotal = Number(stats.value?.total ?? total.value)
-  kv.push(`失败=${failed}/${statTotal}`)
-  if (topAction) kv.push(`Top动作=${topAction.name}(${topAction.count})`)
-  if (topStatus) kv.push(`Top状态码=${topStatus.code}(${topStatus.count})`)
+  kv.push(`${t('audit.summaryFailed')}=${failed}/${statTotal}`)
+  if (topAction) kv.push(`${t('audit.summaryTopAction')}=${topAction.name}(${topAction.count})`)
+  if (topStatus) kv.push(`${t('audit.summaryTopStatusCode')}=${topStatus.code}(${topStatus.count})`)
   return kv
 }
 
 const copyTroubleshootingSummary = async () => {
   const kv = buildTroubleshootingSummaryParts()
-  const text = `【审计排障摘要】${kv.join(' | ')}\n链接: ${window.location.href}`
+  const text = `【${t('audit.summaryTitle')}】${kv.join(' | ')}\n${t('audit.summaryLink')}: ${window.location.href}`
 
   try {
     await navigator.clipboard.writeText(text)
     return true
   } catch {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('audit.copyFailed'))
     return false
   }
 }
@@ -1288,17 +1299,17 @@ const copyTroubleshootingSummary = async () => {
 const copyTroubleshootingSummaryMarkdown = async () => {
   const kv = buildTroubleshootingSummaryParts()
   const markdown = [
-    '## 审计排障摘要',
+    `## ${t('audit.summaryTitle')}`,
     '',
     ...kv.map((x) => `- ${x}`),
     '',
-    `- 链接: ${window.location.href}`
+    `- ${t('audit.summaryLink')}: ${window.location.href}`
   ].join('\n')
   try {
     await navigator.clipboard.writeText(markdown)
     return true
   } catch {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('audit.copyFailed'))
     return false
   }
 }
@@ -1306,16 +1317,16 @@ const copyTroubleshootingSummaryMarkdown = async () => {
 const copyTroubleshootingSummaryMarkdownCodeBlock = async () => {
   const kv = buildTroubleshootingSummaryParts()
   const plain = [
-    '审计排障摘要',
+    t('audit.summaryTitle'),
     ...kv,
-    `链接: ${window.location.href}`
+    `${t('audit.summaryLink')}: ${window.location.href}`
   ].join('\n')
   const markdown = ['```text', plain, '```'].join('\n')
   try {
     await navigator.clipboard.writeText(markdown)
     return true
   } catch {
-    ElMessage.warning('复制失败，请手动复制')
+    ElMessage.warning(t('audit.copyFailed'))
     return false
   }
 }
@@ -1332,8 +1343,8 @@ const runCopyByFormat = async (format: 'plain' | 'markdown' | 'codeblock') => {
     ok = await copyTroubleshootingSummaryMarkdownCodeBlock()
   }
   if (ok) {
-    const label = format === 'plain' ? '文本' : (format === 'markdown' ? 'Markdown' : 'Markdown代码块')
-    ElMessage.success(`已复制${label}摘要`)
+    const label = format === 'plain' ? t('audit.copyFormatPlain') : (format === 'markdown' ? 'Markdown' : t('audit.copyFormatMarkdownCodeblock'))
+    ElMessage.success(t('audit.copiedSummary', { label }))
   }
 }
 
@@ -1418,7 +1429,7 @@ const search = async (
   }
   const message = validateFields(filterFields, query as Record<string, unknown>)
   if (message) {
-    ElMessage.warning(`校验失败：${message}`)
+    ElMessage.warning(t('audit.validationFailed', { message }))
     return
   }
   const moduleValue = query.module.trim()
@@ -1542,7 +1553,7 @@ const search = async (
       router.replace({ query: nextQuery }).catch(() => {})
     }
     if (!silent) {
-      ElMessage.success(buildSuccessMessage('查询', `返回 ${rows.value.length} 条`))
+      ElMessage.success(buildSuccessMessage(t('audit.searchSuccessAction'), t('audit.searchSuccessDetail', { count: rows.value.length })))
     }
     lastRefreshOk.value = true
     lastRefreshErrorAt.value = ''
@@ -1555,7 +1566,7 @@ const search = async (
     upgradeProfileStats.value = null
     if (options.fromAutoRefresh) {
       autoRefreshErrorStreak.value += 1
-      autoRefreshLastError.value = getApiErrorMessage(error, '日志读取异常')
+      autoRefreshLastError.value = getApiErrorMessage(error, t('audit.logReadError'))
       if (autoRefreshErrorStreak.value >= 2 && autoRefreshSeconds.value === 10 && !autoRefreshAdaptiveSlowMode.value) {
         autoRefreshAdaptiveSlowMode.value = true
         startAutoRefresh()
@@ -1565,11 +1576,11 @@ const search = async (
         autoRefreshStoppedByError.value = true
         stopAutoRefresh(false)
         saveAutoRefreshPrefs()
-        ElMessage.warning(`自动刷新已停止：连续失败 ${autoRefreshMaxErrorStreak} 次，请检查网络或服务状态`)
+        ElMessage.warning(t('audit.autoRefreshStoppedWarning', { max: autoRefreshMaxErrorStreak }))
       }
     }
     if (!options.suppressErrorToast) {
-    ElMessage.error(buildErrorMessage('查询', error, '日志读取异常'))
+    ElMessage.error(buildErrorMessage(t('audit.searchSuccessAction'), error, t('audit.logReadError')))
     }
     lastRefreshOk.value = false
     lastRefreshErrorAt.value = formatLocalDateTime(new Date()).replace('T', ' ')
@@ -1786,15 +1797,19 @@ const handleExport = async () => {
       start_at: startAt,
       end_at: endAt
     })
-    ElMessage.success('导出成功，请查看下载')
+    ElMessage.success(t('audit.exportSuccess'))
   } catch (e: unknown) {
-    ElMessage.error(getApiErrorMessage(e, '导出失败'))
+    ElMessage.error(getApiErrorMessage(e, t('audit.exportFailed')))
   } finally {
     exportLoading.value = false
   }
 }
 
 onMounted(async () => {
+  // FIX H-8: 从后端刷新权威角色信息
+  // FIX: [2026-07-04] getVerifiedRoleInfo 返回 RoleInfo|null，需判空后赋值 [全栈工程师]
+  const verified = await getVerifiedRoleInfo()
+  if (verified) roleInfo.value = verified
   startNowTicker()
   document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('online', onNetworkOnline)

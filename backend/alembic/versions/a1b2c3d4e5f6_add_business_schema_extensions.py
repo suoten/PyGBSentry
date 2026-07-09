@@ -381,6 +381,9 @@ def upgrade() -> None:
             code VARCHAR(64) UNIQUE NOT NULL,
             name VARCHAR(128) NOT NULL,
             price_monthly INTEGER DEFAULT 0,
+            price_yearly INTEGER NULL,
+            description TEXT NULL,
+            sort_order INTEGER DEFAULT 0,
             max_devices INTEGER DEFAULT 0,
             max_channels INTEGER DEFAULT 0,
             plugin_entitlements TEXT DEFAULT '',
@@ -389,6 +392,14 @@ def upgrade() -> None:
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # FIX: [2026-07-03] 补全 billing_plans 缺失列，与模型定义对齐 [性能测试工程师]
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS price_yearly INTEGER NULL")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS description TEXT NULL")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS max_devices INTEGER DEFAULT 0")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 0")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS plugin_entitlements TEXT DEFAULT ''")
+    _exec("ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE")
 
     # ────────────────────────────────────────────────────────────────
     # CREATE TABLE – tenant_subscriptions

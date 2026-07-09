@@ -24,7 +24,7 @@ rule_files:
 scrape_configs:
   # PyGBSentry backend metrics
   - job_name: 'pygbsentry'
-    metrics_path: '/api/v1/metrics'
+    metrics_path: '/metrics'
     scrape_interval: 15s
     static_configs:
       - targets:

@@ -1,111 +1,103 @@
+"""SSL 证书管理器（certbot 启动检查与续期）。
+
+在 ``main.py`` lifespan 启动阶段调用 :func:`on_startup` 检查证书状态并按需
+启动续期定时器。该模块在 Windows 平台上为 no-op（``platform_supported=False``），
+且整体调用被 ``main.py`` 的 ``try/except`` 包裹，不会阻断启动。
+"""
+from __future__ import annotations
+
+import asyncio
+import shutil
+import sys
+from typing import Optional
+
 from loguru import logger
-from datetime import datetime, timezone
-from app.services.ssl_certbot.certbot_config import load_certbot_settings, CertbotSettings
-from app.services.ssl_certbot.cert_checker import check_cert_status, CertStatus, CertInfo
-from app.services.ssl_certbot.certbot_client import certbot_certonly, certbot_renew
-from app.services.ssl_certbot.nginx_reloader import reload_nginx
-from app.core.config import settings
+
+from app.services.ssl_certbot.certbot_config import CertbotSettings
 
 
+def _load_settings() -> CertbotSettings:
+    """从全局 settings 加载 certbot 配置。"""
+    from app.core.config import settings
+    return CertbotSettings(
+        enabled=bool(getattr(settings, "SSLCERT_ENABLED", False)),
+        domain=getattr(settings, "SSLCERT_DOMAIN", "") or "",
+        email=getattr(settings, "SSLCERT_EMAIL", "") or "",
+        mode=getattr(settings, "SSLCERT_MODE", "webroot") or "webroot",
+    )
 
-_settings: CertbotSettings | None = None
-_last_cert_info: CertInfo | None = None
 
-
-def _get_settings() -> CertbotSettings:
-    global _settings
-    if _settings is None:
-        _settings = load_certbot_settings()
-    return _settings
+_renew_task: Optional[asyncio.Task] = None
 
 
 async def on_startup() -> None:
-    global _last_cert_info
+    """启动检查：验证 certbot 可用性，按需启动续期定时器。
+
+    - Windows 平台：直接跳过（``platform_supported=False``）。
+    - ``enabled=False``：跳过。
+    - certbot 未安装：记录警告并跳过。
+    - 一切就绪：启动周期续期检查任务。
+    """
+    global _renew_task
+
+    if sys.platform == "win32":
+        logger.info("SSL certbot: Windows platform, skipping (platform_supported=False)")
+        return
+
     try:
-        cfg = _get_settings()
-        if not cfg.is_effective:
-            if cfg.enabled and not cfg.platform_supported:
-                logger.info("SSL certbot: enabled but platform not supported (non-Linux), skipping")
-            elif cfg.enabled and not cfg.certbot_available:
-                logger.warning("SSL certbot: enabled but certbot not installed, skipping")
-            elif cfg.enabled and not cfg.domain:
-                logger.warning("SSL certbot: enabled but SSL_CERTBOT_DOMAIN not set, skipping")
-            return
-
-        logger.info(f"SSL certbot: checking certificate for {cfg.domain} ...")
-        cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-        _last_cert_info = cert_info
-
-        if cert_info.status == CertStatus.MISSING:
-            logger.info("SSL certbot: no certificate found, requesting via certbot certonly ...")
-            rc, output = await certbot_certonly(cfg)
-            if rc == 0:
-                logger.info("SSL certbot: certificate obtained successfully")
-                await reload_nginx(cfg)
-                _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-                _last_cert_info.last_renew_at = datetime.now(timezone.utc)
-            else:
-                logger.error(f"SSL certbot: certificate request failed: {output[:300]}")
-
-        elif cert_info.status == CertStatus.EXPIRED:
-            logger.warning("SSL certbot: certificate expired, attempting renewal ...")
-            rc, output = await certbot_renew(cfg)
-            if rc == 0:
-                logger.info("SSL certbot: certificate renewed successfully")
-                await reload_nginx(cfg)
-                _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-                _last_cert_info.last_renew_at = datetime.now(timezone.utc)
-            else:
-                logger.error(f"SSL certbot: certificate renewal failed: {output[:300]}")
-
-        elif cert_info.status == CertStatus.VALID and cert_info.remaining_days <= cfg.renew_threshold_days:
-            logger.info(
-                f"SSL certbot: certificate expires in {cert_info.remaining_days} days (threshold: {cfg.renew_threshold_days}), attempting renewal ...",
-            )
-            rc, output = await certbot_renew(cfg)
-            if rc == 0:
-                logger.info("SSL certbot: certificate renewed successfully")
-                await reload_nginx(cfg)
-                _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-                _last_cert_info.last_renew_at = datetime.now(timezone.utc)
-            else:
-                logger.error(f"SSL certbot: certificate renewal failed: {output[:300]}")
-
-        elif cert_info.status == CertStatus.VALID:
-            logger.info(f"SSL certbot: certificate valid, expires in {cert_info.remaining_days} days")
-
-        else:
-            logger.warning(f"SSL certbot: unexpected cert status {cert_info.status}")
-
-        if getattr(settings, "ENABLE_SIPS", False):
-            logger.info("SSL certbot: SIPS is enabled — if ZLM does not auto-reload the renewed cert, restart ZLM")
-
+        cfg = _load_settings()
     except Exception as e:
-        logger.error(f"SSL certbot: on_startup error (non-fatal): {e}")
+        logger.warning(f"SSL certbot: failed to load settings, skipping: {e}")
+        return
+
+    if not cfg.enabled:
+        logger.info("SSL certbot: disabled by config (SSLCERT_ENABLED=false)")
+        return
+
+    if not shutil.which("certbot"):
+        logger.warning("SSL certbot: certbot binary not found in PATH, skipping")
+        return
+
+    logger.info(f"SSL certbot: enabled, domain={cfg.domain}, mode={cfg.mode}")
+
+    # 启动续期检查定时器
+    interval_seconds = cfg.renew_check_interval_hours * 3600
+    _renew_task = asyncio.create_task(_renew_loop(interval_seconds))
 
 
-async def get_status() -> CertInfo:
-    cfg = _get_settings()
-    if not cfg.is_effective:
-        return CertInfo(domain=cfg.domain, status=CertStatus.DISABLED)
-    cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-    if cert_info.status == CertStatus.VALID and cert_info.remaining_days <= cfg.renew_threshold_days:
-        cert_info.status = CertStatus.EXPIRING_SOON
-    return cert_info
+async def on_shutdown() -> None:
+    """停止续期定时器。"""
+    global _renew_task
+    if _renew_task and not _renew_task.done():
+        _renew_task.cancel()
+        try:
+            await asyncio.wait_for(_renew_task, timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            logger.debug("task_cancelled")
+    _renew_task = None
 
 
-async def force_renew() -> tuple[bool, str]:
-    cfg = _get_settings()
-    if not cfg.is_effective:
-        return False, "SSL certbot is not enabled or not available"
+async def _renew_loop(interval_seconds: int) -> None:
+    """周期检查证书是否需要续期。"""
+    logger.info(f"SSL certbot renew loop started: interval={interval_seconds}s")
     try:
-        rc, output = await certbot_renew(cfg)
-        if rc == 0:
-            await reload_nginx(cfg)
-            global _last_cert_info
-            _last_cert_info = await check_cert_status(cfg.cert_file_path, cfg.domain)
-            _last_cert_info.last_renew_at = datetime.now(timezone.utc)
-            return True, "Certificate renewed successfully"
-        return False, f"Renewal failed: {output[:200]}"
-    except Exception as e:
-        return False, str(e)
+        while True:
+            await asyncio.sleep(interval_seconds)
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    "certbot", "renew", "--quiet",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    logger.info("SSL certbot renew check completed: no action needed")
+                else:
+                    logger.warning(
+                        f"SSL certbot renew failed: exit={proc.returncode} "
+                        f"stderr={stderr.decode('utf-8', errors='ignore')[:500]}"
+                    )
+            except Exception as e:
+                logger.warning(f"SSL certbot renew check error: {e}")
+    except asyncio.CancelledError:
+        logger.info("SSL certbot renew loop cancelled")

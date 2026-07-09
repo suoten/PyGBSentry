@@ -21,39 +21,39 @@
           <div v-if="subtitleText" class="dialog-header__subtitle">{{ subtitleText }}</div>
           <div class="dialog-header__metrics">
             <span class="dialog-metric">
-              可用协议
+              {{ t('player.availableProtocols') }}
               <strong>{{ availableProtocolCount }}</strong>
             </span>
             <span class="dialog-metric">
-              当前地址
-              <strong>{{ currentPlayUrl ? '已就绪' : '不可用' }}</strong>
+              {{ t('player.currentAddress') }}
+              <strong>{{ currentPlayUrl ? t('player.ready') : t('player.unavailable') }}</strong>
             </span>
             <span class="dialog-metric">
-              云台/对讲
-              <strong>{{ hasDeviceChannel ? '可用' : '不可用' }}</strong>
+              {{ t('player.ptzTalk') }}
+              <strong>{{ hasDeviceChannel ? t('player.available') : t('player.unavailable') }}</strong>
             </span>
           </div>
         </div>
         <div class="dialog-header__actions">
           <el-button size="small" class="header-btn" :type="isImmersive ? 'primary' : 'default'" @click="isImmersive = !isImmersive">
             <el-icon class="mr-1"><FullScreen /></el-icon>
-            {{ isImmersive ? '退出沉浸' : '沉浸模式' }}
+            {{ isImmersive ? t('player.exitImmersive') : t('player.immersiveMode') }}
           </el-button>
           <el-button size="small" class="header-btn" @click="emit('refresh')">
             <el-icon class="mr-1"><Refresh /></el-icon>
-            刷新流
+            {{ t('player.refreshStream') }}
           </el-button>
           <el-button size="small" type="success" plain class="header-btn" :disabled="activePlayerType !== 'jessibuca' || !currentPlayUrl" @click="takeScreenshot">
             <el-icon class="mr-1"><Camera /></el-icon>
-            本地截图
+            {{ t('player.localScreenshot') }}
           </el-button>
           <el-button size="small" class="header-btn" :disabled="!currentPlayUrl" @click="openPlayUrl">
-            新标签打开
+            {{ t('player.openInNewTab') }}
           </el-button>
           <el-button size="small" type="primary" class="header-btn" :disabled="!currentPlayUrl" @click="copyToClipboard(currentPlayUrl)">
-            复制地址
+            {{ t('player.copyAddress') }}
           </el-button>
-          <button class="dialog-close-btn" @click="handleClose">关闭</button>
+          <button class="dialog-close-btn" @click="handleClose">{{ t('common.close') }}</button>
         </div>
       </div>
     </template>
@@ -61,7 +61,7 @@
       <section class="player-card">
         <div class="player-toolbar">
           <div class="toolbar-left">
-            <div class="toolbar-label">播放通道</div>
+            <div class="toolbar-label">{{ t('player.playChannel') }}</div>
             <div class="protocol-list">
               <button
                 v-for="item in playerTypeOptions"
@@ -90,14 +90,14 @@
               </div>
               
               <div v-if="requestStatus === 'error'" class="skeleton-error-content">
-                <div class="skeleton-text text-danger">{{ requestTitle || '点播失败' }}</div>
+                <div class="skeleton-text text-danger">{{ requestTitle || t('player.playFailure') }}</div>
                 <div class="skeleton-subtext">{{ requestMessage }}</div>
                 <div v-if="requestSuggestion" class="skeleton-subtext skeleton-suggestion">{{ requestSuggestion }}</div>
-                <el-button v-if="requestRetryable" size="small" type="primary" plain @click="emit('refresh')" style="margin-top: 16px;">重试请求</el-button>
+                <el-button v-if="requestRetryable" size="small" type="primary" plain @click="emit('refresh')" style="margin-top: 16px;">{{ t('player.retryRequest') }}</el-button>
               </div>
               
               <div v-else class="skeleton-loading-content">
-                <div class="skeleton-text">{{ requestTitle || '正在等待流媒体服务器分配资源...' }}</div>
+                <div class="skeleton-text">{{ requestTitle || t('player.waitingResource') }}</div>
                 <el-progress 
                   class="skeleton-progress" 
                   :percentage="requestProgress" 
@@ -124,7 +124,7 @@
               @suggest-switch="handleSuggestedSwitch"
               @error="handlePlayerError('jessibuca')"
             />
-            <div v-else class="player-empty">当前播放线路不可用，请切换其他模式。</div>
+            <div v-else class="player-empty">{{ t('player.currentUnavailable') }}</div>
           </template>
           <template v-else-if="activePlayerType === 'h265'">
             <H265Player 
@@ -132,7 +132,7 @@
               :h265-url="h265Url" 
               @error="handlePlayerError('h265')"
             />
-            <div v-else class="player-empty">当前 H265web 线路不可用，请切换其他模式。</div>
+            <div v-else class="player-empty">{{ t('player.h265webUnavailable') }}</div>
           </template>
           <template v-else-if="activePlayerType === 'native_hls'">
             <NativeHlsPlayer 
@@ -140,7 +140,7 @@
               :hls-url="hlsUrl" 
               @error="handlePlayerError('native_hls')"
             />
-            <div v-else class="player-empty">当前 HLS 线路不可用，请切换其他模式。</div>
+            <div v-else class="player-empty">{{ t('player.hlsUnavailable') }}</div>
           </template>
           <template v-else-if="activePlayerType === 'webrtc'">
             <RtcPlayer 
@@ -148,7 +148,7 @@
               :webrtc-url="webrtcUrl" 
               @error="handlePlayerError('webrtc')"
             />
-            <div v-else class="player-empty">{{ webrtcHint || '当前 webRtc 线路不可用，请切换其他模式。' }}</div>
+            <div v-else class="player-empty">{{ webrtcHint || t('player.webrtcUnavailable') }}</div>
           </template>
         </div>
         <div class="stage-footer">
@@ -156,16 +156,16 @@
             <span class="stage-pill">{{ currentPlayerLabel }}</span>
             <span class="stage-pill">{{ currentProtocolLabel }}</span>
             <span class="stage-pill" :class="currentPlayUrl ? 'stage-pill--success' : 'stage-pill--muted'">
-              {{ currentPlayUrl ? '流地址已准备' : '暂无可播放地址' }}
+              {{ currentPlayUrl ? t('player.streamUrlPrepared') : t('player.noPlayableAddress') }}
             </span>
             <span v-if="deviceStatus !== undefined" class="stage-pill" :class="deviceStatus === 1 ? 'stage-pill--success' : 'stage-pill--danger'">
-              设备{{ deviceStatus === 1 ? '在线' : '离线' }}
+              {{ t('common.device') }}{{ deviceStatus === 1 ? t('common.online') : t('common.offline') }}
             </span>
           </div>
           <div class="stage-footer__actions">
-            <el-button size="small" class="header-btn" :disabled="!sharedUrl" @click="copyToClipboard(sharedUrl)">复制分享链接</el-button>
+            <el-button size="small" class="header-btn" :disabled="!sharedUrl" @click="copyToClipboard(sharedUrl)">{{ t('player.copyShareLink') }}</el-button>
             <el-button size="small" class="header-btn" @click="advancedExpanded = !advancedExpanded">
-              {{ advancedExpanded ? '收起高级信息' : '展开高级信息' }}
+              {{ advancedExpanded ? t('player.collapseAdvanced') : t('player.expandAdvanced') }}
             </el-button>
           </div>
         </div>
@@ -173,22 +173,22 @@
 
       <section v-show="!isImmersive" class="tabs-card">
         <el-tabs v-model="activeTab" type="border-card" class="feature-tabs">
-          <el-tab-pane :label="isPlayback ? '回放信息' : '播放信息'" name="media">
+          <el-tab-pane :label="isPlayback ? t('player.playbackInfo') : t('player.playInfo')" name="media">
             <div class="media-box">
               <div class="media-summary">
                 <div class="media-summary-card">
-                  <div class="line-label">主播放地址</div>
-                  <div class="line-value">{{ currentPlayUrl || '当前协议暂无可播放地址' }}</div>
+                  <div class="line-label">{{ t('player.mainPlayAddress') }}</div>
+                  <div class="line-value">{{ currentPlayUrl || t('player.noPlayableAddressForProtocol') }}</div>
                   <div class="line-actions">
-                    <el-button size="small" type="primary" plain :disabled="!currentPlayUrl" @click="copyToClipboard(currentPlayUrl)">复制</el-button>
-                    <el-button size="small" :disabled="!currentPlayUrl" @click="openPlayUrl">打开</el-button>
+                    <el-button size="small" type="primary" plain :disabled="!currentPlayUrl" @click="copyToClipboard(currentPlayUrl)">{{ t('player.copy') }}</el-button>
+                    <el-button size="small" :disabled="!currentPlayUrl" @click="openPlayUrl">{{ t('player.open') }}</el-button>
                   </div>
                 </div>
                 <div class="media-summary-card">
-                  <div class="line-label">分享链接</div>
-                  <div class="line-value">{{ sharedUrl || '暂无可分享地址' }}</div>
+                  <div class="line-label">{{ t('player.shareLink') }}</div>
+                  <div class="line-value">{{ sharedUrl || t('player.noShareAddress') }}</div>
                   <div class="line-actions">
-                    <el-button size="small" type="primary" plain :disabled="!sharedUrl" @click="copyToClipboard(sharedUrl)">复制</el-button>
+                    <el-button size="small" type="primary" plain :disabled="!sharedUrl" @click="copyToClipboard(sharedUrl)">{{ t('player.copy') }}</el-button>
                   </div>
                 </div>
               </div>
@@ -205,42 +205,42 @@
                 >
                   <div class="source-card__header">
                     <span>{{ item.label }}</span>
-                    <strong>{{ item.available ? '可用' : '不可用' }}</strong>
-                    <span v-if="item.verified" class="source-card__verify source-card__verify--ok">已验证</span>
-                    <span v-else-if="item.available && !item.verified" class="source-card__verify source-card__verify--warn">未验证</span>
+                    <strong>{{ item.available ? t('player.available') : t('player.unavailable') }}</strong>
+                    <span v-if="item.verified" class="source-card__verify source-card__verify--ok">{{ t('player.verified') }}</span>
+                    <span v-else-if="item.available && !item.verified" class="source-card__verify source-card__verify--warn">{{ t('player.unverified') }}</span>
                   </div>
-                  <div class="source-card__value">{{ item.value || '当前无地址' }}</div>
+                  <div class="source-card__value">{{ item.value || t('player.noAddressCurrent') }}</div>
                 </div>
               </div>
               <div v-if="advancedExpanded" class="advanced-info">
                 <div class="line-item">
                   <div class="line-label">iframe</div>
                   <el-input :model-value="sharedIframe" readonly>
-                    <template #append><el-button @click="copyToClipboard(sharedIframe)">复制</el-button></template>
+                    <template #append><el-button @click="copyToClipboard(sharedIframe)">{{ t('player.copy') }}</el-button></template>
                   </el-input>
                 </div>
                 <div class="line-item">
-                  <div class="line-label">当前播放地址</div>
+                  <div class="line-label">{{ t('player.currentPlayAddress') }}</div>
                   <el-input :model-value="currentPlayUrl" readonly>
-                    <template #append><el-button @click="copyToClipboard(currentPlayUrl)">复制</el-button></template>
+                    <template #append><el-button @click="copyToClipboard(currentPlayUrl)">{{ t('player.copy') }}</el-button></template>
                   </el-input>
                 </div>
               </div>
             </div>
           </el-tab-pane>
 
-          <el-tab-pane label="云台控制" name="control">
+          <el-tab-pane :label="t('player.ptzControl')" name="control">
             <AdvancedPtzControl v-if="hasDeviceChannel" :device-id="deviceId || ''" :channel-id="channelId || ''" />
-            <el-empty v-else :image-size="56" description="暂无设备/通道信息，无法控制云台" />
+            <el-empty v-else :image-size="56" :description="t('player.noDeviceChannelForPtz')" />
           </el-tab-pane>
 
-          <el-tab-pane label="画面信息" name="codec" :lazy="true">
+          <el-tab-pane :label="t('player.videoInfo')" name="codec" :lazy="true">
             <CodecInfo ref="codecInfoRef" :app="app" :stream="stream" />
           </el-tab-pane>
 
-          <el-tab-pane label="语音对讲" name="broadcast">
+          <el-tab-pane :label="t('player.voiceTalk')" name="broadcast">
             <TalkControl v-if="hasDeviceChannel" :device-id="deviceId || ''" :channel-id="channelId || ''" />
-            <el-empty v-else :image-size="56" description="暂无设备/通道信息，无法使用语音对讲" />
+            <el-empty v-else :image-size="56" :description="t('player.noDeviceChannelForTalk')" />
           </el-tab-pane>
         </el-tabs>
       </section>
@@ -250,6 +250,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Loading, Warning, VideoCamera, FullScreen, VideoPause, Refresh, Camera } from '@element-plus/icons-vue'
 import JessibucaPlayer from './JessibucaPlayer.vue'
@@ -259,6 +260,8 @@ import NativeHlsPlayer from './NativeHlsPlayer.vue'
 import AdvancedPtzControl from './AdvancedPtzControl.vue'
 import CodecInfo from './CodecInfo.vue'
 import TalkControl from './TalkControl.vue'
+
+const { t } = useI18n()
 
 type StreamUrls = Record<string, string | undefined>
 type PlayerType = 'jessibuca' | 'h265' | 'webrtc' | 'native_hls'
@@ -305,6 +308,8 @@ type CodecInfoExpose = { fetchInfo?: () => void }
 const codecInfoRef = ref<CodecInfoExpose | null>(null)
 const advancedExpanded = ref(false)
 const isImmersive = ref(false) // 沉浸模式开关
+// SECURITY: 非敏感 UI 偏好（播放器类型偏好 jessibuca/h265/webrtc）— 仅存设备+通道→播放器类型映射，
+// 不含用户身份或鉴权信息，可安全存入 localStorage 跨会话保留。读取见 getStoredPlayerType，写入见 savePlayerType。
 const PLAYER_PREF_KEY = 'pygbsentry:player-pref'
 
 type JessibucaExpose = { performScreenshot?: () => void }
@@ -315,7 +320,7 @@ const takeScreenshot = () => {
   if (jessibucaPlayerRef.value && typeof jessibucaPlayerRef.value.performScreenshot === 'function') {
     jessibucaPlayerRef.value.performScreenshot()
   } else {
-    ElMessage.warning('播放器尚未准备好或不支持截图')
+    ElMessage.warning(t('player.screenshotNotReady'))
   }
 }
 
@@ -327,11 +332,11 @@ const dialogVisible = computed({
   }
 })
 
-const titleText = computed(() => props.title || '实时画面')
+const titleText = computed(() => props.title || t('player.liveView'))
 const subtitleText = computed(() => props.subtitle || '')
 const hasDeviceChannel = computed(() => !!String(props.deviceId || '').trim() && !!String(props.channelId || '').trim())
 const isPlayback = computed(() => String(props.app || '').toLowerCase() === 'playback')
-const sceneLabel = computed(() => (isPlayback.value ? '录像回放' : '实时预览'))
+const sceneLabel = computed(() => (isPlayback.value ? t('player.recordPlayback') : t('player.livePreview')))
 
 const normalizePlayUrl = (value: unknown) => {
   let text = String(value || '').trim()
@@ -572,14 +577,14 @@ const savePlayerType = (value: PlayerType) => {
 }
 const preflightDecision = computed<{ player?: PlayerType; reason: string }>(() => {
   if (jessibucaMixedContentRisk.value) {
-    if (hasH265.value) return { player: 'h265', reason: '已自动避开可能被浏览器拦截的 FLV 地址' }
-    if (hasWebrtc.value) return { player: 'webrtc', reason: '已自动避开可能被浏览器拦截的 FLV 地址' }
+    if (hasH265.value) return { player: 'h265', reason: t('player.autoAvoidBlockedFlv') }
+    if (hasWebrtc.value) return { player: 'webrtc', reason: t('player.autoAvoidBlockedFlv') }
   }
   if (!hasJessibuca.value && hasH265.value) {
-    return { player: 'h265', reason: '已自动切换到更适合当前通道的播放方式' }
+    return { player: 'h265', reason: t('player.autoSwitchSuitablePlayer') }
   }
   if (!hasJessibuca.value && !hasH265.value && hasWebrtc.value) {
-    return { player: 'webrtc', reason: '已自动切换到更适合当前通道的播放方式' }
+    return { player: 'webrtc', reason: t('player.autoSwitchSuitablePlayer') }
   }
   return { reason: '' }
 })
@@ -591,19 +596,19 @@ const currentPlayUrl = computed(() => {
   return jessibucaUrl.value || ''
 })
 const currentProtocolLabel = computed(() => {
-  if (activePlayerType.value === 'webrtc') return '低延迟线路'
-  if (activePlayerType.value === 'h265') return '高清兼容线路'
-  if (activePlayerType.value === 'native_hls') return 'HLS 线路'
+  if (activePlayerType.value === 'webrtc') return t('player.lowLatencyLine')
+  if (activePlayerType.value === 'h265') return t('player.hdCompatLine')
+  if (activePlayerType.value === 'native_hls') return t('player.hlsLine')
   const url = currentPlayUrl.value || ''
   const lower = url.toLowerCase()
-  if (lower.startsWith('wss://') || lower.startsWith('ws://')) return '实时线路'
-  if (lower.startsWith('https://') || lower.startsWith('http://')) return '标准线路'
-  return '标准线路'
+  if (lower.startsWith('wss://') || lower.startsWith('ws://')) return t('player.realtimeLine')
+  if (lower.startsWith('https://') || lower.startsWith('http://')) return t('player.standardLine')
+  return t('player.standardLine')
 })
 const currentPlayerLabel = computed(() => {
   if (activePlayerType.value === 'webrtc') return 'webRtc'
   if (activePlayerType.value === 'h265') return 'H265web'
-  if (activePlayerType.value === 'native_hls') return 'HLS原生'
+  if (activePlayerType.value === 'native_hls') return t('player.nativeHls')
   return 'Jessibuca'
 })
 
@@ -625,21 +630,21 @@ const protocolCards = computed(() => {
   const hlsAvail = avail ? hlsKeys.some(k => avail[k] === true) : !!hlsUrl.value
   const rtcAvail = avail ? rtcKeys.some(k => avail[k] === true) : !!webrtcUrl.value
   return [
-    { label: '低延迟线路', value: webrtcUrl.value, available: rtcAvail, verified: avail ? rtcKeys.some(k => avail[k] !== null) : false },
-    { label: '标准线路', value: flvUrl.value, available: flvAvail, verified: avail ? flvKeys.some(k => avail[k] !== null) : false },
-    { label: '高清线路', value: hlsUrl.value, available: hlsAvail, verified: avail ? hlsKeys.some(k => avail[k] !== null) : false },
-    { label: '备用线路', value: rawUrl.value, available: !!rawUrl.value, verified: false }
+    { label: t('player.lowLatencyLine'), value: webrtcUrl.value, available: rtcAvail, verified: avail ? rtcKeys.some(k => avail[k] !== null) : false },
+    { label: t('player.standardLine'), value: flvUrl.value, available: flvAvail, verified: avail ? flvKeys.some(k => avail[k] !== null) : false },
+    { label: t('player.hdLine'), value: hlsUrl.value, available: hlsAvail, verified: avail ? hlsKeys.some(k => avail[k] !== null) : false },
+    { label: t('player.backupLine'), value: rawUrl.value, available: !!rawUrl.value, verified: false }
   ]
 })
 const availableProtocolCount = computed(() => protocolCards.value.filter((item) => item.available).length)
 const playbackStatusText = computed(() => {
   if (preflightDecision.value.reason) return preflightDecision.value.reason
   const stored = getStoredPlayerType()
-  if (stored && stored === activePlayerType.value) return '已按当前通道上次选择优先打开'
-  if (isPlayback.value) return '当前为录像回放，可复制和分享地址'
-  if (hasJessibuca.value) return '已优先选择 Jessibuca'
-  if (hasH265.value) return '已切换到 H265web'
-  return '已切换到 webRtc'
+  if (stored && stored === activePlayerType.value) return t('player.openedByLastChoice')
+  if (isPlayback.value) return t('player.playbackCanCopyShare')
+  if (hasJessibuca.value) return t('player.preferredJessibuca')
+  if (hasH265.value) return t('player.switchedToH265webShort')
+  return t('player.switchedToWebRtcShort')
 })
 
 const requestStatus = computed(() => props.request?.status || 'idle')
@@ -647,10 +652,10 @@ const requestVisible = computed(() => requestStatus.value !== 'idle' && requestS
 const requestTitle = computed(() => {
   const stage = String(props.request?.stage || '').trim()
   if (stage) return stage
-  if (requestStatus.value === 'requesting') return '正在发起点播…'
-  if (requestStatus.value === 'waiting') return '等待视频流就绪…'
-  if (requestStatus.value === 'error') return '点播失败'
-  return '点播中…'
+  if (requestStatus.value === 'requesting') return t('player.startingInvite')
+  if (requestStatus.value === 'waiting') return t('player.waitingStreamReady')
+  if (requestStatus.value === 'error') return t('player.playFailure')
+  return t('player.inviting')
 })
 const requestProgress = computed(() => {
   const value = props.request?.progress
@@ -699,32 +704,32 @@ const requestDiagnosticsText = computed(() => {
 })
 
 const sharedUrl = computed(() => `${window.location.origin}/#/play/${encodeURIComponent(currentPlayUrl.value)}`)
-const sharedIframe = computed(() => `<iframe src="${sharedUrl.value}" width="960" height="540" frameborder="0"></iframe>`)
+const sharedIframe = computed(() => `<iframe src="${sharedUrl.value}" width="960" height="540" frameborder="0" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin"></iframe>`)
 
 const copyToClipboard = async (text: string) => {
   const value = String(text || '').trim()
   if (!value) {
-    ElMessage.warning('暂无可复制地址')
+    ElMessage.warning(t('player.noAddressToCopy'))
     return
   }
   try {
     await navigator.clipboard.writeText(value)
-    ElMessage.success('已复制到剪贴板')
+    ElMessage.success(t('player.copiedToClipboard'))
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('player.copyFailed'))
   }
 }
 
 const openPlayUrl = () => {
   const url = String(currentPlayUrl.value || '').trim()
   if (!url) {
-    ElMessage.warning('暂无可打开地址')
+    ElMessage.warning(t('player.noAddressToOpen'))
     return
   }
   try {
     window.open(url, '_blank')
   } catch {
-    ElMessage.error('打开失败')
+    ElMessage.error(t('player.openFailed'))
   }
 }
 
@@ -750,7 +755,7 @@ const triggerAutoHealRefresh = (reason: string) => {
   if (now - autoHealLastAt.value < autoHealCooldownMs) return false
   autoHealAttempts.value += 1
   autoHealLastAt.value = now
-  ElMessage.warning(`${reason}，系统正在自动重拉流（${autoHealAttempts.value}/${profileMaxAutoHealAttempts.value}）`)
+  ElMessage.warning(t('player.autoHealing', { reason, current: autoHealAttempts.value, max: profileMaxAutoHealAttempts.value }))
   emit('refresh')
   return true
 }
@@ -768,11 +773,16 @@ const scheduleRequestWaitingHeal = () => {
   if (!requestRetryable.value) return
   requestWaitingTimer = setTimeout(() => {
     requestWaitingTimer = null
-    triggerAutoHealRefresh('媒体流等待超时')
+    triggerAutoHealRefresh(t('player.mediaStreamWaitTimeout'))
   }, profileWaitingHealMs.value)
 }
 
 const handlePlayerTypeChange = (value: PlayerType) => {
+  // FIX: [2026-07-03] H.265 码流选择 WebRTC 时提示兼容性风险 [全栈工程师]
+  const _isHevc = String(props.codec || '').toLowerCase() === 'h265' || String(props.codec || '').toLowerCase() === 'hevc'
+  if (value === 'webrtc' && _isHevc) {
+    ElMessage.warning(t('player.h265WebRtcWarning'))
+  }
   activePlayerType.value = value
   fallbackState.value.tried.clear()
 }
@@ -787,17 +797,17 @@ const handlePlayerError = (failedPlayer: PlayerType) => {
     if (failedPlayer === 'h265') {
       if (hasJessibuca.value && !fallbackState.value.tried.has('jessibuca')) {
         activePlayerType.value = 'jessibuca'
-        ElMessage.warning('H265web 播放失败，已自动切换到 Jessibuca')
+        ElMessage.warning(t('player.switchedToJessibuca'))
         switched = true
       } else if (hasWebrtc.value && !fallbackState.value.tried.has('webrtc')) {
         activePlayerType.value = 'webrtc'
-        ElMessage.warning('H265web 播放失败，已自动切换到 webRtc')
+        ElMessage.warning(t('player.h265webToWebRtc'))
         switched = true
       }
     } else if (failedPlayer === 'jessibuca') {
       if (hasWebrtc.value && !fallbackState.value.tried.has('webrtc')) {
         activePlayerType.value = 'webrtc'
-        ElMessage.warning('已自动切换到 webRtc')
+        ElMessage.warning(t('player.switchedToWebRtc'))
         switched = true
       }
     }
@@ -805,42 +815,42 @@ const handlePlayerError = (failedPlayer: PlayerType) => {
     if (failedPlayer === 'jessibuca') {
       if (profilePreferStability.value && hasHlsUrl.value && !fallbackState.value.tried.has('native_hls')) {
         activePlayerType.value = 'native_hls'
-        ElMessage.warning('播放异常，系统已切换到更稳定的 HLS 线路')
+        ElMessage.warning(t('player.switchedToHls'))
         switched = true
       } else if (hasWebrtc.value && !fallbackState.value.tried.has('webrtc')) {
         activePlayerType.value = 'webrtc'
-        ElMessage.warning('播放异常，已自动切换到 webRtc')
+        ElMessage.warning(t('player.switchedToWebRtc'))
         switched = true
       } else if (hasH265.value && !fallbackState.value.tried.has('h265')) {
         activePlayerType.value = 'h265'
-        ElMessage.warning('播放异常，已自动切换到 H265web')
+        ElMessage.warning(t('player.switchedToH265web'))
       }
     } else if (failedPlayer === 'webrtc') {
       if (hasHlsUrl.value && !fallbackState.value.tried.has('native_hls')) {
         activePlayerType.value = 'native_hls'
-        ElMessage.warning('webRtc 异常，已自动切换到 HLS')
+        ElMessage.warning(t('player.webRtcToHls'))
         switched = true
       } else if (hasH265.value && !fallbackState.value.tried.has('h265')) {
         activePlayerType.value = 'h265'
-        ElMessage.warning('webRtc 异常，已自动切换到 H265web')
+        ElMessage.warning(t('player.webRtcToH265web'))
       }
     } else if (failedPlayer === 'native_hls') {
       if (hasJessibuca.value && !fallbackState.value.tried.has('jessibuca')) {
         activePlayerType.value = 'jessibuca'
-        ElMessage.warning('HLS 播放失败，已自动切换到 Jessibuca')
+        ElMessage.warning(t('player.hlsToJessibuca'))
         switched = true
       } else if (hasWebrtc.value && !fallbackState.value.tried.has('webrtc')) {
         activePlayerType.value = 'webrtc'
-        ElMessage.warning('HLS 播放失败，已自动切换到 webRtc')
+        ElMessage.warning(t('player.hlsToWebRtc'))
         switched = true
       } else if (hasH265.value && !fallbackState.value.tried.has('h265')) {
         activePlayerType.value = 'h265'
-        ElMessage.warning('HLS 播放失败，已自动切换到 H265web')
+        ElMessage.warning(t('player.hlsToH265web'))
       }
     }
   }
   if (!switched) {
-    triggerAutoHealRefresh('检测到持续出画异常')
+    triggerAutoHealRefresh(t('player.persistentPlaybackError'))
   }
 }
 

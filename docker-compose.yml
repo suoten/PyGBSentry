@@ -2,7 +2,8 @@ version: '3.8'
 
 services:
   db:
-    image: postgres:14-alpine
+    # DEVOPS: postgres:14 存在已知 CVE，升级到 16-alpine（PG 16 长期支持，安全补丁最新）
+    image: postgres:16-alpine
     restart: always
     environment:
       POSTGRES_USER: postgres
@@ -27,7 +28,8 @@ services:
         max-file: "3"
 
   redis:
-    image: redis:6-alpine
+    # DEVOPS: redis:6 存在已知 CVE，升级到 7-alpine（Redis 7 安全补丁最新，ACL/功能增强）
+    image: redis:7-alpine
     restart: always
     command: redis-server --requirepass ${REDIS_PASSWORD:?Please set REDIS_PASSWORD in .env or environment variable}  # FIXED: i18n - replaced hardcoded Chinese with English
     volumes:

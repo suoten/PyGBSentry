@@ -13,6 +13,7 @@ except Exception:
     logger.warning("numpy 导入失败，AI 视觉功能不可用")
     np = None
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from app.db.session import AsyncSessionLocal
 from app.models.stream_session import StreamSession
 from app.models.alarm import Alarm
@@ -31,6 +32,7 @@ except Exception:
 
 class VisionHub:
     def __init__(self):
+        """Internal helper:   init  ."""
         self.running = False
         self.model = None
         self.check_interval = 5 # Seconds between checks per stream
@@ -39,6 +41,7 @@ class VisionHub:
         self.enabled = True
 
     async def start(self):
+        """Start."""
         if not bool(getattr(settings, "VISION_HUB_ENABLED", False)):
             self.enabled = False
             logger.info("AI Vision Hub disabled by config (VISION_HUB_ENABLED=false).")
@@ -68,16 +71,18 @@ class VisionHub:
 
             logger.info("AI Vision Hub started with YOLOv8n")
             self.running = True
-            asyncio.create_task(self._run_loop())
+            fire_and_forget(self._run_loop())  # P0-16: 保存引用防 GC + 异常日志
         except Exception as e:
             logger.error(f"Failed to start AI Vision Hub: {e}")
 
     async def stop(self):
+        """Stop."""
         self.running = False
         if self._executor:
             self._executor.shutdown(wait=False)
 
     async def _run_loop(self):
+        """Internal helper:  run loop."""
         while self.running:
             try:
                 async with AsyncSessionLocal() as session:
@@ -87,7 +92,7 @@ class VisionHub:
 
                     for stream in streams:
                         if stream.stream not in self._processing_streams:
-                            asyncio.create_task(self._process_stream_safe(stream))
+                            fire_and_forget(self._process_stream_safe(stream))  # P0-16: 保存引用防 GC + 异常日志
 
             except Exception as e:
                 logger.error(f"Vision loop error: {e}")
@@ -95,6 +100,7 @@ class VisionHub:
             await asyncio.sleep(self.check_interval)
 
     async def _process_stream_safe(self, stream: StreamSession):
+        """Internal helper:  process stream safe."""
         self._processing_streams.add(stream.stream)
         try:
             async with AsyncSessionLocal() as session:
@@ -103,6 +109,7 @@ class VisionHub:
             self._processing_streams.remove(stream.stream)
 
     async def _process_stream(self, stream: StreamSession, session):
+        """Internal helper:  process stream."""
         # Prefer RTSP for lower latency in snapshot capture if possible
         # Here we use FLV from ZLM for consistency
         stream_url = f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}/live/{stream.stream}.live.flv"
@@ -142,7 +149,8 @@ class VisionHub:
                         "escalation_level": 0,
                         "escalation_state": "open"
                     }
-                    asyncio.create_task(alarm_manager.broadcast_alarm(alarm_data))
+                    # FIX: [2026-07-03] broadcast_alarm 缺少 tenant_id 参数导致 TypeError [全栈工程师]
+                    fire_and_forget(alarm_manager.broadcast_alarm(alarm_data, alarm.tenant_id))  # P0-16: 保存引用防 GC + 异常日志
 
                 await session.commit()
 
@@ -150,6 +158,7 @@ class VisionHub:
             logger.error(f"AI stream process error: {e}", exc_info=True)
 
     def _detect(self, stream_url):
+        """Internal helper:  detect."""
         if cv2 is None or self.model is None:
             return None
 

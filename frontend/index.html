@@ -10,6 +10,8 @@
     <meta name="apple-mobile-web-app-title" content="PyGBSentry" />
     <link rel="apple-touch-icon" href="/icons/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- P0-8: CSP meta（nginx 响应头优先；此 meta 作为开发模式兜底） -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:;" />
     <title>PyGBSentry</title>
   </head>
   <body>

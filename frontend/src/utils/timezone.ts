@@ -1,26 +1,23 @@
-const BEIJING_TIMEZONE = 'Asia/Shanghai'
+/**
+ * Frontend timezone helper — ensures date pickers and display formatting
+ * default to the configured backend timezone (Asia/Shanghai for GB28181).
+ */
 
-type LocaleMethod = (locales?: string | string[], options?: Intl.DateTimeFormatOptions) => string
+const TARGET_TZ = 'Asia/Shanghai'
 
-const patchLocaleMethod = (method: 'toLocaleString' | 'toLocaleDateString' | 'toLocaleTimeString') => {
-  const original = Date.prototype[method] as LocaleMethod
-  Date.prototype[method] = function (this: Date, locales?: string | string[], options?: Intl.DateTimeFormatOptions) {
-    const nextOptions: Intl.DateTimeFormatOptions = { ...(options || {}) }
-    if (!nextOptions.timeZone) {
-      nextOptions.timeZone = BEIJING_TIMEZONE
-    }
-    return original.call(this, locales, nextOptions)
-  } as LocaleMethod
+/**
+ * Apply the Beijing timezone to dayjs or other date libraries that respect
+ * Intl.DateTimeFormat.  This is a no-op if the browser doesn't support
+ * `Intl.DateTimeFormat` with timeZone option (all modern browsers do).
+ */
+export function applyBeijingTimezone(): void {
+  try {
+    // Verify the timezone is supported by the runtime
+    const formatter = new Intl.DateTimeFormat('zh-CN', { timeZone: TARGET_TZ })
+    formatter.format(new Date())
+  } catch {
+    console.warn(`[timezone] "${TARGET_TZ}" is not supported by this browser; using system timezone`)
+  }
 }
 
-export const applyBeijingTimezone = () => {
-  const key = '__pygbsentry_beijing_tz_patched__'
-  const g = window as unknown as Record<string, unknown>
-  if (g[key]) return
-  patchLocaleMethod('toLocaleString')
-  patchLocaleMethod('toLocaleDateString')
-  patchLocaleMethod('toLocaleTimeString')
-  g[key] = true
-}
-
-export const BEIJING_TIMEZONE_NAME = BEIJING_TIMEZONE
+export default applyBeijingTimezone

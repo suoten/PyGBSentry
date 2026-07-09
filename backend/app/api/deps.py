@@ -29,6 +29,19 @@ async def get_current_user(
     db: AsyncSession = Depends(get_db),
     token: str | None = Depends(oauth2_scheme),
 ) -> User:
+    """Extract and validate the JWT token from the Authorization header or cookie.
+
+    Supports both Bearer token (header) and HttpOnly cookie fallback for
+    ``<img src>`` / ``<a download>`` scenarios. Returns the authenticated
+    ``User`` or raises 401.
+    """
+    if not token:
+        # P0-6: Authorization 头缺失时回退到 HttpOnly cookie（login 已设置 access_token cookie）
+        # 仅用于 <img src> / <a download> 等无法添加 Authorization 头的同源请求
+        # samesite=lax 确保不会在跨站子资源请求中发送，CSRF 安全
+        cookie_token = request.cookies.get("access_token")
+        if cookie_token:
+            token = cookie_token
     if not token:
         # 空 token 应直接抛 401，原 pass 逻辑导致后续用空字符串继续校验
         raise HTTPException(
@@ -121,7 +134,7 @@ async def get_current_user(
 
     stmt = select(UserApiKey).where(
         UserApiKey.key_prefix == prefix,
-        UserApiKey.is_active == True,
+        UserApiKey.is_active,
         UserApiKey.revoked_at.is_(None),
     )
     result = await db.execute(stmt)
@@ -195,15 +208,20 @@ async def get_current_user(
     if matched.tenant_id:
         user.tenant_id = matched.tenant_id
 
+    # FIX: [2026-07-04] 使用独立 session 更新 API key last_used_at，避免 commit 失败后
+    # rollback 使调用方 session 中的 user 对象过期，导致后续属性访问触发异步懒加载
+    # 异常 (MissingGreenlet) → HTTP 500。 [全栈工程师]
     try:
-        await db.execute(
-            update(UserApiKey)
-            .where(UserApiKey.id == matched.id)
-            .values(last_used_at=datetime.now(timezone.utc))
-        )
-        await db.commit()
+        from app.db.session import AsyncSessionLocal as _ASL
+        async with _ASL() as _key_db:
+            await _key_db.execute(
+                update(UserApiKey)
+                .where(UserApiKey.id == matched.id)
+                .values(last_used_at=datetime.now(timezone.utc))
+            )
+            await _key_db.commit()
     except Exception:
-        await db.rollback()
+        logger.warning("Failed to update API key last_used_at", exc_info=True)
 
     return user
 
@@ -211,6 +229,7 @@ async def get_current_active_user(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    """Return the current user if their account is active, else raise 403."""
     if not current_user.is_active:
         tid = (current_user.tenant_id or "default").strip() or "default"
         await safe_auth_audit(
@@ -232,6 +251,7 @@ async def get_current_active_superuser(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> User:
+    """Return the current user if they are a superuser, else raise 403."""
     if not current_user.is_superuser:
         tid = (current_user.tenant_id or "default").strip() or "default"
         r = (current_user.role or "").strip()
@@ -253,6 +273,7 @@ async def get_current_active_superuser(
     return current_user
 
 def require_roles(allowed_roles: list[str]):
+    """Dependency factory: require the authenticated user to have one of the given roles."""
     normalized_allowed = [item.lower() for item in allowed_roles]
 
     async def _checker(
@@ -260,6 +281,7 @@ def require_roles(allowed_roles: list[str]):
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        """Internal helper:  checker."""
         if current_user.is_superuser:
             return current_user
         role = (current_user.role or "").lower()
@@ -313,6 +335,7 @@ def require_permission(permission: str):
         current_user: User = Depends(get_current_active_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
+        """Internal helper:  checker."""
         if current_user.is_superuser:
             return current_user
 
@@ -363,5 +386,8 @@ def require_permission(permission: str):
 
 
 async def require_server_edition() -> None:
-    if (settings.APP_EDITION or "oss").lower() != "server":
+    """Dependency: raise 403 if the running edition is not the server edition."""
+    # ARCHITECTURE: 统一使用 app.core.edition 进行版本判断
+    from app.core.edition import is_server_edition as _is_server_edition_fn
+    if not _is_server_edition_fn():
         raise HTTPException(status_code=403, detail="This feature requires the server edition")

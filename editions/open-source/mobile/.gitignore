@@ -1,6 +1,0 @@
-node_modules
-dist
-.hbuilderx
-.idea
-.DS_Store
-pnpm-lock.yaml

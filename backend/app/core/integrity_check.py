@@ -2,6 +2,7 @@ import hashlib
 import os
 import json
 from pathlib import Path
+from loguru import logger
 
 _CACHE_FILE = Path(__file__).resolve().parent / ".integrity_hashes.json"
 
@@ -27,7 +28,8 @@ def _load_cached_hashes() -> dict[str, str]:
         if _CACHE_FILE.exists():
             with open(_CACHE_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to load cached integrity hashes: {e}")
         pass
     return {}
 
@@ -36,7 +38,8 @@ def _save_cached_hashes(hashes: dict[str, str]) -> None:
     try:
         with open(_CACHE_FILE, "w", encoding="utf-8") as f:
             json.dump(hashes, f, indent=2)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to save cached integrity hashes: {e}")
         pass
 
 

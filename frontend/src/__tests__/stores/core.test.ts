@@ -21,19 +21,40 @@ vi.mock('@/utils/http', () => ({
   },
 }))
 
+// Provide a no-op i18n so stores that call useI18n() outside a component work.
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({ t: (k: string) => k }),
+}))
+
+// Avoid async verify-token side effects from refreshRoleFromBackend.
+vi.mock('@/utils/auth', () => ({
+  getVerifiedRoleInfo: vi.fn(() => Promise.resolve(null)),
+}))
+
+// Mock element-plus to avoid loading the full library in jsdom (very slow).
+vi.mock('element-plus', () => ({
+  ElMessage: { error: vi.fn(), success: vi.fn(), warning: vi.fn(), info: vi.fn() },
+}))
+
+// Mock logger to keep the test lightweight (alarm store imports it).
+vi.mock('@/utils/logger', () => ({
+  logger: { warn: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() },
+}))
+
 describe('useUserStore', () => {
   beforeEach(() => {
     localStorageMock.clear()
+    sessionStorage.clear()
     setActivePinia(createPinia())
   })
 
-  it('initial state reflects localStorage', async () => {
-    localStorageMock.setItem('token', 'test-token')
-    localStorageMock.setItem('username', 'admin')
+  it('initial state reflects sessionStorage', async () => {
+    // token lives in sessionStorage; username is NOT persisted — fetched from API via fetchUserInfo()
+    sessionStorage.setItem('token', 'test-token')
     const { useUserStore } = await import('@/stores/user')
     const store = useUserStore()
     expect(store.isLoggedIn).toBe(true)
-    expect(store.username).toBe('admin')
+    expect(store.username).toBe('')
   })
 
   it('setAuth updates state and localStorage', async () => {
@@ -45,7 +66,7 @@ describe('useUserStore', () => {
     expect(store.role).toBe('admin')
     expect(store.isSuperuser).toBe(true)
     expect(store.tenantId).toBe('t1')
-    expect(localStorageMock.setItem).toHaveBeenCalledWith('token', 'new-token')
+    expect(sessionStorage.getItem('token')).toBe('new-token')
   })
 
   it('clearAuth resets all state', async () => {
@@ -59,60 +80,7 @@ describe('useUserStore', () => {
   })
 })
 
-describe('useAlarmStore', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-  })
+// NOTE: useAlarmStore / usePluginStore 测试已移除 — 对应的 @/stores/alarm、@/stores/plugin
+// 在开源版中已删除（参见 git status），保留会导致整个 core.test.ts 因 import 解析失败而 0 测试通过。
+// useUserStore 测试与 localStorage 安全策略直接相关（token 存于 sessionStorage），保留并确保可运行。
 
-  it('initial state is empty', async () => {
-    const { useAlarmStore } = await import('@/stores/alarm')
-    const store = useAlarmStore()
-    expect(store.alarms).toEqual([])
-    expect(store.unreadCount).toBe(0)
-  })
-
-  it('addAlarm prepends and increments unread', async () => {
-    const { useAlarmStore } = await import('@/stores/alarm')
-    const store = useAlarmStore()
-    store.addAlarm({ id: '1', alarm_type: 'motion' })
-    expect(store.alarms).toHaveLength(1)
-    expect(store.unreadCount).toBe(1)
-    expect(store.alarms[0].id).toBe('1')
-  })
-
-  it('recentAlarms returns first 20', async () => {
-    const { useAlarmStore } = await import('@/stores/alarm')
-    const store = useAlarmStore()
-    for (let i = 0; i < 25; i++) {
-      store.addAlarm({ id: String(i) })
-    }
-    expect(store.recentAlarms).toHaveLength(20)
-  })
-})
-
-describe('usePluginStore', () => {
-  beforeEach(() => {
-    setActivePinia(createPinia())
-  })
-
-  it('canUse checks both purchased and installed', async () => {
-    const { usePluginStore } = await import('@/stores/plugin')
-    const store = usePluginStore()
-    store.purchasedIds = ['plugin_a', 'plugin_b']
-    store.installedMenus = [{ plugin_id: 'plugin_a', name: 'A', path: '/a' }]
-    expect(store.canUse('plugin_a')).toBe(true)
-    expect(store.canUse('plugin_b')).toBe(false)
-    expect(store.canUse('plugin_c')).toBe(false)
-  })
-
-  it('isPurchased and isInstalled work independently', async () => {
-    const { usePluginStore } = await import('@/stores/plugin')
-    const store = usePluginStore()
-    store.purchasedIds = ['p1']
-    store.installedMenus = [{ plugin_id: 'p2', name: 'P2', path: '/p2' }]
-    expect(store.isPurchased('p1')).toBe(true)
-    expect(store.isPurchased('p2')).toBe(false)
-    expect(store.isInstalled('p2')).toBe(true)
-    expect(store.isInstalled('p1')).toBe(false)
-  })
-})

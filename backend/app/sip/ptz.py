@@ -4,10 +4,9 @@ from app.core.config import settings, sip_host_for_contact
 from app.sip.trace_events import should_warn_unknown_event_once
 from app.services.sip_trace_store import schedule_store_sip_trace
 from app.sip.send import send_sip_bytes
+from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from loguru import logger
 import random
-import time
-import itertools
 import asyncio
 
 # GB28181协议 — PTZ指令限流器，防止SIP消息洪泛
@@ -45,12 +44,6 @@ class _PtzRateLimiter:
         return True
 
 _ptz_rate_limiter = _PtzRateLimiter(min_interval=float(getattr(settings, "PTZ_MIN_INTERVAL_SECONDS", 0.1) or 0.1))
-
-# SN序列号使用递增计数器替代随机数
-_sn_counter = itertools.count(10001)
-
-def _next_sn() -> int:
-    return next(_sn_counter)
 
 
 def _attach_trace_header(req: SipMessage) -> None:
@@ -98,19 +91,19 @@ class SipPtz:
         # Param1 (Horizontal Speed)
         # Param2 (Vertical Speed)
         # CombineCode2 (Zoom Speed & Checksum)
-        
+
         cmd = [0xA5, 0x0F, 0x01, cmd_code, param1, parameter2, combine_code2 & 0xF0]
-        
+
         # Checksum: (A5+0F+01+CmdCode+Param1+Param2+CombineCode2)%256
         checksum = sum(cmd) % 256
         cmd.append(checksum)
-        
+
         return "".join([f"{b:02X}" for b in cmd])
 
     async def _send_device_control_xml(self, asset, channel_id: str, transport_info: tuple, xml_body: str, call_suffix: str, log_label: str):
         """Send generic DeviceControl MESSAGE."""
         addr, proto, transport = transport_info
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
@@ -139,11 +132,11 @@ class SipPtz:
         _ptz_rate_limiter.cancel_pending(device_id)  # PTZ最新指令优先策略 — 新指令取消旧指令
         if not await _ptz_rate_limiter.acquire(device_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
-        
+
         # SN序列号使用递增计数器替代随机数
-        sn = _next_sn()
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = ""
-        
+
         # 3D 放大/定位 (DragZoom - GB/T 28181-2022 & 2016 扩展)
         if command in ("dragzoomin", "dragzoomout") and drag_data:
             length = drag_data.get("length", 720)
@@ -153,7 +146,7 @@ class SipPtz:
             length_x = drag_data.get("lengthX", 100)
             length_y = drag_data.get("lengthY", 100)
             cmd_type = "DragZoomIn" if command == "dragzoomin" else "DragZoomOut"
-            
+
             xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -298,7 +291,7 @@ class SipPtz:
                         await device_control.send_alarm_reset(asset, channel_id, _transport_info)
                 logger.info(f"[trace_id=] Sent PTZ {command} to {channel_id} via device_control")
                 return
-            
+
             xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -313,19 +306,19 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_ptz@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
-        
+
         req.body = xml_body
-        
+
         # Send
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
@@ -374,7 +367,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_preset_cmd(preset_id)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -392,7 +385,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_preset@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -420,7 +413,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_preset_set_cmd(preset_id)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -438,7 +431,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_preset_set@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -466,7 +459,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_preset_delete_cmd(preset_id)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -484,7 +477,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_preset_delete@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -505,7 +498,7 @@ class SipPtz:
         )
 
     # ==================== 光圈控制 ====================
-    
+
     def _get_iris_cmd(self, command: str, speed: int = 128) -> str:
         """
         生成光圈控制命令
@@ -513,7 +506,7 @@ class SipPtz:
         speed: 0-255
         """
         speed = max(0, min(255, int(speed)))
-        
+
         if command == 'in':
             # 光圈控制指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x02, speed, 0x00, 0x00]
@@ -521,11 +514,11 @@ class SipPtz:
             cmd = [0xA5, 0x0F, 0x01, 0x04, speed, 0x00, 0x00]
         else:  # stop
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
-        
+
         checksum = sum(cmd) % 256
         cmd.append(checksum)
         return "".join([f"{b:02X}" for b in cmd])
-    
+
     async def send_iris(self, asset, resource, transport_info: tuple, command: str, speed: int = 128):
         """."""
         addr, proto, transport = transport_info
@@ -534,7 +527,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_iris_cmd(command, speed)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -552,7 +545,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_iris@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -574,7 +567,7 @@ class SipPtz:
         )
 
     # ==================== 聚焦控制 ====================
-    
+
     def _get_focus_cmd(self, command: str, speed: int = 128) -> str:
         """
         生成聚焦控制命令
@@ -582,7 +575,7 @@ class SipPtz:
         speed: 0-255
         """
         speed = max(0, min(255, int(speed)))
-        
+
         if command == 'near':
             # 聚焦控制指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x01, speed, 0x00, 0x00]
@@ -590,11 +583,11 @@ class SipPtz:
             cmd = [0xA5, 0x0F, 0x01, 0x03, speed, 0x00, 0x00]
         else:  # stop
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
-        
+
         checksum = sum(cmd) % 256
         cmd.append(checksum)
         return "".join([f"{b:02X}" for b in cmd])
-    
+
     async def send_focus(self, asset, resource, transport_info: tuple, command: str, speed: int = 128):
         """."""
         addr, proto, transport = transport_info
@@ -603,7 +596,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_focus_cmd(command, speed)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -621,7 +614,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_focus@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -643,7 +636,7 @@ class SipPtz:
         )
 
     # ==================== 巡航控制 ====================
-    
+
     def _get_cruise_cmd(self, cruise_id: int, preset_id: int, action: str, speed: int = 128, stay_time: int = 5) -> str:
         """
         生成巡航控制命令
@@ -656,7 +649,7 @@ class SipPtz:
         """
         cruise_id = max(1, min(255, int(cruise_id)))
         preset_id = max(1, min(255, int(preset_id)))
-        
+
         if action == 'add':
             # 巡航添加指令扩展为8字节，GB28181标准PTZCmd固定8字节格式
             cmd = [0xA5, 0x0F, 0x01, 0x82, cruise_id, preset_id, 0x00]
@@ -687,11 +680,11 @@ class SipPtz:
         else:
             # fallback指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
-        
+
         checksum = sum(cmd) % 256
         cmd.append(checksum)
         return "".join([f"{b:02X}" for b in cmd])
-    
+
     async def send_cruise(self, asset, resource, transport_info: tuple, cruise_id: int, preset_id: int, action: str, speed: int = 128, stay_time: int = 5):
         """."""
         addr, proto, transport = transport_info
@@ -700,7 +693,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_cruise_cmd(cruise_id, preset_id, action, speed, stay_time)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -718,7 +711,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_cruise@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -740,7 +733,7 @@ class SipPtz:
         )
 
     # ==================== 扫描控制 ====================
-    
+
     def _get_scan_cmd(self, scan_id: int, action: str, speed: int = 128) -> str:
         """
         生成扫描控制命令
@@ -749,7 +742,7 @@ class SipPtz:
         speed: 扫描速度 1-4095
         """
         scan_id = max(0, min(255, int(scan_id)))
-        
+
         if action == 'start':
             # 扫描开始指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x99, scan_id, 0x00, 0x00]
@@ -771,11 +764,11 @@ class SipPtz:
         else:
             # fallback指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
-        
+
         checksum = sum(cmd) % 256
         cmd.append(checksum)
         return "".join([f"{b:02X}" for b in cmd])
-    
+
     async def send_scan(self, asset, resource, transport_info: tuple, scan_id: int, action: str, speed: int = 128):
         """."""
         addr, proto, transport = transport_info
@@ -784,7 +777,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_scan_cmd(scan_id, action, speed)
-        sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -802,7 +795,7 @@ class SipPtz:
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
         req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = f"{sn}_scan@{sip_host_for_contact()}"
-        req.headers["CSeq"] = f"1 MESSAGE"
+        req.headers["CSeq"] = "1 MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -847,7 +840,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_wiper_cmd(command)
-        _wiper_sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        _wiper_sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>
@@ -889,7 +882,7 @@ class SipPtz:
         if not await _ptz_rate_limiter.acquire(asset.gb_id):  # PTZ最新指令优先策略 — 被新指令取代则跳过
             return
         ptz_hex = self._get_aux_switch_cmd(aux_id, command)
-        _aux_sn = _next_sn()  # SN序列号使用递增计数器替代hash
+        _aux_sn = next_sn()  # P2-2: 统一 SN 生成策略
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
 <CmdType>DeviceControl</CmdType>

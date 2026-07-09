@@ -5,6 +5,7 @@ from app.models.asset import Asset
 from app.models.resource import Resource
 from app.models.device_record_download_task import DeviceRecordDownloadTask
 from app.core.config import settings
+from loguru import logger
 import datetime
 import json
 
@@ -50,7 +51,8 @@ async def check_channel_quota(db: AsyncSession, tenant_id: str) -> tuple[bool, i
 def _safe_int(value: object, default_value: int) -> int:
     try:
         return int(value)  # type: ignore[arg-type]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Commercial guard check failed, using fallback (security concern): {e}")
         return int(default_value)
 
 
@@ -93,7 +95,8 @@ def _parse_record_limits_from_entitlements(entitlements: str | None, defaults: d
                     "max_concurrent_downloads": max(0, _safe_int(rec.get("max_concurrent_downloads"), defaults["max_concurrent_downloads"])),
                     "max_download_speed": max(0, _safe_int(rec.get("max_download_speed"), defaults["max_download_speed"])),
                 }
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Commercial guard check failed, using fallback (security concern): {e}")
             return dict(defaults)
     return dict(defaults)
 

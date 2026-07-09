@@ -2,10 +2,10 @@
   <div class="app-page space-y-4">
     <PageContainer>
       <template #header>
-        <PageHeader title="国标级联" description="配置上级平台、推送范围与注册保活（含运行态诊断）">
+        <PageHeader :title="t('cascade.headerTitle')" :description="t('cascade.headerDesc')">
           <template #actions>
-            <el-button type="primary" size="small" @click="openForm()">新增</el-button>
-            <el-button size="small" @click="loadList" :loading="loading">刷新</el-button>
+            <el-button type="primary" size="small" @click="openForm()">{{ t('cascade.add') }}</el-button>
+            <el-button size="small" @click="loadList" :loading="loading">{{ t('cascade.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -13,107 +13,107 @@
     <TableCard v-loading="loading">
       <template #header>
         <div class="flex items-center justify-between">
-          <div class="font-medium">列表</div>
-          <div class="text-xs" style="color: var(--el-text-color-secondary)">共 {{ list.length }} 条</div>
+          <div class="font-medium">{{ t('cascade.list') }}</div>
+          <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('cascade.totalRecords', { total: list.length }) }}</div>
         </div>
       </template>
-      <el-table :data="paginatedList" stripe size="small" :empty-text="'暂无国标级联，点击「新增」添加'">
-        <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="server_gb_id" label="上级平台国标ID" width="180" />
-        <el-table-column label="上级地址" width="160">
+      <el-table :data="paginatedList" stripe size="small" :empty-text="t('cascade.emptyHint')">
+        <el-table-column prop="name" :label="t('cascade.name')" min-width="120" />
+        <el-table-column prop="server_gb_id" :label="t('cascade.upstreamGbId')" width="180" />
+        <el-table-column :label="t('cascade.upstreamAddress')" width="160">
           <template #default="{ row }">{{ row.server_ip }}:{{ row.server_port }}</template>
         </el-table-column>
-        <el-table-column label="传输" width="80">
+        <el-table-column :label="t('cascade.transport')" width="80">
           <template #default="{ row }">
             <el-tag size="small" type="info">{{ String(row.transport || 'UDP').toUpperCase() }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="client_gb_id" label="本平台国标ID" width="180" />
-        <el-table-column label="连接状态" width="120">
+        <el-table-column prop="client_gb_id" :label="t('cascade.localGbId')" width="180" />
+        <el-table-column :label="t('cascade.connectStatus')" width="120">
           <template #default="{ row }">
             <div class="flex items-center gap-1">
-              <span v-if="!row.enable" class="text-xs" style="color:var(--el-text-color-secondary)">已禁用</span>
+              <span v-if="!row.enable" class="text-xs" style="color:var(--el-text-color-secondary)">{{ t('cascade.disabled') }}</span>
               <template v-else-if="row.is_online">
                 <span class="text-sm">🟢</span>
-                <span class="text-xs">已连接</span>
+                <span class="text-xs">{{ t('cascade.connected') }}</span>
               </template>
               <template v-else-if="runtimeRegisterOk(row)">
                 <span class="text-sm">🟡</span>
-                <el-tooltip :content="'注册成功但当前离线，可能保活丢失'" placement="top">
-                  <span class="text-xs">曾连接</span>
+                <el-tooltip :content="t('cascade.registerOkButOffline')" placement="top">
+                  <span class="text-xs">{{ t('cascade.everConnected') }}</span>
                 </el-tooltip>
               </template>
               <template v-else-if="runtimeField(row, 'register.last_sent_at')">
                 <span class="text-sm">🔴</span>
-                <el-tooltip :content="runtimeError(row) || '注册未成功'" placement="top">
-                  <span class="text-xs">连接失败</span>
+                <el-tooltip :content="runtimeError(row) || t('cascade.registerNotSuccessful')" placement="top">
+                  <span class="text-xs">{{ t('cascade.connectFailed') }}</span>
                 </el-tooltip>
               </template>
               <template v-else>
-                <span class="text-xs" style="color:var(--el-text-color-secondary)">未连接</span>
+                <span class="text-xs" style="color:var(--el-text-color-secondary)">{{ t('cascade.notConnected') }}</span>
               </template>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="保活" width="100">
+        <el-table-column :label="t('cascade.keepalive')" width="100">
           <template #default="{ row }">
             <template v-if="!row.enable || !row.is_online">
               <span class="text-xs" style="color:var(--el-text-color-secondary)">—</span>
             </template>
             <template v-else-if="toInt(runtimeField(row, 'keepalive.miss_count')) === 0">
-              <el-tag type="success" size="small">正常</el-tag>
+              <el-tag type="success" size="small">{{ t('cascade.normal') }}</el-tag>
             </template>
             <template v-else>
-              <el-tooltip :content="`已连续 ${runtimeField(row, 'keepalive.miss_count')} 次未收到心跳回复`" placement="top">
-                <el-tag type="warning" size="small">丢失 {{ runtimeField(row, 'keepalive.miss_count') }} 次</el-tag>
+              <el-tooltip :content="t('cascade.keepaliveMissTip', { count: runtimeField(row, 'keepalive.miss_count') })" placement="top">
+                <el-tag type="warning" size="small">{{ t('cascade.keepaliveMissCount', { count: runtimeField(row, 'keepalive.miss_count') }) }}</el-tag>
               </el-tooltip>
             </template>
           </template>
         </el-table-column>
-        <el-table-column label="目录推送" width="120">
+        <el-table-column :label="t('cascade.catalogPush')" width="120">
           <template #default="{ row }">
             <template v-if="!row.enable || !row.is_online">
               <span class="text-xs" style="color:var(--el-text-color-secondary)">—</span>
             </template>
             <template v-else-if="String(runtimeField(row, 'catalog.last_push_ok')) === 'true'">
-              <el-tag type="success" size="small">已推送</el-tag>
+              <el-tag type="success" size="small">{{ t('cascade.pushed') }}</el-tag>
             </template>
             <template v-else-if="String(runtimeField(row, 'catalog.last_push_ok')) === 'false' && runtimeField(row, 'catalog.last_push_finished_at')">
-              <el-tooltip :content="runtimeField(row, 'catalog.last_push_error') || '推送失败'" placement="top">
-                <el-tag type="danger" size="small">推送失败</el-tag>
+              <el-tooltip :content="runtimeField(row, 'catalog.last_push_error') || t('cascade.pushFailed')" placement="top">
+                <el-tag type="danger" size="small">{{ t('cascade.pushFailed') }}</el-tag>
               </el-tooltip>
             </template>
             <template v-else-if="runtimeField(row, 'catalog.last_push_started_at')">
-              <el-tag type="warning" size="small">推送中</el-tag>
+              <el-tag type="warning" size="small">{{ t('cascade.pushing') }}</el-tag>
             </template>
             <template v-else>
-              <el-tooltip content="尚未推送过目录，点击「更多→推送目录」触发" placement="top">
-                <el-tag type="info" size="small">未推送</el-tag>
+              <el-tooltip :content="t('cascade.notPushedHint')" placement="top">
+                <el-tag type="info" size="small">{{ t('cascade.notPushed') }}</el-tag>
               </el-tooltip>
             </template>
           </template>
         </el-table-column>
-        <el-table-column label="启用" width="70">
+        <el-table-column :label="t('cascade.enable')" width="70">
           <template #default="{ row }">
             <el-tag :type="row.enable ? 'success' : 'info'" size="small" effect="plain">
-              {{ row.enable ? '开' : '关' }}
+              {{ row.enable ? t('cascade.on') : t('cascade.off') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="240" fixed="right">
+        <el-table-column :label="t('cascade.action')" width="240" fixed="right">
           <template #default="{ row }">
             <div class="table-action-inline">
-              <el-button link type="primary" size="small" @click="openForm(row)">编辑</el-button>
-              <el-button link type="primary" size="small" @click="openDiagnosis(row)" :loading="actionLoading[row.id]?.diagnosis">诊断</el-button>
+              <el-button link type="primary" size="small" @click="openForm(row)">{{ t('cascade.edit') }}</el-button>
+              <el-button link type="primary" size="small" @click="openDiagnosis(row)" :loading="actionLoading[row.id]?.diagnosis">{{ t('cascade.diagnosis') }}</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => handlePlatformMoreCommand(row, cmd)">
-                <el-button link type="primary" size="small">更多</el-button>
+                <el-button link type="primary" size="small">{{ t('cascade.more') }}</el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
-                    <el-dropdown-item command="catalogRange">推送范围</el-dropdown-item>
-                    <el-dropdown-item command="register" :disabled="!row.enable">立即注册</el-dropdown-item>
-                    <el-dropdown-item command="pushCatalog" :disabled="!row.enable">推送目录</el-dropdown-item>
-                    <el-dropdown-item command="logs">联动日志</el-dropdown-item>
-                    <el-dropdown-item command="delete" divided>删除</el-dropdown-item>
+                    <el-dropdown-item command="catalogRange">{{ t('cascade.catalogRange') }}</el-dropdown-item>
+                    <el-dropdown-item command="register" :disabled="!row.enable">{{ t('cascade.registerNow') }}</el-dropdown-item>
+                    <el-dropdown-item command="pushCatalog" :disabled="!row.enable">{{ t('cascade.pushCatalog') }}</el-dropdown-item>
+                    <el-dropdown-item command="logs">{{ t('cascade.linkedLogs') }}</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided>{{ t('cascade.delete') }}</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -128,68 +128,68 @@
           :total="list.length"
           layout="total, sizes, prev, pager, next, jumper"
           :page-sizes="[10, 20, 50, 100]"
-          prev-text="上一页"
-          next-text="下一页"
+          :prev-text="t('cascade.prevPage')"
+          :next-text="t('cascade.nextPage')"
           size="small"
         />
       </div>
     </TableCard>
 
-    <AppDialog v-model="dialogVisible" :title="editingId ? '编辑国标级联' : '新增国标级联'" size="small">
+    <AppDialog v-model="dialogVisible" :title="editingId ? t('cascade.editTitle') : t('cascade.addTitle')" size="small">
       <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px" size="small">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="上级平台名称" />
+        <el-form-item :label="t('cascade.name')" prop="name">
+          <el-input v-model="form.name" :placeholder="t('cascade.upstreamPlatformName')" />
         </el-form-item>
-        <el-form-item label="上级国标ID" prop="server_gb_id">
-          <el-input v-model="form.server_gb_id" placeholder="20位国标ID" :disabled="!!editingId" />
+        <el-form-item :label="t('cascade.upstreamGbIdLabel')" prop="server_gb_id">
+          <el-input v-model="form.server_gb_id" :placeholder="t('cascade.gbIdPlaceholder')" :disabled="!!editingId" />
         </el-form-item>
-        <el-form-item label="上级IP" prop="server_ip">
+        <el-form-item :label="t('cascade.upstreamIp')" prop="server_ip">
           <el-input v-model="form.server_ip" placeholder="192.168.1.100" />
         </el-form-item>
-        <el-form-item label="上级端口" prop="server_port">
+        <el-form-item :label="t('cascade.upstreamPort')" prop="server_port">
           <el-input-number v-model="form.server_port" :min="1" :max="65535" />
         </el-form-item>
-        <el-form-item label="传输方式">
+        <el-form-item :label="t('cascade.transportMode')">
           <el-select v-model="form.transport" style="width: 160px">
             <el-option label="UDP" value="UDP" />
             <el-option label="TCP" value="TCP" />
           </el-select>
         </el-form-item>
-        <el-form-item label="本平台国标ID" prop="client_gb_id">
-          <el-input v-model="form.client_gb_id" placeholder="本机作为下级时的国标ID" />
+        <el-form-item :label="t('cascade.localGbId')" prop="client_gb_id">
+          <el-input v-model="form.client_gb_id" :placeholder="t('cascade.localGbIdPlaceholder')" />
         </el-form-item>
-        <el-form-item label="密码">
-          <el-input v-model="form.password" type="password" :placeholder="t('cascade.assignedPassword')" show-password />  <!-- FIXED: P3 i18n -->
+        <el-form-item :label="t('cascade.password')">
+          <el-input v-model="form.password" type="password" :placeholder="t('cascade.assignedPassword')" show-password />
         </el-form-item>
-        <el-form-item label="注册间隔(秒)">
+        <el-form-item :label="t('cascade.registerInterval')">
           <el-input-number v-model="form.register_interval" :min="60" />
         </el-form-item>
-        <el-form-item label="保活间隔(秒)">
+        <el-form-item :label="t('cascade.keepaliveInterval')">
           <el-input-number v-model="form.keepalive_interval" :min="30" />
         </el-form-item>
-        <el-form-item label="目录批大小">
+        <el-form-item :label="t('cascade.catalogBatchSize')">
           <el-input-number v-model="form.catalog_batch_size" :min="0" :max="5000" />
         </el-form-item>
-        <el-form-item label="推送延迟(秒)">
+        <el-form-item :label="t('cascade.pushDelay')">
           <el-input-number v-model="form.catalog_push_delay_seconds" :min="0" :max="3600" />
         </el-form-item>
-        <el-form-item label="启用">
+        <el-form-item :label="t('cascade.enable')">
           <el-switch v-model="form.enable" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitting">确定</el-button>
+        <el-button @click="dialogVisible = false">{{ t('cascade.cancel') }}</el-button>
+        <el-button type="primary" @click="submitForm" :loading="submitting">{{ t('cascade.confirm') }}</el-button>
       </template>
     </AppDialog>
 
-    <AppDialog v-model="catalogVisible" title="目录推送范围" size="medium" @open="loadCatalogData">
-      <p class="text-sm mb-2" style="color: var(--el-text-color-secondary)">不选或清空表示向该上级平台推送全部通道；选择部分通道则仅推送所选通道。</p>
+    <AppDialog v-model="catalogVisible" :title="t('cascade.catalogRangeTitle')" size="medium" @open="loadCatalogData">
+      <p class="text-sm mb-2" style="color: var(--el-text-color-secondary)">{{ t('cascade.catalogRangeHint') }}</p>
       <el-select
         v-model="catalogResourceIds"
         multiple
         filterable
-        placeholder="选择要推送的通道（不选=全部）"
+        :placeholder="t('cascade.catalogRangePlaceholder')"
         style="width: 100%"
         :loading="catalogChannelsLoading"
       >
@@ -201,13 +201,13 @@
         />
       </el-select>
       <template #footer>
-        <el-button @click="catalogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveCatalogResources" :loading="catalogSaving">保存</el-button>
+        <el-button @click="catalogVisible = false">{{ t('cascade.cancel') }}</el-button>
+        <el-button type="primary" @click="saveCatalogResources" :loading="catalogSaving">{{ t('cascade.save') }}</el-button>
       </template>
     </AppDialog>
 
-    <AppDialog v-model="diagnosisVisible" title="级联诊断" size="large">
-      <div v-if="diagnosisLoading" class="h-24 flex items-center justify-center" style="color: var(--el-text-color-secondary)">加载中…</div>
+    <AppDialog v-model="diagnosisVisible" :title="t('cascade.diagnosisTitle')" size="large">
+      <div v-if="diagnosisLoading" class="h-24 flex items-center justify-center" style="color: var(--el-text-color-secondary)">{{ t('cascade.loading') }}</div>
       <template v-else>
         <div class="flex items-center justify-between mb-3">
           <div class="text-sm">
@@ -217,8 +217,8 @@
             </span>
           </div>
           <div class="flex items-center gap-2">
-            <el-button size="small" @click="copyDiagnosis">复制诊断</el-button>
-            <el-button size="small" @click="refreshDiagnosis" :loading="diagnosisLoading">刷新</el-button>
+            <el-button size="small" @click="copyDiagnosis">{{ t('cascade.copyDiagnosis') }}</el-button>
+            <el-button size="small" @click="refreshDiagnosis" :loading="diagnosisLoading">{{ t('cascade.refresh') }}</el-button>
           </div>
         </div>
 
@@ -226,25 +226,25 @@
         <div v-if="diagnosisData" class="cascade-diag-banner mb-4" :class="'cascade-diag-' + (diagnosisData.level === 'error' ? 'error' : diagnosisData.level === 'warn' ? 'warn' : 'ok')">
           <div class="cascade-diag-icon">{{ diagnosisData.level === 'error' ? '🔴' : diagnosisData.level === 'warn' ? '🟡' : '🟢' }}</div>
           <div>
-            <div class="cascade-diag-title">{{ diagnosisData.level === 'error' ? '级联存在异常' : diagnosisData.level === 'warn' ? '级联需要注意' : '级联状态正常' }}</div>
+            <div class="cascade-diag-title">{{ diagnosisData.level === 'error' ? t('cascade.diagLevelError') : diagnosisData.level === 'warn' ? t('cascade.diagLevelWarn') : t('cascade.diagLevelOk') }}</div>
             <div class="cascade-diag-desc">{{ diagBannerDesc }}</div>
           </div>
         </div>
 
         <!-- 注册流程步骤条 -->
         <div v-if="diagnosisData" class="mb-4">
-          <div class="text-sm font-semibold mb-3">注册流程检查</div>
+          <div class="text-sm font-semibold mb-3">{{ t('cascade.diagRegisterFlow') }}</div>
           <el-steps :active="diagStepActive" finish-status="success" :process-status="diagStepProcessStatus" align-center>
-            <el-step title="发送注册请求" :description="diagStep1Desc" />
-            <el-step title="身份验证" :description="diagStep2Desc" />
-            <el-step title="注册成功" :description="diagStep3Desc" />
-            <el-step title="心跳保活" :description="diagStep4Desc" />
+            <el-step :title="t('cascade.diagStep1')" :description="diagStep1Desc" />
+            <el-step :title="t('cascade.diagStep2')" :description="diagStep2Desc" />
+            <el-step :title="t('cascade.diagStep3')" :description="diagStep3Desc" />
+            <el-step :title="t('cascade.diagStep4')" :description="diagStep4Desc" />
           </el-steps>
         </div>
 
         <!-- 诊断结论（卡片式） -->
         <div v-if="(diagnosisData?.diagnostics || []).length > 0" class="mb-4">
-          <div class="text-sm font-semibold mb-2">诊断结果</div>
+          <div class="text-sm font-semibold mb-2">{{ t('cascade.diagResult') }}</div>
           <div class="space-y-2">
             <div v-for="d in diagnosisData.diagnostics" :key="d.key" class="p-3 rounded" :style="{
                 background: d.level === 'error' ? 'var(--el-color-danger-light-9)' : d.level === 'warn' ? 'var(--el-color-warning-light-9)' : 'var(--el-color-success-light-9)',
@@ -256,7 +256,7 @@
               </div>
               <div class="text-xs mb-2" style="color: var(--el-text-color-regular)">{{ d.detail }}</div>
               <div class="text-xs p-2 rounded" style="background:var(--el-fill-color); color: var(--el-color-primary)">
-                <strong>怎么办：</strong>{{ d.suggestion }}
+                <strong>{{ t('cascade.diagHowToFix') }}</strong>{{ d.suggestion }}
               </div>
             </div>
           </div>
@@ -264,11 +264,11 @@
 
         <!-- 高级详情（默认折叠） -->
         <el-collapse>
-          <el-collapse-item title="高级详情（技术数据）" name="advanced">
+          <el-collapse-item :title="t('cascade.diagAdvanced')" name="advanced">
             <el-collapse v-if="diagnosisData?.recent_trace_by_trace_id && Object.keys(diagnosisData.recent_trace_by_trace_id).length">
-              <el-collapse-item title="最近 SIP 信令事件" name="traces">
+              <el-collapse-item :title="t('cascade.diagRecentSip')" name="traces">
                 <div v-for="(events, traceId) in diagnosisData.recent_trace_by_trace_id" :key="traceId" class="mb-3">
-                  <div class="text-xs font-medium mb-1">会话: {{ traceId }}</div>
+                  <div class="text-xs font-medium mb-1">{{ t('cascade.diagSession', { id: traceId }) }}</div>
                   <el-timeline>
                     <el-timeline-item v-for="(evt, idx) in events" :key="idx" :color="getTraceColor(evt.event)">
                       <div class="text-xs">
@@ -285,29 +285,29 @@
             </el-collapse>
 
             <el-collapse v-if="diagnosisData?.sip_config">
-              <el-collapse-item title="SIP 配置" name="sip_config">
+              <el-collapse-item :title="t('cascade.diagSipConfig')" name="sip_config">
                 <el-descriptions :column="2" size="small" border>
                   <el-descriptions-item label="SIP_ID">{{ diagnosisData.sip_config.sip_id || '—' }}</el-descriptions-item>
                   <el-descriptions-item label="SIP_DOMAIN">{{ diagnosisData.sip_config.sip_domain || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="SIP_IP">{{ diagnosisData.sip_config.sip_ip || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="SIP_IP">{{ maskSipIp(diagnosisData.sip_config.sip_ip) || '—' }}</el-descriptions-item>
                   <el-descriptions-item label="SIP_PORT">{{ diagnosisData.sip_config.sip_port || '—' }}</el-descriptions-item>
                 </el-descriptions>
               </el-collapse-item>
             </el-collapse>
 
             <el-collapse v-if="diagnosisData?.recent_trace_events_count">
-              <el-collapse-item title="事件统计" name="stats">
+              <el-collapse-item :title="t('cascade.diagEventStats')" name="stats">
                 <div class="flex gap-2 flex-wrap">
-                  <el-tag type="info" size="small">发送注册: {{ diagnosisData.recent_trace_events_count.platform_register_sent || 0 }}</el-tag>
-                  <el-tag type="warning" size="small">收到401质询: {{ diagnosisData.recent_trace_events_count.platform_register_401 || 0 }}</el-tag>
-                  <el-tag type="success" size="small">注册成功: {{ diagnosisData.recent_trace_events_count.platform_register_ok || 0 }}</el-tag>
-                  <el-tag type="danger" size="small">注册失败: {{ diagnosisData.recent_trace_events_count.platform_register_failed || 0 }}</el-tag>
+                  <el-tag type="info" size="small">{{ t('cascade.diagStatRegisterSent', { count: diagnosisData.recent_trace_events_count.platform_register_sent || 0 }) }}</el-tag>
+                  <el-tag type="warning" size="small">{{ t('cascade.diagStat401', { count: diagnosisData.recent_trace_events_count.platform_register_401 || 0 }) }}</el-tag>
+                  <el-tag type="success" size="small">{{ t('cascade.diagStatRegisterOk', { count: diagnosisData.recent_trace_events_count.platform_register_ok || 0 }) }}</el-tag>
+                  <el-tag type="danger" size="small">{{ t('cascade.diagStatRegisterFailed', { count: diagnosisData.recent_trace_events_count.platform_register_failed || 0 }) }}</el-tag>
                 </div>
               </el-collapse-item>
             </el-collapse>
 
             <el-collapse>
-              <el-collapse-item title="运行态原始数据" name="runtime">
+              <el-collapse-item :title="t('cascade.diagRuntimeRaw')" name="runtime">
                 <pre class="text-xs whitespace-pre-wrap break-all p-3 rounded" style="background: var(--el-fill-color-light); border: 1px solid var(--el-border-color-lighter);">{{ JSON.stringify(diagnosisData?.runtime || {}, null, 2) }}</pre>
               </el-collapse-item>
             </el-collapse>
@@ -315,7 +315,7 @@
         </el-collapse>
       </template>
       <template #footer>
-        <el-button @click="diagnosisVisible = false">关闭</el-button>
+        <el-button @click="diagnosisVisible = false">{{ t('cascade.close') }}</el-button>
       </template>
     </AppDialog>
     </PageContainer>
@@ -328,6 +328,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFriendlyError } from '../utils/errorMessage'
+import { maskSipIp } from '../utils/sipMask' // FIX H-10: SIP IP 脱敏
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
@@ -371,15 +372,15 @@ const form = reactive({
 })
 
 const formRules = reactive<FormRules>({
-  name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
+  name: [{ required: true, message: t('cascade.nameRequired'), trigger: 'blur' }],
   server_gb_id: [
-    { required: true, message: '请输入上级国标ID', trigger: 'blur' },
-    { len: 20, message: '国标ID应为20位', trigger: 'blur' }
+    { required: true, message: t('cascade.upstreamGbIdRequired'), trigger: 'blur' },
+    { len: 20, message: t('cascade.gbIdLength'), trigger: 'blur' }
   ],
-  server_ip: [{ required: true, message: '请输入上级IP', trigger: 'blur' }],
+  server_ip: [{ required: true, message: t('cascade.upstreamIpRequired'), trigger: 'blur' }],
   client_gb_id: [
-    { required: true, message: '请输入本平台国标ID', trigger: 'blur' },
-    { len: 20, message: '国标ID应为20位', trigger: 'blur' }
+    { required: true, message: t('cascade.localGbIdRequired'), trigger: 'blur' },
+    { len: 20, message: t('cascade.gbIdLength'), trigger: 'blur' }
   ],
 })
 
@@ -391,7 +392,7 @@ const loadList = async () => {
   } catch (e: unknown) {
     list.value = []
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     loading.value = false
   }
@@ -450,18 +451,18 @@ const triggerRegister = async (row: Record<string, unknown>) => {
   const id = String(row.id || '')
   if (!id) return
   try {
-    await ElMessageBox.confirm(`确认向「${row.name || '该平台'}」发送注册请求？`, '立即注册', { type: 'warning' })
+    await ElMessageBox.confirm(t('cascade.registerConfirm', { name: row.name || t('cascade.thisPlatform') }), t('cascade.registerNow'), { type: 'warning' })
   } catch {
     return
   }
   actionLoading.value[id] = { ...(actionLoading.value[id] || {}), register: true }
   try {
     await api.post(`/api/v1/platforms/${id}/actions/register`)
-    ElMessage.success('已触发注册')
+    ElMessage.success(t('cascade.registerTriggered'))
     await loadList()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     actionLoading.value[id] = { ...(actionLoading.value[id] || {}), register: false }
   }
@@ -471,18 +472,18 @@ const triggerCatalog = async (row: Record<string, unknown>) => {
   const id = String(row.id || '')
   if (!id) return
   try {
-    await ElMessageBox.confirm(`确认向「${row.name || '该平台'}」推送目录？推送期间可能影响上级平台已有目录数据。`, '推送目录', { type: 'warning' })
+    await ElMessageBox.confirm(t('cascade.pushCatalogConfirm', { name: row.name || t('cascade.thisPlatform') }), t('cascade.pushCatalog'), { type: 'warning' })
   } catch {
     return
   }
   actionLoading.value[id] = { ...(actionLoading.value[id] || {}), catalog: true }
   try {
     await api.post(`/api/v1/platforms/${id}/actions/push-catalog`)
-    ElMessage.success('已触发目录推送')
+    ElMessage.success(t('cascade.pushCatalogTriggered'))
     await loadList()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     actionLoading.value[id] = { ...(actionLoading.value[id] || {}), catalog: false }
   }
@@ -545,24 +546,24 @@ const submitForm = async () => {
       }
       if (!String(form.password || '').trim()) delete payload.password
       await api.put(`/api/v1/platforms/${editingId.value}`, payload)
-      ElMessage.success('已更新')
+      ElMessage.success(t('cascade.updated'))
     } else {
       try {
         const existsRes = await api.get(`/api/v1/platforms/exist/${encodeURIComponent(String(form.server_gb_id || '').trim())}`)
         if (existsRes.data?.exists) {
-          await ElMessageBox.confirm('该上级平台国标ID已存在，仍要继续新增吗？', '提示', { type: 'warning' })
+          await ElMessageBox.confirm(t('cascade.gbIdExistsConfirm'), t('cascade.notice'), { type: 'warning' })
         }
       } catch {
         // ignore
       }
       await api.post('/api/v1/platforms', form)
-      ElMessage.success('已添加')
+      ElMessage.success(t('cascade.added'))
     }
     dialogVisible.value = false
     await loadList()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     submitting.value = false
   }
@@ -570,17 +571,17 @@ const submitForm = async () => {
 
 const handleDelete = async (row: Record<string, unknown>) => {
   try {
-    await ElMessageBox.confirm(`确定删除国标级联「${row.name}」？`, '确认', { type: 'warning' })
+    await ElMessageBox.confirm(t('cascade.deleteConfirm', { name: row.name }), t('cascade.confirmTitle'), { type: 'warning' })
   } catch {
     return
   }
   try {
     await api.delete(`/api/v1/platforms/${row.id}`)
-    ElMessage.success('已删除')
+    ElMessage.success(t('cascade.deleted'))
     await loadList()
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   }
 }
 
@@ -630,7 +631,7 @@ const loadCatalogData = async () => {
     catalogResourceIds.value = Array.isArray(crRes.data?.resource_ids) ? crRes.data.resource_ids : []
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
     catalogChannels.value = []
     catalogResourceIds.value = []
   } finally {
@@ -639,11 +640,11 @@ const loadCatalogData = async () => {
 }
 
 const catalogOptionLabel = (ch: Record<string, unknown>) => {
-  const t = Number(ch?.channel_type ?? 0)
-  if (t === 1) return `推流 / ${ch?.name || ch?.gb_id || '—'}`
-  if (t === 2) return `拉流代理(${ch?.protocol || '—'}) / ${ch?.name || ch?.gb_id || '—'}`
+  const chType = Number(ch?.channel_type ?? 0)
+  if (chType === 1) return t('cascade.catalogOptStream', { name: ch?.name || ch?.gb_id || '—' })
+  if (chType === 2) return t('cascade.catalogOptProxy', { protocol: ch?.protocol || '—', name: ch?.name || ch?.gb_id || '—' })
   const dev = ch?.device_name || ch?.device_id || '—'
-  return `${dev} / ${ch?.name || ch?.gb_id || '—'}`
+  return t('cascade.catalogOptDevice', { device: dev, name: ch?.name || ch?.gb_id || '—' })
 }
 
 const openCatalogDialog = (row: Record<string, unknown>) => {
@@ -658,11 +659,11 @@ const saveCatalogResources = async () => {
     await api.put(`/api/v1/platforms/${catalogPlatformId.value}/catalog-resources`, {
       resource_ids: catalogResourceIds.value || []
     })
-    ElMessage.success('已保存')
+    ElMessage.success(t('cascade.saved'))
     catalogVisible.value = false
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     catalogSaving.value = false
   }
@@ -677,7 +678,7 @@ const refreshDiagnosis = async () => {
     diagnosisData.value = res.data || null
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
     diagnosisLoading.value = false
   }
@@ -695,7 +696,7 @@ const openDiagnosis = async (row: Record<string, unknown>) => {
     diagnosisData.value = res.data || null
   } catch (e: unknown) {
     const friendly = getFriendlyError(e)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    ElMessage.error(friendly.suggestion ? t('cascade.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
     diagnosisVisible.value = false
   } finally {
     diagnosisLoading.value = false
@@ -707,9 +708,9 @@ const copyDiagnosis = async () => {
   if (!diagnosisData.value) return
   try {
     await navigator.clipboard.writeText(JSON.stringify(diagnosisData.value, null, 2))
-    ElMessage.success('已复制')
+    ElMessage.success(t('cascade.copied'))
   } catch {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('cascade.copyFailed'))
   }
 }
 
@@ -745,18 +746,18 @@ const getTraceTagType = (event: string) => {
 
 const diagEventLabel = (event: string) => {
   const map: Record<string, string> = {
-    'register_received': '收到注册',
-    'register_401_challenge': '要求验证身份',
-    'register_ok_platform': '平台注册成功',
-    'register_ok_device': '设备注册成功',
-    'register_auth_failed': '验证失败',
-    'platform_register_sent': '发送注册请求',
-    'platform_register_401': '收到身份质询',
-    'platform_register_ok': '注册成功',
-    'platform_register_failed': '注册失败',
-    'platform_keepalive_sent': '发送心跳',
-    'platform_keepalive_ack': '收到心跳确认',
-    'platform_catalog_sent': '推送目录',
+    'register_received': t('cascade.evtRegisterReceived'),
+    'register_401_challenge': t('cascade.evtRegister401Challenge'),
+    'register_ok_platform': t('cascade.evtRegisterOkPlatform'),
+    'register_ok_device': t('cascade.evtRegisterOkDevice'),
+    'register_auth_failed': t('cascade.evtRegisterAuthFailed'),
+    'platform_register_sent': t('cascade.evtPlatformRegisterSent'),
+    'platform_register_401': t('cascade.evtPlatformRegister401'),
+    'platform_register_ok': t('cascade.evtPlatformRegisterOk'),
+    'platform_register_failed': t('cascade.evtPlatformRegisterFailed'),
+    'platform_keepalive_sent': t('cascade.evtPlatformKeepaliveSent'),
+    'platform_keepalive_ack': t('cascade.evtPlatformKeepaliveAck'),
+    'platform_catalog_sent': t('cascade.evtPlatformCatalogSent'),
   }
   return map[event] || event
 }
@@ -766,11 +767,11 @@ const diagBannerDesc = computed(() => {
   const diags = diagnosisData.value.diagnostics || []
   const errorCount = diags.filter((d: Record<string, unknown>) => d.level === 'error').length
   const warnCount = diags.filter((d: Record<string, unknown>) => d.level === 'warn').length
-  if (errorCount === 0 && warnCount === 0) return '注册和保活均正常'
+  if (errorCount === 0 && warnCount === 0) return t('cascade.diagAllOk')
   const parts = []
-  if (errorCount > 0) parts.push(`${errorCount} 个异常`)
-  if (warnCount > 0) parts.push(`${warnCount} 个警告`)
-  return parts.join('，')
+  if (errorCount > 0) parts.push(t('cascade.diagErrorCount', { count: errorCount }))
+  if (warnCount > 0) parts.push(t('cascade.diagWarnCount', { count: warnCount }))
+  return parts.join(t('cascade.diagListSeparator'))
 })
 
 const diagStepActive = computed(() => {
@@ -797,26 +798,26 @@ const diagStepProcessStatus = computed(() => {
 const diagStep1Desc = computed(() => {
   if (!diagnosisData.value) return '—'
   const rt = diagnosisData.value.runtime || {}
-  if (rt['register.last_sent_at']) return '已发送'
-  return '未发送'
+  if (rt['register.last_sent_at']) return t('cascade.diagStep1Sent')
+  return t('cascade.diagStep1NotSent')
 })
 
 const diagStep2Desc = computed(() => {
   if (!diagnosisData.value) return '—'
   const rt = diagnosisData.value.runtime || {}
   const code = rt['register.last_status_code']
-  if (code === '401') return '收到质询，正在认证'
-  if (rt['register.last_has_auth']) return '已通过'
+  if (code === '401') return t('cascade.diagStep2Challenged')
+  if (rt['register.last_has_auth']) return t('cascade.diagStep2Passed')
   return '—'
 })
 
 const diagStep3Desc = computed(() => {
   if (!diagnosisData.value) return '—'
   const rt = diagnosisData.value.runtime || {}
-  if (rt['register.last_ok_at']) return '注册成功'
+  if (rt['register.last_ok_at']) return t('cascade.diagStep3Success')
   const code = rt['register.last_status_code']
-  if (code === '403') return '被拒绝(403)'
-  if (rt['register.last_error']) return '注册失败'
+  if (code === '403') return t('cascade.diagStep3Rejected')
+  if (rt['register.last_error']) return t('cascade.diagStep3Failed')
   return '—'
 })
 
@@ -824,8 +825,8 @@ const diagStep4Desc = computed(() => {
   if (!diagnosisData.value) return '—'
   const rt = diagnosisData.value.runtime || {}
   const miss = parseInt(rt['keepalive.miss_count'] || '0')
-  if (rt['keepalive.last_ack_at']) return '心跳正常'
-  if (miss > 0) return `${miss} 次未响应`
+  if (rt['keepalive.last_ack_at']) return t('cascade.diagStep4Normal')
+  if (miss > 0) return t('cascade.diagStep4Missed', { count: miss })
   return '—'
 })
 

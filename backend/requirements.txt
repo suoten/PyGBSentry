@@ -28,15 +28,27 @@ xlrd==1.2.0
 PyJWT[crypto]==2.10.1
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
-pysnmp==4.4.12  # DEPRECATED: pysnmp 5.x/6.x has completely different API, pin to 4.x for compatibility
+pysnmp==4.4.12  # P1-38: DEPRECATED but still used by snmp_trap.py; pysnmp 5.x/6.x API 不兼容，pin 到 4.x
 kafka-python-ng==2.2.2
 pika==1.3.2
 prometheus-client==0.21.1
-opentelemetry-api>=1.20.0; python_version >= '3.9'
-opentelemetry-sdk>=1.20.0; python_version >= '3.9'
-opentelemetry-instrumentation-fastapi>=0.41b0; python_version >= '3.9'
-opentelemetry-instrumentation-httpx>=0.41b0; python_version >= '3.9'
-opentelemetry-instrumentation-redis>=0.41b0; python_version >= '3.9'
-opentelemetry-instrumentation-sqlalchemy>=0.41b0; python_version >= '3.9'
-opentelemetry-exporter-otlp-proto-grpc>=1.20.0; python_version >= '3.9'
-opentelemetry-exporter-otlp-proto-http>=1.20.0; python_version >= '3.9'
+# P1-36: opentelemetry 锁定版本范围（上界 <2.0.0 防止 major 版本破坏性变更）
+opentelemetry-api>=1.20.0,<2.0.0; python_version >= '3.9'
+opentelemetry-sdk>=1.20.0,<2.0.0; python_version >= '3.9'
+opentelemetry-instrumentation-fastapi>=0.41b0,<1.0.0; python_version >= '3.9'
+opentelemetry-instrumentation-httpx>=0.41b0,<1.0.0; python_version >= '3.9'
+opentelemetry-instrumentation-redis>=0.41b0,<1.0.0; python_version >= '3.9'
+opentelemetry-instrumentation-sqlalchemy>=0.41b0,<1.0.0; python_version >= '3.9'
+opentelemetry-exporter-otlp-proto-grpc>=1.20.0,<2.0.0; python_version >= '3.9'
+opentelemetry-exporter-otlp-proto-http>=1.20.0,<2.0.0; python_version >= '3.9'
+
+# ---------------------------------------------------------------------------
+# P2-16: 可选依赖 — AI 视觉功能（vision_hub.py / devices_control.py 快照捕获）
+# 这些包体积较大且仅 AI 视觉检测/抓图功能需要，故不强制安装。
+# 代码已用 try/except 条件导入，缺失时自动禁用相关功能并记录警告日志。
+# 启用 AI 视觉：pip install -r requirements.txt -r requirements-optional.txt
+# ---------------------------------------------------------------------------
+# opencv-python-headless>=4.8.0  # cv2 — 视频帧捕获（headless 无 GUI 依赖，适合服务器）
+# numpy>=1.24.0                  # vision_hub.py 数组运算
+# ultralytics>=8.0.0            # YOLOv8 目标检测模型
+# torch>=2.0.0                  # YOLO 推理后端（CPU/CUDA）

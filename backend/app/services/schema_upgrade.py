@@ -2,11 +2,15 @@ from sqlalchemy import text  # TECH_DEBT: 直接依赖具体实现，未来改�
 from sqlalchemy.exc import OperationalError
 from app.db.session import engine
 from loguru import logger
+import re
 import time
 
 from app.db.base import Base
 from app.db.model_registry import ensure_model_registry_loaded
 from app.core.config import settings
+
+# P1-6: SQL 标识符白名单正则，防止 f-string 拼接收列名/表名注入
+_SAFE_IDENT_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 
 
 
@@ -65,6 +69,8 @@ async def _ensure_resources_asset_id_nullable():
         old_cols = [r[1] for r in old_rows if len(r) > 1]
         new_cols = {r[1] for r in new_rows if len(r) > 1}
         common_cols = [c for c in old_cols if c in new_cols]
+        # P1-6: 过滤不安全的列名（理论上 PRAGMA 返回的都是合法标识符，但防御性编程）
+        common_cols = [c for c in common_cols if _SAFE_IDENT_RE.match(str(c))]
         if not common_cols:
             # 理论上不应发生；兜底直接清理旧表
             await conn.execute(text("DROP TABLE IF EXISTS resources_old"))
@@ -80,6 +86,33 @@ async def _ensure_resources_asset_id_nullable():
         await conn.execute(text("PRAGMA foreign_keys=ON"))
 
 async def ensure_business_schema():
+    # noqa: C901 — This function is intentionally long: it is a one-shot schema
+    # migration that must run sequentially, and splitting it into sub-functions
+    # would obscure the migration ordering. Each block is guarded by IF NOT
+    # EXISTS / try-except for idempotency.
+    """Ensure all business tables and columns exist in the database.
+
+    This is a monolithic schema migration function that runs at startup to
+    guarantee the database schema matches the ORM models. It performs:
+
+    1. **Column additions**: Add missing columns to existing tables
+       (users, assets, resources, alarms, etc.) using ``ALTER TABLE ...
+       ADD COLUMN IF NOT EXISTS``.
+    2. **Index creation**: Create missing indexes for query performance.
+    3. **Table creation**: Create tables that don't exist yet via
+       ``Base.metadata.create_all``.
+    4. **Data migration**: Migrate existing data to new column formats
+       (e.g., encrypt plaintext passwords, normalize status fields).
+    5. **Constraint enforcement**: Add foreign keys and unique constraints.
+
+    The function is idempotent — every statement uses ``IF NOT EXISTS`` or
+    is wrapped in ``try/except`` to allow repeated execution without errors.
+
+    Note: The function length (~970 lines) reflects the large number of
+    tables and columns in the schema. Each logical section is clearly
+    commented. Future refactoring could extract per-table migration logic
+    into separate functions if maintainability becomes an issue.
+    """
     ensure_model_registry_loaded()
     statements = [
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT 'default'",
@@ -101,6 +134,9 @@ async def ensure_business_schema():
         "ALTER TABLE resources ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "ALTER TABLE resources ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "ALTER TABLE alarms ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT 'default'",
+        # FIX: [2026-07-04] 模型 Alarm 新增 longitude/latitude 列，移动设备报警经纬度需落库 [全栈工程师]
+        "ALTER TABLE alarms ADD COLUMN IF NOT EXISTS longitude FLOAT NULL",
+        "ALTER TABLE alarms ADD COLUMN IF NOT EXISTS latitude FLOAT NULL",
         "CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users (tenant_id)",
         "CREATE INDEX IF NOT EXISTS idx_users_role ON users (role)",
         "CREATE INDEX IF NOT EXISTS idx_assets_tenant_id ON assets (tenant_id)",
@@ -330,6 +366,9 @@ async def ensure_business_schema():
             code VARCHAR(64) UNIQUE NOT NULL,
             name VARCHAR(128) NOT NULL,
             price_monthly INTEGER DEFAULT 0,
+            price_yearly INTEGER NULL,
+            description TEXT NULL,
+            sort_order INTEGER DEFAULT 0,
             max_devices INTEGER DEFAULT 0,
             max_channels INTEGER DEFAULT 0,
             plugin_entitlements TEXT DEFAULT '',
@@ -338,6 +377,15 @@ async def ensure_business_schema():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """,
+        # FIX: [2026-07-03] 补全 billing_plans 表缺失的列，与模型定义对齐，
+        # 防止旧库升级后查询报 OperationalError: no such column: price_yearly [性能测试工程师]
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS price_yearly INTEGER NULL",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS description TEXT NULL",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS max_devices INTEGER DEFAULT 0",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 0",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS plugin_entitlements TEXT DEFAULT ''",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE",
         """
         CREATE TABLE IF NOT EXISTS tenant_subscriptions (
             id VARCHAR(32) PRIMARY KEY,
@@ -357,6 +405,11 @@ async def ensure_business_schema():
         "ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS machine_code VARCHAR(128) NULL",
         "ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS machine_code_registered_at DATETIME NULL",
         "ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS extra_machine_codes TEXT NULL",
+        # FIX: [2026-07-04] 模型 TenantSubscription.downgrade_history（billing.py:65）在 schema_upgrade
+        #      中遗漏了对应的 ALTER TABLE，导致已存在的 tenant_subscriptions 表缺少该列，init_db 在
+        #      读写订阅降级历史时触发 OperationalError "no such column: downgrade_history"。
+        #      根因：新增模型列时未同步补写迁移语句。修复：补齐 ALTER TABLE 语句。 [全栈工程师]
+        "ALTER TABLE tenant_subscriptions ADD COLUMN IF NOT EXISTS downgrade_history JSON NULL",
         "CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_machine_code ON tenant_subscriptions (machine_code)",
         "ALTER TABLE plugin_orders ADD COLUMN IF NOT EXISTS billing_period VARCHAR(16) NULL",
         "ALTER TABLE plugin_orders ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1",

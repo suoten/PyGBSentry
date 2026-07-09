@@ -1,0 +1,36 @@
+# Coverage configuration for PyGBSentry
+# Used by pytest-cov and CI/CD pipeline
+
+[run]
+source = backend/app
+omit =
+    */tests/*
+    */test_*
+    */__init__.py
+    */alembic/*
+    */migrations/*
+    backend/app/core/plugin_manager.py  # Plugin sandbox — complex mocking required
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    if TYPE_CHECKING:
+    @abstractmethod
+    if not .*:  # Guard clauses
+    except ImportError:
+show_missing = true
+precision = 2
+fail_under = 70
+skip_covered = false
+sort = cover
+
+[html]
+directory = backend/htmlcov
+title = PyGBSentry Coverage Report
+
+[xml]
+output = backend/coverage.xml

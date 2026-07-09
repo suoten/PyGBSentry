@@ -78,15 +78,18 @@ async def close_zlm_stream(app: str, stream: str, node_id: Optional[str] = None)
                 if db_node:
                     _host = db_node.ip
                     _http_port = db_node.http_port
-                    _secret = db_node.secret
+                    _secret = db_node.decrypted_secret  # P0-02: ORM 对象，decrypted_secret 解密
             if db_node:
                 await _close_on_node_client(client, _host, _http_port, _secret, app, stream)
                 return
-            logger.warning(f"close_zlm_stream: node_id={node_id} not found in ENV or DB, skipping broadcast close")
-            return
+            # FIX R23-SEVERE: 节点未找到时回退到广播关闭，而不是静默跳过
+            # 原问题：node_id 指定的节点在 ENV 和 DB 中均未找到时直接 return，ZLM 流和 RTP 端口永久泄漏
+            # 修复：回退到广播关闭所有节点上的流，确保资源被释放
+            logger.warning(f"close_zlm_stream: node_id={node_id} not found in ENV or DB, falling back to broadcast close")
+            # 不 return，继续执行下面的广播关闭逻辑
         except Exception as e:
-            logger.warning(f"Failed to get DB node for close_stream: {e}")
-            return
+            logger.warning(f"Failed to get DB node for close_stream: {e}, falling back to broadcast close")
+            # 不 return，继续执行下面的广播关闭逻辑
 
     nodes = get_media_nodes()
     env_node_ids = set()
