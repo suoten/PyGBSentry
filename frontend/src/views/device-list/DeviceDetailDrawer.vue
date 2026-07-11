@@ -40,7 +40,7 @@
     @update:channel-stream-reset="(v) => { emit('update:channelStreamReset', v) }"
     @update:channel-page="(v) => { emit('update:channelPage', v) }"
     @update:channel-page-size="(v) => { emit('update:channelPageSize', v) }"
-    @update:channel-filters="(v) => { channelFilters.value = v }"
+    @update:channel-filters="(v) => { (channelFilters as any).value = v }"
   />
 
   <CloudRecordWorkspaceDialog
@@ -163,7 +163,7 @@ const channelFilters = ref<{ keyword: string; status?: number; resource_type?: n
   resource_type: undefined
 })
 const channelEditDialogVisible = ref(false)
-const channelEditData = ref<Device>(null)
+const channelEditData = ref<Device | null>(null)
 const channelInlineSaving = ref<Record<string, boolean>>({})
 const channelSnapReloadToken = ref<number>(Date.now())
 const openChannelEdit = (row: Record<string, unknown>) => {
@@ -195,7 +195,7 @@ const recordAnchorAt = ref<string>('')
 // ━━ 播放状态 ━━
 const playSeq = ref(0)
 const playSessionId = ref('')
-const playRequest = ref<Device>(null)
+const playRequest = ref<Device | null>(null)
 const playStreamId = ref('')
 const playApp = ref('live')
 const playUrl = ref('')
@@ -252,7 +252,7 @@ const loadChannelStreamStatus = async (channelList: Record<string, unknown>[]) =
   }
 }
 
-const _lookupStreamStatus = (row: Record<string, unknown>): Record<string, unknown> => {
+const _lookupStreamStatus = (row: Record<string, unknown>): Record<string, unknown> | null => {
   const cache = channelStreamStatusCache.value
   const keys = [String(row?.id || ''), String(row?.gb_id || '')].filter(Boolean)
   for (const k of keys) {
@@ -317,7 +317,7 @@ const loadChannelsDialog = async () => {
   channelsLoading.value = true
   try {
     const res = await api.get(`/api/v1/devices/${gbId}/channels`, { params: { limit: 10000 } })
-    const all = parseDeviceChannelsResponse(res.data)
+    const all = (await parseDeviceChannelsResponse(res.data)) as any
     const keyword = String(channelFilters.value.keyword || '').trim().toLowerCase()
     const status = channelFilters.value.status
     const resourceType = channelFilters.value.resource_type
@@ -376,7 +376,7 @@ const onRecordAnchorChange = (value: string) => {
 }
 
 const inferRecordUrls = (payload: Record<string, unknown>) => {
-  const input = payload?.urls || {}
+  const input = (payload?.urls || {}) as Record<string, unknown>
   const raw = String(input?.raw || '').trim()
   let webrtc = String(input?.webrtc || '').trim()
   let flv = String(input?.flv || '').trim()

@@ -62,39 +62,47 @@ class TestMediaNodeSelection(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(selected.id, "node-2")
 
 
-class TestStreamPlayAlignment(unittest.TestCase):
-    def test_build_play_success_response_contains_standard_envelope(self):
+class TestStreamPlayAlignment(unittest.IsolatedAsyncioTestCase):
+    async def test_build_full_play_response_contains_standard_envelope(self):
         from app.api.v1.endpoints import stream as mod
 
-        payload = mod._build_play_success_response(
+        result = await mod._build_full_play_response(
+            db=None,
             app_name="live",
             stream_id="34010300001310000002",
-            token="abc",
-            urls={
-                "flv": "http://127.0.0.1:8880/live/34010300001310000002.live.flv?token=abc",
-                "hls": "http://127.0.0.1:8880/live/34010300001310000002/hls.m3u8?token=abc",
-                "rtc": "http://127.0.0.1:8880/index/api/webrtc?app=live&stream=34010300001310000002&type=play&token=abc",
-                "rtcs": None,
-            },
-            codec="h265",
-            media_server_id="node-1",
-            media_info={"app": "live", "stream": "34010300001310000002"},
-            result={"sdp_ip": "1.1.1.1", "media_port": 30000, "media_protocol": "UDP", "selection_reason": "auto"},
+            stream_type="auto",
+            selected_node=None,
+            media_host="127.0.0.1",
+            media_port=8880,
+            node_host="127.0.0.1",
+            node_http_port=8880,
+            is_embedded_node=True,
             zlm_probe_ok=True,
             zlm_stream_ready=True,
-            webrtc_supported=True,
-            webrtc_hint="",
-            stream_type="auto",
+            media_item={
+                "matched_app": "live",
+                "matched_stream": "34010300001310000002",
+                "codec": "h265",
+            },
+            result={
+                "sdp_ip": "1.1.1.1",
+                "media_port": 30000,
+                "media_protocol": "UDP",
+                "stream_session_id": "sess-1",
+                "ssrc": "12345",
+                "call_id": "call-1",
+            },
+            node_id="node-1",
         )
 
-        self.assertEqual(payload["code"], 0)
-        self.assertEqual(payload["msg"], "成功")
-        self.assertEqual(payload["data"]["app"], "live")
-        self.assertEqual(payload["data"]["stream"], "34010300001310000002")
-        self.assertEqual(payload["data"]["mediaServerId"], "node-1")
-        self.assertEqual(payload["data"]["streamType"], "auto")
-        self.assertEqual(payload["flv"], payload["data"]["flv"])
-        self.assertEqual(payload["webrtc"], payload["data"]["rtc"])
+        self.assertEqual(result["code"], 200)
+        self.assertEqual(result["msg"], "ok")
+        self.assertEqual(result["data"]["app"], "live")
+        self.assertEqual(result["data"]["stream"], "34010300001310000002")
+        self.assertEqual(result["data"]["node_id"], "node-1")
+        self.assertIn("flv", result["data"])
+        self.assertIn("hls", result["data"])
+        self.assertIn("rtsp", result["data"])
 
     def test_map_play_stream_error_returns_structured_port_error(self):
         from app.api.v1.endpoints import stream as mod
@@ -104,7 +112,7 @@ class TestStreamPlayAlignment(unittest.TestCase):
 
         self.assertEqual(http_exc.status_code, 503)
         self.assertEqual(http_exc.detail["reason_code"], "media_port_exhausted")
-        self.assertIn("端口", http_exc.detail["message"])
+        self.assertIn("port", http_exc.detail["message"].lower())
 
 
 if __name__ == "__main__":

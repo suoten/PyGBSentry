@@ -86,10 +86,9 @@ async def _ensure_resources_asset_id_nullable():
         await conn.execute(text("PRAGMA foreign_keys=ON"))
 
 async def ensure_business_schema():
-    # noqa: C901 — This function is intentionally long: it is a one-shot schema
-    # migration that must run sequentially, and splitting it into sub-functions
-    # would obscure the migration ordering. Each block is guarded by IF NOT
-    # EXISTS / try-except for idempotency.
+    # This function is intentionally long: it is a one-shot schema migration
+    # that must run sequentially. Each block is guarded by IF NOT EXISTS /
+    # try-except for idempotency.
     """Ensure all business tables and columns exist in the database.
 
     This is a monolithic schema migration function that runs at startup to

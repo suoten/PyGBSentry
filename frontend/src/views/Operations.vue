@@ -495,7 +495,7 @@
         <el-card shadow="never">
           <div class="flex flex-wrap items-center gap-3 mb-4">
             <el-select v-model="diagNodeId" :placeholder="t('ops.selectMediaNode')" clearable class="ops-diag-node-select" @change="diagResults = []">
-              <el-option v-for="n in mediaNodes" :key="n.id" :label="`${n.ip || n.id}${n.is_embedded ? t('ops.embeddedBracket') : ''}`" :value="n.id" />
+              <el-option v-for="n in mediaNodes" :key="n.id" :label="`${n.ip || n.id}${n.is_embedded ? t('ops.embeddedBracket') : ''}`" :value="n.id || ''" />
             </el-select>
             <el-select
               v-model="diagChannelId"
@@ -792,7 +792,7 @@
     <AppDialog v-model="leaseDialogVisible" :title="t('ops.rtpPortLease')" size="large">
       <div class="flex gap-2 items-center mb-3">
         <el-select v-model="leaseFilterNodeId" :placeholder="t('ops.allNodes')" clearable class="ops-lease-select">
-          <el-option v-for="n in mediaNodes" :key="n.id" :label="`${n.ip || n.id}${n.is_active ? t('ops.activeNodeSuffix') : ''}`" :value="n.id" />
+          <el-option v-for="n in mediaNodes" :key="n.id" :label="`${n.ip || n.id}${n.is_active ? t('ops.activeNodeSuffix') : ''}`" :value="n.id || ''" />
         </el-select>
         <el-switch v-model="leaseOnlyUnbound" :active-text="t('ops.onlyOrphanLeases')" />
         <span class="text-xs ops-muted">{{ t('ops.maxLabel') }}</span>
@@ -988,7 +988,7 @@ const openHistoricalLogs = async () => {
 }
 
 const viewLogLines = (row: Record<string, unknown>) => {
-  currentLogFile.value = row.name
+  currentLogFile.value = String(row.name || '')
   logSearchKeyword.value = ''
   logCurrentPage.value = 1
   logPageSize.value = 1000
@@ -1018,13 +1018,13 @@ const fetchLogLines = async () => {
 
 const downloadLog = async (row: Record<string, unknown>) => {
   try {
-    const res = await api.get(`/api/v1/logs/files/${encodeURIComponent(row.name).replace(/%2F/g, '/')}/download`, {
+    const res = await api.get(`/api/v1/logs/files/${encodeURIComponent(String(row.name || '')).replace(/%2F/g, '/')}/download`, {
       responseType: 'blob'
     })
     const url = window.URL.createObjectURL(new Blob([res.data]))
     const link = document.createElement('a')
     link.href = url
-    link.setAttribute('download', row.name.split('/').pop() || row.name)
+    link.setAttribute('download', String(row.name || '').split('/').pop() || String(row.name || ''))
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -1201,7 +1201,9 @@ const initWebSocket = async () => {
   // P0-6: 通过 ws-ticket 认证，消除 URL 暴露 JWT token
   let wsUrl: string
   try {
-    wsUrl = await buildWsUrlWithTicket('/api/v1/logs/ws/logs', extraParams)
+    wsUrl = await buildWsUrlWithTicket('/api/v1/logs/ws/logs')
+    const qs = Object.entries(extraParams).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&')
+    if (qs) wsUrl += `&${qs}`
   } catch (e) {
     logger.warn('initWebSocket: failed to fetch ws-ticket', e)
     return
@@ -1321,32 +1323,32 @@ const startMediaAutoRefresh = () => {
 }
 
 const openMediaDialog = (row?: Record<string, unknown>) => {
-  editingMediaId.value = row?.id || ''
+  editingMediaId.value = String(row?.id || '')
   mediaSslMerged.value = ''
   mediaSslCert.value = ''
   mediaSslKey.value = ''
   mediaSslConfigured.value = !!row?.zlm_ssl_configured
   mediaForm.value = row ? {
-    ip: row.ip || '',
-    public_ip: row.public_ip || '',
-    stream_ip: row.stream_ip || '',
-    hook_base_url: row.hook_base_url || '',
-    hook_ip: row.hook_ip || '',
-    sdp_ip: row.sdp_ip || '',
-    http_port: row.http_port || 8880,
-    https_port: row.https_port || 0,
-    rtsp_port: row.rtsp_port || 554,
-    rtsps_port: row.rtsps_port || 0,
-    rtmp_port: row.rtmp_port || 1935,
-    rtmps_port: row.rtmps_port || 0,
-    rtp_proxy_port: row.rtp_proxy_port || 30000,
-    rtp_port_mode: row.rtp_port_mode || 'single',
-    rtp_port_range_start: row.rtp_port_range_start || 30000,
-    rtp_port_range_end: row.rtp_port_range_end || 39000,
-    record_mgr_port: row.record_mgr_port || 0,
-    protocol_mp4_max_second: row.protocol_mp4_max_second || 300,
-    record_file_second: row.record_file_second || 300,
-    record_sample_ms: row.record_sample_ms || 500,
+    ip: String(row.ip || ''),
+    public_ip: String(row.public_ip || ''),
+    stream_ip: String(row.stream_ip || ''),
+    hook_base_url: String(row.hook_base_url || ''),
+    hook_ip: String(row.hook_ip || ''),
+    sdp_ip: String(row.sdp_ip || ''),
+    http_port: Number(row.http_port || 8880),
+    https_port: Number(row.https_port || 0),
+    rtsp_port: Number(row.rtsp_port || 554),
+    rtsps_port: Number(row.rtsps_port || 0),
+    rtmp_port: Number(row.rtmp_port || 1935),
+    rtmps_port: Number(row.rtmps_port || 0),
+    rtp_proxy_port: Number(row.rtp_proxy_port || 30000),
+    rtp_port_mode: String(row.rtp_port_mode || 'single'),
+    rtp_port_range_start: Number(row.rtp_port_range_start || 30000),
+    rtp_port_range_end: Number(row.rtp_port_range_end || 39000),
+    record_mgr_port: Number(row.record_mgr_port || 0),
+    protocol_mp4_max_second: Number(row.protocol_mp4_max_second || 300),
+    record_file_second: Number(row.record_file_second || 300),
+    record_sample_ms: Number(row.record_sample_ms || 500),
     secret: '',
     is_embedded: !!row.is_embedded
     ,
@@ -1666,23 +1668,23 @@ const deleteMediaNode = async (id: string) => {
 
 const handleMediaMoreCommand = async (row: Record<string, unknown>, cmd: string) => {
   if (cmd === 'lease') {
-    await openLeaseDialog(row.id)
+    await openLeaseDialog(String(row.id || ''))
     return
   }
   if (cmd === 'copyHook') {
-    await copyMediaNodeHookUrls(row.id)
+    await copyMediaNodeHookUrls(String(row.id || ''))
     return
   }
   if (cmd === 'copyZlm') {
-    await copyMediaNodeZlmSnippet(row.id)
+    await copyMediaNodeZlmSnippet(String(row.id || ''))
     return
   }
   if (cmd === 'activate') {
-    await activateMediaNode(row.id)
+    await activateMediaNode(String(row.id || ''))
     return
   }
   if (cmd === 'delete') {
-    await deleteMediaNode(row.id)
+    await deleteMediaNode(String(row.id || ''))
   }
 }
 
@@ -2033,7 +2035,7 @@ const showFfmpegCmds = async () => {
 const openFfmpegCmdDialog = (row?: Record<string, unknown>) => {
   if (row) {
     editingFfmpegCmdId.value = String(row.id || '')
-    ffmpegCmdForm.value = { name: row.name || '', protocol: row.protocol || '', cmd: row.cmd || '' }
+    ffmpegCmdForm.value = { name: String(row.name || ''), protocol: String(row.protocol || ''), cmd: String(row.cmd || '') }
   } else {
     editingFfmpegCmdId.value = ''
     ffmpegCmdForm.value = { name: '', protocol: '', cmd: '' }
@@ -2182,8 +2184,8 @@ const cascadeStepActive = computed(() => {
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
   if (counts.register_received > 0) {
     if (counts.register_401_challenge > 0) {
-      if (counts.register_ok_platform > 0 || counts.register_ok_device > 0 || platforms.some((p: Record<string, unknown>) => p.register?.last_ok_at)) {
-        if (platforms.some((p: Record<string, unknown>) => p.keepalive?.last_at)) {
+      if (counts.register_ok_platform > 0 || counts.register_ok_device > 0 || platforms.some((p: Record<string, unknown>) => Boolean((p.register as Record<string, unknown> | undefined)?.last_ok_at))) {
+        if (platforms.some((p: Record<string, unknown>) => Boolean((p.keepalive as Record<string, unknown> | undefined)?.last_at))) {
           return 4
         }
         return 3
@@ -2217,7 +2219,7 @@ const cascadeStep3Desc = computed(() => {
   const counts = cascadeDiagnosis.value?.recent_trace_events_count || {}
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
   const okCount = (counts.register_ok_platform || 0) + (counts.register_ok_device || 0)
-  const registeredPlatforms = platforms.filter((p: Record<string, unknown>) => p.register?.last_ok_at).length
+  const registeredPlatforms = platforms.filter((p: Record<string, unknown>) => Boolean((p.register as Record<string, unknown> | undefined)?.last_ok_at)).length
   if (okCount > 0 || registeredPlatforms > 0) return t('ops.platformsRegistered', { count: registeredPlatforms })
   if (counts.register_auth_failed > 0) return t('ops.authFailedTimes', { count: counts.register_auth_failed })
   return '—'
@@ -2225,7 +2227,7 @@ const cascadeStep3Desc = computed(() => {
 
 const cascadeStep4Desc = computed(() => {
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
-  const withKeepalive = platforms.filter((p: Record<string, unknown>) => p.keepalive?.last_at).length
+  const withKeepalive = platforms.filter((p: Record<string, unknown>) => Boolean((p.keepalive as Record<string, unknown> | undefined)?.last_at)).length
   if (withKeepalive > 0) return t('ops.heartbeatsNormal', { count: withKeepalive })
   return '—'
 })

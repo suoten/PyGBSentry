@@ -101,7 +101,7 @@
           >
             <div class="timeline-block-inner"></div>
             <div v-if="hoverTimelineIndex === idx" class="timeline-tooltip">
-              <div class="tooltip-time">{{ formatTime(record.startTime) }}</div>
+              <div class="tooltip-time">{{ formatTime(record.start_time) }}</div>
               <div class="tooltip-duration">{{ formatDuration(record.duration) }}</div>
             </div>
           </div>
@@ -162,8 +162,8 @@
         
         <el-table-column :label="t('cloudRecord.quality')" width="80">
           <template #default="scope">
-            <el-tag 
-              :type="getQualityType(scope.row)" 
+            <el-tag
+              :type="(getQualityType(scope.row) as any)"
               size="small"
             >
               {{ getQualityLabel(scope.row) }}
@@ -196,8 +196,7 @@
         <el-table-column :label="t('common.action')" width="200" fixed="right">
           <template #default="scope">
             <div class="flex items-center gap-2">
-              <el-button 
-                type="primary" 
+              <el-button
                 size="small"
                 :type="scope.$index === playingIndex ? 'warning' : 'primary'"
                 @click.stop="playRecord(scope.row, scope.$index)"
@@ -966,7 +965,7 @@ function applyClip() {
   if (clipPlayerRef.value && clipStartTime.value) {
     const startDate = new Date(clipStartTime.value)
     clipStartTimestamp.value = startDate.getTime() / 1000
-    ;(clipPlayerRef.value as Record<string, unknown>).seekTo(clipStartTimestamp.value)
+    ;(clipPlayerRef.value as any).seekTo(clipStartTimestamp.value)
   }
 }
 
@@ -1026,7 +1025,7 @@ function handlePlayerEnded() {
   }
 }
 
-function handlePlayerError(error: { code: string; message: string }) {
+function handlePlayerError(error?: any) {
   ElMessage.error(t('cloudRecord.playError', { msg: getApiErrorMessage(error, t('cloudRecord.playFailed')) }))
 }
 

@@ -170,7 +170,7 @@
               </div>
             </template>
             <template #default="{ row }">
-              <el-tag :type="getAlarmTypeColor(row.alarm_type)" size="small" effect="dark" class="type-tag">
+              <el-tag :type="(getAlarmTypeColor(row.alarm_type) as any)" size="small" effect="dark" class="type-tag">
                 {{ row.alarm_type }}
               </el-tag>
             </template>

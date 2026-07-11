@@ -73,12 +73,15 @@ GPS 订阅          云台 PTZ          容量基线预警      飞书/企微告
 git clone https://github.com/suoten/PyGBSentry.git
 cd PyGBSentry/editions/open-source
 
-# 创建环境配置
+# 创建环境配置（⚠️ 所有项均为必填，缺失任意一项 docker compose 将拒绝启动）
 cat > .env << 'EOF'
 POSTGRES_PASSWORD=YourStrongDbPass!
 REDIS_PASSWORD=YourStrongRedisPass!
 SECRET_KEY=change-me-to-32-char-random-string
 MEDIA_SERVER_SECRET=zlm-secret-key
+SIP_DEFAULT_PASSWORD=YourSipDevicePass!
+# 生成命令: python -c "import secrets;print(secrets.token_hex(32))"
+FIELD_ENCRYPTION_KEY=replace-with-64-char-hex-key
 BACKEND_PUBLIC_HOST=192.168.1.100
 EOF
 
@@ -87,6 +90,8 @@ docker compose up -d
 ```
 
 访问 `http://<BACKEND_PUBLIC_HOST>` 进入安装向导，首次使用创建管理员账号即可。
+
+> **必填项说明**：`SIP_DEFAULT_PASSWORD` 用于 GB28181 设备注册鉴权；`FIELD_ENCRYPTION_KEY` 用于设备/平台密码加密存储（生产环境空值将拒绝启动）。请将示例占位值替换为实际强密码/密钥。
 
 > **注意**：内置 ZLMediaKit 仅提供 Linux 二进制，Windows / macOS Docker 桌面版无法运行流媒体容器。Windows/macOS 开发者请使用下方「本地开发模式」。
 

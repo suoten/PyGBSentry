@@ -15,12 +15,38 @@ from app.models.asset import Asset
 from app.sip import commander as sip_commander_module
 from app.sip.server import sip_server
 from app.services.auth_audit import safe_auth_audit
+from app.core.role_permissions import DEFAULT_ROLE_PERMISSIONS, WILDCARD
+import json as _json
 
 router = APIRouter()
 
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
+
+
+def _check_ptz_permission(user) -> bool:
+    """集中可测的 PTZ 权限校验：superuser / 显式权限码 / 角色默认权限。
+
+    支持权限以 JSON 字符串、列表、集合等形式存储。admin/owner 持 WILDCARD 即涵盖 ptz.control。
+    """
+    if getattr(user, "is_superuser", False):
+        return True
+    perms_raw = getattr(user, "permissions", None)
+    perms: set[str] = set()
+    if perms_raw:
+        if isinstance(perms_raw, str):
+            try:
+                perms = set(_json.loads(perms_raw))
+            except Exception:
+                perms = set()
+        elif isinstance(perms_raw, (list, tuple, set)):
+            perms = set(perms_raw)
+    if WILDCARD in perms or "ptz.control" in perms:
+        return True
+    role_code = getattr(user, "role_code", "")
+    role_perms = DEFAULT_ROLE_PERMISSIONS.get(role_code, ())
+    return WILDCARD in role_perms or "ptz.control" in role_perms
 
 @router.post("/{channel_id}/control")
 async def control_ptz(

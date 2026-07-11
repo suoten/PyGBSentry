@@ -248,7 +248,7 @@ type RuntimeField = {
 }
 
 const runtimeSchema = ref<{ fields?: RuntimeField[] } | null>(null)
-const runtimeConfig = reactive<Record<string, unknown>>({})
+const runtimeConfig = reactive<Record<string, any>>({})
 const jsonText = reactive<Record<string, string>>({})
 const loadingConfig = ref(false)
 const savingConfig = ref(false)

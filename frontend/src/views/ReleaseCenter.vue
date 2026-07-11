@@ -101,10 +101,10 @@
               <el-form-item v-for="field in rollbackFields" :key="field.key" :label="t(field.label)">
                 <el-input-number
                   v-if="field.component === 'number'"
-                  :model-value="rollbackForm[field.key]"
+                  :model-value="(rollbackForm[field.key] as number)"
                   :min="1"
                   :disabled="!canManageConfig"
-                  @update:model-value="(v: number) => setRollbackField(field.key, v)"
+                  @update:model-value="(v: number | undefined) => setRollbackField(field.key, v as number)"
                 />
                 <el-input
                   v-else
@@ -145,6 +145,7 @@ import {
   type ReleaseRollbackFieldKey
 } from '../configs/center-fields'
 import { validateFieldValue } from '../utils/field-validation'
+import { sanitizeHtml } from '../utils/sanitize'
 
 const { t } = useI18n()
 
@@ -245,7 +246,7 @@ const publishNow = async () => {
   }
   publishing.value = true
   try {
-    const result = await publishDraft(publishForm.value.draftId, publishForm.value.publishNote)
+    const result = await publishDraft(publishForm.value.draftId)
     ElMessage.success(buildSuccessMessage(t('releaseCenter.publishAction'), t('releaseCenter.revisionLabel', { revision: result.revision })))
     rollbackForm.value.targetRevision = result.revision
     await loadDiff()
@@ -274,7 +275,7 @@ const rollbackNow = async () => {
   }
   rollingBack.value = true
   try {
-    await rollbackRevision(rollbackForm.value.targetRevision, rollbackForm.value.reason)
+    await rollbackRevision(rollbackForm.value.targetRevision as any)
     ElMessage.success(buildSuccessMessage(t('releaseCenter.rollbackAction'), t('releaseCenter.revisionLabel', { revision: rollbackForm.value.targetRevision })))
   } catch (error: unknown) {
     ElMessage.error(buildErrorMessage(t('releaseCenter.rollbackAction'), error))

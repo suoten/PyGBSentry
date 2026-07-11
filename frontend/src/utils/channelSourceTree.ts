@@ -1,6 +1,10 @@
-﻿export interface SourceTreeNode { id: string; label: string; children?: SourceTreeNode[]; [k: string]: unknown }
+export interface SourceTreeNode { id: string; label: string; children?: SourceTreeNode[]; [k: string]: unknown }
 
-export function buildSourceTree(devices: unknown[]): SourceTreeNode[] {
+export interface SourceTreeOptions {
+  resolveStatus?: (item: Record<string, unknown>) => number
+}
+
+export function buildSourceTree(devices: unknown[], options?: SourceTreeOptions): SourceTreeNode[] {
   if (!Array.isArray(devices)) return []
   return devices.map((d, i) => {
     const dev = d as Record<string, unknown>

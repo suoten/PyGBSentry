@@ -1,12 +1,23 @@
 import pytest
+from unittest.mock import patch
+from types import SimpleNamespace
 
 
 class TestWebhookUrlResolution:
-    def test_bare_metal_loopback_allowed(self):
+    def test_bare_metal_loopback_allowed(self, monkeypatch):
         from app.services.media_manager import MediaManager
-        mm = MediaManager()
-        result = mm._resolve_webhook_base(None)
-        assert "hook" in result
+        # Replace the settings reference in media_manager module with a mock
+        # that forces the fallback path (empty MEDIA_SERVER_HOOK_BASE_URL → /index/hook)
+        monkeypatch.delenv("RUNNING_IN_DOCKER", raising=False)
+        mock_settings = SimpleNamespace(
+            MEDIA_SERVER_HOOK_BASE_URL="",
+            BACKEND_PUBLIC_HOST="localhost",
+            BACKEND_PUBLIC_PORT=8000,
+        )
+        with patch("app.services.media_manager.settings", mock_settings):
+            mm = MediaManager()
+            result = mm._resolve_webhook_base(None)
+            assert "hook" in result
 
     def test_docker_detect_method(self, monkeypatch):
         monkeypatch.setenv("RUNNING_IN_DOCKER", "true")

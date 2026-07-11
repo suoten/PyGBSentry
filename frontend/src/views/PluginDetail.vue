@@ -136,6 +136,7 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import { getVerifiedRoleInfo } from '../utils/auth' // FIX C-3: 改用后端验证角色
+import { sanitizeHtml } from '@/utils/sanitize'
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化
@@ -166,7 +167,7 @@ const showSuperuserZipUpload = ref(false)
 
 // 插件健康状态
 const pluginHealth = ref<{ healthy: boolean; error_count: number; last_error: string } | null>(null)
-const securityReport = ref<Record<string, unknown>>(null)
+const securityReport = ref<any>(null)
 
 const isServerEdition = (import.meta.env.VITE_APP_EDITION || 'oss') === 'server'
 

@@ -12,10 +12,14 @@ build/
 # Ruff / Pytest cache
 .ruff_cache/
 .pytest_cache/
+.coverage
+htmlcov/
 
 # Environment files (keep examples)
 .env
 backend/.env
+backend/.env.production.bak
+backend/.env*.bak
 !backend/.env.example
 !backend/.env.dev.example
 !backend/.env.prod.example
@@ -85,3 +89,6 @@ editions/
 
 # 运行时设备抓图（P1-58）
 backend/www/snap/
+
+# Trae IDE 工作区文档（内部规划文档，不提交）
+.trae/

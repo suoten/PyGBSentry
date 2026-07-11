@@ -156,7 +156,7 @@ const startTalk = async () => {
 }
 
 const startAudioProcessing = (stream: MediaStream) => {
-  audioContext = new (window.AudioContext || (window as Record<string, unknown>).webkitAudioContext)({ sampleRate: 8000 })
+  audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 8000 })
   source = audioContext.createMediaStreamSource(stream)
   // Buffer size 2048, 1 input channel, 1 output channel
   processor = audioContext.createScriptProcessor(2048, 1, 1)

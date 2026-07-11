@@ -694,18 +694,18 @@ const loadSources = async () => {
 
 // 打开接入源弹窗
 const openSourceDialog = (row?: Record<string, unknown>) => {
-  editingSourceId.value = row?.id || ''
+  editingSourceId.value = String(row?.id || '')
   sourceForm.value = row ? {
-    name: row.name || '',
-    protocol: row.protocol || 'RTSP',
-    host: row.host || '',
-    port: row.port || 554,
-    username: row.username || '',
+    name: String(row.name || ''),
+    protocol: String(row.protocol || 'RTSP'),
+    host: String(row.host || ''),
+    port: Number(row.port || 554),
+    username: String(row.username || ''),
     password: '',
-    path: row.path || '',
-    stream_name: row.stream_name || '',
+    path: String(row.path || ''),
+    stream_name: String(row.stream_name || ''),
     enabled: row.enabled !== false,
-    extra: row.extra || {}
+    extra: (row.extra || {}) as any
   } : {
     name: '',
     protocol: 'RTSP',
@@ -810,9 +810,9 @@ const closePreview = async () => {
 // 接入源更多操作
 const handleSourceMoreCommand = async (row: Record<string, unknown>, cmd: string) => {
   if (cmd === 'preview') {
-    await previewSource(row.id)
+    await previewSource(row.id as string)
   } else if (cmd === 'delete') {
-    await deleteSource(row.id)
+    await deleteSource(row.id as string)
   }
 }
 

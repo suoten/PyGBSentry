@@ -51,4 +51,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 USER appuser
 
 # FIXED: S-02 bind to 0.0.0.0 so service is reachable inside Docker container
-CMD ["sh", "-c", "python backend/app/initial_data.py && uvicorn app.main:app --host 0.0.0.0 --port 8000 --loop asyncio"]
+# FIXED: [2026-07-10] D-01 CMD 路径解析错误 — COPY . . 将项目复制到 /app，后端位于 /app/backend/app/main.py
+#   PYTHONPATH=/app 下 "app.main:app" 解析为 /app/app/main.py（不存在），应为 "backend.app.main:app" [全栈工程师]
+CMD ["sh", "-c", "python backend/app/initial_data.py && uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --loop asyncio"]

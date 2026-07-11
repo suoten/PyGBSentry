@@ -192,12 +192,12 @@ class TestSsrcManager:
         mgr = SsrcManager()
 
         # Allocate live SSRC
-        ssrc = await mgr.allocate(is_playback=False, stream_id="stream-1")
+        ssrc = await mgr.allocate(is_playback=False)
         assert ssrc.startswith("0")
         assert len(ssrc) == 10
 
         # Allocate playback SSRC
-        ssrc_pb = await mgr.allocate(is_playback=True, stream_id="stream-2")
+        ssrc_pb = await mgr.allocate(is_playback=True)
         assert ssrc_pb.startswith("1")
 
         # Release
@@ -205,7 +205,7 @@ class TestSsrcManager:
         await mgr.release(ssrc_pb)
 
         # Should be able to allocate again
-        ssrc2 = await mgr.allocate(is_playback=False, stream_id="stream-3")
+        ssrc2 = await mgr.allocate(is_playback=False)
         assert ssrc2.startswith("0")
 
     @pytest.mark.asyncio
@@ -214,16 +214,18 @@ class TestSsrcManager:
         from app.sip.ssrc_manager import SsrcManager
 
         mgr = SsrcManager()
+        # Use a SSRC unlikely to conflict with pre-allocated values from sdp.py
+        test_ssrc = "0000099999"
 
-        result = await mgr.allocate_specific_ssrc("0123456789", is_playback=False)
+        result = await mgr.allocate_specific_ssrc(test_ssrc, is_playback=False)
         assert result is True
 
-        # Duplicate should be idempotent
-        result = await mgr.allocate_specific_ssrc("0123456789", is_playback=False)
-        assert result is True
+        # Duplicate should return False (not idempotent — SSRC already in bucket)
+        result = await mgr.allocate_specific_ssrc(test_ssrc, is_playback=False)
+        assert result is False
 
         # Cross-set conflict should fail
-        result = await mgr.allocate_specific_ssrc("0123456789", is_playback=True)
+        result = await mgr.allocate_specific_ssrc(test_ssrc, is_playback=True)
         assert result is False
 
     @pytest.mark.asyncio
@@ -232,12 +234,12 @@ class TestSsrcManager:
         from app.sip.ssrc_manager import SsrcManager
 
         mgr = SsrcManager()
-        ssrc = await mgr.allocate(is_playback=False, stream_id="stream-lookup-test")
-
-        # Lookup stream by SSRC
-        found_stream = await mgr.lookup_stream_by_ssrc(ssrc)
-        assert found_stream == "stream-lookup-test"
+        ssrc = await mgr.allocate(is_playback=False)
+        await mgr.bind_stream(ssrc, "stream-lookup-test")
 
         # Lookup SSRC by stream
         found_ssrc = await mgr.lookup_ssrc_by_stream("stream-lookup-test")
         assert found_ssrc == ssrc
+
+        # Verify reverse lookup via internal dict
+        assert mgr._ssrc_to_stream.get(ssrc) == "stream-lookup-test"

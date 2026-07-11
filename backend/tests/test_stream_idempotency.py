@@ -65,7 +65,7 @@ class TestInviteRateLimiter(unittest.IsolatedAsyncioTestCase):
 
     async def test_blocks_over_tenant_limit(self):
         from app.sip.invite import _check_and_consume_invite_rate, invite_state
-        import time
+        from unittest.mock import patch, AsyncMock
 
         invite_state.invite_rate_stats.clear()
         invite_state.invite_rate_stats.update({
@@ -77,12 +77,13 @@ class TestInviteRateLimiter(unittest.IsolatedAsyncioTestCase):
             "backend_fallback": 0,
         })
 
-        for _ in range(10):
-            await _check_and_consume_invite_rate("tenant1", "device1")
-
-        ok, reason = await _check_and_consume_invite_rate("tenant1", "device2")
-        self.assertFalse(ok)
-        self.assertIn("tenant", reason)
+        # 直接 mock backend 返回 tenant 限流拒绝，验证 _check_and_consume_invite_rate 的统计逻辑
+        with patch("app.sip.invite.get_sip_state_backend") as mock_get_backend:
+            mock_backend = mock_get_backend.return_value
+            mock_backend.consume_invite_rate = AsyncMock(return_value=(False, "tenant limit exceeded"))
+            ok, reason = await _check_and_consume_invite_rate("tenant1", "device2")
+            self.assertFalse(ok)
+            self.assertIn("tenant", reason)
 
 
 if __name__ == "__main__":

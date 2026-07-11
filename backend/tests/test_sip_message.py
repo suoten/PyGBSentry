@@ -29,7 +29,8 @@ def _install_test_settings_stub() -> None:
         return
     for k, v in settings_obj.__dict__.items():
         if not hasattr(existing.settings, k):
-            setattr(existing.settings, k, v)
+            # Pydantic v2 __setattr__ rejects unknown fields when extra != 'allow'.
+            object.__setattr__(existing.settings, k, v)
 
 
 class TestSipMessage(unittest.TestCase):
@@ -75,7 +76,7 @@ class TestSipMessage(unittest.TestCase):
         self.assertRegex(r1.get_header("To") or "", r";\s*tag=")
         self.assertEqual(r1.get_header("To"), r2.get_header("To"))
 
-    def test_server_response_cache_hits(self):
+    async def test_server_response_cache_hits(self):
         _install_test_settings_stub()
         from app.sip.message import SipMessage
         from app.sip.server import SipServer
@@ -94,9 +95,9 @@ class TestSipMessage(unittest.TestCase):
         req = SipMessage.parse(raw)
         resp = sip_server_module._create_basic_response(req, 401, "Unauthorized", received_addr=("1.1.1.1", 5060))
         s = SipServer()
-        s.cache_response(resp)
+        await s.cache_response(resp)
         key = s._tx_key_from_request(req)
-        cached = s._get_cached_response(key)
+        cached = await s._get_cached_response(key)
         self.assertIsNotNone(cached)
         self.assertEqual(cached.get_header("Call-ID"), "testcall")
 

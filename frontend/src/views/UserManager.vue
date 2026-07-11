@@ -258,7 +258,7 @@ const roleLabel = (r: string) => {
 }
 
 const getRoleType = (role: string) => {
-  const typeMap: Record<string, unknown> = {
+  const typeMap: Record<string, 'info' | 'warning' | 'primary' | 'danger'> = {
     'viewer': 'info',
     'operator': 'warning',
     'admin': 'primary',

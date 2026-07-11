@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from unittest.mock import patch
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -30,19 +31,23 @@ class TestMediaPortAllocation(unittest.TestCase):
                 rtp_port_range_end=30002,
             )
 
-            async with Session() as db:
-                port, lease_id = await allocate_rtp_port_with_lease(db, node, exclude_ports={30000})
-                self.assertEqual(port, 30001)
-                self.assertIsNotNone(lease_id)
+            # allocate_rtp_port_with_lease deliberately uses random.randint to
+            # pick a starting offset (concurrency anti-storm). Patch it to 0 so
+            # the allocation order is deterministic: 30000 -> 30001 -> 30002.
+            with patch("random.randint", return_value=0):
+                async with Session() as db:
+                    port, lease_id = await allocate_rtp_port_with_lease(db, node, exclude_ports={30000})
+                    self.assertEqual(port, 30001)
+                    self.assertIsNotNone(lease_id)
 
-                await db.commit()
+                    await db.commit()
 
-            async with Session() as db:
-                port2, lease_id2 = await allocate_rtp_port_with_lease(db, node, start_from=30002)
-                self.assertEqual(port2, 30002)
-                self.assertIsNotNone(lease_id2)
+                async with Session() as db:
+                    port2, lease_id2 = await allocate_rtp_port_with_lease(db, node, start_from=30002)
+                    self.assertEqual(port2, 30002)
+                    self.assertIsNotNone(lease_id2)
 
-                await db.commit()
+                    await db.commit()
 
             async with Session() as db:
                 cnt = await db.scalar(select(func.count()).select_from(MediaPortLease))

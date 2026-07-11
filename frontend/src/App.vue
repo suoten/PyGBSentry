@@ -220,7 +220,9 @@ type DynRoute = {
   routeName: string
   path: string
   title: string
-  component: Record<string, unknown>
+  // FIX: [2026-07-10] 异步组件导入 `() => import(...)` 不可赋值给 `Record<string, unknown>`
+  // (TS2322)。改用 any 接受异步组件工厂函数 [全栈工程师]
+  component: any
 }
 
 const dynamicPaidRoutes: DynRoute[] = [
@@ -357,7 +359,9 @@ const ossMenu = [
 ] // FIXED: i18n菜单title
 
 type MenuItem = { path: string; title: string; icon: Record<string, unknown> }
-type MenuGroup = { title: string; icon: string | { component: unknown }; base: string; children: MenuItem[] }
+// FIX: [2026-07-10] Element Plus 图标组件为 DefineComponent，不可赋值给
+// `string | { component: unknown }` (TS2322)。改用 any 接受图标组件 [全栈工程师]
+type MenuGroup = { title: string; icon: any; base: string; children: MenuItem[] }
 
 const menuGroups = computed<MenuGroup[]>(() => {
   let base = [...ossMenu] as MenuItem[]
@@ -601,7 +605,9 @@ watch(
   () => route.fullPath,
   () => {
     if (!showLayout.value) return
-    tagsStore.addView(route)
+    // FIX: [2026-07-10] RouteLocationNormalizedLoadedGeneric 缺少 title 属性，
+    // 不可赋值给 TagView (TS2322)。路由 meta.title 由 addView 内部处理，此处强转 [全栈工程师]
+    tagsStore.addView(route as any)
   },
   { immediate: true }
 )
@@ -623,7 +629,7 @@ onMounted(() => {
     .getRoutes()
     .filter(r => (r.meta as Record<string, unknown>)?.affix)
     .map(r => ({ path: r.path, meta: r.meta, name: r.name }))
-  tagsStore.ensureAffix(affix as Record<string, unknown>)
+  tagsStore.ensureAffix(affix as any)
 })
 </script>
 

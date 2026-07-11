@@ -332,9 +332,17 @@ async def lifespan(app: FastAPI):
     5. Close database and Redis connection pools
 
     Note: This function is long (~790 lines) because it orchestrates the
-    entire application lifecycle. Each step is clearly commented and
-    wrapped in error handling to ensure partial failures don't prevent
-    the remaining steps from executing.
+    entire application lifecycle. Each step is clearly commented.
+
+    **Critical vs non-critical steps** (FIX: [2026-07-10] [全栈工程师]):
+    - CRITICAL (fail-fast on failure, abort startup): DB pre-check, schema
+      migration, init_db (admin/billing/media node), init_handlers, sip_server.start
+    - NON-CRITICAL (log warning + continue): alarm_escalation_schema, plugin
+      config load, plugin load, HOOK_ON_STARTUP, plugin health check
+
+    Critical steps use ``raise`` to abort startup when they fail, so problems
+    surface immediately instead of causing "started but unusable" silent failures.
+    Non-critical steps degrade gracefully (feature unavailable but core works).
     """
     # Startup
     logger.info(f"Using Database Dialect: {engine.dialect.name}")
@@ -503,15 +511,28 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Startup step: ensure_alarm_escalation_schema failed: {e}, continue startup.")
 
     # 初始化默认数据（admin 用户、计费方案等），支持 ADMIN_INITIAL_PASSWORD 重置密码
+    # CRITICAL: init_db 创建 admin/billing/media node — 失败必须 fail-fast，否则"启动成功但无法登录"
     logger.info("Startup step: init_db (default admin user & billing)...")
     try:
         from app.initial_data import init_db
         await asyncio.wait_for(init_db(), timeout=30)
         logger.info("Startup step: init_db done.")
     except asyncio.TimeoutError:
-        logger.warning("Startup step: init_db timeout (30s), continue startup.")
+        # FIX: [2026-07-10] 改为 fail-fast — init_db 超时意味着 admin/billing 未初始化 [全栈工程师]
+        logger.error(
+            "FATAL: init_db timeout (30s), aborting startup. "
+            "Admin user and billing plans were not initialized. "
+            "Check database connectivity or increase timeout."
+        )
+        raise
     except Exception as e:
-        logger.warning(f"Startup step: init_db failed: {e}, continue startup.")
+        # FIX: [2026-07-10] 改为 fail-fast — 不再 continue startup 导致无法登录 [全栈工程师]
+        logger.error(
+            f"FATAL: init_db failed: {e}, aborting startup. "
+            "Admin user and billing plans were not initialized.",
+            exc_info=True,
+        )
+        raise
 
     # 注入配置中心已发布的插件配置，供 load_plugins 时合并到各插件 config_template
     logger.info("Startup step: load_published_plugin_config...")
@@ -813,6 +834,14 @@ async def lifespan(app: FastAPI):
             logger.error(f"Startup step: sip_server.start failed: {e}. abort startup.")
             raise
         logger.warning(f"Startup step: sip_server.start failed: {e}. Continue startup without SIP.")
+
+    # FIX: [2026-07-10] RTP 超时配置校验 — 过短超时导致流在设备推流前被清理 [全栈工程师]
+    _rtp_timeout = int(getattr(settings, "RTP_SERVER_TIMEOUT_SECONDS", 30) or 30)
+    if _rtp_timeout < 20:
+        logger.warning(
+            f"RTP_SERVER_TIMEOUT_SECONDS={_rtp_timeout} is too short for NAT environments. "
+            "Recommend >= 30 for production. Streams may be dropped before devices start pushing."
+        )
 
     # Start Platform Service (Cascade)
     app_pkg.services.platform_service.platform_service = PlatformService(sip_server)

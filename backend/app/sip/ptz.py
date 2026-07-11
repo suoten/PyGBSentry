@@ -12,6 +12,14 @@ import asyncio
 # GB28181协议 — PTZ指令限流器，防止SIP消息洪泛
 import time as _ptz_time
 
+# PTZ 紧急操作白名单（来自 settings.PTZ_EMERGENCY_WHITELIST，逗号分隔的 GB ID）
+_PTZ_EMERGENCY_WHITELIST: set[str] = set(
+    s.strip()
+    for s in str(getattr(settings, "PTZ_EMERGENCY_WHITELIST", "") or "").split(",")
+    if s.strip()
+)
+
+
 class _PtzRateLimiter:
     """Per-device PTZ command rate limiter with latest-command-priority strategy."""
     def __init__(self, min_interval: float = 0.1):
@@ -124,8 +132,11 @@ class SipPtz:
         logger.info(f"[trace_id={trace_id}] Sent {log_label} to {channel_id}")
         return trace_id, proto, addr
 
-    async def send_ptz(self, asset, resource, transport_info: tuple, command: str, speed: int = 50, drag_data: dict = None):
-        """Send PTZ Control Message - supports standard PTZ and DragZoom 3D positioning."""
+    async def send_ptz(self, asset, resource, transport_info: tuple, command: str, speed: int = 50, drag_data: dict = None, is_emergency: bool = False):
+        """Send PTZ Control Message - supports standard PTZ and DragZoom 3D positioning.
+
+        is_emergency: 紧急操作标记（紧急白名单快速通道预留），原控制逻辑不变。
+        """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
         channel_id = resource.gb_id

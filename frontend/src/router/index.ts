@@ -97,10 +97,20 @@ const ossRoutes = [
   { path: '/plugins/runtime/:pluginId', name: 'PluginRuntime', component: () => import('../views/PluginRuntime.vue'), meta: { requiresAuth: true, titleKey: 'route.plugin', hiddenInMenu: true, keepAlive: true } } // FIXED: 国际化
 ]
 
+// FIXED: [2026-07-10] E-01/F-02 OSS 版隐藏企业版页面 — 后端无对应端点模块，显示会导致 404 [全栈工程师]
+// 遵循"不新增功能"原则：OSS 版仅保留核心 GB28181 功能，企业版功能（组织/角色/API密钥/地图/工单/资产/流优化/发布/审计/AI视觉/配置向导）仅在 server 版可用
+const OSS_ENTERPRISE_PATHS = new Set<string>([
+  '/map', '/map-providers', '/work-orders', '/channels/region',
+  '/roles', '/api-keys', '/organizations', '/asset-management',
+  '/network', '/stream-optimization', '/release-center',
+  '/audit-center', '/ai-vision', '/setup',
+])
+const ossVisibleRoutes = isServerEdition ? serverRoutes : ossRoutes.filter(r => !OSS_ENTERPRISE_PATHS.has(r.path))
+
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue'), meta: { titleKey: 'route.login' } }, // FIXED: 国际化
   { path: '/register', name: 'Register', component: () => import('../views/Register.vue'), meta: { titleKey: 'route.register' } }, // FIXED: 国际化
-  ...(isServerEdition ? serverRoutes : ossRoutes),
+  ...ossVisibleRoutes,
   { path: '/:pathMatch(.*)*', name: 'NotFound', component: () => import('../views/NotFound.vue'), meta: { titleKey: 'route.notFound' } } // FIXED: 国际化
 ]
 

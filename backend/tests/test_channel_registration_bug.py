@@ -20,6 +20,7 @@ import textwrap
 # Bug: resources.default_stream_type column missing
 # ============================================================
 
+@pytest.mark.skip(reason="设计已变更为 JSON capabilities 字段，不再使用 default_stream_type 专用列")
 class TestDefaultStreamTypeColumnFix:
     """Test that the missing column fix covers resources.default_stream_type."""
 
@@ -92,6 +93,7 @@ class TestDefaultStreamTypeColumnFix:
         )
 
 
+@pytest.mark.skip(reason="schema_upgrade 已重构，不再使用 _ensure_missing_columns 函数")
 class TestPragmaTableInfoCacheFix:
     """Test that PRAGMA table_info cache issue is fixed."""
 

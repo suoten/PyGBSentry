@@ -468,7 +468,7 @@ async def _do_warmup_flv(
         if logger is not None:
             try:
                 logger.debug(f"FLV warmup failed for {app}/{stream}: {warmup_err}")
-            except Exception as log_err:
+            except Exception:
                 pass  # logger itself failed, nothing more we can do
 
 

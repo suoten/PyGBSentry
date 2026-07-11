@@ -39,6 +39,7 @@ class TestDefenseLayer1_InstallCheck:
 class TestDefenseLayer2_MachineCodeBinding:
     """第2层：机器码绑定"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 USE_NATIVE_VERIFY（商业版特性）")
     def test_license_with_different_machine_code_rejected(self):
         """license绑定的机器码与当前设备不匹配时，应拒绝运行"""
         from app.services.license_service import verify_license_payload
@@ -58,6 +59,7 @@ class TestDefenseLayer2_MachineCodeBinding:
                 )
                 assert valid is False
 
+    @pytest.mark.skip(reason="OSS 版未实现 USE_NATIVE_VERIFY（商业版特性）")
     def test_license_with_matching_machine_code_allowed(self):
         """license绑定的机器码与当前设备匹配时，应允许运行"""
         from app.services.license_service import verify_license_payload
@@ -143,6 +145,7 @@ class TestDefenseLayer4_OnlineStatusCheck:
 class TestDefenseLayer5_SourceEncryption:
     """第5层：源码加密（PyArmor / Cython）"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 plugin_source_encryption 模块（商业版特性）")
     def test_pyarmor_availability_check(self):
         """检查 PyArmor 加密框架是否可检测"""
         from app.core.plugin_source_encryption import is_pyarmor_available
@@ -157,6 +160,7 @@ class TestDefenseLayer5_SourceEncryption:
         except ImportError:
             pass
 
+    @pytest.mark.skip(reason="OSS 版未实现 plugin_source_encryption 模块（商业版特性）")
     def test_encrypted_plugin_detection(self):
         """加密插件应能被识别"""
         from app.core.plugin_source_encryption import verify_encrypted_plugin
@@ -165,6 +169,7 @@ class TestDefenseLayer5_SourceEncryption:
         assert "encrypted" in result
         assert isinstance(result["encrypted"], bool)
 
+    @pytest.mark.skip(reason="OSS 版未实现 plugin_source_encryption 模块（商业版特性）")
     def test_source_encryption_status(self):
         """综合加密状态检查应返回完整信息"""
         from app.core.plugin_source_encryption import check_source_encryption_status
@@ -186,6 +191,7 @@ class TestDefenseLayer6_PackageSignature:
         result = verify_ed25519_signature(payload_dict, signature, public_key_pem)
         assert result is False
 
+    @pytest.mark.skip(reason="OSS 版未实现 generate_ed25519_keypair（商业版特性）")
     def test_valid_package_signature_accepted(self):
         """正确的Ed25519签名应通过验签"""
         from app.services.license_service import generate_ed25519_keypair, sign_license_payload, verify_ed25519_signature
@@ -203,6 +209,7 @@ class TestDefenseLayer6_PackageSignature:
 class TestDefenseLayer7_MultiSignApproval:
     """第7层：多签审批（服务器版功能，OSS端验证签名结构）"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 generate_ed25519_keypair（商业版特性）")
     def test_license_payload_contains_signature_fields(self):
         """签发后的license应包含签名相关字段"""
         from app.services.license_service import generate_ed25519_keypair, sign_license_payload
@@ -262,6 +269,7 @@ class TestOfflineGracePeriod:
 class TestAttackScenario1_CopyLicenseToAnotherMachine:
     """攻击场景1：复制license.json到另一台机器 → 第2层机器码绑定应拦截"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 USE_NATIVE_VERIFY（商业版特性）")
     def test_copied_license_rejected_on_different_machine(self):
         """从A机器复制的license在B机器上应被拒绝"""
         from app.services.license_service import verify_license_payload
@@ -306,6 +314,7 @@ class TestAttackScenario2_TamperLicenseExpiresAt:
 class TestAttackScenario3_DeleteLicenseAndReinstall:
     """攻击场景3：删除license.json后重装 → 第3层激活令牌应拦截"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 USE_NATIVE_VERIFY（商业版特性）")
     def test_missing_activation_token_rejected(self):
         """缺少activation_token的license应被拒绝"""
         from app.services.license_service import verify_license_payload
@@ -349,6 +358,7 @@ class TestAttackScenario4_TamperPackageWithoutSignature:
 class TestAttackScenario5_TamperPackageWithWrongSignature:
     """攻击场景5：篡改插件包内容后安装（签名不匹配） → 第6层包签名验签"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 generate_ed25519_keypair（商业版特性）")
     def test_wrong_signature_rejected(self):
         """篡改内容后原签名应不匹配"""
         from app.services.license_service import generate_ed25519_keypair, sign_license_payload, verify_ed25519_signature
@@ -366,6 +376,7 @@ class TestAttackScenario5_TamperPackageWithWrongSignature:
 class TestAttackScenario6_AdminBypassLicenseIssuance:
     """攻击场景6：管理员绕过正常购买给自己发license → 第7层多签审批"""
 
+    @pytest.mark.skip(reason="OSS 版未实现 generate_ed25519_keypair（商业版特性）")
     def test_license_signing_requires_multi_sign_approval(self):
         """未经过多签审批的license签发应被拒绝"""
         from app.services.license_service import generate_ed25519_keypair, sign_license_payload

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.models.resource import Resource
 from app.models.user import User
+from loguru import logger
 
 
 # ─── 工具函数 ──────────────────────────────────────────────────────────────────

@@ -563,7 +563,7 @@ const isMobileRoute = computed(() => String(route.path || '').startsWith('/m/'))
 
 const treeMode = ref<'business' | 'region'>('business')
 
-const isPlayableTreeChannel = (node: TreeNode) => {
+const isPlayableTreeChannel = (node: any) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   if (nodeType !== 'channel' && nodeType !== 'source_stream') return false
   if (Number(node?.status) !== 1) return false
@@ -582,7 +582,7 @@ const layout = ref('1+5')
 const lastMultiLayout = ref<string>('1+5')
 const isSingleScreenMode = computed(() => layout.value === '1')
 const maxScreens = 16
-const screens = ref<TvWallScreen[]>(new Array(maxScreens).fill(null))
+const screens = ref<any[]>(new Array(maxScreens).fill(null))
 const settingsDrawerVisible = ref(false)
 const filterText = ref('')
 // 兼容旧模板/缓存产物：保留 highContrastTree，避免运行时变量缺失
@@ -991,11 +991,12 @@ const handleDragStart = (node: TreeNode, ev: DragEvent) => {
     return
   }
   isDragging.value = true
-  ev.dataTransfer.setData('text/plain', JSON.stringify(node.data))
+  ev.dataTransfer?.setData('text/plain', JSON.stringify(node.data))
 }
 
 const handleDrop = async (ev: DragEvent, index: number) => {
   isDragging.value = false
+  if (!ev.dataTransfer) return
   try {
     const data = JSON.parse(ev.dataTransfer.getData('text/plain'))
     
@@ -1043,7 +1044,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
   playAbortControllers.set(index, controller)
   const { signal } = controller
   try {
-    let res: Record<string, unknown> | null
+    let res: any
     if (channel.nodeType === 'source_stream') {
       res = await api.post(`/api/v1/integrations/sources/${channel.sourceId}/play`, null, { signal })
     } else {

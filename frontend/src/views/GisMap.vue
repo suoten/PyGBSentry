@@ -62,7 +62,7 @@
       <el-form :model="config" size="small" label-position="top">
         <el-form-item :label="t('gis.mapScheme')">
           <el-select v-model="selectedProfileId" @change="onProfileChange" class="w-full">
-            <el-option v-for="p in mapProfiles" :key="p.id" :label="`${p.name}${p.is_default ? t('gis.defaultSuffix') : ''}`" :value="p.id" />
+            <el-option v-for="p in mapProfiles" :key="p.id" :label="`${p.name}${p.is_default ? t('gis.defaultSuffix') : ''}`" :value="(p.id as any)" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('gis.currentBaseMap')">
@@ -628,7 +628,7 @@ const handleMapClick = async (evt: MapClickLike) => {
     
     try {
       const chRes = await api.get(`/api/v1/devices/${device.gb_id}/channels`)
-      const chs = parseDeviceChannelsResponse(chRes.data)
+      const chs = (await parseDeviceChannelsResponse(chRes.data)) as any
       popupData.value.channels = normalizeChannels(chs)
       if (chs.length > 0) {
         const first = popupData.value.channels[0]

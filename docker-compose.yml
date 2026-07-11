@@ -107,7 +107,8 @@ services:
     # FIXED-P2: 添加backend健康检查，容器编排探针可感知实际状态
     # FIXED D-05: 统一健康检查端点为 /api/v1/health/
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health/')"]
+      # FIXED: [2026-07-10] D-02 健康检查改用 curl -f（Dockerfile 已安装 curl），urllib 默认无超时控制可能挂满 healthcheck [全栈工程师]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
       interval: 30s
       timeout: 10s
       retries: 3

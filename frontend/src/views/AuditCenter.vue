@@ -16,7 +16,7 @@
       <el-form-item v-for="field in filterFields" :key="field.key" :label="t(field.label)">
         <el-input
           v-if="field.component === 'input'"
-          :model-value="query[field.key]"
+          :model-value="(query[field.key] as string | null)"
           :placeholder="field.placeholder ? t(field.placeholder) : undefined"
           :disabled="!canQueryAudit"
           @update:model-value="(v: string) => setField(field.key, v)"
@@ -499,7 +499,7 @@
     </TableCard>
     <AppDialog v-model="detailDialogVisible" :title="t('audit.auditDetail')" size="large">
       <el-descriptions :column="2" border>
-        <el-descriptions-item :label="t('audit.timeCol')">{{ detailRow ? formatDateTime(detailRow.created_at) : '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.timeCol')">{{ detailRow ? formatDateTime(detailRow.created_at as string | number | Date | null) : '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.statusLabel')">{{ detailRow?.result || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.module')">{{ detailRow?.module || '-' }}</el-descriptions-item>
         <el-descriptions-item :label="t('audit.actionLabel')">{{ detailRow?.action || '-' }}</el-descriptions-item>
@@ -508,18 +508,18 @@
           {{
             detailRow
               ? ((detailRow.status_code ?? undefined) ??
-                (getSummaryField(detailRow.summary || '', 'status_code') ? Number(getSummaryField(detailRow.summary || '', 'status_code')) : undefined) ??
+                (getSummaryField(String(detailRow.summary || ''), 'status_code') ? Number(getSummaryField(String(detailRow.summary || ''), 'status_code')) : undefined) ??
                 '-')
               : '-'
           }}
         </el-descriptions-item>
-        <el-descriptions-item :label="t('audit.pluginId')">{{ detailRow?.plugin_id || (detailRow ? getSummaryField(detailRow.summary || '', 'plugin_id') : '') || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="t('audit.tenant')">{{ detailRow?.tenant_id || (detailRow ? getSummaryField(detailRow.summary || '', 'tenant_id') : '') || '-' }}</el-descriptions-item>
-        <el-descriptions-item :label="t('audit.source')">{{ detailRow?.source || (detailRow ? getSummaryField(detailRow.summary || '', 'source') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.pluginId')">{{ detailRow?.plugin_id || (detailRow ? getSummaryField(String(detailRow.summary || ''), 'plugin_id') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.tenant')">{{ detailRow?.tenant_id || (detailRow ? getSummaryField(String(detailRow.summary || ''), 'tenant_id') : '') || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('audit.source')">{{ detailRow?.source || (detailRow ? getSummaryField(String(detailRow.summary || ''), 'source') : '') || '-' }}</el-descriptions-item>
       </el-descriptions>
       <div class="audit-detail-block">
         <div class="audit-detail-title">{{ t('audit.summaryOriginal') }}</div>
-        <el-input :model-value="detailRow?.summary || '-'" type="textarea" :rows="4" readonly />
+        <el-input :model-value="String(detailRow?.summary ?? '-')" type="textarea" :rows="4" readonly />
       </div>
       <div class="audit-detail-block">
         <div class="audit-detail-title">{{ t('audit.summaryFields') }}</div>
@@ -542,7 +542,7 @@ import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { downloadAuditCsv, getAuditStats, listAuditLogs, type AuditLogItem, type AuditStatsResponse } from '../api/auditCenter'
-import { getVerifiedRoleInfo, getCachedRoleInfo, type RoleInfo } from '../utils/auth' // FIX H-8: 改用后端验证角色
+import { getVerifiedRoleInfo, getCachedRoleInfo, EMPTY_ROLE_INFO, type RoleInfo } from '../utils/auth' // FIX H-8: 改用后端验证角色
 import { EMPTY_TEXT, buildErrorMessage, buildSuccessMessage } from '../utils/ui'
 import { getApiErrorMessage } from '../utils/errorMessage'
 import { formatDateTime } from '../utils/time'
@@ -602,8 +602,8 @@ const refreshTicker = ref<number | null>(null)
 const lastAutoTriggerAtMs = ref(0)
 const autoTriggerMinGapMs = 3000
 const searchRequestSeq = ref(0)
-const roleInfo = getRoleInfo()
-const canQueryAudit = roleInfo.canQueryAudit
+const roleInfo = ref(getCachedRoleInfo() ?? EMPTY_ROLE_INFO)
+const canQueryAudit = computed(() => roleInfo.value.canQueryAudit)
 const route = useRoute()
 const router = useRouter()
 // SECURITY: 以下均为非敏感 UI 偏好 — 复制格式（plain/markdown/codeblock）、自动刷新开关与间隔秒数，
@@ -626,7 +626,7 @@ const query = reactive({
 const lastCopyFormat = ref<'plain' | 'markdown' | 'codeblock'>('plain')
 
 const activeFilterTags = ref<Array<{ key: string; label: string }>>([])
-const detailSummaryRows = computed(() => parseSummaryEntries(detailRow.value?.summary || ''))
+const detailSummaryRows = computed(() => parseSummaryEntries(String(detailRow.value?.summary || '')))
 
 const saveAutoRefreshPrefs = () => {
   localStorage.setItem(AUTO_REFRESH_ENABLED_KEY, autoRefreshEnabled.value ? '1' : '0')
@@ -844,8 +844,8 @@ const collapseAllPluginGroups = () => {
 const quickStats = computed(() => {
   const totalValue = Number(stats.value?.total ?? rows.value.length)
   const failedValue = Number(stats.value?.failed ?? rows.value.filter((x) => String(x.result || '').toLowerCase() === 'failed').length)
-  const topActions = (stats.value?.top_actions || []).map((x) => [x.name, x.count] as [string, number]).slice(0, 2)
-  const topStatus = (stats.value?.top_status_codes || []).map((x) => [x.code, x.count] as [string, number]).slice(0, 2)
+  const topActions = ((stats.value?.top_actions as Array<Record<string, unknown>>) || []).map((x) => [String(x.name), Number(x.count)] as [string, number]).slice(0, 2)
+  const topStatus = ((stats.value?.top_status_codes as Array<Record<string, unknown>>) || []).map((x) => [String(x.code), Number(x.count)] as [string, number]).slice(0, 2)
   const items: Array<{
     key: string
     label: string
@@ -867,7 +867,7 @@ const quickStats = computed(() => {
 })
 
 const upgradeFailureBuckets = computed(() => {
-  const buckets = upgradeProfileStats.value?.status_buckets || {}
+  const buckets = (upgradeProfileStats.value?.status_buckets as Record<string, number>) || {}
   return [
     { key: '401', label: `401 (${Number(buckets['401'] || 0)})`, type: 'warning' as const },
     { key: '402', label: `402 (${Number(buckets['402'] || 0)})`, type: 'warning' as const },
@@ -919,7 +919,7 @@ const upgradeWindowRangeHint = computed(() => {
 })
 
 const upgradeWindowToggleHint = computed(() => {
-  if (!canQueryAudit) return t('audit.noQueryPermission')
+  if (!canQueryAudit.value) return t('audit.noQueryPermission')
   if (activeTimeWindow.value === '15m') return t('audit.clickRestoreAllTime')
   return t('audit.clickSwitchToOnCall')
 })
@@ -1194,12 +1194,12 @@ const onAutoRefreshSecondsChange = async (value: number | string) => {
 }
 
 const manualRefresh = async () => {
-  if (!canQueryAudit) return
+  if (!canQueryAudit.value) return
   await search(true)
 }
 
 const resumeAutoRefresh = async () => {
-  if (!canQueryAudit || loading.value) return
+  if (!canQueryAudit.value || loading.value) return
   autoRefreshEnabled.value = true
   autoRefreshStoppedByError.value = false
   autoRefreshErrorStreak.value = 0
@@ -1273,8 +1273,8 @@ const buildTroubleshootingSummaryParts = () => {
   if (query.module.trim()) kv.push(`${t('audit.module')}=${query.module.trim()}`)
   if (query.operator.trim()) kv.push(`${t('audit.operator')}=${query.operator.trim()}`)
   if (query.result) kv.push(`${t('audit.resultLabel')}=${query.result}`)
-  const topAction = stats.value?.top_actions?.[0]
-  const topStatus = stats.value?.top_status_codes?.[0]
+  const topAction = (stats.value?.top_actions as Array<Record<string, unknown>> | undefined)?.[0]
+  const topStatus = (stats.value?.top_status_codes as Array<Record<string, unknown>> | undefined)?.[0]
   const failed = Number(stats.value?.failed ?? 0)
   const statTotal = Number(stats.value?.total ?? total.value)
   kv.push(`${t('audit.summaryFailed')}=${failed}/${statTotal}`)
@@ -1422,7 +1422,7 @@ const search = async (
   silent = false,
   options: { suppressErrorToast?: boolean; fromAutoRefresh?: boolean } = {}
 ) => {
-  if (!canQueryAudit) {
+  if (!canQueryAudit.value) {
     rows.value = []
     total.value = 0
     return
@@ -1765,7 +1765,7 @@ const onSizeChange = async (size: number) => {
 
 const exportLoading = ref(false)
 const handleExport = async () => {
-  if (!canQueryAudit) return
+  if (!canQueryAudit.value) return
   exportLoading.value = true
   try {
     const startAt = query.date_range?.[0] || undefined

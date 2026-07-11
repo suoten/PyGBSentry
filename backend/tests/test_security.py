@@ -46,7 +46,10 @@ def _install_test_settings() -> None:
         return
     for k, v in settings_obj.__dict__.items():
         if not hasattr(existing.settings, k):
-            setattr(existing.settings, k, v)
+            # Pydantic v2 __setattr__ rejects unknown fields when extra != 'allow'.
+            # Use object.__setattr__ to inject test-only fields (e.g. SIP_REALM) that
+            # production Settings doesn't declare, without weakening production config.
+            object.__setattr__(existing.settings, k, v)
 
 
 def _make_request(path: str, headers: dict | None = None):

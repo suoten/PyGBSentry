@@ -27,12 +27,12 @@
 
       <DeviceFilterBar ref="filterBar" :organization-options="organizationOptions" :total-display="totalDisplay" :device-stats-total="deviceStatsTotal" :device-stats-online="deviceStatsOnline" :device-stats-offline="deviceStatsOffline" :page-size="pageSize" @search="handleSearch" />
 
-      <DeviceTable :devices="devices" :loading="loading" :devices-empty-text="devicesEmptyText" :total-display="totalDisplay" :page="page" :page-size="pageSize" :current-device="currentDevice" :dialog-visible="dialogVisible" :selected-devices="selectedDevices" :saving-mode="savingMode" :saving-org="savingOrg" :saving-catalog-sub="savingCatalogSub" :saving-mobile-sub="savingMobileSub" :catalog-sync-polling="catalogSyncPolling" :organization-options="organizationOptions" @update:page="(v: number) => page = v" @update:page-size="(v: number) => pageSize = v" @fetch-devices="fetchDevices" @page-size-change="handlePageSizeChange" @view-device="handleView" @selection-change="(v: unknown) => selectedDevices = v" @batch-delete="onBatchDelete" @open-add-dialog="onOpenAddDialog" @open-access-info-dialog="onOpenAccessInfoDialog" @save-organization="onSaveOrganization" @save-stream-mode="onSaveStreamMode" @toggle-catalog-subscribe="onToggleCatalogSubscribe" @set-catalog-subscribe-cycle="onSetCatalogSubscribeCycle" @toggle-mobile-subscribe="onToggleMobileSubscribe" @set-mobile-subscribe-interval="onSetMobileSubscribeInterval" @sync-device-channels="onSyncDeviceChannels" @alarm-dropdown-command="onAlarmDropdownCommand" />
+      <DeviceTable :devices="devices" :loading="loading" :devices-empty-text="devicesEmptyText" :total-display="totalDisplay" :page="page" :page-size="pageSize" :current-device="currentDevice" :dialog-visible="dialogVisible" :selected-devices="selectedDevices" :saving-mode="savingMode" :saving-org="savingOrg" :saving-catalog-sub="savingCatalogSub" :saving-mobile-sub="savingMobileSub" :catalog-sync-polling="catalogSyncPolling" :organization-options="organizationOptions" @update:page="(v: number) => page = v" @update:page-size="(v: number) => pageSize = v" @fetch-devices="fetchDevices" @page-size-change="handlePageSizeChange" @view-device="handleView" @selection-change="(v: unknown) => selectedDevices = v as Device[]" @batch-delete="onBatchDelete" @open-add-dialog="onOpenAddDialog" @open-access-info-dialog="onOpenAccessInfoDialog" @save-organization="onSaveOrganization" @save-stream-mode="onSaveStreamMode" @toggle-catalog-subscribe="onToggleCatalogSubscribe" @set-catalog-subscribe-cycle="onSetCatalogSubscribeCycle" @toggle-mobile-subscribe="onToggleMobileSubscribe" @set-mobile-subscribe-interval="onSetMobileSubscribeInterval" @sync-device-channels="onSyncDeviceChannels" @alarm-dropdown-command="onAlarmDropdownCommand" />
     </PageContainer>
 
-    <DeviceDetailDrawer ref="detailDrawer" :current-device="currentDevice" :current-channel="currentChannel" :dialog-visible="dialogVisible" :player-visible="playerVisible" :channel-stream-reset="channelStreamReset" :channel-page="channelPage" :channel-page-size="channelPageSize" :devices="devices" @update:dialog-visible="(v: boolean) => dialogVisible = v" @update:player-visible="(v: boolean) => playerVisible = v" @update:current-channel="(v: unknown) => currentChannel = v" @update:channel-stream-reset="(v: string) => channelStreamReset = v" @update:channel-page="(v: number) => channelPage = v" @update:channel-page-size="(v: number) => channelPageSize = v" @fetch-devices="fetchDevices" />
+    <DeviceDetailDrawer ref="detailDrawer" :current-device="currentDevice" :current-channel="currentChannel" :dialog-visible="dialogVisible" :player-visible="playerVisible" :channel-stream-reset="channelStreamReset" :channel-page="channelPage" :channel-page-size="channelPageSize" :devices="devices" @update:dialog-visible="(v: boolean) => dialogVisible = v" @update:player-visible="(v: boolean) => playerVisible = v" @update:current-channel="(v: unknown) => currentChannel = v as Device | null" @update:channel-stream-reset="(v: string) => channelStreamReset = v" @update:channel-page="(v: number) => channelPage = v" @update:channel-page-size="(v: number) => channelPageSize = v" @fetch-devices="fetchDevices" />
 
-    <DeviceBatchOps ref="batchOpsRef" :devices="devices" :selected-devices="selectedDevices" @fetch-devices="fetchDevices" @add-success="fetchDevices" @edit-success="fetchDevices" @blacklist-success="fetchDevices" @update:selected-devices="(v: unknown) => selectedDevices = v" />
+    <DeviceBatchOps ref="batchOpsRef" :devices="devices" :selected-devices="selectedDevices" @fetch-devices="fetchDevices" @add-success="fetchDevices" @edit-success="fetchDevices" @blacklist-success="fetchDevices" @update:selected-devices="(v: unknown) => selectedDevices = v as Device[]" />
   </div>
 </template>
 
@@ -54,10 +54,44 @@ import DeviceTable from './device-list/DeviceTable.vue'
 import DeviceDetailDrawer from './device-list/DeviceDetailDrawer.vue'
 import DeviceBatchOps from './device-list/DeviceBatchOps.vue'
 
+interface FilterBarInstance {
+  deviceKeyword: string
+  deviceStatus: string
+  filterOrganizationId: string
+  focusKeywordInput: () => void
+  restoredPageSize?: number
+}
+
+interface BatchOpsInstance {
+  openAddDialog: () => void
+  openIpBlacklistDialog: () => void
+  openAccessInfoDialog: () => void
+  handleBatchDelete: () => void
+  exportToCsv: (opts: { id: string; label: string }[]) => void
+  exportDevicesFromServer: (format: string, withChannels: boolean) => void
+  batchSnapshot: () => void
+  saveOrganization: (row: Record<string, unknown>) => void
+  saveStreamMode: (row: Record<string, unknown>) => void
+  toggleCatalogSubscribe: (row: Record<string, unknown>, enabled: boolean) => void
+  setCatalogSubscribeCycle: (row: Record<string, unknown>) => void
+  toggleMobileSubscribe: (row: Record<string, unknown>, enabled: boolean) => void
+  setMobileSubscribeInterval: (row: Record<string, unknown>) => void
+  syncDeviceChannels: (row: Record<string, unknown>) => void
+  handleAlarmDropdownCommand: (row: Record<string, unknown>, cmd: string) => void
+  savingMode: Record<string, boolean>
+  savingOrg: Record<string, boolean>
+  savingCatalogSub: Record<string, boolean>
+  savingMobileSub: Record<string, boolean>
+  catalogSyncPolling: Record<string, boolean>
+  batchSnapping: boolean
+  clearCatalogSyncDialogCloseTimer: () => void
+  catalogSyncPollingTimers: Record<string, number | null>
+}
+
 const { t } = useI18n()  // FIXED: 国际化
-const filterBar = ref<InstanceType<typeof DeviceFilterBar>>()
+const filterBar = ref<FilterBarInstance>()
 const detailDrawer = ref<InstanceType<typeof DeviceDetailDrawer>>()
-const batchOpsRef = ref<InstanceType<typeof DeviceBatchOps>>()
+const batchOpsRef = ref<BatchOpsInstance>()
 
 const devices = ref<Device[]>([])
 const loading = ref(false)
@@ -88,7 +122,7 @@ const savingMobileSub = ref<Record<string, boolean>>({})
 const catalogSyncPolling = ref<Record<string, boolean>>({})
 const batchSnapping = ref(false)
 
-const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()) } catch { organizationOptions.value = []; logger.warn('加载组织树失败') } }
+const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()).map(o => ({ id: o.id, label: o.name })) } catch { organizationOptions.value = []; logger.warn('加载组织树失败') } }
 
 const fetchDevices = async (silentArg?: boolean | number) => {
   const silent = typeof silentArg === 'boolean' ? silentArg : false
@@ -158,13 +192,13 @@ const route = useRoute()
 const tryOpenPlaybackFromQuery = async () => {
   const q = route.query || {}; const deviceId = String(q.deviceId || q.device_id || '').trim(); if (!deviceId) return
   if (!devices.value.length) await fetchDevices(true)
-  const target = devices.value.find((i: number) => String(i?.gb_id || '') === deviceId); if (!target) return
+  const target = devices.value.find((i: Device) => String(i?.gb_id || '') === deviceId); if (!target) return
   currentDevice.value = target; dialogVisible.value = true
   const tabRaw = String(q.tab || '').trim().toLowerCase(); const tab = tabRaw === 'cloud' || tabRaw === 'device' || tabRaw === 'timeline' ? tabRaw : 'channels'
   await detailDrawer.value?.loadChannelsDialog()
   const channelId = String(q.channelId || q.channel_id || '').trim()
   if (channelId) {
-    const chs = detailDrawer.value?.channels || []; const ch = chs.find((i: number) => String(i?.gb_id || '') === channelId)
+    const chs = detailDrawer.value?.channels || []; const ch = chs.find((i: Device) => String(i?.gb_id || '') === channelId)
     if (ch && tab !== 'channels' && detailDrawer.value) {
       const mins = Math.max(1, Number(String(q.window_minutes || 30).trim() || 30))
       const center = (() => { const r = String(q.time || '').trim(); if (!r) return new Date(); const d = new Date(r); return Number.isNaN(d.getTime()) ? new Date() : d })()

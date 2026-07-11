@@ -8,6 +8,7 @@ from loguru import logger
 import multiprocessing
 import os
 import math
+import re
 import sys
 import threading
 import time
@@ -23,8 +24,8 @@ from types import SimpleNamespace
 _PLUGIN_SANDBOX_BLOCKED_MODULES: frozenset[str] = frozenset({
     "subprocess", "ctypes", "cffi", "multiprocessing",
     "winreg", "pickle", "shelve", "marshal",
-    "socket", "http.client", "urllib", "requests", "httpx",
-    "paramiko", "signal", "importlib",
+    "socket", "ssl", "http.client", "urllib", "urllib3", "requests", "httpx",
+    "paramiko", "signal", "importlib", "pty",
 })
 
 _PLUGIN_SANDBOX_BLOCKED_ATTRS: dict[str, frozenset[str]] = {
@@ -1562,6 +1563,162 @@ class PluginManager:
             pass  # intentional: asyncio cancellation
         except Exception as e:
             logger.warning(f"[LicenseRefresh] Subscriber error: {e}")
+    # FIXED: [2026-07-10] P-02 新增插件安装/卸载方法 — 打通"官网购买→OSS 下载安装"链路 [全栈工程师]
+    def install_plugin_from_zip(
+        self,
+        temp_path: str,
+        tenant_id: str = "default",
+        expected_sha256: str | None = None,
+        expected_package_signature: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        从 zip 文件安装插件。参照 server 版 _install_plugin_from_zip 实现，OSS 简化版：
+        - SHA256 校验（可选）
+        - ed25519 package 签名验证（可选，当 expected_package_signature 提供时）
+        - ed25519 manifest 签名验证（自动，从 plugin.json 读取 manifest_signature）
+        - Zip Slip 安全防护
+        - 升级快照（备份旧版本，失败回滚）
+        - 付费插件通过在线 license 校验（_check_license_online_status）
+        """
+        import hashlib
+        import shutil
+        import zipfile as zf
+
+        # 1. SHA256 校验 + package 签名验证（分块读取避免大文件内存溢出）
+        actual_sha: str | None = None
+        need_sha = bool(expected_sha256) or bool(expected_package_signature)
+        if need_sha:
+            h = hashlib.sha256()
+            with open(temp_path, "rb") as _f:
+                for _chunk in iter(lambda: _f.read(1024 * 1024), b""):
+                    h.update(_chunk)
+            actual_sha = h.hexdigest()
+        if expected_sha256 and actual_sha != str(expected_sha256).strip().lower():
+            raise ValueError(f"插件包 SHA256 校验失败：期望 {expected_sha256}，实际 {actual_sha}")
+        if expected_package_signature:
+            from app.services.license_service import verify_ed25519_signature
+            pub = (getattr(settings, "PLUGIN_PACKAGE_ED25519_PUBLIC_KEY", None) or "").strip() or (
+                getattr(settings, "LICENSE_ED25519_PUBLIC_KEY", None) or ""
+            ).strip()
+            if not pub:
+                raise ValueError("未配置插件包签名验签公钥：PLUGIN_PACKAGE_ED25519_PUBLIC_KEY / LICENSE_ED25519_PUBLIC_KEY")
+            if not verify_ed25519_signature({"package_sha256": actual_sha}, expected_package_signature, pub):
+                raise ValueError("插件包签名校验失败：package_signature 不匹配")
+
+        # 2. 读取 plugin.json 元数据
+        with zf.ZipFile(temp_path, "r") as zip_ref:
+            file_list = zip_ref.namelist()
+            if "plugin.json" not in file_list:
+                raise ValueError("无效插件包：缺少 plugin.json")
+            with zip_ref.open("plugin.json") as f:
+                metadata = json.load(f)
+            plugin_id = str(metadata.get("id") or "").strip()
+            if not plugin_id:
+                raise ValueError("无效插件元数据：缺少 id")
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", plugin_id):
+                raise ValueError("插件 id 非法（仅允许字母数字、-、_，长度≤64）")
+
+            # 2.5 manifest 签名验证（自动从 plugin.json 读取 manifest_signature）
+            from app.services.license_service import manifest_signature_install_error
+            ms_err = manifest_signature_install_error(metadata if isinstance(metadata, dict) else None)
+            if ms_err:
+                raise ValueError(f"插件清单签名校验失败：{ms_err}")
+
+            # 3. Zip Slip 安全防护 — 拒绝绝对路径和 .. 穿越
+            for name in file_list:
+                if name.startswith("/") or ".." in name.split("/"):
+                    raise ValueError(f"插件包包含不安全路径：{name}")
+
+            # 4. 升级快照（备份旧版本）
+            target_dir = os.path.join(self.plugin_dir, plugin_id)
+            upgrade_snapshot: str | None = None
+            if os.path.exists(target_dir):
+                import tempfile
+                upgrade_snapshot = tempfile.mkdtemp(prefix=f"plugin_snap_{plugin_id}_")
+                for item in os.listdir(target_dir):
+                    s = os.path.join(target_dir, item)
+                    d = os.path.join(upgrade_snapshot, item)
+                    if os.path.isdir(s):
+                        shutil.copytree(s, d)
+                    else:
+                        shutil.copy2(s, d)
+
+            # 5. 解压到目标目录
+            if os.path.exists(target_dir):
+                shutil.rmtree(target_dir)
+            os.makedirs(target_dir)
+            try:
+                for member in zip_ref.infolist():
+                    if member.is_dir():
+                        continue
+                    # 解压单个文件（路径已在步骤 3 校验）
+                    dest = os.path.join(target_dir, member.filename)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zip_ref.open(member) as src, open(dest, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+            except Exception as e:
+                # 回滚
+                if upgrade_snapshot and os.path.exists(upgrade_snapshot):
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                    shutil.copytree(upgrade_snapshot, target_dir)
+                raise ValueError(f"插件解压失败（已回滚）：{e}")
+
+            # 6. 清理快照
+            if upgrade_snapshot and os.path.exists(upgrade_snapshot):
+                shutil.rmtree(upgrade_snapshot, ignore_errors=True)
+
+        # 7. 重新加载插件
+        previous_version = str((self.metadata.get(plugin_id, {}) or {}).get("version") or "").strip()
+        try:
+            self.load_plugins()
+        except Exception as e:
+            logger.error(f"插件加载失败：{e}")
+            raise ValueError(f"插件加载失败：{e}")
+
+        new_version = str((self.metadata.get(plugin_id, {}) or {}).get("version") or metadata.get("version") or "").strip()
+        operation = "upgrade" if previous_version else "install"
+        logger.info(f"插件 {plugin_id} {operation} 成功：{previous_version or 'N/A'} → {new_version or 'N/A'}")
+        return {
+            "status": "success",
+            "plugin_id": plugin_id,
+            "operation": operation,
+            "previous_version": previous_version or None,
+            "version": new_version or None,
+            "message": f"Plugin {plugin_id} installed successfully",
+        }
+
+    def uninstall_plugin(self, plugin_id: str) -> dict[str, Any]:
+        """
+        卸载插件：触发 HOOK_ON_SHUTDOWN → 删除目录 → 重新加载。
+        """
+        import shutil
+        pid = str(plugin_id or "").strip()
+        if not pid or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", pid):
+            raise ValueError("插件 id 非法")
+
+        target_dir = os.path.join(self.plugin_dir, pid)
+        if not os.path.exists(target_dir):
+            raise ValueError(f"插件 {pid} 未安装")
+
+        previous_version = str((self.metadata.get(pid, {}) or {}).get("version") or "").strip()
+
+        # 1. 删除目录
+        shutil.rmtree(target_dir, ignore_errors=True)
+
+        # 2. 重新加载（_reset_runtime 会触发所有插件的 HOOK_ON_SHUTDOWN）
+        try:
+            self.load_plugins()
+        except Exception as e:
+            logger.error(f"插件卸载后重载失败：{e}")
+
+        logger.info(f"插件 {pid} 卸载成功（原版本 {previous_version or 'N/A'}）")
+        return {
+            "status": "success",
+            "plugin_id": pid,
+            "operation": "uninstall",
+            "previous_version": previous_version or None,
+            "message": f"Plugin {pid} uninstalled successfully",
+        }
 
 
 # Singleton

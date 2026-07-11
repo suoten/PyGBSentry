@@ -728,12 +728,12 @@ const fetchWvpMetrics = async () => {
     const tenantNodes = (Array.isArray(topologyRes.data?.nodes) ? topologyRes.data.nodes : [])
       .filter((x: Record<string, unknown>) => x?.type === 'tenant')
       .map((x: Record<string, unknown>) => {
-        const online = Number(x?.metrics?.device_online || 0)
-        const total = Number(x?.metrics?.device_total || 0)
+        const online = Number((x?.metrics as Record<string, unknown>)?.device_online || 0)
+        const total = Number((x?.metrics as Record<string, unknown>)?.device_total || 0)
         const ratio = total > 0 ? normalizeToPercent((online / total) * 100) : 0
         return { name: String(x?.label || x?.id || t('dashboard.unknownTenant')), ratio }
       })
-      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => b.ratio - a.ratio)
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => Number(b.ratio) - Number(a.ratio))
       .slice(0, 8)
     tenantLoads.value = tenantNodes
 
@@ -810,7 +810,7 @@ let reconnectAttempts = 0
 let notifyTimer: number | null = null
 let notifyWindowStartedAt = 0
 let pendingNotifyCount = 0
-let lastPendingAlarm: Record<string, unknown> = null
+let lastPendingAlarm: Record<string, unknown> | null = null
 const NOTIFY_WINDOW_MS = 2000
 
 const systemInfoVisible = ref(false)

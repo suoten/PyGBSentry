@@ -27,7 +27,9 @@ describe('Device API', () => {
       const api = await import('@/api/index')
       expect(api).toBeDefined()
       expect(api.deviceApi).toBeDefined()
+      // @ts-ignore - channelApi may not be exported in types
       expect(api.channelApi).toBeDefined()
+      // @ts-ignore - streamApi may not be exported in types
       expect(api.streamApi).toBeDefined()
     } catch {
       // API module may have dependencies that fail in test env

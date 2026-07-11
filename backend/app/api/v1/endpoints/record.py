@@ -92,22 +92,36 @@ def _parse_summary_kv(summary: str) -> dict[str, str]:
     return out
 
 
+def _is_url_ssrf_blocked(url: str) -> tuple[bool, str]:
+    """FIXED: [2026-07-10] S-01 SSRF 防护 — 纯 IP 解析检查（无 HTTP 请求），供下载流程复用 [安全工程师]"""
+    import ipaddress
+    import socket
+    value = (url or "").strip()
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"}:
+        return False, ""
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return False, ""
+    try:
+        resolved_ips = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
+        for _, _, _, _, addr in resolved_ips:
+            ip = ipaddress.ip_address(addr[0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+                return True, f"blocked_private_ip:{addr[0]}"
+    except Exception:
+        logger.warning("ssrf_dns_resolve_failed", exc_info=True)
+    return False, ""
+
+
 async def _verify_url_or_path(url: str, zlm_file_path: str | None) -> tuple[bool, int | None, str]:
     value = (url or "").strip()
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme in {"http", "https"}:
         # SSRF防护 — 禁止请求内网/回环地址
-        import ipaddress
-        import socket
-        hostname = parsed.hostname or ""
-        try:
-            resolved_ips = socket.getaddrinfo(hostname, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
-            for _, _, _, _, addr in resolved_ips:
-                ip = ipaddress.ip_address(addr[0])
-                if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-                    return False, None, f"blocked_private_ip:{addr[0]}"
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        blocked, reason = _is_url_ssrf_blocked(value)
+        if blocked:
+            return False, None, reason
         try:
             resp = await (await get_http_client()).head(value, timeout=5, follow_redirects=True)
             code = int(resp.status_code)
@@ -205,11 +219,19 @@ async def _stream_record_download(
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme in {"http", "https"}:
         target_url = url
+        # FIXED: [2026-07-10] S-01 SSRF 防护 — 下载前校验目标 URL 非内网/回环地址 [安全工程师]
+        ssrf_blocked, ssrf_reason = _is_url_ssrf_blocked(target_url)
+        if ssrf_blocked:
+            raise HTTPException(status_code=400, detail=f"Recording download blocked (SSRF protection): {ssrf_reason}")
         try:
             upstream = await (await get_http_client()).get(target_url, timeout=5, follow_redirects=True)  # 同步requests→异步httpx，避免阻塞事件循环
         except Exception as e:
             repaired = await _build_repaired_url(db, row)
             if repaired and repaired != target_url:
+                # FIXED: [2026-07-10] S-01 repaired URL 同样需 SSRF 校验 [安全工程师]
+                ssrf_blocked, ssrf_reason = _is_url_ssrf_blocked(repaired)
+                if ssrf_blocked:
+                    raise HTTPException(status_code=400, detail=f"Recording download blocked (SSRF protection): {ssrf_reason}")
                 try:
                     upstream = await (await get_http_client()).get(repaired, timeout=5, follow_redirects=True)  # 同步requests→异步httpx，避免阻塞事件循环
                     target_url = repaired
@@ -227,6 +249,10 @@ async def _stream_record_download(
             upstream.close()
             repaired = await _build_repaired_url(db, row)
             if repaired and repaired != target_url:
+                # FIXED: [2026-07-10] S-01 repaired URL retry 同样需 SSRF 校验 [安全工程师]
+                ssrf_blocked, ssrf_reason = _is_url_ssrf_blocked(repaired)
+                if ssrf_blocked:
+                    raise HTTPException(status_code=400, detail=f"Recording download blocked (SSRF protection): {ssrf_reason}")
                 try:
                     retry = await (await get_http_client()).get(repaired, timeout=5, follow_redirects=True)  # 同步requests→异步httpx，避免阻塞事件循环
                 except Exception as e:

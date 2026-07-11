@@ -842,7 +842,7 @@ const _updateClock = () => {
 
 
 
-const isPlayableTreeChannel = (node: TreeNode) => {
+const isPlayableTreeChannel = (node: any) => {
 
   const nodeType = String(node?.nodeType || '').toLowerCase()
 
@@ -1343,9 +1343,9 @@ const fetchTree = async () => {
 
       resolveStatus: (item: Record<string, unknown>) => {
 
-        const rtmpRunning = item?.extra?.['runtime.rtmp.is_running']
+        const rtmpRunning = (item?.extra as any)?.['runtime.rtmp.is_running']
 
-        const proxyRunning = item?.extra?.['runtime.proxy.is_running']
+        const proxyRunning = (item?.extra as any)?.['runtime.proxy.is_running']
 
         const runningVal = (rtmpRunning != null ? rtmpRunning : proxyRunning)
 
@@ -1529,7 +1529,7 @@ const handleDragStart = (node: TreeNode, ev: DragEvent) => {
 
   isDragging.value = true
 
-  ev.dataTransfer.setData('text/plain', JSON.stringify(node.data))
+  ev.dataTransfer?.setData('text/plain', JSON.stringify(node.data))
 
 }
 
@@ -1541,7 +1541,7 @@ const handleDrop = async (ev: DragEvent, index: number) => {
 
   try {
 
-    const data = JSON.parse(ev.dataTransfer.getData('text/plain'))
+    const data = JSON.parse(ev.dataTransfer?.getData('text/plain') || '')
 
     
 
@@ -1579,7 +1579,7 @@ const playerRefs = ref<Record<number, any>>({})
 
 
 
-const setPlayerRef = (el: HTMLElement | null, index: number) => {
+const setPlayerRef = (el: any, index: number) => {
 
   if (el) {
 
@@ -1681,7 +1681,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
     abortController = new AbortController()
 
-    let res: Record<string, unknown> | null
+    let res: any
 
 
 

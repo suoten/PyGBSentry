@@ -44,6 +44,15 @@ def is_stream_unreg(data: dict | None) -> bool:
     # ZLM on_stream_changed: regist=false 表示注销
     if "regist" in data:
         return not bool(data["regist"])
+    # 部分 ZLM 版本使用 registered 字段（字符串 "0"/"1" 或布尔值）
+    if "registered" in data:
+        val = data["registered"]
+        if isinstance(val, str):
+            return val.strip() in ("0", "false", "no", "")
+        return not bool(val)
+    # 部分 ZLM 版本使用 alive 字段（0/False 表示流已注销）
+    if "alive" in data:
+        return not bool(data["alive"])
     # 部分 ZLM 版本使用 action 字段
     action = str(data.get("action", "") or "").strip().lower()
     if action in ("unregister", "unreg", "stop", "close"):

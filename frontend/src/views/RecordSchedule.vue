@@ -134,7 +134,7 @@
               v-for="ch in channels"
               :key="ch.id"
               :label="t('record.channelOptionLabel', { device: ch.device_name || ch.device_id, name: ch.name || ch.gb_id })"
-              :value="ch.id"
+              :value="ch.id || ''"
             />
           </el-select>
         </el-form-item>
@@ -268,7 +268,7 @@ const planTypeLabel = (v: string) =>
 const channelMap = computed(() => {
   const m: Record<string, string> = {}
   for (const ch of channels.value) {
-    m[ch.id] = `${ch.device_name || ch.device_id} / ${ch.name || ch.gb_id}`
+    m[ch.id || ''] = `${ch.device_name || ch.device_id} / ${ch.name || ch.gb_id}`
   }
   return m
 })
@@ -357,14 +357,14 @@ const fetchSchedules = async () => {
 }
 
 const openForm = (row?: Record<string, unknown>) => {
-  editingId.value = row?.id || null
+  editingId.value = row?.id ? String(row.id) : null
   if (row) {
     form.target_scope = 'channel'
     form.asset_id = ''
-    form.resource_id = row.resource_id
-    form.plan_type = row.plan_type || 'timed'
+    form.resource_id = String(row.resource_id || '')
+    form.plan_type = String(row.plan_type || 'timed')
     form.enabled = row.enabled !== false
-    form.priority = row.priority ?? 0
+    form.priority = Number(row.priority ?? 0)
     const tr = Array.isArray(row.time_ranges) ? row.time_ranges : []
     form.time_ranges_str = JSON.stringify(tr, null, 2)
     form.advanced_time_ranges = false
@@ -423,7 +423,7 @@ const buildTimeRanges = (): Record<string, unknown>[] => {
   if (form.schedule_mode === 'daily') days = [0, 1, 2, 3, 4, 5, 6]
   else if (form.schedule_mode === 'weekdays') days = [1, 2, 3, 4, 5]
   else if (form.schedule_mode === 'weekend') days = [0, 6]
-  else days = (form.custom_days || []).map((d: Record<string, unknown>) => Number(d)).filter((d: number) => !Number.isNaN(d))
+  else days = (form.custom_days || []).map((d: number) => Number(d)).filter((d: number) => !Number.isNaN(d))
   if (!days.length) throw new Error(t('record.weekdayRequired'))
   return [{ start, end, days }]
 }

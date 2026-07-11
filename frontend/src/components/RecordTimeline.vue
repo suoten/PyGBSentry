@@ -212,13 +212,13 @@ const fetchAll = async () => {
     const [cloud, device] = await Promise.all([fetchCloud(), fetchDevice()])
     cloudSegments.value = (cloud || []).map((item: Record<string, unknown>) => ({
       ...item,
-      start: (() => { const t = new Date(item.start_time).getTime(); return Number.isFinite(t) ? t : Date.now() })(),
-      end: (() => { const t = new Date(item.end_time).getTime(); return Number.isFinite(t) ? t : Date.now() })()
+      start: (() => { const t = new Date(item.start_time as string | number | Date).getTime(); return Number.isFinite(t) ? t : Date.now() })(),
+      end: (() => { const t = new Date(item.end_time as string | number | Date).getTime(); return Number.isFinite(t) ? t : Date.now() })()
     }))
     deviceSegments.value = (device || []).map((item: Record<string, unknown>) => ({
       ...item,
-      start: (() => { const t = new Date(item.start_time).getTime(); return Number.isFinite(t) ? t : Date.now() })(),
-      end: (() => { const t = new Date(item.end_time).getTime(); return Number.isFinite(t) ? t : Date.now() })()
+      start: (() => { const t = new Date(item.start_time as string | number | Date).getTime(); return Number.isFinite(t) ? t : Date.now() })(),
+      end: (() => { const t = new Date(item.end_time as string | number | Date).getTime(); return Number.isFinite(t) ? t : Date.now() })()
     }))
   } catch (e) {
     const friendly = getFriendlyError(e)
@@ -316,8 +316,8 @@ const segmentStyle = (item: Record<string, unknown>) => {
   if (!windowStart.value || !windowEnd.value) return {}
   const total = windowEnd.value.getTime() - windowStart.value.getTime()
   if (total <= 0) return {}
-  const startOffset = Math.max(item.start - windowStart.value.getTime(), 0)
-  const endOffset = Math.min(item.end, windowEnd.value.getTime()) - windowStart.value.getTime()
+  const startOffset = Math.max((item.start as number) - windowStart.value.getTime(), 0)
+  const endOffset = Math.min(item.end as number, windowEnd.value.getTime()) - windowStart.value.getTime()
   const left = (startOffset / total) * 100
   const width = Math.max(((endOffset - startOffset) / total) * 100, 0.5)
   return {
@@ -362,8 +362,8 @@ const playCloud = async (item: Record<string, unknown>) => {
 
 const playDevice = async (item: Record<string, unknown>) => {
   try {
-    const rawStart = new Date(item.start_time).getTime()
-    const rawEnd = new Date(item.end_time).getTime()
+    const rawStart = new Date(item.start_time as string | number | Date).getTime()
+    const rawEnd = new Date(item.end_time as string | number | Date).getTime()
     if (!Number.isFinite(rawStart) || !Number.isFinite(rawEnd)) {
       ElMessage.warning(t('record.invalidTimeNoPlayback'))
       return

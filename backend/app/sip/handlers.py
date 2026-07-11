@@ -396,6 +396,11 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     try:
         await commander.send_catalog_query(device_id, transport_info)
     except Exception as e:
+        # FIX: [2026-07-10] 生产环境必须有 ERROR 日志（_sip_debug_log 被门控默认不输出） [全栈工程师]
+        logger.error(
+            f"Catalog query failed for device {device_id} (attempt 1): {e}",
+            exc_info=True,
+        )
         await patch_device_catalog_runtime(
             device_id,
             {"catalog.last_error": f"initial_query_failed: {e}", "catalog.sync_state": "query_failed"},
@@ -425,6 +430,11 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         try:
             await commander.send_catalog_query(device_id, transport_info)
         except Exception as e:
+            # FIX: [2026-07-10] 重试失败也必须有 ERROR 日志 [全栈工程师]
+            logger.error(
+                f"Catalog retry failed for device {device_id} (attempt {idx}): {e}",
+                exc_info=True,
+            )
             await patch_device_catalog_runtime(
                 device_id,
                 {
@@ -441,6 +451,11 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         await patch_device_catalog_runtime(device_id, {"catalog.sync_state": "synced"})
         _sip_debug_log("device_catalog_retry_success", None, {"device_id": device_id, "attempts": runtime.get("catalog.retry_attempts", 0)})
     else:
+        # FIX: [2026-07-10] 最终超时需 WARNING（所有重试后仍无响应） [全栈工程师]
+        logger.warning(
+            f"Catalog response timeout for device {device_id} after "
+            f"{runtime.get('catalog.retry_attempts', 0)} attempts"
+        )
         await patch_device_catalog_runtime(
             device_id,
             {"catalog.last_error": "catalog_response_timeout", "catalog.sync_state": "query_timeout", "catalog.progress": 100},
@@ -544,6 +559,47 @@ def _sip_debug_enabled() -> bool:
 
 
 from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log
+
+
+# ---------------------------------------------------------------------------
+# 设备认证失败锁定机制（对齐 hard constraint：锁定期满自动解锁就地清零失败计数，
+# 禁止"下次失败即重锁"缺陷）
+# ---------------------------------------------------------------------------
+_digest_fail_tracker: dict[str, list[float]] = {}   # gb_id -> 失败时间戳列表（滑动窗口）
+_digest_locked: dict[str, float] = {}                # gb_id -> 锁定到期 monotonic 时刻
+
+
+async def _record_auth_failure(gb_id: str) -> None:
+    """记录一次设备认证失败；窗口内累计达阈值则锁定。"""
+    if not gb_id:
+        return
+    now = time.monotonic()
+    window = float(getattr(settings, "SIP_DIGEST_FAIL_WINDOW_SECONDS", 300))
+    max_attempts = int(getattr(settings, "SIP_DIGEST_FAIL_MAX_ATTEMPTS", 10))
+    lock_dur = float(getattr(settings, "SIP_DIGEST_FAIL_LOCK_DURATION", 300))
+    lst = _digest_fail_tracker.setdefault(gb_id, [])
+    lst[:] = [t for t in lst if now - t < window]   # 滑动窗口
+    lst.append(now)
+    if len(lst) >= max_attempts:
+        _digest_locked[gb_id] = now + lock_dur
+
+
+async def _check_device_auth_locked(gb_id: str) -> bool:
+    """检查设备是否处于认证锁定期。锁定期满时自动解锁并就地清零失败计数。"""
+    if not gb_id or gb_id not in _digest_locked:
+        return False
+    if time.monotonic() >= _digest_locked[gb_id]:
+        # 自动解锁：就地清零失败计数（禁止"下次失败即重锁"缺陷）
+        _digest_locked.pop(gb_id, None)
+        _digest_fail_tracker.pop(gb_id, None)
+        return False
+    return True
+
+
+async def _clear_auth_failures(gb_id: str) -> None:
+    """清除设备的认证失败记录（认证成功后调用）。"""
+    _digest_fail_tracker.pop(gb_id, None)
+    _digest_locked.pop(gb_id, None)
 
 
 def _mask_sensitive_value(value: str) -> str:

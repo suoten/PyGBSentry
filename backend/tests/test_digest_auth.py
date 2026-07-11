@@ -21,7 +21,8 @@ def _install_test_settings_stub() -> None:
         return
     for k, v in settings_obj.__dict__.items():
         if not hasattr(existing.settings, k):
-            setattr(existing.settings, k, v)
+            # Pydantic v2 __setattr__ rejects unknown fields when extra != 'allow'.
+            object.__setattr__(existing.settings, k, v)
 
 
 class TestDigestAuth(unittest.IsolatedAsyncioTestCase):
@@ -77,8 +78,9 @@ class TestDigestAuth(unittest.IsolatedAsyncioTestCase):
 
         params2 = {"nonce": nonce, "nc": "00000001", "username": "testuser"}
         ok2, reason = await _validate_digest_replay(params2, "testuser")
-        self.assertTrue(ok2)
-        self.assertIn("nc replay", reason)
+        # 严格模式下 nc replay 应被拒绝（ok=False, reason="replay_detected"）
+        self.assertFalse(ok2)
+        self.assertEqual(reason, "replay_detected")
 
     async def test_validate_nonce_greater_nc_allowed(self):
         from app.sip.handlers import _issue_digest_nonce, _validate_digest_replay
@@ -110,7 +112,8 @@ class TestDigestAuthStrictMode(unittest.IsolatedAsyncioTestCase):
             else:
                 for k, v in settings_obj.__dict__.items():
                     if not hasattr(existing.settings, k):
-                        setattr(existing.settings, k, v)
+                        # Pydantic v2 __setattr__ rejects unknown fields when extra != 'allow'.
+                        object.__setattr__(existing.settings, k, v)
 
     async def test_validate_nonce_stale_strict_rejects(self):
         from app.sip.handlers import _validate_digest_replay

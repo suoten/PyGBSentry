@@ -28,12 +28,12 @@ export function usePlayer() {
   const playUrls = reactive<Record<string, string>>({})
   const playingChannelGbId = ref<string>('')
   const channelPlayLoading = ref<Record<string, boolean>>({})
-  const currentDevice = ref<Channel>(null)
-  const currentChannel = ref<Channel>(null)
+  const currentDevice = ref<Channel | null>(null)
+  const currentChannel = ref<Channel | null>(null)
   const playRequest = reactive<{ status: string; stage: string; progress: number; message: string; suggestion: string; retryable: boolean; diagnostics: Record<string, unknown> }>({ status: 'idle', stage: '', progress: 0, message: '', suggestion: '', retryable: true, diagnostics: {} })
   let playRequestAbort: AbortController | null = null
   let playRequestInterval: ReturnType<typeof setInterval> | null = null
-  const playRequestTimeouts: Record<string, unknown>[] = []
+  const playRequestTimeouts: ReturnType<typeof setTimeout>[] = []
 
   const clearPlayRequestTimers = () => { if (playRequestInterval) { clearInterval(playRequestInterval); playRequestInterval = null } while (playRequestTimeouts.length) { const t = playRequestTimeouts.pop(); try { clearTimeout(t) } catch { /* cleanup: ignore */ } } }
   const resetPlayRequest = () => { clearPlayRequestTimers(); if (playRequestAbort) { try { playRequestAbort.abort() } catch { /* cleanup: ignore */ }; playRequestAbort = null } playRequest.status = 'idle'; playRequest.stage = ''; playRequest.progress = 0; playRequest.message = ''; playRequest.suggestion = ''; playRequest.retryable = true; playRequest.diagnostics = {} }
@@ -90,7 +90,7 @@ export function usePlayer() {
   }
 
   /** Poll an async play session until a final response is received. */
-  const pollPlaySession = async (sessionId: string): Promise<{ data: Record<string, unknown>; status: number }> => {
+  const pollPlaySession = async (sessionId: string): Promise<any> => {
     let retryCount = 0
     while (true) {
       if (playRequestAbort?.signal.aborted) throw new DOMException('Aborted', 'AbortError')
@@ -142,7 +142,7 @@ export function usePlayer() {
       playRequest.message = failure.message
       playRequest.suggestion = failure.suggestion
       playRequest.retryable = Boolean(friendly.retryable ?? true)
-      playRequest.diagnostics = friendly.diagnostics || {}
+      playRequest.diagnostics = (friendly.diagnostics || {}) as Record<string, unknown>
     }
   }
 
@@ -152,7 +152,7 @@ export function usePlayer() {
     if (!deviceId || !channelId) return
 
     currentChannel.value = row
-    currentDevice.value = { gb_id: deviceId, name: row.device_name || deviceId }
+    currentDevice.value = { gb_id: deviceId, name: String(row.device_name || deviceId) }
     const key = channelId
     channelPlayLoading.value[key] = true
 

@@ -16,8 +16,21 @@ def setup_tracing(app: Any = None, **kwargs: Any) -> bool:
 
     Returns True when tracing was enabled, False otherwise. Failures are
     logged at DEBUG level and swallowed.
+
+    FIX: [2026-07-10] 原实现只要 opentelemetry 包安装就强制启用 tracing，
+    但 main.py 注释声称 "enabled via OTEL_ENABLED=true"。
+    实际未检查 OTEL_ENABLED 导致 tracing 总是开启。
+    更严重的是 FastAPIInstrumentor 的 ASGI 中间件在遇到未匹配路由时
+    尝试访问 scope["route"].path，但 scope["route"] 是 _IncludedRouter
+    对象（无 .path 属性），导致 500 错误。
+    修复：严格按 OTEL_ENABLED=true 才启用，默认关闭。 [全栈工程师]
     """
     import os
+    # FIX: [2026-07-10] tracing 必须显式 opt-in，避免 OpenTelemetry ASGI 中间件
+    # 在未匹配路由时崩溃（_IncludedRouter 无 .path 属性导致 500）
+    if os.environ.get("OTEL_ENABLED", "false").lower() != "true":
+        logger.debug("tracing: OTEL_ENABLED!=true, tracing disabled (opt-in)")
+        return False
     service_name = os.environ.get("OTEL_SERVICE_NAME") or "PyGBSentry"
     try:
         from opentelemetry import trace

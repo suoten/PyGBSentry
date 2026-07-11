@@ -17,6 +17,14 @@ os.environ.setdefault("SQLITE_CONNECT_TIMEOUT_SECONDS", "5")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing-only-not-for-production")
 
+# Eagerly import the REAL app.core.config so that test modules which
+# conditionally create a minimal `app.core.config` stub (e.g. test_bye_auth,
+# test_sip_auth) find the real module already in sys.modules and MERGE their
+# extra keys instead of replacing it — preventing AttributeError on
+# settings.SQLALCHEMY_DATABASE_URI (and other fields) for downstream tests
+# such as test_commercial_readiness_e2e that depend on the real app.
+import app.core.config  # noqa: E402
+
 
 # --- Database fixtures ---
 

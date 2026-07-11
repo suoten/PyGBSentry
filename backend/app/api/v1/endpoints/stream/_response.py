@@ -101,7 +101,7 @@ async def _build_full_play_response(
     # 构建播放 URL
     base_http = f"http://{media_host}:{media_port}"
     base_ws = f"ws://{media_host}:{media_port}"
-    base_rtsp = f"rtsp://{media_host}:{settings.STREAM_PUBLIC_RTSP_PORT or 554}"
+    base_rtsp = f"rtsp://{media_host}:{getattr(settings, 'STREAM_PUBLIC_RTSP_PORT', None) or 554}"
 
     # 从 media_item 中提取实际 app/stream（可能被 ZLM 重定向到 rtp app）
     url_app = str((media_item or {}).get("matched_app") or app_name or "live")

@@ -263,6 +263,7 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import { getVerifiedRoleInfo } from '../utils/auth' // FIX C-3: 改用后端验证角色
+import { sanitizeHtml } from '@/utils/sanitize'
 
 // FIX: [2026-07-04] useI18n 已导入但未解构 t，模板/脚本中 t 为 undefined 导致 ReferenceError [全栈工程师]
 const { t } = useI18n()

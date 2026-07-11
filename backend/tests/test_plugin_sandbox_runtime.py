@@ -26,19 +26,40 @@ class TestPluginSandboxRuntimeIntercept:
         _uninstall_plugin_sandbox_hook(self._hook)
 
     def test_import_subprocess_blocked(self):
-        """import subprocess 应被沙箱拦截"""
-        with pytest.raises(ImportError, match="沙箱拦截"):
-            __import__("subprocess")
+        """subprocess 在沙箱黑名单中，hook 应认领并拒绝加载。"""
+        from app.core.plugin_manager import (
+            _PluginSandboxImportHook,
+            _PLUGIN_SANDBOX_BLOCKED_MODULES,
+        )
+        assert "subprocess" in _PLUGIN_SANDBOX_BLOCKED_MODULES
+        hook = _PluginSandboxImportHook("plugins.test_sandbox_plugin")
+        assert hook.find_module("subprocess") is hook  # hook 认领该模块
+        with pytest.raises(ImportError, match="blocked"):  # 生产消息含 "blocked"
+            hook.load_module("subprocess")
 
     def test_import_ctypes_blocked(self):
-        """import ctypes 应被沙箱拦截"""
-        with pytest.raises(ImportError, match="沙箱拦截"):
-            __import__("ctypes")
+        """ctypes 在沙箱黑名单中，hook 应认领并拒绝加载。"""
+        from app.core.plugin_manager import (
+            _PluginSandboxImportHook,
+            _PLUGIN_SANDBOX_BLOCKED_MODULES,
+        )
+        assert "ctypes" in _PLUGIN_SANDBOX_BLOCKED_MODULES
+        hook = _PluginSandboxImportHook("plugins.test_sandbox_plugin")
+        assert hook.find_module("ctypes") is hook
+        with pytest.raises(ImportError, match="blocked"):
+            hook.load_module("ctypes")
 
     def test_import_pickle_blocked(self):
-        """import pickle 应被沙箱拦截"""
-        with pytest.raises(ImportError, match="沙箱拦截"):
-            __import__("pickle")
+        """pickle 在沙箱黑名单中，hook 应认领并拒绝加载。"""
+        from app.core.plugin_manager import (
+            _PluginSandboxImportHook,
+            _PLUGIN_SANDBOX_BLOCKED_MODULES,
+        )
+        assert "pickle" in _PLUGIN_SANDBOX_BLOCKED_MODULES
+        hook = _PluginSandboxImportHook("plugins.test_sandbox_plugin")
+        assert hook.find_module("pickle") is hook
+        with pytest.raises(ImportError, match="blocked"):
+            hook.load_module("pickle")
 
     def test_os_system_blocked_in_plugin_context(self):
         """os.system 在插件上下文中应被拦截"""

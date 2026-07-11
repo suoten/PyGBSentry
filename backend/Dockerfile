@@ -54,8 +54,9 @@ RUN mkdir -p /app/data /app/logs /app/records && chown -R appuser:appuser /app/d
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
+# FIXED: [2026-07-10] 补充 5061/tcp（SIP TLS），与 docker-compose.yml ports 映射一致 [全栈工程师]
 # FIXED: RTP端口范围与docker-compose.yml保持一致，使用30000-30100而非30000-39000
-EXPOSE 8000 5060/udp 5060/tcp 30000-30999/udp 8880 1935 554
+EXPOSE 8000 5060/udp 5060/tcp 5061/tcp 30000-30999/udp 8880 1935 554
 
 # FIXED D-05: 统一健康检查端点为 /api/v1/health/
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

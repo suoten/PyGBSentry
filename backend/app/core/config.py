@@ -724,6 +724,27 @@ if not settings.SECRET_KEY:
             stacklevel=2,
         )
 
+# FIX: [2026-07-10] FIELD_ENCRYPTION_KEY 空值在生产环境应 fail-fast，
+# 而非等到运行时 field_crypto.encrypt_field 才抛 ValueError（导致设备注册/编辑功能静默不可用）。
+# 与 SECRET_KEY 生产检查保持一致的语义。[全栈工程师]
+if not settings.FIELD_ENCRYPTION_KEY:
+    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    if _app_env in {"prod", "production"}:
+        import logging as _logging
+        _logging.getLogger(__name__).error(
+            "SECURITY: FIELD_ENCRYPTION_KEY is empty in production! Refusing to start. "
+            "Field-level encryption (device/platform passwords) requires a dedicated key. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+        )
+        raise SystemExit(1)
+    else:
+        import warnings
+        warnings.warn(
+            "FIELD_ENCRYPTION_KEY is not set. Device/platform password encryption will fail at runtime. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+            stacklevel=2,
+        )
+
 # FIXED-P2: 生产环境已知弱密钥检测，防止部署时仅改 APP_ENV 而忘记替换密钥
 _KNOWN_WEAK_SECRETS = {
     "test-verification-secret-key-not-for-production",
@@ -748,6 +769,23 @@ if _app_env in {"prod", "production"}:
             f"This is insecure in production. Please set a unique, strong MEDIA_SERVER_SECRET in your .env file."
         )
         raise SystemExit(1)
+
+# FIXED: [2026-07-10] 插件签名验签公钥配置一致性检查
+# 商业化链路：用户从官网下载的签名插件包在 OSS 安装时需验签。
+# 若签名要求开启但公钥未配置，所有签名插件安装都会失败。
+_pkg_sig_req = bool(getattr(settings, "PLUGIN_PACKAGE_SIGNATURE_REQUIRED", False))
+_man_sig_req = bool(getattr(settings, "PLUGIN_MANIFEST_SIGNATURE_REQUIRED", False))
+_pkg_pub = (getattr(settings, "PLUGIN_PACKAGE_ED25519_PUBLIC_KEY", None) or "").strip()
+_man_pub = (getattr(settings, "PLUGIN_MANIFEST_ED25519_PUBLIC_KEY", None) or "").strip()
+_license_pub = (getattr(settings, "LICENSE_ED25519_PUBLIC_KEY", None) or "").strip()
+if (_pkg_sig_req or _man_sig_req or _app_env in {"prod", "production"}) and not (_pkg_pub or _man_pub or _license_pub):
+    import warnings as _warnings
+    _warnings.warn(
+        "插件签名验签公钥未配置：PLUGIN_PACKAGE_ED25519_PUBLIC_KEY / PLUGIN_MANIFEST_ED25519_PUBLIC_KEY / "
+        "LICENSE_ED25519_PUBLIC_KEY 均为空。从官网下载的签名插件包将无法安装（验签失败）。"
+        "请从官网获取插件签名公钥并配置到 .env 中。",
+        stacklevel=2,
+    )
 
 # 数据库密码空值检查（仅对需要密码的数据库类型）
 _db_type = (getattr(settings, "DATABASE_TYPE", None) or "postgresql").lower()

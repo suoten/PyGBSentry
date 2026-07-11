@@ -24,7 +24,7 @@ export const cityOptionsMap: Record<string, Array<{ name: string; code: string }
 
 export function useCivilCode(deps: {
   selectedChannels: { value: Record<string, unknown>[] }
-  filters: { value: string }
+  filters: { value: Record<string, unknown> }
   page: { value: number }
   civilCodeForm: { value: { province: string; city: string; district: string; suffix: string } }
   civilPickerTarget: { value: string }

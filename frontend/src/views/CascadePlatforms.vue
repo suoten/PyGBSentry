@@ -197,7 +197,7 @@
           v-for="ch in catalogChannels"
           :key="ch.id"
           :label="catalogOptionLabel(ch)"
-          :value="ch.id"
+          :value="ch.id || ''"
         />
       </el-select>
       <template #footer>
@@ -246,7 +246,7 @@
         <div v-if="(diagnosisData?.diagnostics || []).length > 0" class="mb-4">
           <div class="text-sm font-semibold mb-2">{{ t('cascade.diagResult') }}</div>
           <div class="space-y-2">
-            <div v-for="d in diagnosisData.diagnostics" :key="d.key" class="p-3 rounded" :style="{
+            <div v-for="d in diagnosisData?.diagnostics" :key="d.key" class="p-3 rounded" :style="{
                 background: d.level === 'error' ? 'var(--el-color-danger-light-9)' : d.level === 'warn' ? 'var(--el-color-warning-light-9)' : 'var(--el-color-success-light-9)',
                 border: '1px solid ' + (d.level === 'error' ? 'var(--el-color-danger-light-5)' : d.level === 'warn' ? 'var(--el-color-warning-light-5)' : 'var(--el-color-success-light-5)')
               }">
@@ -445,7 +445,7 @@ const openLogs = (row: Record<string, unknown>) => {
 const actionLoading = ref<Record<string, { register?: boolean; catalog?: boolean; diagnosis?: boolean }>>({})
 const diagnosisVisible = ref(false)
 const diagnosisLoading = ref(false)
-const diagnosisData = ref<CascadePlatform>(null)
+const diagnosisData = ref<CascadePlatform | null>(null)
 
 const triggerRegister = async (row: Record<string, unknown>) => {
   const id = String(row.id || '')
@@ -508,18 +508,18 @@ const resetForm = () => {
 const openForm = (row?: Record<string, unknown>) => {
   resetForm()
   if (row) {
-    editingId.value = row.id
-    form.name = row.name
-    form.server_gb_id = row.server_gb_id
-    form.server_ip = row.server_ip
-    form.server_port = row.server_port
+    editingId.value = String(row.id || '')
+    form.name = String(row.name || '')
+    form.server_gb_id = String(row.server_gb_id || '')
+    form.server_ip = String(row.server_ip || '')
+    form.server_port = Number(row.server_port || 5060)
     form.transport = String(row.transport || 'UDP').toUpperCase()
-    form.client_gb_id = row.client_gb_id
-    form.register_interval = row.register_interval
-    form.keepalive_interval = row.keepalive_interval
-    form.catalog_batch_size = row.catalog_batch_size || 0
-    form.catalog_push_delay_seconds = row.catalog_push_delay_seconds || 0
-    form.enable = row.enable
+    form.client_gb_id = String(row.client_gb_id || '')
+    form.register_interval = Number(row.register_interval || 3600)
+    form.keepalive_interval = Number(row.keepalive_interval || 60)
+    form.catalog_batch_size = Number(row.catalog_batch_size || 0)
+    form.catalog_push_delay_seconds = Number(row.catalog_push_delay_seconds || 0)
+    form.enable = Boolean(row.enable)
   }
   dialogVisible.value = true
 }
@@ -648,7 +648,7 @@ const catalogOptionLabel = (ch: Record<string, unknown>) => {
 }
 
 const openCatalogDialog = (row: Record<string, unknown>) => {
-  catalogPlatformId.value = row.id
+  catalogPlatformId.value = String(row.id || '')
   catalogVisible.value = true
 }
 
@@ -780,7 +780,7 @@ const diagStepActive = computed(() => {
   const diags = diagnosisData.value.diagnostics || []
   if (rt['register.last_ok_at']) {
     const missCount = parseInt(rt['keepalive.miss_count'] || '0')
-    if (missCount === 0 && !diags.some((d: Record<string, unknown>) => d.key?.startsWith('keepalive'))) return 4
+    if (missCount === 0 && !diags.some((d: Record<string, unknown>) => String(d.key || '').startsWith('keepalive'))) return 4
     return 3
   }
   if (rt['register.last_status_code']) return 2

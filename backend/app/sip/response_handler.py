@@ -527,7 +527,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 from app.sip.watchdog import cancel_stream_switch_watchdog
                 cancel_stream_switch_watchdog(call_id)
             except Exception as e:
-                logger.warning(f"Error: {e}")
+                # FIX: [2026-07-10] 补充上下文（原仅 "Error: {e}" 无法定位 call_id） [全栈工程师]
+                logger.warning(f"Cancel stream switch watchdog failed for {call_id}: {e}")
             # 流切换失败时主动触发回退
             if is_stream_switch and invite_module.sip_invite:
                 try:
@@ -841,7 +842,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 from app.sip.watchdog import cancel_stream_switch_watchdog
                 cancel_stream_switch_watchdog(call_id)
             except Exception as e:
-                logger.warning(f"Error: {e}")
+                # FIX: [2026-07-10] 补充上下文（原仅 "Error: {e}" 无法定位 call_id） [全栈工程师]
+                logger.warning(f"Cancel stream switch watchdog failed for {call_id}: {e}")
             async with invite_module.invite_state.stream_switch_lock:
                 invite_module.invite_state.stream_switch_pending.pop(call_id, None)
                 invite_module.invite_state.stream_switch_pending_timestamps.pop(call_id, None)

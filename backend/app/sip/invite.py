@@ -1994,11 +1994,7 @@ class SipInvite:
         addr, proto, transport = transport_info
         asset_id = str(getattr(asset, "id", "") or "")
         asset_gb_id = str(getattr(asset, "gb_id", "") or "")
-        asset_ip_addr = str(getattr(asset, "ip_addr", "") or "")
-        asset_port = int(getattr(asset, "port", 0) or 0)
-        asset_transport = str(getattr(asset, "transport", "") or "UDP")
         tenant_id = str(getattr(asset, "tenant_id", "") or "default").strip() or "default"
-        resource_id = str(getattr(resource, "id", "") or "")
         channel_id = str(getattr(resource, "gb_id", "") or "")
         device_id = asset_gb_id
         # per-channel INVITE mutex to prevent concurrent INVITE for the same channel

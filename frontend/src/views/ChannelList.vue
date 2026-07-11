@@ -113,8 +113,8 @@
           <el-table-column :label="t('common.type')" width="110">
             <template #default="{ row }">
               <el-tooltip :content="t('channel.list.channelTypeTip', { type: row.dataType })" placement="top">
-                <el-tag size="small" effect="plain" :style="channelTypeTag(row.dataType).style">
-                  {{ channelTypeTag(row.dataType).name }}
+                <el-tag size="small" effect="plain" :style="(channelTypeTag(row.dataType) as any).style">
+                  {{ (channelTypeTag(row.dataType) as any).name }}
                 </el-tag>
               </el-tooltip>
             </template>

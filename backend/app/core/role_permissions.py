@@ -35,6 +35,10 @@ _LEGACY_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "viewer": ("device.view", "channel.view", "record.view", "alarm.view", "stream.play", "stream.playback"),
 }
 
+# Public alias for backward-compatible role-permission lookup (used by PTZ
+# permission helper and tests). Mirrors the internal legacy expansion table.
+DEFAULT_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = _LEGACY_ROLE_PERMISSIONS
+
 
 def _normalize(code: str) -> str:
     return (code or "").strip().lower()

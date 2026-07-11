@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
 
+import 'axios'
 import 'vue-router'
 
 // P1-24: ImportMetaEnv 接口 — 提供前端环境变量的类型安全
@@ -25,6 +26,14 @@ declare module 'vue-router' {
     keepAlive?: boolean
     paidFeature?: boolean
     requiredRoles?: string[]
+  }
+}
+
+// Axios 自定义配置项类型扩展（skipFriendlyMessage 用于跳过友好错误提示）
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    skipFriendlyMessage?: boolean
+    _retry?: boolean
   }
 }
 

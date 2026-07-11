@@ -480,6 +480,38 @@ class MediaManager:
         # Check for .dockerenv file
         return os.path.exists("/.dockerenv")
 
+    def _normalize_rtp_port_range(self, port_range: str, base_port: int) -> str:
+        """Normalize the RTP port range, clipping to ``DOCKER_RTP_PORT_RANGE_MAX`` in Docker.
+
+        In Docker the host's ephemeral port range is limited; clipping the ZLM
+        RTP port range avoids port-allocation failures. On bare metal the range
+        is returned unchanged. ``base_port`` is the expected lower bound (used
+        for logging/diagnostics); clipping is driven by the range itself.
+        """
+        import os
+        raw = str(port_range) if port_range else ""
+        if not raw or "-" not in raw:
+            return raw
+        parts = raw.split("-")
+        if len(parts) != 2:
+            return raw
+        try:
+            start = int(parts[0].strip())
+            end = int(parts[1].strip())
+        except ValueError:
+            return raw
+        if not self._is_running_in_docker():
+            return f"{start}-{end}"
+        max_ports = os.environ.get("DOCKER_RTP_PORT_RANGE_MAX", "").strip()
+        if max_ports:
+            try:
+                cap = int(max_ports)
+                if cap > 0 and (end - start + 1) > cap:
+                    end = start + cap - 1
+            except ValueError:
+                pass
+        return f"{start}-{end}"
+
     def _detect_docker_gateway_ip(self) -> Optional[str]:
         """Detect the Docker host gateway IP (for bare-metal backend reachable from container).
 

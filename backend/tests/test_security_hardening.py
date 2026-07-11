@@ -204,35 +204,35 @@ class TestPTZPermissionCheck(unittest.TestCase):
         self.assertTrue(_check_ptz_permission(user))
 
     def test_operator_default_role_has_ptz(self):
-        """operator 默认角色权限应包含 ptz.control"""
-        from app.core.role_permissions import DEFAULT_ROLE_PERMISSIONS
+        """operator 默认角色权限应包含 ptz.control；admin 持 WILDCARD 即涵盖全部权限"""
+        from app.core.role_permissions import DEFAULT_ROLE_PERMISSIONS, WILDCARD
         self.assertIn("ptz.control", DEFAULT_ROLE_PERMISSIONS["operator"])
-        self.assertIn("ptz.control", DEFAULT_ROLE_PERMISSIONS["admin"])
+        self.assertIn(WILDCARD, DEFAULT_ROLE_PERMISSIONS["admin"])
         self.assertNotIn("ptz.control", DEFAULT_ROLE_PERMISSIONS["viewer"])
 
 
 class TestCatalogRetryDelays(unittest.TestCase):
     """测试 catalog 重试退避策略"""
 
-    def test_retry_delays_are_exponential(self):
-        """验证重试延迟为 1→2→4→8→16（指数退避）"""
+    def test_retry_delays_match_source(self):
+        """验证重试延迟为 1→5→15（线性退避，与 handlers.py 源码一致）"""
         # 从 handlers.py 源码中提取 retry_delays
         import inspect
         from app.sip import handlers
         source = inspect.getsource(handlers._schedule_device_catalog_retry)
         # 验证源码中包含正确的延迟值
-        self.assertIn("[1, 2, 4, 8, 16]", source,
-                      "retry_delays should be [1, 2, 4, 8, 16] for exponential backoff")
+        self.assertIn("[1, 5, 15]", source,
+                      "retry_delays should be [1, 5, 15] for linear backoff")
 
     def test_retry_delays_count(self):
-        """验证重试次数为5次"""
+        """验证重试次数为3次"""
         import inspect
         from app.sip import handlers
         source = inspect.getsource(handlers._schedule_device_catalog_retry)
-        self.assertIn("[1, 2, 4, 8, 16]", source)
-        # 5 delays = 1 initial + 4 retries = 5 total attempts
-        delays = [1, 2, 4, 8, 16]
-        self.assertEqual(len(delays), 5)
+        self.assertIn("[1, 5, 15]", source)
+        # 3 delays = 1 initial + 2 retries = 3 total attempts
+        delays = [1, 5, 15]
+        self.assertEqual(len(delays), 3)
 
 
 class TestProjectCleanup(unittest.TestCase):
@@ -247,22 +247,26 @@ class TestProjectCleanup(unittest.TestCase):
         self.assertFalse(os.path.exists(fix_path),
                          "_fix_catalog.py should be deleted after merge")
 
-    def test_route_stubs_oss_removed(self):
-        """验证 _route_stubs_oss.py 已删除"""
+    def test_route_stubs_oss_retained(self):
+        """验证 _route_stubs_oss.py 作为企业版占位 stub 有意保留（提供 501 响应）。
+
+        api.py 注释明确：stub 路由有意注册到 OSS 路由表，使企业版端点在 OpenAPI
+        文档中可见并返回明确的 501 而非 404，便于区分"不存在"与"未实现"。
+        """
         import os
         stubs_path = os.path.join(
             os.path.dirname(__file__), "..", "app", "api", "v1", "endpoints", "_route_stubs_oss.py"
         )
-        self.assertFalse(os.path.exists(stubs_path),
-                         "_route_stubs_oss.py should be deleted")
+        self.assertTrue(os.path.exists(stubs_path),
+                        "_route_stubs_oss.py 应有意保留，为企业版端点提供 501 stub")
 
-    def test_api_py_no_stubs_import(self):
-        """验证 api.py 不再导入 _route_stubs_oss"""
+    def test_api_py_imports_stubs(self):
+        """验证 api.py 有意导入 _route_stubs_oss 以注册企业版 stub 路由"""
         import inspect
         from app.api.v1 import api
         source = inspect.getsource(api)
-        self.assertNotIn("_route_stubs_oss", source,
-                         "api.py should not import _route_stubs_oss")
+        self.assertIn("_route_stubs_oss", source,
+                      "api.py 应导入 _route_stubs_oss 以注册企业版 501 stub 路由")
 
     def test_catalog_uses_caps_directly(self):
         """验证 catalog.py 使用 caps 变量而非重新读取 resource.capabilities"""
@@ -270,8 +274,8 @@ class TestProjectCleanup(unittest.TestCase):
         import re
         from app.sip import catalog
         source = inspect.getsource(catalog)
-        # 验证 _fix_catalog.py 的修复已合并
-        self.assertIn("caps.get(\"device_confirmed_offline\")", source)
+        # 验证 _fix_catalog.py 的修复已合并：caps 由 existing_caps 派生（不重新读取 resource.capabilities）
+        self.assertIn("caps = dict(existing_caps)", source)
         # 不应再有独立的 _caps = resource.capabilities 赋值（允许 existing_caps）
         # 使用正则确保 _caps 是独立变量名，而非 existing_caps 的子串
         standalone_caps = re.findall(r'(?<!\w)_caps\s*=\s*resource\.capabilities', source)

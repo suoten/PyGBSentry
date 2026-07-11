@@ -264,7 +264,9 @@ import TalkControl from './TalkControl.vue'
 const { t } = useI18n()
 
 type StreamUrls = Record<string, string | undefined>
-type PlayerType = 'jessibuca' | 'h265' | 'webrtc' | 'native_hls'
+// FIX: [2026-07-10] auto-heal profile.preferredPlayer 可能返回 'hls'，
+// 原联合类型缺少 'hls' 导致 TS2322 [全栈工程师]
+type PlayerType = 'jessibuca' | 'h265' | 'webrtc' | 'native_hls' | 'hls'
 type UrlAvailability = Record<string, boolean | null>
 type PlayRequestUi = {
   status: 'idle' | 'requesting' | 'waiting' | 'ready' | 'error'
@@ -379,15 +381,15 @@ const webrtcUrl = computed(() => {
   
   if (securePage) {
     candidates = [
-      normalizedUrls.value.rtcs,
-      normalizedUrls.value.webrtc,
-      normalizedUrls.value.rtc
+      normalizedUrls.value.rtcs ?? '',
+      normalizedUrls.value.webrtc ?? '',
+      normalizedUrls.value.rtc ?? ''
     ]
   } else {
     candidates = [
-      normalizedUrls.value.webrtc,
-      normalizedUrls.value.rtc,
-      normalizedUrls.value.rtcs
+      normalizedUrls.value.webrtc ?? '',
+      normalizedUrls.value.rtc ?? '',
+      normalizedUrls.value.rtcs ?? ''
     ]
   }
   
@@ -678,7 +680,7 @@ const profilePreferredPlayer = computed<PlayerType | ''>(() => {
   if (player === 'h265') return 'h265'
   if (player === 'webrtc') return 'webrtc'
   if (player === 'jessibuca') return 'jessibuca'
-  if (player === 'hls') return 'hls'
+  if (player === 'hls') return 'native_hls'
   return ''
 })
 const profilePreferStability = computed(() => Boolean(autoHealProfile.value.preferStability))
@@ -744,7 +746,7 @@ const fallbackState = ref({
 const autoHealAttempts = ref(0)
 const autoHealCooldownMs = 8000
 const autoHealLastAt = ref(0)
-let requestWaitingTimer: Record<string, unknown> = null
+let requestWaitingTimer: ReturnType<typeof setTimeout> | null = null
 
 const triggerAutoHealRefresh = (reason: string) => {
   if (!dialogVisible.value) return false

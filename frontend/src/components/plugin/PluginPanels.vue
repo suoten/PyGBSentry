@@ -812,7 +812,7 @@
                             size="small"
                             @click="emit('focus-config-field', fieldKey)"
                           >
-                            {{ t('plugin.panels.locate') }}{{ getNotificationFieldLabel('feishu', fieldKey) }}
+                            {{ t('plugin.panels.locate') }}{{ (getNotificationFieldLabel as any)('feishu', fieldKey) }}
                           </el-button>
                         </div>
                         <div class="mt-2 flex flex-wrap gap-2">
@@ -1093,7 +1093,7 @@
                             size="small"
                             @click="emit('focus-config-field', fieldKey)"
                           >
-                            {{ t('plugin.panels.locate') }}{{ getNotificationFieldLabel('wecom', fieldKey) }}
+                            {{ t('plugin.panels.locate') }}{{ (getNotificationFieldLabel as any)('wecom', fieldKey) }}
                           </el-button>
                         </div>
                         <div class="mt-2 flex flex-wrap gap-2">
@@ -1390,7 +1390,7 @@
                             size="small"
                             @click="emit('focus-config-field', fieldKey)"
                           >
-                            {{ t('plugin.panels.locate') }}{{ getNotificationFieldLabel('sms', fieldKey) }}
+                            {{ t('plugin.panels.locate') }}{{ (getNotificationFieldLabel as any)('sms', fieldKey) }}
                           </el-button>
                         </div>
                         <div class="mt-2 flex flex-wrap gap-2">
@@ -1450,8 +1450,8 @@ const pluginId = computed(() => props.pluginId)
 const getAlertEventTroubleshooting = (
   currentPluginId: 'feishu_alert' | 'wecom_alert' | 'sms_alert',
   row: { err?: string }
-) => {
-  return getNotificationTroubleshootingByPluginId(currentPluginId, row?.err)
+): any => {
+  return (getNotificationTroubleshootingByPluginId as any)(currentPluginId, row?.err)
 }
 
 const isStreamHealthPlugin = computed(() => pluginId.value === 'stream_health')

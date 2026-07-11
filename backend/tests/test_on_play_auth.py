@@ -13,8 +13,8 @@ class TestOnPlayAuth(unittest.TestCase):
         return body
 
     def test_valid_token_returns_code_0(self):
-        from app.core.play_token import generate_play_token, verify_play_token, extract_token_from_params
-        token = generate_play_token("rtp", "385F2197", 300)
+        from app.core.play_token import issue_play_token, verify_play_token, extract_token_from_params
+        token = issue_play_token("rtp", "385F2197", 300)
         is_valid, error_msg = verify_play_token(token, "rtp", "385F2197")
         self.assertTrue(is_valid)
         self.assertEqual(error_msg, "")
@@ -33,32 +33,22 @@ class TestOnPlayAuth(unittest.TestCase):
             self.assertFalse(should_allow_no_token())
 
     def test_expired_token_returns_401(self):
-        from app.core.play_token import generate_play_token, verify_play_token, _get_secret_key, HMAC_SIG_BYTES
-        import hmac
-        import hashlib
-        import base64
+        from app.core.play_token import issue_play_token, verify_play_token
         import time as _time
-        with patch("app.core.play_token.settings") as mock_settings:
-            mock_settings.SECRET_KEY = "test-secret"
-            expired_payload = f"rtp|385F2197|{int(_time.time()) - 100}"
-            sig = hmac.new(
-                _get_secret_key(),
-                expired_payload.encode("utf-8"),
-                hashlib.sha256,
-            ).digest()[:HMAC_SIG_BYTES]
-            expired_token = base64.urlsafe_b64encode(sig + expired_payload.encode("utf-8")).decode().rstrip("=")
-            is_valid, error_msg = verify_play_token(expired_token, "rtp", "385F2197")
-            self.assertFalse(is_valid)
-            self.assertEqual(error_msg, "expired play token")
+        token = issue_play_token("rtp", "385F2197", 300)
+        # Mock time.time to return a far-future timestamp so the token appears expired
+        future_time = _time.time() + 100000
+        with patch("app.core.play_token.time.time", return_value=future_time):
+            is_valid, error_msg = verify_play_token(token, "rtp", "385F2197")
+        self.assertFalse(is_valid)
+        self.assertEqual(error_msg, "play token expired")
 
     def test_cross_stream_reuse_returns_401(self):
-        from app.core.play_token import generate_play_token, verify_play_token
-        with patch("app.core.play_token.settings") as mock_settings:
-            mock_settings.SECRET_KEY = "test-secret"
-            token = generate_play_token("rtp", "385F2197", 300)
-            is_valid, error_msg = verify_play_token(token, "live", "385F2197")
-            self.assertFalse(is_valid)
-            self.assertEqual(error_msg, "token stream mismatch")
+        from app.core.play_token import issue_play_token, verify_play_token
+        token = issue_play_token("rtp", "385F2197", 300)
+        is_valid, error_msg = verify_play_token(token, "live", "385F2197")
+        self.assertFalse(is_valid)
+        self.assertEqual(error_msg, "play token does not match stream")
 
     def test_zlm_secret_mismatch_returns_403(self):
         pass
