@@ -29,5 +29,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-      - name: Run unit tests
-        run: python -m unittest discover -s tests -p "test_*.py" -v
+          pip install pytest pytest-asyncio pytest-cov pytest-mock httpx
+      - name: Run tests
+        env:
+          DATABASE_TYPE: sqlite
+          APP_ENV: test
+          SECRET_KEY: test-secret-key-for-ci
+        run: |
+          python -m pytest tests/ -v --tb=short --cov=app --cov-report=term-missing --cov-fail-under=21
