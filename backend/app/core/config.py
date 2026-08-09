@@ -851,7 +851,7 @@ class Settings(BaseSettings):
         """Internal helper:  enforce prod redis on startup."""
         # P1-3: 生产环境强制 INIT_REDIS_ON_STARTUP=True
         # 限流/会话/Token吊销/黑名单等功能强依赖 Redis，生产关闭会引入安全风险
-        _env = (getattr(self, "APP_ENV", "dev") or "dev").lower()
+        _env = (self.APP_ENV or "dev").lower()
         if _env in {"prod", "production"} and not self.INIT_REDIS_ON_STARTUP:
             raise ValueError(
                 "INIT_REDIS_ON_STARTUP must be True in production (APP_ENV=prod). "

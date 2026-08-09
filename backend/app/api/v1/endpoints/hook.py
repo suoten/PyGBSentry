@@ -24,6 +24,7 @@ from sqlalchemy import select
 from datetime import datetime, timezone
 import asyncio
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
+import hashlib
 import hmac
 import os
 import time
@@ -42,9 +43,19 @@ def _track_none_reader_task(task: asyncio.Task) -> None:
 
 
 # Webhook secret 验证结果内存缓存（减少高频 hook 回调对 DB 的压力）
+# P-SEC: 缓存 key 使用 HMAC 哈希而非 secret 原文，防止内存 dump 泄露密钥
 _ZLM_SECRET_CACHE: dict[str, tuple[bool, float]] = {}
 _ZLM_SECRET_CACHE_TTL = 30.0
 _ZLM_SECRET_CACHE_MAX = 64
+
+
+def _hash_secret(secret: str) -> str:
+    """将 secret 原文转为 HMAC-SHA256 哈希值作为缓存 key，避免明文存储。"""
+    return hmac.new(
+        (settings.SECRET_KEY or "fallback-key").encode("utf-8"),
+        secret.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def _prune_secret_cache() -> None:
@@ -58,7 +69,7 @@ def _prune_secret_cache() -> None:
             _ZLM_SECRET_CACHE.pop(k, None)
 
 
-async def verify_zlm_secret(secret: str | None = None): # 类型注解不精确
+async def verify_zlm_secret(secret: str | None = None) -> bool:
     if not secret:
         raise HTTPException(status_code=403, detail="ZLM secret invalid")
     global_secret = str(settings.MEDIA_SERVER_SECRET or "")
@@ -66,7 +77,8 @@ async def verify_zlm_secret(secret: str | None = None): # 类型注解不精确
         return True
     # 2) 内存缓存命中
     now = time.time()
-    cached = _ZLM_SECRET_CACHE.get(secret)
+    _secret_hash = _hash_secret(secret)
+    cached = _ZLM_SECRET_CACHE.get(_secret_hash)
     if cached:
         ok, ts = cached
         if (now - ts) < _ZLM_SECRET_CACHE_TTL:
@@ -83,7 +95,7 @@ async def verify_zlm_secret(secret: str | None = None): # 类型注解不精确
     except Exception as e:
         logger.warning(f"Hook callback operation failed: {e}")  # i18n
     if any(hmac.compare_digest(secret, c) for c in candidates):
-        _ZLM_SECRET_CACHE[secret] = (True, now)
+        _ZLM_SECRET_CACHE[_secret_hash] = (True, now)
         return True
     try:
         # P0-02: secret 列已加密存储，需解密后再比较明文
@@ -96,9 +108,9 @@ async def verify_zlm_secret(secret: str | None = None): # 类型注解不精确
     except Exception as e:
         logger.warning(f"Hook callback operation failed: {e}")  # i18n
     if any(hmac.compare_digest(secret, c) for c in candidates):
-        _ZLM_SECRET_CACHE[secret] = (True, now)
+        _ZLM_SECRET_CACHE[_secret_hash] = (True, now)
         return True
-    _ZLM_SECRET_CACHE[secret] = (False, now)
+    _ZLM_SECRET_CACHE[_secret_hash] = (False, now)
     _prune_secret_cache()
     logger.warning("ZLM Webhook authentication failed: invalid secret")
     try:

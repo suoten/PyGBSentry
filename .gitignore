@@ -49,6 +49,12 @@ _log_tail.txt
 
 # 调试残留与审计产物（P0-3）
 aa.txt
+backend/_*.py
+backend/_*.json
+backend/_*.txt
+backend/_*.md
+backend/_*.log
+backend/pytest_result.txt
 backend/audit_results.json
 backend/audit_test_results.json
 backend/audit_l*_report.json

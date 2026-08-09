@@ -4,6 +4,7 @@ import asyncio
 import base64
 from loguru import logger
 import os
+import re
 import time
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -22,8 +23,9 @@ router = APIRouter()
 
 def _safe_str(v: Any) -> str:
     s = str(v or "").strip()
-    # 防止目录穿越：只允许替换常见分隔符
-    return s.replace("/", "_").replace("\\", "_").replace("..", "_")
+    # P-SEC: 使用正则白名单防路径遍历，仅允许字母数字下划线连字符
+    # 黑名单方式（replace ..// 等）存在 URL 编码/Unicode 绕过风险
+    return re.sub(r'[^a-zA-Z0-9_-]', '_', s)
 
 
 def _extract_base64_str(raw: str) -> str:
