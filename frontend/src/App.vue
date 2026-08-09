@@ -173,10 +173,11 @@ import TagsView from './components/TagsView.vue'
 import { useTagsViewStore } from './stores/tagsView'
 import { useAppPrefsStore } from './stores/appPrefs'
 import appRouter from './router'
-import { getCachedRoleInfo, getVerifiedRoleInfo, hasPermission, EMPTY_ROLE_INFO, type RoleInfo } from './utils/auth' // FIX C-3: 改用后端验证角色
+import { getCachedRoleInfo, getVerifiedRoleInfo, hasPermission, roleInfoVersion } from './utils/auth' // FIX C-3: 改用后端验证角色
 import { logger } from '@/utils/logger'
 import { getBrandingCache, setBrandingCache } from '@/utils/brandingCache'  // FIX: [2026-07-04] 缺失品牌缓存导入 [全栈工程师]
 import { startSessionTimeout, stopSessionTimeout } from '@/utils/sessionTimeout'  // P0-5: 会话超时
+import { useUserStore } from './stores/user'  // FIX: [build warning] 改静态导入消除 dynamic/static 导入冲突警告（TopBar/Login 已静态导入，user store 必然在主 chunk，动态导入优化失效）
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化
@@ -364,6 +365,14 @@ type MenuItem = { path: string; title: string; icon: Record<string, unknown> }
 type MenuGroup = { title: string; icon: any; base: string; children: MenuItem[] }
 
 const menuGroups = computed<MenuGroup[]>(() => {
+  // FIX: [2026-07-21 P0] 读取 roleInfoVersion.value 建立响应式依赖。
+  // getCachedRoleInfo() 读取的是模块级普通变量 _cachedRoleInfo（非响应式），
+  // Vue 无法追踪其变化。roleInfoVersion ref 在 verifyTokenWithBackend()
+  // 成功后递增，这里读取它确保 menuGroups 在角色缓存更新后自动重新求值。
+  // 否则菜单会在缓存过期/刷新后“无缘无故消失”，只剩 4 个 bypass 路径，
+  // 必须手动刷新整个页面才能恢复。
+  void roleInfoVersion.value
+
   let base = [...ossMenu] as MenuItem[]
 
   if (canViewAppLogsMenu.value) base.push({ path: '/app-logs', title: 'menu.appLogs', icon: Document })
@@ -377,8 +386,17 @@ const menuGroups = computed<MenuGroup[]>(() => {
   // FIX: [2026-07-04] verifiedRoleInfo 从未声明为 ref，运行时 ReferenceError。
   // computed 中无法 await getVerifiedRoleInfo()，改用同步 getCachedRoleInfo()
   // 读取已由 onMounted 预热缓存的后端权威角色信息。[全栈工程师]
-  const roleInfo = getCachedRoleInfo() ?? EMPTY_ROLE_INFO
+  //
+  // FIX: [2026-07-21 P0] 不再 fallback 到 EMPTY_ROLE_INFO。
+  // 原实现 `getCachedRoleInfo() ?? EMPTY_ROLE_INFO` 在缓存未填充时会得到
+  // EMPTY_ROLE_INFO（isSuperuser=false, permissions=[]），filterPerms 只放行
+  // /help /account-security /plugins /dashboard 这 4 个 bypass 路径，
+  // 其余菜单全部被过滤掉 → 用户看到"菜单突然消失只剩几个"。
+  // 修复：roleInfo 为 null 时跳过权限过滤，显示全部菜单。安全性由路由守卫的
+  // verify-token 检查 + 后端 RBAC 端点校验双重保障，前端菜单可见性只是 UX。
+  const roleInfo = getCachedRoleInfo()
   const filterPerms = (items: MenuItem[]) => {
+    if (!roleInfo) return items
     if (roleInfo.isSuperuser || roleInfo.permissions.includes('*')) return items
     return items.filter(item => {
       if (['/help', '/account-security', '/plugins', '/dashboard'].includes(item.path)) return true
@@ -527,6 +545,13 @@ const onPluginUpdated = async () => {
 }
 
 onMounted(async () => {
+  // FIX: [2026-07-21 P0] 预热角色缓存 — 路由守卫 beforeEach 也会调用 getVerifiedRoleInfo()，
+  // 但如果那次调用失败（网络波动/后端临时不可用），_cachedRoleInfo 保持 null，
+  // menuGroups computed 用 EMPTY_ROLE_INFO 过滤 → 菜单只剩 4 个 bypass 项。
+  // 这里再调一次提供第二次机会，成功后 roleInfoVersion++ 触发 menuGroups 重新求值。
+  if (sessionStorage.getItem('token')) {
+    void getVerifiedRoleInfo()
+  }
   // SECURITY: 读取非敏感 UI 标记（引导已阅），仅 '1'，无敏感信息
   const isFirstVisit = !localStorage.getItem('first_visit_done')
   if (isFirstVisit) {
@@ -573,20 +598,18 @@ onMounted(async () => {
     startSessionTimeout({
       onTimeout: () => {
         ElMessage.warning(t('common.sessionTimeout'))
-        import('./stores/user').then(({ useUserStore }) => {
-          useUserStore().logout().finally(() => {
+        useUserStore()
+          .logout()
+          .finally(() => {
             router.push({ path: '/login', query: { redirect: route.fullPath } })
           })
-        })
       },
       onWarning: () => {
         ElMessage.warning(t('common.sessionExpiringSoon'))
       },
       onTokenExpired: () => {
         ElMessage.warning(t('common.sessionExpired'))
-        import('./stores/user').then(({ useUserStore }) => {
-          useUserStore().clearAuth()
-        })
+        useUserStore().clearAuth()
         router.push({ path: '/login', query: { redirect: route.fullPath } })
       },
     })

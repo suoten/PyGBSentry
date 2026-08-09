@@ -22,7 +22,7 @@
 
 | 软件 | 最低版本 | 推荐版本 |
 | :--- | :--- | :--- |
-| Python | 3.10 | 3.10+ |
+| Python | 3.12 | 3.12+ |
 | Node.js | 16 | 18+ |
 | Docker | 20.10 | 最新版 |
 | Docker Compose | 2.0 | 最新版 |
@@ -45,13 +45,20 @@ cd backend
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，至少修改以下配置项：
+编辑 `.env` 文件，至少修改以下配置项（**所有项均为必填，缺失任意一项 docker compose 将拒绝启动**）：
 
 ```env
-SECRET_KEY=你的随机密钥
-MEDIA_SERVER_SECRET=你的流媒体密钥
-# 数据库配置（根据需要修改）
+POSTGRES_PASSWORD=YourStrongDbPass!
+REDIS_PASSWORD=YourStrongRedisPass!
+SECRET_KEY=change-me-to-32-char-random-string
+MEDIA_SERVER_SECRET=zlm-secret-key
+SIP_DEFAULT_PASSWORD=YourSipDevicePass!
+# 生成命令: python -c "import secrets;print(secrets.token_hex(32))"
+FIELD_ENCRYPTION_KEY=replace-with-64-char-hex-key
+BACKEND_PUBLIC_HOST=192.168.1.100
 ```
+
+> **必填项说明**：`SIP_DEFAULT_PASSWORD` 用于 GB28181 设备注册鉴权；`FIELD_ENCRYPTION_KEY` 用于设备/平台密码加密存储（生产环境空值将拒绝启动）；`BACKEND_PUBLIC_HOST` 必须设为容器网络可达的 IP（如宿主机 IP），否则 ZLM Hook 不可达。
 
 ### 3. 启动服务
 
@@ -59,7 +66,7 @@ MEDIA_SERVER_SECRET=你的流媒体密钥
 
 ```bash
 cd ..
-docker compose --profile prod up -d
+docker compose up -d
 ```
 
 ### 4. 验证部署
@@ -67,8 +74,8 @@ docker compose --profile prod up -d
 | 检查项 | 地址 | 预期结果 |
 | :--- | :--- | :--- |
 | Web 控制台 | `http://<服务器IP>/` | 打开登录页 |
-| 登录测试 | — | 账号：`admin` / 密码：`Aa332211` |
-| API 健康检查 | `http://<服务器IP>:8000/api/v1/ops/db-check` | 返回 `{"status": "ok"}` |
+| 登录测试 | — | 账号：`admin`；密码：首次启动时自动生成，查看 `data/.admin_initial_password` 文件或启动日志，登录后请立即修改 |
+| API 健康检查 | `http://<服务器IP>:8000/api/v1/health/` | 返回 `{"status": "ok"}` |
 
 ---
 
@@ -84,7 +91,7 @@ docker compose --profile prod up -d
 
 ### 2. 创建数据库
 
-在宝塔「数据库」管理中创建名为 `pygbsentry` 的数据库。
+在宝塔「数据库」管理中创建名为 `pygb28181` 的数据库。
 
 ### 3. 部署后端
 
@@ -141,7 +148,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 根据需要修改 .env 配置
+# Modify .env configuration as needed
 python app/initial_data.py
 python -m app.main
 ```
@@ -192,8 +199,8 @@ npm run dev
 
 | 问题 | 快速解决方案 |
 | :--- | :--- |
-| 端口冲突 | 确保 **5060**、**8000**、**80**、**1935**、**554** 未被占用 |
-| 视频黑屏 | 检查防火墙规则，开放 **UDP 10000–40000** 端口段 |
+| 端口冲突 | 确保 **5060**、**8000**、**80**、**1935**、**554**、**8880** 未被占用 |
+| 视频黑屏 | 检查防火墙规则，开放 **UDP 30000–30999** 端口段（与 docker-compose.yml 中 `RTP_PORT_RANGE_START`/`RTP_PORT_RANGE_END` 一致） |
 | 数据库连接失败 | 检查 `.env` 中的数据库配置，确认数据库服务已启动 |
 | 页面跳转到 `/setup` | 打开 `/#/setup` 查看检测项提示，按提示修复问题 |
 
@@ -231,7 +238,7 @@ This document provides a quick start guide to help you deploy and launch the sys
 
 | Software | Minimum Version | Recommended Version |
 | :--- | :--- | :--- |
-| Python | 3.10 | 3.10+ |
+| Python | 3.12 | 3.12+ |
 | Node.js | 16 | 18+ |
 | Docker | 20.10 | Latest |
 | Docker Compose | 2.0 | Latest |
@@ -243,7 +250,7 @@ This document provides a quick start guide to help you deploy and launch the sys
 ### 1. Get the Code
 
 ```bash
-git clone <你的仓库地址>
+git clone https://github.com/suoten/PyGBSentry.git
 cd PyGBSentry/editions/open-source
 ```
 
@@ -254,13 +261,20 @@ cd backend
 cp .env.example .env
 ```
 
-Edit the `.env` file and modify at least the following items:
+Edit the `.env` file and modify at least the following items (**all fields are required; docker compose will refuse to start if any is missing**):
 
 ```env
-SECRET_KEY=你的随机密钥
-MEDIA_SERVER_SECRET=你的流媒体密钥
-# 数据库配置（根据需要修改）
+POSTGRES_PASSWORD=YourStrongDbPass!
+REDIS_PASSWORD=YourStrongRedisPass!
+SECRET_KEY=change-me-to-32-char-random-string
+MEDIA_SERVER_SECRET=zlm-secret-key
+SIP_DEFAULT_PASSWORD=YourSipDevicePass!
+# Generate with: python -c "import secrets;print(secrets.token_hex(32))"
+FIELD_ENCRYPTION_KEY=replace-with-64-char-hex-key
+BACKEND_PUBLIC_HOST=192.168.1.100
 ```
+
+> **Required fields**: `SIP_DEFAULT_PASSWORD` is used for GB28181 device registration authentication; `FIELD_ENCRYPTION_KEY` is used to encrypt device/platform passwords at rest (production will refuse to start with an empty value); `BACKEND_PUBLIC_HOST` must be set to an IP reachable from the container network (e.g., the host IP), otherwise ZLM hooks will not be reachable.
 
 ### 3. Start Services
 
@@ -268,16 +282,16 @@ Return to the project root and start:
 
 ```bash
 cd ..
-docker compose --profile prod up -d
+docker compose up -d
 ```
 
 ### 4. Verify Deployment
 
 | Check Item | URL | Expected Result |
 | :--- | :--- | :--- |
-| Web Console | `http://<服务器IP>/` | Login page opens |
-| Login Test | — | Username: `admin` / Password: `Aa332211` |
-| API Health Check | `http://<服务器IP>:8000/api/v1/ops/db-check` | Returns `{"status": "ok"}` |
+| Web Console | `http://<server-ip>/` | Login page opens |
+| Login Test | — | Username: `admin`; Password: auto-generated on first start, view `data/.admin_initial_password` file or startup logs; change it immediately after first login |
+| API Health Check | `http://<server-ip>:8000/api/v1/health/` | Returns `{"status": "ok"}` |
 
 ---
 
@@ -293,7 +307,7 @@ Install the following software in aaPanel "App Store":
 
 ### 2. Create Database
 
-Create a database named `pygbsentry` in aaPanel "Database" management.
+Create a database named `pygb28181` in aaPanel "Database" management.
 
 ### 3. Deploy Backend
 
@@ -350,7 +364,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-# 根据需要修改 .env 配置
+# Modify .env configuration as needed
 python app/initial_data.py
 python -m app.main
 ```
@@ -401,8 +415,8 @@ npm run dev
 
 | Issue | Quick Solution |
 | :--- | :--- |
-| Port Conflict | Ensure **5060**, **8000**, **80**, **1935**, **554** are not occupied |
-| Black Screen Video | Check firewall rules and open **UDP 10000–40000** port range |
+| Port Conflict | Ensure **5060**, **8000**, **80**, **1935**, **554**, **8880** are not occupied |
+| Black Screen Video | Check firewall rules and open **UDP 30000–30999** port range (matches `RTP_PORT_RANGE_START`/`RTP_PORT_RANGE_END` in docker-compose.yml) |
 | Database Connection Failed | Check `.env` database configuration and confirm service is running |
 | Page Redirects to `/setup` | Open `/#/setup` to view check items and fix according to prompts |
 

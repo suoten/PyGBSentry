@@ -1089,23 +1089,63 @@ async def delete_alarm_link_rule(
 @router.websocket("/ws")
 async def websocket_alarms(websocket: WebSocket, ticket: str = ""):
     # P0-6: 改用短期一次性 ws-ticket 认证，消除 URL 暴露 JWT token
+    # FIX [2026-07-18 P1]: 添加详细诊断日志，帮助排查 WebSocket 连接失败
+    client_ip = ""
+    try:
+        client_ip = websocket.client.host if websocket.client else ""
+    except Exception as _ip_err:
+        # FIX [2026-07-19]: 禁止静默吞异常（项目硬约束：异常必须记录日志）。
+        logger.debug(f"alarms_ws: failed to read client.host: {_ip_err}")
     if not ticket:
+        logger.warning(f"alarms_ws: rejected - missing ticket (client={client_ip})")
         await websocket.close(code=4001, reason="Missing ticket")
         return
     from app.core.ws_ticket import consume_ws_ticket
     payload = await consume_ws_ticket(ticket)
     if not payload or not payload.get("sub"):
+        logger.warning(f"alarms_ws: rejected - invalid/expired ticket (client={client_ip})")
         await websocket.close(code=4001, reason="Invalid or expired ticket")
         return
     user_role = (payload.get("role") or "").strip().lower()
     is_superuser = payload.get("is_superuser", False)
     if not is_superuser and user_role not in _ALLOWED_ALARM_WS_ROLES:
+        logger.warning(f"alarms_ws: rejected - insufficient role={user_role} (client={client_ip}, user={payload.get('sub')})")
         await websocket.close(code=4003, reason="Insufficient permissions")
         return
     tenant_id = (payload.get("tenant_id") or "default").strip() or "default"
     await alarm_manager.connect(websocket, tenant_id)
+    logger.info(f"alarms_ws: connected (client={client_ip}, user={payload.get('sub')}, tenant={tenant_id})")
+    # FIX: [2026-07-16 P0-WS-01] 原 except WebSocketDisconnect 分支清理，
+    # 但非 WebSocketDisconnect 异常（ConnectionResetError/RuntimeError/CancelledError）
+    # 不会触发清理，导致死连接累积。改为 try/finally 兜底。
+    # FIX: [2026-07-16 P1-WS-03] 添加心跳机制，检测半开连接（客户端断网 TCP 未 FIN）。
+    _heartbeat_task = asyncio.create_task(_alarms_ws_heartbeat(websocket))
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
+        pass
+    except Exception as _ws_err:
+        # FIX [2026-07-17 P3-27]: 描述性日志替代静默吞异常
+        logger.debug(f"alarms_ws: receive loop ended: {_ws_err}")
+    finally:
+        _heartbeat_task.cancel()
+        try:
+            await _heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        except Exception as _hb_err:
+            # FIX [2026-07-17 P3-27]: 描述性日志替代静默吞异常
+            logger.debug(f"alarms_ws: heartbeat task cleanup error: {_hb_err}")
         alarm_manager.disconnect(websocket)
+
+
+async def _alarms_ws_heartbeat(websocket: WebSocket) -> None:
+    """FIX: [2026-07-16 P1-WS-03] 每 30s 发送 ping，检测半开连接。"""
+    try:
+        while True:
+            await asyncio.sleep(30)
+            await websocket.send_text(json.dumps({"type": "ping"}))
+    except Exception as _hb_err:
+        # FIX [2026-07-17 P3-27]: 描述性日志替代静默吞异常
+        logger.debug(f"alarms_ws_heartbeat: stopped: {_hb_err}")

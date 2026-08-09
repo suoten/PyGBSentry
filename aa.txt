@@ -1,0 +1,425 @@
+2026-07-29 16:29:42.190 | INFO | app.services.stream_quality_monitor:__init__:168 - StreamQualityMonitor initialized
+2026-07-29 16:29:42.276 | INFO | app.services.vod_source_selector:__init__:107 - VodSourceSelector initialized
+2026-07-29 16:29:42.280 | INFO | app.services.vod_quality_monitor:__init__:179 - VodQualityMonitor initialized
+2026-07-29 16:29:46.651 | INFO | app.core.tracing:setup_tracing:59 - OpenTelemetry packages not installed, tracing disabled
+2026-07-29 16:29:47.669 | INFO | app.core.tracing:setup_tracing:59 - OpenTelemetry packages not installed, tracing disabled
+INFO: Started server process [1318905]
+INFO: Waiting for application startup.
+2026-07-29 16:29:48.613 | INFO | app.main:lifespan:385 - Using Database Dialect: sqlite
+2026-07-29 16:29:48.613 | INFO | app.main:lifespan:398 - Startup step: DB connectivity pre-check...
+2026-07-29 16:29:48.621 | INFO | app.main:lifespan:402 - Startup step: DB connectivity pre-check passed.
+2026-07-29 16:29:48.624 | INFO | app.main:lifespan:510 - Startup step: alembic upgrade head...
+2026-07-29 16:29:49.625 | INFO | app.main:lifespan:528 - Startup step: alembic upgrade head done.
+2026-07-29 16:29:49.658 | INFO | app.main:lifespan:563 - Startup step: ensure all ORM tables exist (create_all fallback) done.
+2026-07-29 16:29:49.664 | INFO | app.main:lifespan:648 - Startup step: ensure_alarm_escalation_schema...
+2026-07-29 16:29:49.668 | INFO | app.main:lifespan:653 - Startup step: ensure_alarm_escalation_schema done.
+2026-07-29 16:29:49.669 | INFO | app.main:lifespan:661 - Startup step: init_db (default admin user & billing)...
+2026-07-29 16:29:49.670 | INFO | app.initial_data:init_db:20 - Checking database schema...
+2026-07-29 16:29:49.699 | INFO | app.initial_data:init_db:24 - Database schema initialized.
+2026-07-29 16:29:49.996 | WARNING | app.initial_data:init_db:115 - ============================================================
+2026-07-29 16:29:49.997 | WARNING | app.initial_data:init_db:116 - Admin password has been RESET (ADMIN_FORCE_RESET_PASSWORD=****
+2026-07-29 16:29:49.998 | WARNING | app.initial_data:init_db:117 - Account lock has been CLEARED.
+2026-07-29 16:29:49.998 | WARNING | app.initial_data:init_db:118 - Please remove ADMIN_FORCE_RESET_PASSWORD from .env after login!
+2026-07-29 16:29:49.998 | WARNING | app.initial_data:init_db:119 - ============================================================
+2026-07-29 16:29:50.010 | INFO | app.main:lifespan:665 - Startup step: init_db done.
+2026-07-29 16:29:50.067 | INFO | app.main:lifespan:719 - Startup check: FIELD_ENCRYPTION_KEY verified (embedded node secret decrypts OK).
+2026-07-29 16:29:50.130 | INFO | app.main:lifespan:864 - Startup check: FIELD_ENCRYPTION_KEY decrypt probe OK (1 fields).
+2026-07-29 16:29:50.130 | INFO | app.main:lifespan:869 - Startup step: load_published_plugin_config...
+2026-07-29 16:29:50.134 | INFO | app.main:lifespan:878 - Startup step: load_published_plugin_config done.
+2026-07-29 16:29:50.135 | INFO | app.main:lifespan:886 - Startup step: plugin_manager.load_plugins...
+2026-07-29 16:29:50.135 | INFO | app.main:lifespan:889 - Startup step: plugin_manager.load_plugins done.
+2026-07-29 16:29:50.136 | INFO | app.services.notify_manager:init_notify_manager:131 - NotifyManager initialized
+2026-07-29 16:29:50.136 | INFO | app.main:lifespan:894 - Startup step: plugin_manager.emit(HOOK_ON_STARTUP)...
+2026-07-29 16:29:50.136 | INFO | app.main:lifespan:897 - Startup step: plugin_manager.emit(HOOK_ON_STARTUP) done.
+2026-07-29 16:29:50.137 | INFO | app.main:lifespan:906 - Startup step: plugin health check loop started.
+2026-07-29 16:29:50.137 | INFO | app.main:lifespan:932 - Startup step: PLUGIN_MARKETPLACE_ENABLED=False, marketplace integration disabled.
+2026-07-29 16:29:50.138 | INFO | app.main:lifespan:936 - Startup step: split_migrations skipped (RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP=false). To migrate an old database, set to true in .env or run: python scripts/run_split_catalog_migrations.py
+2026-07-29 16:29:50.138 | INFO | app.main:lifespan:1007 - Startup step: ensure_regions_seeded_from_sql skipped (RUN_REGION_SEED_ON_STARTUP=false). To use built-in regions, set to true in .env or run: python scripts/seed_regions.py
+2026-07-29 16:29:50.138 | INFO | app.main:lifespan:1029 - Startup step: ensure_embedded_media_node...
+2026-07-29 16:29:50.196 | INFO | app.main:lifespan:1033 - Startup step: ensure_embedded_media_node ok (id=daeadace2c904b7aab62ed1aa080fbec).
+2026-07-29 16:29:50.197 | INFO | app.main:lifespan:1034 - Startup step: ensure_embedded_media_node done.
+2026-07-29 16:29:50.253 | INFO | app.main:lifespan:1084 - Startup step: ensure_firewall_ports...
+2026-07-29 16:29:50.254 | WARNING | app.utils.firewall:ensure_firewall_ports:99 - Network ports required: tcp=[554, 1935, 8000, 8880, 15060], udp=[8554, 15060], rtp_udp_range=30000-30999. IMPORTANT: if you are on cloud/VPS, also allow these in Security Group / Firewall rules.
+2026-07-29 16:29:50.255 | INFO | app.main:lifespan:1087 - Startup step: ensure_firewall_ports done.
+2026-07-29 16:29:50.255 | INFO | app.main:lifespan:1097 - Startup step: init_redis...
+2026-07-29 16:29:50.258 | INFO | app.core.redis:init_redis:91 - Redis connected to localhost:6379
+2026-07-29 16:29:50.259 | INFO | app.main:lifespan:1105 - Startup step: init_redis done.
+2026-07-29 16:29:50.259 | INFO | app.core.redis:start_redis_watchdog:203 - Redis watchdog started.
+2026-07-29 16:29:50.260 | INFO | app.sip.state_backend:get_sip_state_backend:283 - SipStateBackend: using Redis implementation
+2026-07-29 16:29:50.261 | INFO | app.main:lifespan:1140 - Startup step: SipStateBackend initialized (type=RedisSipStateBackend)
+2026-07-29 16:29:50.261 | INFO | app.main:lifespan:1144 - Startup step: init_handlers...
+2026-07-29 16:29:50.262 | INFO | app.sip.invite_server_state:start:269 - invite_server_state started
+2026-07-29 16:29:50.265 | INFO | app.main:lifespan:1147 - Startup step: init_handlers done.
+2026-07-29 16:29:50.266 | INFO | app.main:lifespan:1163 - Startup step: sip_server.start...
+2026-07-29 16:29:50.267 | INFO | app.sip.storm_handler:_db_updater_worker:150 - Storm Handler DB updater worker started
+2026-07-29 16:29:50.271 | INFO | app.sip.server:reload_ip_blacklist:911 - Loaded 0 IPs into blacklist cache.
+2026-07-29 16:29:50.272 | INFO | app.sip.server:connection_made:218 - SIP UDP Listening on 0.0.0.0:15060
+2026-07-29 16:29:50.273 | INFO | app.sip.server:start:1005 - SIP UDP SO_RCVBUF actual=425984 bytes (requested 4194304)
+2026-07-29 16:29:50.274 | INFO | app.sip.server:start:1048 - SIP UDP/TCP Listening on 0.0.0.0:15060
+2026-07-29 16:29:50.281 | INFO | app.sip.ssrc_manager:cleanup_loop:388 - SSRC cleanup loop started: interval=300.0s stale=3600.0s
+2026-07-29 16:29:50.285 | INFO | app.main:lifespan:1166 - Startup step: sip_server.start done.
+2026-07-29 16:29:50.286 | INFO | app.main:lifespan:1191 - Startup step: platform_service.start...
+2026-07-29 16:29:50.286 | INFO | app.main:lifespan:1194 - Startup step: platform_service.start done.
+2026-07-29 16:29:50.286 | INFO | app.main:lifespan:1202 - Startup step: cluster subscriber started.
+2026-07-29 16:29:50.287 | INFO | app.main:lifespan:1206 - Startup step: platform_subscription_service.start...
+2026-07-29 16:29:50.287 | INFO | app.services.platform_subscription_service:start:72 - platform_subscription_service started
+2026-07-29 16:29:50.287 | INFO | app.main:lifespan:1210 - Startup step: platform_subscription_service.start done.
+2026-07-29 16:29:50.288 | INFO | app.main:lifespan:1216 - Startup step: device_subscription_service.start...
+2026-07-29 16:29:50.289 | INFO | app.services.device_subscription_service:start:59 - device_subscription_service started
+2026-07-29 16:29:50.289 | INFO | app.main:lifespan:1220 - Startup step: device_subscription_service.start done.
+2026-07-29 16:29:50.290 | INFO | app.main:lifespan:1235 - Startup step: catalog_runtime cleanup loop started.
+2026-07-29 16:29:50.290 | INFO | app.main:lifespan:1241 - Startup step: vision_hub.start...
+2026-07-29 16:29:50.290 | INFO | app.services.vision_hub:start:47 - AI Vision Hub disabled by config (VISION_HUB_ENABLED=false).
+2026-07-29 16:29:50.291 | INFO | app.main:lifespan:1244 - Startup step: vision_hub.start done.
+2026-07-29 16:29:50.291 | INFO | app.main:lifespan:1250 - Startup step: media_manager.start (embedded ZLM)...
+2026-07-29 16:29:50.291 | INFO | app.services.media_manager:_deploy_zlm:1157 - ZLM deploy strategy hit: existing binary at /www/wwwroot/pygbsentry.jjtt.net/backend/binaries/linux64/MediaServer
+2026-07-29 16:29:50.379 | WARNING | app.core.media_nodes_db:_async_get_stream_count:502 - _async_get_stream_count failed for node daeadace2c904b7aab62ed1aa080fbec: All connection attempts failed
+2026-07-29 16:29:50.383 | WARNING | app.sip.handlers:handle_invite_request:2868 - INVITE from unknown platform rejected (last: 150999, total 1 in last 60s). If your SIP port is public, consider firewalling 15060 to known device IPs only.
+2026-07-29 16:29:50.439 | INFO | app.services.media_manager:_write_config_if_changed:1508 - ZLMediaKit config unchanged: /www/wwwroot/pygbsentry.jjtt.net/backend/binaries/linux64/config.ini
+2026-07-29 16:29:50.503 | INFO | app.services.media_manager:start:1803 - ZLMediaKit started with PID 1318995
+2026-07-29 16:29:50.509 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: VP8[0m
+2026-07-29 16:29:50.510 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: VP9[0m
+2026-07-29 16:29:50.510 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: H264[0m
+2026-07-29 16:29:50.510 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: H265[0m
+2026-07-29 16:29:50.511 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: AV1[0m
+2026-07-29 16:29:50.511 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: JPEG[0m
+2026-07-29 16:29:50.511 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: mpeg4-generic[0m
+2026-07-29 16:29:50.512 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: opus[0m
+2026-07-29 16:29:50.513 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: PCMA[0m
+2026-07-29 16:29:50.513 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: PCMU[0m
+2026-07-29 16:29:50.514 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: L16[0m
+2026-07-29 16:29:50.514 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: MP3[0m
+2026-07-29 16:29:50.516 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: MPV[0m
+2026-07-29 16:29:50.516 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] Factory.cpp:40 registerPlugin | Load codec: MPA[0m
+2026-07-29 16:29:50.516 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.509 I [MediaServer] [1318995-MediaServer] IceTransport.cpp:580 setRange | setPortRange from [0-0] to [49152-65535][0m
+2026-07-29 16:29:50.517 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.513 I [MediaServer] [1318995-MediaServer] IceTransport.cpp:647 setRange | now idle port num: 16383[0m
+2026-07-29 16:29:50.517 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.513 I [MediaServer] [1318995-MediaServer] IceTransport.cpp:580 setRange | setPortRange from [0-0] to [49152-65535][0m
+2026-07-29 16:29:50.517 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] IceTransport.cpp:647 setRange | now idle port num: 16383[0m
+2026-07-29 16:29:50.518 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] WebRtcTransport.cpp:1641 registerPlugin | Load webrtc plugin:push[0m
+2026-07-29 16:29:50.518 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] WebRtcTransport.cpp:1641 registerPlugin | Load webrtc plugin:play[0m
+2026-07-29 16:29:50.519 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] WebRtcTransport.cpp:1641 registerPlugin | Load webrtc plugin:talk[0m
+2026-07-29 16:29:50.519 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] System.cpp:229 systemSetup | core文件大小设置为:18446744073709551615[0m
+2026-07-29 16:29:50.519 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] System.cpp:238 systemSetup | 文件最大描述符个数设置为:262144[0m
+2026-07-29 16:29:50.520 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.516 I [MediaServer] [1318995-MediaServer] main.cpp:294 start_main | ZLMediaKit(git hash:79d795a/2026-07-27T07:57:19-07:00,branch:master,build time:2026-07-29T11:33:00)[0m
+2026-07-29 16:29:50.520 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.517 W [MediaServer] [1318995-MediaServer] config.cpp:40 loadIniConfig | unknow config: general.checkStreamAuthority = 0[0m
+2026-07-29 16:29:50.520 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.517 W [MediaServer] [1318995-MediaServer] config.cpp:40 loadIniConfig | unknow config: hls.enable = 1[0m
+2026-07-29 16:29:50.521 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.517 W [MediaServer] [1318995-MediaServer] config.cpp:40 loadIniConfig | unknow config: hls.filePath = ./www[0m
+2026-07-29 16:29:50.521 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.517 W [MediaServer] [1318995-MediaServer] config.cpp:40 loadIniConfig | unknow config: record.fileSecond = 300[0m
+2026-07-29 16:29:50.522 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.517 W [MediaServer] [1318995-MediaServer] config.cpp:40 loadIniConfig | unknow config: rtp_proxy.checkSource = 1[0m
+2026-07-29 16:29:50.528 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.528 W [MediaServer] [1318995-MediaServer] SSLUtil.cpp:104 loadPublicKey | BIO_new_file failed: error:02001002:system library:fopen:No such file or directory[0m
+2026-07-29 16:29:50.528 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.528 W [MediaServer] [1318995-MediaServer] SSLUtil.cpp:132 loadPrivateKey | BIO_new_file failed: error:2006D080:BIO routines:BIO_new_file:no such file[0m
+2026-07-29 16:29:50.529 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.528 W [MediaServer] [1318995-MediaServer] SSLUtil.cpp:213 makeSSLContext | SSL_CTX_check_private_key failed: error:02001002:system library:fopen:No such file or directory[0m
+2026-07-29 16:29:50.530 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [32m2026-07-29 16:29:50.528 D [MediaServer] [1318995-stamp thread] util.cpp:440 operator() | Stamp thread started[0m
+2026-07-29 16:29:50.531 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.528 I [MediaServer] [1318995-MediaServer] EventPoller.cpp:634 EventPollerPool | EventPoller created size: 4[0m
+2026-07-29 16:29:50.531 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.528 I [MediaServer] [1318995-MediaServer] main.cpp:419 start_main | 已启动http api 接口[0m
+2026-07-29 16:29:50.531 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] main.cpp:421 start_main | 已启动http hook 接口[0m
+2026-07-29 16:29:50.532 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::RtspSession] listening on [::]: 554[0m
+2026-07-29 16:29:50.532 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::RtmpSession] listening on [::]: 1935[0m
+2026-07-29 16:29:50.533 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [33m2026-07-29 16:29:50.529 W [MediaServer] [1318995-event poller 3] WebHook.cpp:202 operator() | hook http://127.0.0.1:8000/api/v1/hook/on_server_started?secret=**** 0ms,failed[network err]:3(connection refused):{
+2026-07-29 16:29:50.533 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "api.apiDebug" : "1",
+2026-07-29 16:29:50.533 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "api.defaultSnap" : "./www/logo.png",
+2026-07-29 16:29:50.534 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "api.downloadRoot" : "./www",
+2026-07-29 16:29:50.534 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "api.secret" : "0586d710b04c65d949a7c713dbbbb03ace621a2f8b694a70da11574e2a3e9e0d",
+2026-07-29 16:29:50.534 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "api.snapRoot" : "./www/snap/",
+2026-07-29 16:29:50.535 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "cluster.origin_url" : "",
+2026-07-29 16:29:50.535 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "cluster.retry_count" : "3",
+2026-07-29 16:29:50.535 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "cluster.timeout_sec" : "15",
+2026-07-29 16:29:50.536 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "ffmpeg.bin" : "/bin/ffmpeg",
+2026-07-29 16:29:50.536 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "ffmpeg.cmd" : "%s -re -i %s -c:a aac -strict -2 -ar 44100 -ab 48k -c:v libx264 -f flv %s",
+2026-07-29 16:29:50.536 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "ffmpeg.log" : "./ffmpeg/ffmpeg.log",
+2026-07-29 16:29:50.537 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "ffmpeg.restart_sec" : "0",
+2026-07-29 16:29:50.537 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "ffmpeg.snap" : "%s -i %s -y -f mjpeg -frames:v 1 -an %s",
+2026-07-29 16:29:50.538 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.broadcast_player_count_changed" : "0",
+2026-07-29 16:29:50.538 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.checkStreamAuthority" : "0",
+2026-07-29 16:29:50.538 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.check_nvidia_dev" : "1",
+2026-07-29 16:29:50.539 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.enableVhost" : "0",
+2026-07-29 16:29:50.539 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.enable_ffmpeg_log" : "0",
+2026-07-29 16:29:50.539 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.flowThreshold" : "1024",
+2026-07-29 16:29:50.539 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.listen_ip" : "::",
+2026-07-29 16:29:50.540 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.maxStreamWaitMS" : "5000",
+2026-07-29 16:29:50.540 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.mediaServerId" : "9hGMaMdYuxkGdUO5",
+2026-07-29 16:29:50.540 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.mergeWriteMS" : "0",
+2026-07-29 16:29:50.541 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.resetWhenRePlay" : "1",
+2026-07-29 16:29:50.541 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.streamNoneReaderDelayMS" : "10000",
+2026-07-29 16:29:50.542 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.unready_frame_cache" : "100",
+2026-07-29 16:29:50.542 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.wait_add_track_ms" : "1000",
+2026-07-29 16:29:50.542 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.wait_audio_track_data_ms" : "1000",
+2026-07-29 16:29:50.543 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "general.wait_track_ready_ms" : "3000",
+2026-07-29 16:29:50.543 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.broadcastRecordTs" : "0",
+2026-07-29 16:29:50.543 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.deleteDelaySec" : "10",
+2026-07-29 16:29:50.544 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.enable" : "1",
+2026-07-29 16:29:50.544 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.fastRegister" : "0",
+2026-07-29 16:29:50.544 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.fileBufSize" : "65536",
+2026-07-29 16:29:50.544 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.filePath" : "./www",
+2026-07-29 16:29:50.545 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.fmp4SegExt" : ".mp4",
+2026-07-29 16:29:50.545 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.segDelay" : "0",
+2026-07-29 16:29:50.545 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.segDur" : "1",
+2026-07-29 16:29:50.546 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.segKeep" : "0",
+2026-07-29 16:29:50.546 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.segNum" : "3",
+2026-07-29 16:29:50.546 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hls.segRetain" : "5",
+2026-07-29 16:29:50.547 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.alive_interval" : "30.000000",
+2026-07-29 16:29:50.547 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.enable" : "1",
+2026-07-29 16:29:50.547 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_flow_report" : "",
+2026-07-29 16:29:50.548 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_http_access" : "",
+2026-07-29 16:29:50.548 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_play" : "http://127.0.0.1:8000/api/v1/hook/on_play?secret=****
+2026-07-29 16:29:50.548 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_publish" : "http://127.0.0.1:8000/api/v1/hook/on_publish?secret=****
+2026-07-29 16:29:50.549 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_record_mp4" : "http://127.0.0.1:8000/api/v1/hook/on_record_mp4?secret=****
+2026-07-29 16:29:50.549 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_record_ts" : "",
+2026-07-29 16:29:50.549 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_rtp_server_timeout" : "http://127.0.0.1:8000/api/v1/hook/on_rtp_server_timeout?secret=****
+2026-07-29 16:29:50.550 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_rtsp_auth" : "",
+2026-07-29 16:29:50.550 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_rtsp_realm" : "",
+2026-07-29 16:29:50.550 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_send_rtp_stopped" : "http://127.0.0.1:8000/api/v1/hook/on_send_rtp_stopped?secret=****
+2026-07-29 16:29:50.551 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_server_exited" : "",
+2026-07-29 16:29:50.552 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_server_keepalive" : "http://127.0.0.1:8000/api/v1/hook/on_server_keepalive?secret=****
+2026-07-29 16:29:50.552 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_server_started" : "http://127.0.0.1:8000/api/v1/hook/on_server_started?secret=****
+2026-07-29 16:29:50.554 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_shell_login" : "",
+2026-07-29 16:29:50.555 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_stream_changed" : "http://127.0.0.1:8000/api/v1/hook/on_stream_changed?secret=****
+2026-07-29 16:29:50.555 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_stream_none_reader" : "http://127.0.0.1:8000/api/v1/hook/on_stream_none_reader?secret=****
+2026-07-29 16:29:50.555 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.on_stream_not_found" : "http://127.0.0.1:8000/api/v1/hook/on_stream_not_found?secret=****
+2026-07-29 16:29:50.556 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.retry" : "1",
+2026-07-29 16:29:50.556 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.retry_delay" : "3.000000",
+2026-07-29 16:29:50.557 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.stream_changed_schemas" : "rtsp/rtmp/fmp4/ts/hls/hls.fmp4/flv",
+2026-07-29 16:29:50.557 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook.timeoutSec" : "15",
+2026-07-29 16:29:50.559 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "hook_index" : 0,
+2026-07-29 16:29:50.560 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.allow_cross_domains" : "1",
+2026-07-29 16:29:50.560 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.allow_ip_range" : "::1,127.0.0.1,172.16.0.0-172.31.255.255,192.168.0.0-192.168.255.255,10.0.0.0-10.255.255.255",
+2026-07-29 16:29:50.561 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.charSet" : "utf-8",
+2026-07-29 16:29:50.562 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.dirMenu" : "1",
+2026-07-29 16:29:50.562 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.forbidCacheSuffix" : "",
+2026-07-29 16:29:50.562 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.forwarded_ip_header" : "",
+2026-07-29 16:29:50.563 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.keepAliveSecond" : "15",
+2026-07-29 16:29:50.565 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.maxReqSize" : "40960",
+2026-07-29 16:29:50.566 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.maxUploadSize" : "1073741824",
+2026-07-29 16:29:50.566 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.notFound" : "<html><head><title>404 Not Found</title></head><body bgcolor=\"white\"><center><h1>\u60a8\u8bbf\u95ee\u7684\u8d44\u6e90\u4e0d\u5b58\u5728\uff01</h1></center><hr><center>ZLMediaKit(git hash:79d795a/2026-07-27T07:57:19-07:00,branch:master,build time:2026-07-29T11:33:00)</center></body></html>",
+2026-07-29 16:29:50.566 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.port" : "8880",
+2026-07-29 16:29:50.568 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.rootPath" : "./www",
+2026-07-29 16:29:50.568 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.sendBufSize" : "65536",
+2026-07-29 16:29:50.568 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.sslport" : "0",
+2026-07-29 16:29:50.569 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "http.virtualPath" : "",
+2026-07-29 16:29:50.569 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "mediaServerId" : "9hGMaMdYuxkGdUO5",
+2026-07-29 16:29:50.569 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "multicast.addrMax" : "239.255.255.255",
+2026-07-29 16:29:50.570 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "multicast.addrMin" : "239.0.0.0",
+2026-07-29 16:29:50.570 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "multicast.udpTTL" : "64",
+2026-07-29 16:29:50.573 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "onvif.port" : "3702",
+2026-07-29 16:29:50.573 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.add_mute_audio" : "1",
+2026-07-29 16:29:50.574 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.auto_close" : "0",
+2026-07-29 16:29:50.574 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.continue_push_ms" : "15000",
+2026-07-29 16:29:50.574 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_audio" : "1",
+2026-07-29 16:29:50.575 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_fmp4" : "1",
+2026-07-29 16:29:50.575 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_hls" : "1",
+2026-07-29 16:29:50.575 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_hls_fmp4" : "0",
+2026-07-29 16:29:50.577 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_mp4" : "0",
+2026-07-29 16:29:50.577 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_rtmp" : "1",
+2026-07-29 16:29:50.578 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_rtsp" : "1",
+2026-07-29 16:29:50.578 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.enable_ts" : "1",
+2026-07-29 16:29:50.579 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.fmp4_demand" : "0",
+2026-07-29 16:29:50.580 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.hls_demand" : "0",
+2026-07-29 16:29:50.580 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.hls_save_path" : "./www",
+2026-07-29 16:29:50.580 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.modify_stamp" : "2",
+2026-07-29 16:29:50.581 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.mp4_as_player" : "0",
+2026-07-29 16:29:50.581 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.mp4_max_second" : "300",
+2026-07-29 16:29:50.582 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.mp4_save_path" : "./www",
+2026-07-29 16:29:50.582 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.paced_sender_ms" : "0",
+2026-07-29 16:29:50.583 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.rtmp_demand" : "0",
+2026-07-29 16:29:50.584 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.rtsp_demand" : "0",
+2026-07-29 16:29:50.585 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "protocol.ts_demand" : "0",
+2026-07-29 16:29:50.585 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "python.plugin" : "",
+2026-07-29 16:29:50.586 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.appName" : "record",
+2026-07-29 16:29:50.586 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.enableFmp4" : "0",
+2026-07-29 16:29:50.586 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.fastStart" : "0",
+2026-07-29 16:29:50.587 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.fileBufSize" : "65536",
+2026-07-29 16:29:50.588 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.fileRepeat" : "0",
+2026-07-29 16:29:50.588 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.fileSecond" : "300",
+2026-07-29 16:29:50.589 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "record.sampleMS" : "500",
+2026-07-29 16:29:50.589 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.bfilter" : "0",
+2026-07-29 16:29:50.590 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.datachannel_echo" : "1",
+2026-07-29 16:29:50.590 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.enableTurn" : "1",
+2026-07-29 16:29:50.591 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.externIP" : "pygbsentry.jjtt.net",
+2026-07-29 16:29:50.591 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.icePort" : "3478",
+2026-07-29 16:29:50.592 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.icePwd" : "ZLMediaKit",
+2026-07-29 16:29:50.592 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.iceTcpPort" : "3478",
+2026-07-29 16:29:50.593 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.iceTransportPolicy" : "0",
+2026-07-29 16:29:50.593 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.iceUfrag" : "ZLMediaKit",
+2026-07-29 16:29:50.594 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.interfaces" : "",
+2026-07-29 16:29:50.594 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.maxRtpCacheMS" : "5000",
+2026-07-29 16:29:50.595 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.maxRtpCacheSize" : "2048",
+2026-07-29 16:29:50.595 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.max_bitrate" : "0",
+2026-07-29 16:29:50.596 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.max_stun_retry" : "7",
+2026-07-29 16:29:50.597 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.min_bitrate" : "0",
+2026-07-29 16:29:50.597 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackAudioRtpSize" : "4",
+2026-07-29 16:29:50.597 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackIntervalRatio" : "1.000000",
+2026-07-29 16:29:50.598 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackMaxCount" : "15",
+2026-07-29 16:29:50.598 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackMaxMS" : "3000",
+2026-07-29 16:29:50.599 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackMaxSize" : "2048",
+2026-07-29 16:29:50.599 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.nackRtpSize" : "8",
+2026-07-29 16:29:50.600 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.port" : "8554",
+2026-07-29 16:29:50.600 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.port_range" : "49152-65535",
+2026-07-29 16:29:50.601 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.preferredCodecA" : "PCMA,PCMU,opus,mpeg4-generic",
+2026-07-29 16:29:50.601 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.preferredCodecV" : "H264,H265,AV1,VP9,VP8",
+2026-07-29 16:29:50.602 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.preferred_tcp" : "0",
+2026-07-29 16:29:50.602 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.rembBitRate" : "0",
+2026-07-29 16:29:50.602 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.signalingPort" : "3000",
+2026-07-29 16:29:50.603 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.signalingSslPort" : "3001",
+2026-07-29 16:29:50.604 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.start_bitrate" : "0",
+2026-07-29 16:29:50.605 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.tcpPort" : "8000",
+2026-07-29 16:29:50.605 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtc.timeoutSec" : "15",
+2026-07-29 16:29:50.605 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.directProxy" : "1",
+2026-07-29 16:29:50.606 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.enhanced" : "1",
+2026-07-29 16:29:50.607 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.handshakeSecond" : "15",
+2026-07-29 16:29:50.608 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.keepAliveSecond" : "15",
+2026-07-29 16:29:50.609 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.port" : "1935",
+2026-07-29 16:29:50.609 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtmp.sslport" : "0",
+2026-07-29 16:29:50.610 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp.audioMtuSize" : "600",
+2026-07-29 16:29:50.610 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp.h264_stap_a" : "1",
+2026-07-29 16:29:50.611 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp.lowLatency" : "0",
+2026-07-29 16:29:50.612 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp.rtpMaxSize" : "10",
+2026-07-29 16:29:50.613 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp.videoMtuSize" : "1400",
+2026-07-29 16:29:50.613 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.checkSource" : "1",
+2026-07-29 16:29:50.613 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.dumpDir" : "",
+2026-07-29 16:29:50.614 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.gop_cache" : "1",
+2026-07-29 16:29:50.614 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.h264_pt" : "98",
+2026-07-29 16:29:50.615 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.h265_pt" : "99",
+2026-07-29 16:29:50.615 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.merge_frame" : "1",
+2026-07-29 16:29:50.616 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.opus_pt" : "100",
+2026-07-29 16:29:50.616 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.port" : "30000",
+2026-07-29 16:29:50.617 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.port_range" : "30000-30999",
+2026-07-29 16:29:50.617 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.ps_pt" : "96",
+2026-07-29 16:29:50.618 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.rtp_g711_dur_ms" : "100",
+2026-07-29 16:29:50.618 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.timeoutSec" : "15",
+2026-07-29 16:29:50.619 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtp_proxy.udp_recv_socket_buffer" : "4194304",
+2026-07-29 16:29:50.619 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.authBasic" : "0",
+2026-07-29 16:29:50.620 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.directProxy" : "1",
+2026-07-29 16:29:50.620 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.handshakeSecond" : "15",
+2026-07-29 16:29:50.621 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.keepAliveSecond" : "15",
+2026-07-29 16:29:50.621 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.lowLatency" : "0",
+2026-07-29 16:29:50.622 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.port" : "554",
+2026-07-29 16:29:50.623 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.rtpTransportType" : "-1",
+2026-07-29 16:29:50.623 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "rtsp.sslport" : "0",
+2026-07-29 16:29:50.623 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "shell.maxReqSize" : "1024",
+2026-07-29 16:29:50.624 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "shell.port" : "9000",
+2026-07-29 16:29:50.624 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "srt.latencyMul" : "4",
+2026-07-29 16:29:50.624 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "srt.passPhrase" : "",
+2026-07-29 16:29:50.624 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "srt.pktBufSize" : "8192",
+2026-07-29 16:29:50.625 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "srt.port" : "9000",
+2026-07-29 16:29:50.626 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] "srt.timeoutSec" : "5"
+2026-07-29 16:29:50.626 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] }
+2026-07-29 16:29:50.626 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [0m
+2026-07-29 16:29:50.627 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::HttpSession] listening on [::]: 8880[0m
+2026-07-29 16:29:50.627 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::ShellSession] listening on [::]: 9000[0m
+2026-07-29 16:29:50.628 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] UdpServer.cpp:128 start_l | UDP server[mediakit::RtpSession] bind to [::]: 30000[0m
+2026-07-29 16:29:50.629 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.529 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::RtpSession] listening on [::]: 30000[0m
+2026-07-29 16:29:50.629 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] UdpServer.cpp:128 start_l | UDP server[mediakit::WebRtcSession] bind to [::]: 8554[0m
+2026-07-29 16:29:50.629 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::WebRtcSession] listening on [::]: 8000[0m
+2026-07-29 16:29:50.630 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[WebSocketSession<mediakit::WebRtcSignalingSession, mediakit::HttpSession, (mediakit::WebSocketHeader::Type)1>] listening on [::]: 3000[0m
+2026-07-29 16:29:50.631 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[WebSocketSession<mediakit::WebRtcSignalingSession, toolkit::SessionWithSSL<mediakit::HttpSession>, (mediakit::WebSocketHeader::Type)1>] listening on [::]: 3001[0m
+2026-07-29 16:29:50.631 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] UdpServer.cpp:128 start_l | UDP server[mediakit::IceSession] bind to [::]: 3478[0m
+2026-07-29 16:29:50.632 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] TcpServer.cpp:260 start_l | TCP server[mediakit::IceSession] listening on [::]: 3478[0m
+2026-07-29 16:29:50.632 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [36m2026-07-29 16:29:50.530 I [MediaServer] [1318995-MediaServer] UdpServer.cpp:128 start_l | UDP server[SRT::SrtSession] bind to [::]: 9000[0m
+2026-07-29 16:29:51.032 | INFO | app.main:emit:264 - HTTP Request: POST http://127.0.0.1:8880/index/api/getServerConfig "HTTP/1.1 200 OK"
+2026-07-29 16:29:51.032 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [32m2026-07-29 16:29:51.031 D [MediaServer] [1318995-event poller 0] WebApi.cpp:304 http api debug |
+2026-07-29 16:29:51.034 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] # request:
+2026-07-29 16:29:51.034 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] POST /index/api/getServerConfig
+2026-07-29 16:29:51.035 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] # header:
+2026-07-29 16:29:51.035 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Accept : */*
+2026-07-29 16:29:51.035 | INFO | app.services.media_manager:start:1821 - ZLMediaKit HTTP API is ready.
+2026-07-29 16:29:51.036 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Accept-Encoding : gzip, deflate
+2026-07-29 16:29:51.037 | INFO | app.main:lifespan:1256 - Startup step: media_manager.start done.
+2026-07-29 16:29:51.037 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Connection : keep-alive
+2026-07-29 16:29:51.038 | INFO | app.main:lifespan:1267 - Startup step: health_service.start...
+2026-07-29 16:29:51.038 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Content-Length : 71
+2026-07-29 16:29:51.039 | INFO | app.services.health_service:start:112 - Health Service started
+2026-07-29 16:29:51.039 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Content-Type : application/x-www-form-urlencoded
+2026-07-29 16:29:51.040 | INFO | app.main:lifespan:1270 - Startup step: health_service.start done.
+2026-07-29 16:29:51.040 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] Host : 127.0.0.1:8880
+2026-07-29 16:29:51.042 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] User-Agent : python-httpx/0.27.2
+INFO: Application startup complete.
+2026-07-29 16:29:51.042 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] # content:
+[SHUTDOWN] Lifespan exiting yield — no signal recorded, likely CancelledError/uvicorn worker shutdown (pid=1318905)
+2026-07-29 16:29:51.042 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] secret=****
+2026-07-29 16:29:51.043 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] # response size:7815
+2026-07-29 16:29:51.043 | INFO | app.services.media_manager:_drain_stdout:1945 - [ZLM] [0m
+2026-07-29 16:29:51.044 | INFO | app.services.tasks.task_manager:start_all_background_tasks:42 - Background task started: device_watchdog
+2026-07-29 16:29:51.044 | INFO | app.services.tasks.task_manager:start_all_background_tasks:58 - start_all_background_tasks: 0 task(s) + 1 stop callback(s) registered
+2026-07-29 16:29:51.044 | INFO | app.main:lifespan:1287 - Startup step: talk session cleanup loop started.
+2026-07-29 16:29:51.045 | INFO | app.services.ssl_certbot.certbot_manager:on_startup:74 - SSL certbot: disabled by config (SSLCERT_ENABLED=false)
+2026-07-29 16:29:51.045 | INFO | app.main:lifespan:1317 - Startup step: log queue drainer started.
+2026-07-29 16:29:51.046 | INFO | app.main:lifespan:1365 - Startup step: SIGHUP hot-reload handler registered.
+2026-07-29 16:29:51.046 | INFO | app.main:lifespan:1387 - Startup step: SIGTERM/SIGINT diagnostic handlers registered.
+2026-07-29 16:29:51.047 | INFO | app.main:lifespan:1391 - Startup complete.
+2026-07-29 16:29:51.049 | INFO | app.services.tasks.device_watchdog:_watchdog_loop:105 - Device heartbeat watchdog started (interval=30s)
+2026-07-29 16:29:51.052 | INFO | app.main:_paid_license_sync_loop:1436 - Paid license sync (startup) finished: checked 0 plugin(s)
+2026-07-29 16:29:51.053 | INFO | app.main:lifespan:1479 - Startup step: dialog_manager.restore_from_redis done.
+2026-07-29 16:29:51.054 | INFO | app.main:lifespan:1603 - Startup step: session_timer callbacks registered.
+2026-07-29 16:29:51.054 | INFO | app.sip.catalog_data_manager:monitor_loop:213 - catalog_data_manager monitor_loop started: interval=60.0s ttl=300.0s
+2026-07-29 16:29:51.058 | ERROR | app.main:lifespan:1637 - [SHUTDOWN] Lifespan exiting yield — no signal recorded, likely CancelledError/uvicorn worker shutdown (pid=1318905)
+ERROR: Traceback (most recent call last):
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/runners.py", line 194, in run
+return runner.run(main)
+^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/runners.py", line 118, in run
+return self._loop.run_until_complete(task)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+return future.result()
+^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 70, in serve
+await self._serve(sockets)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 85, in _serve
+await self.startup(sockets=sockets)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 135, in startup
+server = await loop.create_server(create_protocol, sock=sock, ssl=config.ssl, backlog=config.backlog)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 1597, in create_server
+server._start_serving()
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 317, in _start_serving
+sock.listen(self._backlog)
+OSError: [Errno 98] Address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/starlette/routing.py", line 699, in lifespan
+await receive()
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/lifespan/on.py", line 137, in receive
+return await self.receive_queue.get()
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/queues.py", line 158, in get
+await getter
+asyncio.exceptions.CancelledError
+
+2026-07-29 16:29:51.059 | INFO | app.sip.catalog_data_manager:monitor_loop:227 - catalog_data_manager monitor_loop cancelled
+2026-07-29 16:29:51.060 | INFO | app.sip.ssrc_manager:cleanup_loop:399 - SSRC cleanup loop cancelled
+Process SpawnProcess-1:
+Traceback (most recent call last):
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
+self.run()
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/multiprocessing/process.py", line 108, in run
+self._target(*self._args, **self._kwargs)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/_subprocess.py", line 80, in subprocess_started
+target(sockets=sockets)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 66, in run
+return asyncio.run(self.serve(sockets=sockets))
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/runners.py", line 194, in run
+return runner.run(main)
+^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/runners.py", line 118, in run
+return self._loop.run_until_complete(task)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 687, in run_until_complete
+return future.result()
+^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 70, in serve
+await self._serve(sockets)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 85, in _serve
+await self.startup(sockets=sockets)
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/site-packages/uvicorn/server.py", line 135, in startup
+server = await loop.create_server(create_protocol, sock=sock, ssl=config.ssl, backlog=config.backlog)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 1597, in create_server
+server._start_serving()
+File "/www/server/pyporject_evn/versions/3.12.3/lib/python3.12/asyncio/base_events.py", line 317, in _start_serving
+sock.listen(self._backlog)
+OSError: [Errno 98] Address already in use
+2026-07-29 16:29:51.076 | INFO | app.services.media_manager:_sync_stop:321 - [cleanup] Killing orphaned ZLM subprocess (PID=1318995)...
+2026-07-29 16:29:51.081 | INFO | app.services.media_manager:_sync_stop:324 - [cleanup] ZLM subprocess killed.

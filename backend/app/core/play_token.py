@@ -18,11 +18,14 @@ from loguru import logger
 
 from app.core.config import settings
 
-_TTL_SECONDS = 7200
+# P2-fix [2026-07-17]: 统一 TTL 默认值与 _shared.py 的 _get_play_token_ttl() 一致（300 秒）。
+# 原值 7200 秒（2 小时）与实际调用方传入的 300 秒不一致，且 token 通过 URL 查询参数暴露，
+# 过长 TTL 增加重放风险。300 秒足够覆盖播放建立时间。
+_TTL_SECONDS = 300
 
 
 def _secret() -> bytes:
-    return str(getattr(settings, "SECRET_KEY", "") or "").encode("utf-8")
+    return str(settings.SECRET_KEY or "").encode("utf-8")
 
 
 def _b64url(data: bytes) -> str:
@@ -41,6 +44,17 @@ def issue_play_token(app: str, stream: str, ttl: int = _TTL_SECONDS) -> str:
     payload_b64 = _b64url(raw)
     sig = _b64url(hmac.new(_secret(), payload_b64.encode("ascii"), hashlib.sha256).digest())
     return f"{payload_b64}.{sig}"
+
+
+def generate_play_token(app: str, stream: str, expire_seconds: int = _TTL_SECONDS) -> str:
+    """Alias for :func:`issue_play_token` — 2ad636a API compatibility.
+
+    stream/_shared.py (restored from 2ad636a) uses the original name
+    ``generate_play_token`` with ``expire_seconds`` parameter.
+
+    FIX: [2026-07-13] 恢复 channel.py / stream/_shared.py 后需要此函数。
+    """
+    return issue_play_token(app, stream, ttl=expire_seconds)
 
 
 def extract_token_from_params(params: Any) -> str:
@@ -62,7 +76,7 @@ def extract_token_from_params(params: Any) -> str:
 
 def should_allow_no_token() -> bool:
     """Return True when the platform is configured to allow playback without a token."""
-    return bool(getattr(settings, "PLAY_ALLOW_NO_TOKEN", False))
+    return settings.PLAY_ALLOW_NO_TOKEN
 
 
 def verify_play_token(token: str, app: str, stream: str) -> tuple[bool, str]:

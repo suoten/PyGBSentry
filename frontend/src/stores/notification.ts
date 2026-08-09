@@ -4,8 +4,14 @@ import api from '@/utils/http'
 import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import { logger } from '@/utils/logger'
 
-const WS_RECONNECT_DELAY = 3000
+// FIX: [2026-07-16 P1] 指数退避：3s → 6s → 12s → 24s → 30s（上限）
+const WS_RECONNECT_DELAY_BASE = 3000
+const WS_RECONNECT_MAX_DELAY = 30000
 const WS_MAX_RETRIES = 5
+
+// FIX: [2026-07-16 P1] WebSocket 关闭码 — 4001/4003 不应重连
+const WS_CLOSE_AUTH_FAILED = 4001   // 认证失败（ticket 无效/过期）
+const WS_CLOSE_FORBIDDEN = 4003     // 权限不足
 
 export const useNotificationStore = defineStore('notification', () => {
   const notifications = ref<any[]>([])
@@ -44,6 +50,10 @@ export const useNotificationStore = defineStore('notification', () => {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
+        // FIX: [2026-07-16 P1] 跳过后端心跳 ping 消息，避免每 30s 触发告警日志
+        if (data && typeof data === 'object' && data.type === 'ping') {
+          return
+        }
         if (!data || typeof data !== 'object' || !data.id) {
           logger.warn('WebSocket: invalid notification format, missing id')  // FIXED: WebSocket消息结构校验
           return
@@ -52,9 +62,15 @@ export const useNotificationStore = defineStore('notification', () => {
       } catch { logger.warn('WebSocket received non-JSON message, ignored') }
     }
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       wsConnected.value = false
       ws = null
+      // FIX: [2026-07-16 P1] 区分关闭码：4001(认证失败)/4003(权限不足) 不重连
+      if (event.code === WS_CLOSE_AUTH_FAILED || event.code === WS_CLOSE_FORBIDDEN) {
+        logger.warn(`WebSocket closed by server (code=${event.code}), stop reconnecting`)
+        reconnectAttempts = WS_MAX_RETRIES  // 阻止后续重连
+        return
+      }
       scheduleReconnect()
     }
 
@@ -67,10 +83,17 @@ export const useNotificationStore = defineStore('notification', () => {
     if (reconnectAttempts >= WS_MAX_RETRIES) return
     if (reconnectTimer) return
     reconnectAttempts++
+    // FIX: [2026-07-16 P1] 指数退避：delay = min(base * 2^(attempt-1), max) + 抖动
+    const expDelay = Math.min(
+      WS_RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttempts - 1),
+      WS_RECONNECT_MAX_DELAY
+    )
+    const jitter = Math.floor(Math.random() * 500)  // 0-500ms 抖动避免惊群
+    const delay = expDelay + jitter
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connectWebSocket()
-    }, WS_RECONNECT_DELAY)
+    }, delay)
   }
 
   function disconnectWebSocket() {

@@ -1,6 +1,7 @@
 import sys
 import os
 import asyncio
+import tempfile
 from typing import AsyncGenerator
 
 import pytest
@@ -16,6 +17,14 @@ os.environ.setdefault("DATABASE_TYPE", "sqlite")
 os.environ.setdefault("SQLITE_CONNECT_TIMEOUT_SECONDS", "5")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing-only-not-for-production")
+
+# FIX [2026-07-19 P1-4]: 测试日志隔离——将 LOG_DIR 重定向到 per-session 临时目录，
+# 防止 pytest 运行时通过 app.main 导入触发 logger.add() 写入生产日志路径
+# `backend/logs/app.log`，污染生产日志（aa.txt P1-4）。
+# 必须在 `import app.core.config` / `import app.main` 之前设置。
+_TEST_LOG_DIR = os.path.join(tempfile.gettempdir(), f"pygbsentry_test_logs_{os.getpid()}")
+os.makedirs(_TEST_LOG_DIR, exist_ok=True)
+os.environ.setdefault("LOG_DIR", _TEST_LOG_DIR)
 
 # Eagerly import the REAL app.core.config so that test modules which
 # conditionally create a minimal `app.core.config` stub (e.g. test_bye_auth,

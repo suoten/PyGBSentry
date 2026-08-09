@@ -31,8 +31,8 @@ from app.core.config import settings
 
 
 def main():
-    host = getattr(settings, "HOST", "0.0.0.0") or "0.0.0.0"
-    port = getattr(settings, "PORT", 8000) or 8000
+    host = settings.HOST or "0.0.0.0"
+    port = settings.PORT or 8000
 
     # 允许命令行参数覆盖配置
     if "--host" in sys.argv:

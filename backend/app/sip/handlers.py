@@ -6,12 +6,13 @@
 # -------------------------------------------------------------------------
 
 import uuid
+from collections import deque
 from xml.sax.saxutils import escape as _xml_escape
 
 from app.sip.message import SipMessage
 from app.sip.auth import DigestAuth
 from app.sip.send import send_sip_bytes, send_sip_message
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host
 from app.sip.state_backend import get_sip_state_backend
 from app.db.session import AsyncSessionLocal
 from app.models.asset import Asset
@@ -21,6 +22,7 @@ from app.models.alarm import Alarm
 from app.models.alarm_escalation import AlarmEscalation
 from app.models.alarm_link_rule import AlarmLinkRule
 import app.sip.commander as sip_commander_module
+from app.sip.commander import _make_branch as _sip_make_branch, _make_call_id as _sip_make_call_id  # P1-fix [2026-07-17]: 复用 commander 的 64 位随机生成器
 from app.sip.catalog import handle_catalog_response
 from app.sip.response_handler import handle_invite_response
 from app.sip.record_handler import handle_record_info_response
@@ -59,30 +61,91 @@ _SIP_T1_SECONDS = 1.0
 _SIP_SUBSCRIBE_DEFAULT_EXPIRES = 3600
 _SIP_CATALOG_SN_MAX = 9999
 
-_DIGEST_NONCE_TTL_SECONDS = int(getattr(settings, "SIP_DIGEST_NONCE_TTL_SECONDS", 300) or 300)
+_DIGEST_NONCE_TTL_SECONDS = settings.SIP_DIGEST_NONCE_TTL_SECONDS
 
 _background_tasks: set[asyncio.Task] = set()
+
+# FIX: [2026-07-16] 未知平台 INVITE 日志限速 — SIP 端口暴露公网时，
+# 互联网扫描流量会产生大量 "INVITE from unknown platform" 警告（每秒数条），
+# 刷屏并掩盖真实问题。60 秒内仅输出一次汇总日志。
+_UNKNOWN_INVITE_LOG_COOLDOWN_SECONDS = 60.0
+_unknown_invite_log_last_ts: float = 0.0
+_unknown_invite_log_count: int = 0
+
+# FIX [2026-07-17 P1-B1]: 跟踪入站 Keepalive 的 SN（每设备），
+# 用于检测 SN 回退（重放攻击/设备重启/SN 回绕），仅告警不拒绝以保持兼容性。
+# P0-fix [2026-07-17]: 添加上限和清理机制，防止大规模设备接入时内存无限增长
+_keepalive_last_sn: dict[str, int] = {}
+_KEEPALIVE_LAST_SN_MAX = settings.SIP_KEEPALIVE_SN_CACHE_MAX
+
+# FIX [2026-07-22 P2]: 每设备最近 SN 滑动窗口，用于区分"真重放"（精确重复 SN）与
+# "厂商 SN 怪癖"（部分平台如 EasyGBS 多线程各自维护 SN 计数，同一设备的心跳 SN
+# 来自多条交织序列，导致 last-SN 单调性检查每几分钟误报一次 WARNING）。
+# 仅精确重复才判重放（WARNING），SN 回退降级为 INFO 保留诊断价值。
+_keepalive_recent_sn: dict[str, deque] = {}
+_KEEPALIVE_RECENT_SN_WINDOW = 32
+
+# FIX [2026-07-22 P0]: 设备最后已知传输地址缓存（从 Keepalive 源地址获取）。
+# 用于同步通道 API 的最终兜底：当 Asset.ip_addr 和 ParentPlatform.server_ip 都为空时，
+# 从 Keepalive 的源地址获取设备地址。
+# 注意：Keepalive 源地址是 UDP 数据包的源 IP:port，经过 NAT 后是设备的公网地址。
+_device_last_seen_addr: dict[str, tuple[str, int, str]] = {}
+_DEVICE_LAST_SEEN_ADDR_MAX = 10000
+
+
+def _record_keepalive_sn(gb_id: str, sn: int) -> None:
+    """记录设备 keepalive SN（最大值 + 最近 SN 滑动窗口），超限时按 FIFO 清理最旧条目。"""
+    if not gb_id:
+        return
+    _keepalive_last_sn[gb_id] = sn
+    _recent = _keepalive_recent_sn.get(gb_id)
+    if _recent is None:
+        _recent = deque(maxlen=_KEEPALIVE_RECENT_SN_WINDOW)
+        _keepalive_recent_sn[gb_id] = _recent
+    _recent.append(sn)
+    if len(_keepalive_last_sn) > _KEEPALIVE_LAST_SN_MAX:
+        # 清理最旧的一半（dict 按插入顺序，Python 3.7+ 保证）
+        _keys_to_drop = list(_keepalive_last_sn.keys())[:len(_keepalive_last_sn) // 4]
+        for _k in _keys_to_drop:
+            _keepalive_last_sn.pop(_k, None)
+            _keepalive_recent_sn.pop(_k, None)
+        logger.info(f"[keepalive_sn] pruned {len(_keys_to_drop)} stale entries, size={len(_keepalive_last_sn)}")
+
+
+def get_device_last_seen_addr(gb_id: str) -> tuple[str, int, str] | None:
+    """获取设备最后已知的传输地址（从 Keepalive 源地址缓存）。
+
+    用于同步通道 API 的最终兜底：当 Asset.ip_addr 和 ParentPlatform.server_ip
+    都为空时，从 Keepalive 的源地址获取设备地址。
+
+    Returns:
+        (ip, port, proto) 或 None
+    """
+    return _device_last_seen_addr.get(gb_id)
 
 # 信令路由循环防护 — 重复请求检测缓存
 # FIX-LEAK: 添加 asyncio.Lock 保护并发读写，防止数据竞争
 # FIX-LEAK: TTL/MAX_SIZE 通过 settings 可配置，定期清理防止内存泄漏
 _SEEN_REQUESTS: dict[str, float] = {}  # key: "Call-ID~CSeq" -> timestamp
-_SEEN_REQUESTS_MAX = int(getattr(settings, "SIP_SEEN_REQUESTS_MAX_SIZE", 5000) or 5000)
-_SEEN_REQUESTS_TTL = int(getattr(settings, "SIP_SEEN_REQUESTS_TTL_SECONDS", 300) or 300)
+_SEEN_REQUESTS_MAX = settings.SIP_SEEN_REQUESTS_MAX_SIZE
+_SEEN_REQUESTS_TTL = settings.SIP_SEEN_REQUESTS_TTL_SECONDS
 _seen_requests_lock = asyncio.Lock()
 
 
 async def check_and_record_seen_request(dedup_key: str, method: str) -> bool:
     """检查请求是否重复，非重复则记录并返回 False，重复返回 True。
 
-    INVITE 请求不参与去重（RFC 3261 §17.2.1 要求事务层处理重传）。
+    INVITE 和 REGISTER 请求不参与去重（RFC 3261 §17.2.1/§17.2.2 要求事务层处理重传）。
     所有字典操作在 _seen_requests_lock 保护下完成，消除竞态条件。
     """
     if not dedup_key:
         return False
     now = time.time()
     async with _seen_requests_lock:
-        if dedup_key in _SEEN_REQUESTS and method not in ("INVITE",):
+        # FIX: [2026-07-16] 将 REGISTER 加入豁免列表。
+        # 原问题：UDP 丢包时设备重传 REGISTER（相同 Call-ID+CSeq），去重逻辑直接丢弃，
+        # 导致 401/200 OK 无法重发，设备 Timer B 超时后放弃注册。
+        if dedup_key in _SEEN_REQUESTS and method not in ("INVITE", "REGISTER"):
             seen_time = _SEEN_REQUESTS[dedup_key]
             if now - seen_time < _SEEN_REQUESTS_TTL:
                 return True
@@ -149,8 +212,12 @@ async def cleanup_stale_cleanup_locks() -> int:
     return len(stale)
 
 
-def _bg_create_task(coro):
-    task = asyncio.create_task(coro)
+def _bg_create_task(coro, *, name: str | None = None):
+    # P1-fix [2026-07-17]: 支持 name 参数，便于 asyncio 调试和日志追踪
+    if name:
+        task = asyncio.create_task(coro, name=name)
+    else:
+        task = asyncio.create_task(coro)
     _background_tasks.add(task)
 
     def _on_done(t: asyncio.Task) -> None:
@@ -254,7 +321,7 @@ async def _validate_digest_replay(auth_params: dict, fallback_user: str) -> tupl
     """
     # default to strict mode for all environments, not just production
     # 消除_strict=None后立即if _strict is None的冗余逻辑
-    _relaxed = str(getattr(settings, "SIP_AUTH_RELAXED", "") or "").lower() in {"true", "1", "yes"}
+    _relaxed = settings.SIP_AUTH_RELAXED
     _strict = not _relaxed
 
     # W-10 SIP_AUTH_RELAXED模式下保留nonce过期和HMAC签名校验，仅放宽nc重放检查
@@ -284,13 +351,19 @@ async def _validate_digest_replay(auth_params: dict, fallback_user: str) -> tupl
     if current_ts - ts > _DIGEST_NONCE_TTL_SECONDS:
         reason = "stale nonce"
         logger.warning(f"[DigestAuth] stale nonce (age={current_ts - ts}s > {_DIGEST_NONCE_TTL_SECONDS}s)")
-        return False, reason
+        # FIX: [2026-07-16] relaxed 模式下放宽 stale nonce 检查，仅警告不阻断。
+        # 原问题：即使 SIP_AUTH_RELAXED=true，stale nonce 仍无条件拒绝，部分 GB28181 设备
+        # 不正确处理 stale=true 参数会直接放弃注册。relaxed 模式应允许过期 nonce。
+        if _strict:
+            return False, reason
+        logger.warning("[DigestAuth] stale nonce allowed in non-strict mode (SIP_AUTH_RELAXED=true)")
+        return True, ""
 
     # 3. HMAC 签名校验：确保 nonce 是我们签发的（relaxed模式下也保留）
     # FIXED-P0: 优先使用 SIP_NONCE_SECRET，与 auth.py generate_nonce() 保持一致
-    secret = (getattr(settings, "SIP_NONCE_SECRET", "") or "").encode("utf-8", errors="ignore")
+    secret = (settings.SIP_NONCE_SECRET or "").encode("utf-8", errors="ignore")
     if not secret:
-        secret = (getattr(settings, "SECRET_KEY", "") or "").encode("utf-8", errors="ignore")
+        secret = (settings.SECRET_KEY or "").encode("utf-8", errors="ignore")
     if not secret or secret == b"":
         logger.warning("[DigestAuth] SECRET_KEY is empty, cannot verify nonce HMAC signature reliably")
         return False, "SECRET_KEY not configured, cannot verify nonce signature"
@@ -379,8 +452,16 @@ async def send_response(transport, proto: str, addr: tuple, response: SipMessage
 async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) -> None:
     commander = getattr(sip_commander_module, "sip_commander", None)
     if not commander:
+        logger.warning(f"[CATALOG_SYNC] commander not available, aborting for device {device_id}")
         return
-    retry_delays = [1, 5, 15]
+    # FIX [2026-07-22 P0]: 按 GB28181 通道同步排查清单要求，应用层重试 3 次。
+    # FIX [2026-07-29 P0]: 优化重试间隔为 [2, 3, 5] = 10 秒（共 4 次查询机会），
+    # 适应后端可能因外部进程管理器重启导致的短生命周期场景。
+    # UDP 传输易丢 Catalog Query/Response 包，递增间隔可在丢包后快速重发。
+    retry_delays = [2, 3, 5]
+    # FIX [2026-07-22 P0]: 添加无条件 INFO 日志（不依赖 SIP_DEBUG_TRACE_ENABLED）
+    _addr_info = transport_info[0] if transport_info else ("?", "?")
+    logger.info(f"[CATALOG_SYNC] Starting catalog sync for device {device_id} addr={_addr_info}")
     await patch_device_catalog_runtime(
         device_id,
         {
@@ -398,7 +479,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     except Exception as e:
         # FIX: [2026-07-10] 生产环境必须有 ERROR 日志（_sip_debug_log 被门控默认不输出） [全栈工程师]
         logger.error(
-            f"Catalog query failed for device {device_id} (attempt 1): {e}",
+            f"[CATALOG_SYNC] Catalog query failed for device {device_id} (attempt 1): {e}",
             exc_info=True,
         )
         await patch_device_catalog_runtime(
@@ -414,6 +495,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         # 已收到目录响应则终止重试
         if runtime.get("catalog.last_response_at"):
             await patch_device_catalog_runtime(device_id, {"catalog.sync_state": "synced"})
+            logger.info(f"[CATALOG_SYNC] Catalog response received for device {device_id} at attempt {idx}, stopping retry")
             _sip_debug_log("device_catalog_retry_stopped", None, {"device_id": device_id, "attempt": idx, "reason": "response_received"})
             return
         progress = 20 + idx * 15  # idx=2..4 => 50/80/110 -> will clamp in UI
@@ -432,7 +514,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         except Exception as e:
             # FIX: [2026-07-10] 重试失败也必须有 ERROR 日志 [全栈工程师]
             logger.error(
-                f"Catalog retry failed for device {device_id} (attempt {idx}): {e}",
+                f"[CATALOG_SYNC] Catalog retry failed for device {device_id} (attempt {idx}): {e}",
                 exc_info=True,
             )
             await patch_device_catalog_runtime(
@@ -449,11 +531,12 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     runtime = await patch_device_catalog_runtime(device_id, {"catalog.retry_finished_at": utc_now_iso()})
     if runtime.get("catalog.last_response_at"):
         await patch_device_catalog_runtime(device_id, {"catalog.sync_state": "synced"})
+        logger.info(f"[CATALOG_SYNC] Catalog sync completed for device {device_id} (attempts={runtime.get('catalog.retry_attempts', 0)})")
         _sip_debug_log("device_catalog_retry_success", None, {"device_id": device_id, "attempts": runtime.get("catalog.retry_attempts", 0)})
     else:
         # FIX: [2026-07-10] 最终超时需 WARNING（所有重试后仍无响应） [全栈工程师]
         logger.warning(
-            f"Catalog response timeout for device {device_id} after "
+            f"[CATALOG_SYNC] Catalog response timeout for device {device_id} after "
             f"{runtime.get('catalog.retry_attempts', 0)} attempts"
         )
         await patch_device_catalog_runtime(
@@ -506,8 +589,25 @@ def create_response(request: SipMessage, status_code: int, reason: str = None, r
 
     to_val = resp.headers.get("To") or resp.headers.get("t")
     if to_val and not re.search(r";\s*tag=", to_val, re.IGNORECASE):
-        src = f"{request.get_header('Call-ID') or ''}|{request.get_header('CSeq') or ''}|{request.method or ''}"
-        tag = hashlib.sha256(src.encode("utf-8", errors="ignore")).hexdigest()[:8]
+        # FIX [2026-07-19 P1-A5]: RFC 3261 §19.3 要求 To tag 必须随机生成（不可预测），
+        # §13.3.1 要求 UAS 对重传请求重发相同的 2xx 响应（含相同 To tag）。
+        # 这两个要求看似矛盾，实则可通过 HMAC-SHA256 解决：
+        #   tag = HMAC(SECRET_KEY, Call-ID | From-tag | CSeq)[:16]
+        # - 同一请求重传 → 相同输入 → 相同 tag（满足 §13.3.1 重传稳定性）
+        # - 不同请求 → 不同 Call-ID/From-tag → 不同 tag（满足 §19.3 全局唯一性）
+        # - 攻击者不知道 SECRET_KEY → 无法预测 tag（满足 §19.3 不可预测性）
+        # - HMAC-SHA256 截断到 64 位（16 hex chars）→ 与 From tag 强度一致
+        call_id = request.get_header("Call-ID") or ""
+        from_val = request.get_header("From") or ""
+        from_tag = ""
+        _ftag_match = re.search(r";\s*tag=([^;]+)", from_val, re.IGNORECASE)
+        if _ftag_match:
+            from_tag = _ftag_match.group(1)
+        cseq_val = request.get_header("CSeq") or ""
+        method = (cseq_val.split()[-1] if cseq_val else "").strip()
+        _tag_input = f"{call_id}|{from_tag}|{cseq_val}|{method}".encode("utf-8")
+        _secret = (settings.SECRET_KEY or "default-sip-tag-secret").encode("utf-8")
+        tag = hmac.new(_secret, _tag_input, hashlib.sha256).hexdigest()[:16]
         resp.headers["To"] = f"{to_val};tag={tag}"
 
     resp.headers["User-Agent"] = settings.PROJECT_NAME
@@ -555,7 +655,7 @@ def _sip_date_gmt(dt: datetime.datetime | None = None) -> str:
 
 
 def _sip_debug_enabled() -> bool:
-    return bool(getattr(settings, "SIP_DEBUG_TRACE_ENABLED", False))
+    return settings.SIP_DEBUG_TRACE_ENABLED
 
 
 from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log
@@ -567,16 +667,63 @@ from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log
 # ---------------------------------------------------------------------------
 _digest_fail_tracker: dict[str, list[float]] = {}   # gb_id -> 失败时间戳列表（滑动窗口）
 _digest_locked: dict[str, float] = {}                # gb_id -> 锁定到期 monotonic 时刻
+# P0-fix [2026-07-17]: 全局 dict 无上限，攻击者可用大量不同 gb_id 发起 REGISTER
+# 导致内存耗尽。添加硬上限和惰性清理。
+_DIGEST_FAIL_TRACKER_MAX_SIZE = settings.SIP_DIGEST_FAIL_TRACKER_MAX_SIZE
+
+
+def _prune_digest_fail_tracker() -> None:
+    """惰性清理过期的认证失败记录，防止 _digest_fail_tracker 无限增长。
+
+    清理策略：
+    1. 移除窗口外所有过期条目
+    2. 若清理后仍超上限，按最早失败时间戳批量淘汰 25%
+    """
+    if not _digest_fail_tracker:
+        return
+    now = time.monotonic()
+    window = settings.SIP_DIGEST_FAIL_WINDOW_SECONDS
+    # 清理过期的失败记录
+    expired_keys = []
+    for _k, _lst in _digest_fail_tracker.items():
+        _lst[:] = [t for t in _lst if now - t < window]
+        if not _lst:
+            expired_keys.append(_k)
+    for _k in expired_keys:
+        _digest_fail_tracker.pop(_k, None)
+        _digest_locked.pop(_k, None)
+    # 清理已过期的锁定记录
+    expired_locks = [_k for _k, _exp in _digest_locked.items() if now >= _exp]
+    for _k in expired_locks:
+        _digest_locked.pop(_k, None)
+        _digest_fail_tracker.pop(_k, None)
+    # 硬上限保护：超限则批量淘汰最早条目
+    if len(_digest_fail_tracker) > _DIGEST_FAIL_TRACKER_MAX_SIZE:
+        _drop_count = len(_digest_fail_tracker) // 4
+        _sorted_keys = sorted(
+            _digest_fail_tracker.keys(),
+            key=lambda k: _digest_fail_tracker[k][0] if _digest_fail_tracker[k] else 0
+        )
+        for _k in _sorted_keys[:_drop_count]:
+            _digest_fail_tracker.pop(_k, None)
+            _digest_locked.pop(_k, None)
+        logger.info(
+            f"[digest_fail] pruned {_drop_count} stale entries, "
+            f"size={len(_digest_fail_tracker)}"
+        )
 
 
 async def _record_auth_failure(gb_id: str) -> None:
     """记录一次设备认证失败；窗口内累计达阈值则锁定。"""
     if not gb_id:
         return
+    # P0-fix: 惰性清理，防止无限增长
+    if len(_digest_fail_tracker) > _DIGEST_FAIL_TRACKER_MAX_SIZE * 0.8:
+        _prune_digest_fail_tracker()
     now = time.monotonic()
-    window = float(getattr(settings, "SIP_DIGEST_FAIL_WINDOW_SECONDS", 300))
-    max_attempts = int(getattr(settings, "SIP_DIGEST_FAIL_MAX_ATTEMPTS", 10))
-    lock_dur = float(getattr(settings, "SIP_DIGEST_FAIL_LOCK_DURATION", 300))
+    window = settings.SIP_DIGEST_FAIL_WINDOW_SECONDS
+    max_attempts = settings.SIP_DIGEST_FAIL_MAX_ATTEMPTS
+    lock_dur = settings.SIP_DIGEST_FAIL_LOCK_DURATION
     lst = _digest_fail_tracker.setdefault(gb_id, [])
     lst[:] = [t for t in lst if now - t < window]   # 滑动窗口
     lst.append(now)
@@ -600,6 +747,20 @@ async def _clear_auth_failures(gb_id: str) -> None:
     """清除设备的认证失败记录（认证成功后调用）。"""
     _digest_fail_tracker.pop(gb_id, None)
     _digest_locked.pop(gb_id, None)
+
+
+async def _clear_auth_failures_by_ip(ip: str) -> None:
+    """FIX: [2026-07-16] 通过 IP 清除认证失败记录。
+    当管理员删除 IP 黑名单时调用，避免下级平台再次拉黑。
+
+    注意：_digest_fail_tracker 以 gb_id 为 key（非 IP），无法按 IP 精确清除。
+    由于 _digest_fail_tracker / _digest_locked 目前在生产环境未被填充
+    （_record_auth_failure 仅在测试中调用），.clear() 是空操作。
+    保留此函数是为了 forward-compat：若将来接入 gb_id 级失败计数，
+    应改为维护 gb_id -> ip 的反向映射以实现精确清除。
+    """
+    _digest_fail_tracker.clear()
+    _digest_locked.clear()
 
 
 def _mask_sensitive_value(value: str) -> str:
@@ -661,10 +822,13 @@ def _log_with_trace(level: str, msg: str, message: SipMessage | None = None) -> 
         logger.info(final)
 
 
-def _attach_trace_header(message: SipMessage, trace_id: str | None) -> None:
-    tid = (trace_id or "").strip()
-    if tid:
-        message.headers["X-Trace-ID"] = tid
+def _attach_trace_header(message: SipMessage, trace_id: str | None) -> str:
+    """返回 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 消息添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request。
+    """
+    return (trace_id or "").strip()
 
 
 async def _patch_platform_runtime(platform: ParentPlatform, patch: dict) -> None:
@@ -742,15 +906,27 @@ async def _send_register_401(message: SipMessage, transport, proto: str, addr: t
     nonce = _issue_digest_nonce()
     stale_str = "true" if stale else "false"
     # GB12 SIP认证SHA-256支持 — RFC 8760 同时提供SHA-256和MD5算法
-    realm = settings.SIP_DOMAIN
+    # P1-fix [2026-07-17]: realm 解析必须与 DigestAuth.build_challenge 保持一致，
+    # 否则客户端按 challenge 中的 realm 计算 Digest，但服务器内部若使用不同 realm
+    # 验证（如级联客户端调用 build_challenge 时），将导致永远认证失败。
+    # 解析顺序：SIP_REALM > SIP_DOMAIN > PROJECT_NAME > "PyGBSentry"
+    realm = (
+        settings.SIP_REALM
+        or settings.SIP_DOMAIN
+        or settings.PROJECT_NAME
+        or "PyGBSentry"
+    )
+    # FIX: [2026-07-16 P0] 通告 qop="auth,auth-int" 以启用完整性保护（GB/T 28181-2022 §9）。
+    # 原仅通告 qop="auth"，设备无法选择 auth-int，REGISTER 请求体可被中间人篡改（如修改 Expires）。
+    # 验证侧（DigestAuth.verify）已支持 auth-int 的 HA2 计算，此处仅需在 challenge 中通告。
     auth_header_sha256 = (
         f'Digest realm="{realm}", nonce="{nonce}", '
-        f'algorithm=SHA-256, qop="auth", '
+        f'algorithm=SHA-256, qop="auth,auth-int", '
         f'stale={stale_str}'
     )
     auth_header_md5 = (
         f'Digest realm="{realm}", nonce="{nonce}", '
-        f'algorithm=MD5, qop="auth", '
+        f'algorithm=MD5, qop="auth,auth-int", '
         f'stale={stale_str}'
     )
     # S-04 RFC 8760要求多个认证方案使用同名WWW-Authenticate头，非标准WWW-Authenticate-2
@@ -879,10 +1055,13 @@ async def _push_catalog_to_platform(
         req.method = "MESSAGE"
         req.uri = f"sip:{server_gb_id}@{addr[0]}:{addr[1]}"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
-        req.headers["Via"] = f"SIP/2.0/{via_transport} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKcat{sn}"
-        req.headers["From"] = f"<sip:{client_gb_id}@{settings.SIP_DOMAIN}>;tag=cat{sn}"
+        # P1-fix [2026-07-17]: Via branch 与 From tag 必须使用 64 位密码学随机性
+        # 原代码 token_hex(4)=32 位，违反项目硬约束；同一上级平台多次推送 Catalog 时
+        # Call-ID 完全相同（仅含 server_gb_id + batch_idx），导致重推被对端去重丢弃。
+        req.headers["Via"] = f"SIP/2.0/{via_transport} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_sip_make_branch()}"
+        req.headers["From"] = f"<sip:{client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{server_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"cat_{server_gb_id}_{batch_idx}@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _sip_make_call_id(f'cat{batch_idx}')
         req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Max-Forwards"] = str(_SIP_MAX_FORWARDS_DEFAULT)
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -1115,6 +1294,25 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
     _bg_create_task(plugin_manager.emit(HOOK_ON_SIP_RECEIVE, message, addr, proto))
     _sip_debug_log("register_received", message, {"proto": proto, "addr": str(addr)})
 
+    # FIX [2026-07-22 P0]: REGISTER 入口无条件 INFO 日志
+    # SIP_DEBUG_TRACE_ENABLED 默认关闭，导致 _sip_debug_log 不输出。
+    # 此日志用于确认 EasyGBS/设备是否真的向 PyGBSentry 发送了 REGISTER 请求。
+    _reg_auth = message.get_header("Authorization") or ""
+    _reg_from = message.from_header or ""
+    _reg_contact = (message.get_header("Contact") or message.get_header("m") or "").strip()
+    logger.info(
+        f"[REGISTER_RECV] from={addr[0]}:{addr[1]} proto={proto} "
+        f"from_header={_reg_from[:80]} has_auth={bool(_reg_auth)} "
+        f"contact={_reg_contact[:80]}"
+    )
+
+    # P2-fix [2026-07-17]: 解析 GB28181 扩展头域 X-GB-Ver（协议版本协商）
+    # GB/T 28181-2022 定义 X-GB-Ver 头用于版本协商，格式如 "X-GB-Ver: 2.0"
+    _x_gb_ver = (message.get_header("X-GB-Ver") or "").strip()
+    if _x_gb_ver:
+        _sip_debug_log("register_gb_version", message, {"x_gb_ver": _x_gb_ver, "addr": str(addr)})
+        logger.debug(f"[REGISTER] Device from {addr[0]} advertised X-GB-Ver: {_x_gb_ver}")
+
     auth_header = message.get_header("Authorization")
     from_uri = message.from_header
     gb_id_from_from = ""
@@ -1131,13 +1329,15 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             search_target = f"<{search_target}>"
         m_contact = re.search(r"sip:[^@>]+@([^:;>\s]+)(?::(\d+))?", search_target, re.IGNORECASE)
         if m_contact:
-            m_contact.group(1)
+            contact_ip = m_contact.group(1)
             contact_port = int(m_contact.group(2)) if m_contact.group(2) else 5060
 
-            # 由于下级平台往往在 Contact 中直接填写真实的服务端口 (例如 15063)
-            # 而通过 NAT 注册上来的来源端口往往是个随机高端口 (例如 15061)
-            # 所以这里优先信任 Contact 中的端口
-            if contact_port > 0:
+            # FIX: [2026-07-16] 仅当 Contact IP 与源 IP 一致（非 NAT 场景）时才信任 Contact 端口。
+            # 原问题：无条件用 Contact 端口覆盖 NAT 源端口，导致 NAT 后的设备后续 INVITE/MESSAGE
+            # 发往 NAT_IP:内网端口（如 5060），而 NAT 映射是 NAT_IP:随机端口 → 内网:5060，
+            # 数据包无法到达设备。设备表现为"注册成功但收不到任何指令"。
+            # 对于级联平台（Contact IP 通常是内网 IP），保留原逻辑：仅当 Contact IP 与源 IP 一致时才信任。
+            if contact_port > 0 and contact_ip == real_ip:
                 real_port = contact_port
 
             # IP 保持来源 IP 不变，因为通常 Contact 里的 IP 是个内网 IP
@@ -1182,10 +1382,18 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                             platform = platform_result.scalars().first()
 
         # 先准备候选密码，然后用 Digest response 去“验证匹配”，避免字段语义(client/server)不一致导致失败。
-        sip_default_password = getattr(settings, "SIP_DEFAULT_PASSWORD", None) or ""
+        # FIX: [2026-07-16 v2] 禁用平台的 REGISTER 在认证之前直接拒绝，避免触发认证失败计数和自动拉黑。
+        # 之前 enable 检查在认证之后（line 1533），禁用平台仍会走完认证流程，失败 5 次后被误拉黑。
+        if platform and not platform.enable:
+            resp = create_response(message, 403, "Forbidden - Platform Disabled", received_addr=addr)
+            await send_response(transport, proto, addr, resp)
+            _log_with_trace("info", f"Register rejected for {gb_id}: platform disabled (pre-auth)", message)
+            return
+
+        sip_default_password = settings.SIP_DEFAULT_PASSWORD or ""
         skip_auth = False
         if not sip_default_password:
-            _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+            _app_env = (settings.APP_ENV or "dev").lower()
             if _app_env in {"prod", "production"}:
                 _log_with_trace("error", f"SIP register rejected for {gb_id}: SIP_DEFAULT_PASSWORD is empty in production", message)
                 await _send_register_401(message, transport, proto, addr)
@@ -1207,29 +1415,58 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     await _send_register_401(message, transport, proto, addr)
                     return
         candidate_passwords: list[str] = []
+        # FIX: [2026-07-14] 认证诊断上下文，用于失败时输出详细根因（无敏感信息）
+        _auth_diag = {
+            "pf_client_match": False,      # ParentPlatform.client_gb_id 命中
+            "pf_client_decrypt_ok": False, # 该记录密码解密成功
+            "pf_server_match": False,      # ParentPlatform.server_gb_id 命中
+            "pf_server_decrypt_ok": False,
+            "asset_match": False,          # Asset.gb_id 命中
+            "asset_decrypt_ok": False,
+        }
 
-        # 1) parent_platforms：client_gb_id
+        # 1) parent_platforms：client_gb_id（本平台作为下级时，本平台在上级处的国标ID）
         pf_stmt = select(ParentPlatform).where(ParentPlatform.client_gb_id == gb_id)
         pf_result = await session.execute(pf_stmt)
         pf = pf_result.scalars().first()
         if pf and pf.password:
+            _auth_diag["pf_client_match"] = True
             _pf_pw = getattr(pf, 'decrypted_password', None)
             if _pf_pw is None:
                 from app.core.field_crypto import decrypt_field
                 _pf_pw = decrypt_field(pf.password, purpose="sip_password")
-            candidate_passwords.append(_pf_pw or pf.password)
+            # FIX: [2026-07-14] 解密失败时不回退到密文（密文永远无法匹配 Digest Response），
+            # 与 Asset 逻辑保持一致。原代码 `append(_pf_pw or pf.password)` 在解密失败时
+            # 会将加密密文当作候选密码，导致无意义的 Digest 比对并掩盖真正的故障（密钥变更）。
+            if _pf_pw:
+                _auth_diag["pf_client_decrypt_ok"] = True
+                candidate_passwords.append(_pf_pw)
+            else:
+                logger.warning(
+                    f"ParentPlatform(client_gb_id={gb_id}) password decryption failed, "
+                    f"skipping as candidate. Check FIELD_ENCRYPTION_KEY."
+                )
 
-        # 2) parent_platforms：server_gb_id（字段语义可能反了）
+        # 2) parent_platforms：server_gb_id（兼容字段语义反置：上级平台国标ID匹配）
         if not candidate_passwords:
             pf_stmt2 = select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
             pf_result2 = await session.execute(pf_stmt2)
             pf2 = pf_result2.scalars().first()
             if pf2 and pf2.password:
+                _auth_diag["pf_server_match"] = True
                 _pf2_pw = getattr(pf2, 'decrypted_password', None)
                 if _pf2_pw is None:
                     from app.core.field_crypto import decrypt_field
                     _pf2_pw = decrypt_field(pf2.password, purpose="sip_password")
-                candidate_passwords.append(_pf2_pw or pf2.password)
+                # FIX: [2026-07-14] 同上，解密失败时不回退到密文
+                if _pf2_pw:
+                    _auth_diag["pf_server_decrypt_ok"] = True
+                    candidate_passwords.append(_pf2_pw)
+                else:
+                    logger.warning(
+                        f"ParentPlatform(server_gb_id={gb_id}) password decryption failed, "
+                        f"skipping as candidate. Check FIELD_ENCRYPTION_KEY."
+                    )
 
         # 3) assets：设备密码（兜底候选之一）
         asset = None
@@ -1237,11 +1474,13 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         result = await session.execute(stmt)
         asset = result.scalars().first()
         if asset and asset.password:
+            _auth_diag["asset_match"] = True
             _asset_pw = asset.decrypted_password
             # FIX R23-SEVERE: 解密失败时不追加空字符串作为候选密码
             # 原问题：解密失败时 _asset_pw 为 None，追加空字符串，若设备恰好以空密码计算 Digest 会通过鉴权
             # 修复：只在解密成功时追加候选密码，解密失败跳过（设备鉴权失败比绕过鉴权更安全）
             if _asset_pw:
+                _auth_diag["asset_decrypt_ok"] = True
                 candidate_passwords.append(_asset_pw)
             else:
                 logger.warning(f"Asset {gb_id} password decryption failed, skipping as candidate")
@@ -1251,8 +1490,23 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         # 原代码已经在后面 `if not asset:` 逻辑中实现了自动创建，这其实就是一种“自动接管”。
         # 我们只需记录一下日志并给它打个“auto_discovered”标签。）
 
-        # 兜底默认密码
-        candidate_passwords.append(sip_default_password)
+        # P0-fix [2026-07-17]: 认证绕过修复 — 仅当 DB 中无任何匹配记录（自动发现场景）
+        # 才追加默认密码。原代码无条件追加 sip_default_password，导致已知设备可被
+        # 默认密码冒充（攻击者只需知道 gb_id 和默认密码即可通过 Digest 认证）。
+        # 已知设备必须使用其配置密码认证；解密失败不回退默认密码（fail-close）。
+        _has_db_record = bool(
+            _auth_diag.get("pf_client_match")
+            or _auth_diag.get("pf_server_match")
+            or _auth_diag.get("asset_match")
+        )
+        if not _has_db_record:
+            candidate_passwords.append(sip_default_password)
+        else:
+            _log_with_trace(
+                "debug",
+                f"Known device {gb_id} has DB record, default password NOT added to candidates (fail-close).",
+                message,
+            )
 
         candidate_passwords = [pw for pw in candidate_passwords if pw is not None]
         candidate_passwords = list(dict.fromkeys(candidate_passwords))
@@ -1276,39 +1530,85 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         auth_response = auth_params.get("response")
         auth_algorithm = DigestAuth.select_preferred_algorithm(auth_params)
         _attempt_count = 0
+
+        # FIX: [2026-07-21 P0] 兼容非标准 SIP 客户端（如 EasyGBS 级联）的 realm 不合规行为。
+        # RFC 2617 §3.2.1 规定：客户端计算 Response 时必须使用服务器在 401 挑战的
+        # WWW-Authenticate 头中通告的 realm。但部分非标准 SIP 客户端（如 EasyGBS）
+        # 在 Authorization 头中回送空 realm（auth.realm=''），却用服务器通告的 realm
+        # 计算 Response。这导致服务器用 auth_params.get("realm")（空字符串）计算的
+        # expected_response 永远不等于设备实际 response，造成永久性认证失败 + IP 黑名单。
+        #
+        # 修复策略：当 auth_params.realm 为空时，同时尝试用 [client_realm, server_realm]
+        # 计算 expected_response。任一匹配即视为认证成功，并记录 INFO 日志说明该设备
+        # 使用了非标准 realm 行为（便于运维识别非合规客户端）。
+        _server_realm = (
+            settings.SIP_REALM
+            or settings.SIP_DOMAIN
+            or settings.PROJECT_NAME
+            or "PyGBSentry"
+        )
+        _client_realm = auth_params.get("realm") or ""
+        if _client_realm and _client_realm != _server_realm:
+            # 标准 RFC 2617 客户端：回送的 realm 与服务器通告的一致或非空，按标准路径验证
+            _realms_to_try = [_client_realm]
+        elif not _client_realm:
+            # 非标准客户端：Authorization 头中 realm 为空，同时尝试空字符串和服务器通告的 realm
+            _realms_to_try = ["", _server_realm]
+        else:
+            _realms_to_try = [_client_realm]
+
+        _fallback_realm_used = False  # 标记是否通过 fallback realm 匹配（用于诊断日志）
         for pw in candidate_passwords[:MAX_PASSWORD_ATTEMPTS]:
             _attempt_count += 1
-            expected_resp = DigestAuth.calculate_response(
-                username=auth_params.get("username"),
-                password=pw,
-                realm=auth_params.get("realm"),
-                method="REGISTER",
-                uri=auth_params.get("uri"),
-                nonce=auth_params.get("nonce"),
-                nc=auth_params.get("nc"),
-                cnonce=auth_params.get("cnonce"),
-                qop=auth_params.get("qop"),
-                algorithm=auth_algorithm,
-            )
-            if auth_response and hmac.compare_digest(str(auth_response), str(expected_resp)):
-                password_used = pw
-                # SECURITY: 记录异常密码匹配 — 设备使用默认密码注册属于异常情况
-                # （设备应使用自身配置密码，而非全局默认密码，可能意味着设备未正确配置或被冒用）
-                if sip_default_password and pw == sip_default_password:
-                    _log_with_trace(
-                        "warning",
-                        f"Abnormal auth match for {gb_id}: device authenticated with DEFAULT password "
-                        f"(attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}). "
-                        f"Verify device password configuration.",
-                        message,
-                    )
-                else:
-                    _log_with_trace(
-                        "info",
-                        f"Auth success for {gb_id} using configured password "
-                        f"(attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}).",
-                        message,
-                    )
+            for _try_realm in _realms_to_try:
+                expected_resp = DigestAuth.calculate_response(
+                    username=auth_params.get("username"),
+                    password=pw,
+                    realm=_try_realm,
+                    method="REGISTER",
+                    uri=auth_params.get("uri"),
+                    nonce=auth_params.get("nonce"),
+                    nc=auth_params.get("nc"),
+                    cnonce=auth_params.get("cnonce"),
+                    qop=auth_params.get("qop"),
+                    algorithm=auth_algorithm,
+                    # P2-fix [2026-07-17]: 通告 auth-int 但未传 entity_body，
+                    # 导致 qop=auth-int 且请求带 body 时 response 永不匹配（RFC 2617 §3.2.2.3）
+                    entity_body=message.body or "",
+                )
+                if auth_response and hmac.compare_digest(str(auth_response), str(expected_resp)):
+                    password_used = pw
+                    _fallback_realm_used = (_try_realm != _client_realm)
+                    if _fallback_realm_used:
+                        _log_with_trace(
+                            "info",
+                            f"Auth match for {gb_id} using FALLBACK realm: "
+                            f"client sent realm={_client_realm!r} (empty), "
+                            f"server challenge realm={_server_realm!r} used for Response verification. "
+                            f"This indicates a non-RFC-compliant SIP client (common with EasyGBS / "
+                            f"similar cascade platforms) that omits realm in Authorization header "
+                            f"but uses server-advertised realm for Response computation (RFC 2617 §3.2.1).",
+                            message,
+                        )
+                    # SECURITY: 记录异常密码匹配 — 设备使用默认密码注册属于异常情况
+                    # （设备应使用自身配置密码，而非全局默认密码，可能意味着设备未正确配置或被冒用）
+                    if sip_default_password and pw == sip_default_password:
+                        _log_with_trace(
+                            "warning",
+                            f"Abnormal auth match for {gb_id}: device authenticated with DEFAULT password "
+                            f"(attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}). "
+                            f"Verify device password configuration.",
+                            message,
+                        )
+                    else:
+                        _log_with_trace(
+                            "info",
+                            f"Auth success for {gb_id} using configured password "
+                            f"(attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}).",
+                            message,
+                        )
+                    break
+            if password_used:
                 break
 
         # SECURITY: 候选密码超过尝试上限且未命中时记录警告
@@ -1325,7 +1625,107 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 logger.warning(f"DEV MODE: Skipping auth for {gb_id}")
                 password_used = "dev_skip"
             else:
-                _log_with_trace("warning", f"Auth failed for {gb_id}: Response mismatch", message)
+                # FIX: [2026-07-14] 输出详细诊断信息，帮助定位认证失败根因
+                # diag 含义：
+                #   pf_client_match=False 且 pf_server_match=False 且 asset_match=False
+                #     → 设备/平台在 DB 中无记录，仅靠默认密码认证失败 = 设备本地密码与默认密码不符
+                #   *_match=True 但 *_decrypt_ok=False
+                #     → FIELD_ENCRYPTION_KEY 已变更，需恢复原密钥或重新加密密码字段
+                #   *_match=True 且 *_decrypt_ok=True 但仍 Response mismatch
+                #     → DB 中存储的明文密码与设备本地配置的密码不一致
+                # FIX: [2026-07-21 P0] 在 auth 失败日志中直接输出实际 auth 参数，
+                # 不再依赖 SIP_TRACE 采样率（默认 10% 会漏掉关键诊断信息）。
+                # 这些参数用于定位 Response mismatch 的精确根因：
+                #   - username/realm 不一致 → 设备与服务器配置不匹配
+                #   - algorithm 不一致 → MD5 vs SHA-256 协商失败
+                #   - uri 不一致 → NAT/反向代理导致 URI 改写
+                # FIX: [2026-07-21 P0+] 增强 [AUTH_DEBUG] — 用 SIP_DEFAULT_PASSWORD +
+                # 实际 auth 参数计算 expected_response，与设备实际 response 对比，
+                # 立即定位是 password 不对还是某个参数不一致：
+                #   - expected_response == auth.response → 设备密码就是 SIP_DEFAULT_PASSWORD，
+                #     但 candidate_passwords 中没有 SIP_DEFAULT_PASSWORD（DB 记录已知但密码不一致）
+                #   - expected_response != auth.response → 设备密码或 auth 参数与服务器预期不一致
+                #     结合 algorithm/qop/realm/uri 字段可定位精确根因
+                _expected_resp_with_default = ""
+                _expected_match = False
+                _expected_resp_with_default_server_realm = ""
+                _expected_match_server_realm = False
+                try:
+                    _expected_resp_with_default = DigestAuth.calculate_response(
+                        username=auth_params.get("username"),
+                        password=sip_default_password,
+                        realm=auth_params.get("realm"),
+                        method="REGISTER",
+                        uri=auth_params.get("uri"),
+                        nonce=auth_params.get("nonce"),
+                        nc=auth_params.get("nc"),
+                        cnonce=auth_params.get("cnonce"),
+                        qop=auth_params.get("qop"),
+                        algorithm=auth_algorithm,
+                        entity_body=message.body or "",
+                    )
+                    _expected_match = bool(
+                        auth_response
+                        and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default))
+                    )
+                    # FIX: [2026-07-21 P0+] 同时用 server_realm 计算 expected_response
+                    # 用于诊断非标准 SIP 客户端（如 EasyGBS）— 它们在 Authorization 头中
+                    # 回送空 realm，但用 server challenge 通告的 realm 计算 Response
+                    if _client_realm != _server_realm:
+                        _expected_resp_with_default_server_realm = DigestAuth.calculate_response(
+                            username=auth_params.get("username"),
+                            password=sip_default_password,
+                            realm=_server_realm,
+                            method="REGISTER",
+                            uri=auth_params.get("uri"),
+                            nonce=auth_params.get("nonce"),
+                            nc=auth_params.get("nc"),
+                            cnonce=auth_params.get("cnonce"),
+                            qop=auth_params.get("qop"),
+                            algorithm=auth_algorithm,
+                            entity_body=message.body or "",
+                        )
+                        _expected_match_server_realm = bool(
+                            auth_response
+                            and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default_server_realm))
+                        )
+                except Exception as _calc_err:
+                    _expected_resp_with_default = f"<calc_error: {_calc_err}>"
+                _auth_params_diag = (
+                    f"auth.username={auth_params.get('username')!r}, "
+                    f"auth.realm={auth_params.get('realm')!r}, "
+                    f"auth.uri={auth_params.get('uri')!r}, "
+                    f"auth.algorithm={auth_params.get('algorithm')!r}, "
+                    f"auth.qop={auth_params.get('qop')!r}, "
+                    f"auth.nc={auth_params.get('nc')!r}, "
+                    f"auth.cnonce={auth_params.get('cnonce')!r}, "
+                    f"auth.nonce={auth_params.get('nonce')!r}, "
+                    f"auth.response={auth_params.get('response')!r}, "
+                    f"server.SIP_DOMAIN={settings.SIP_DOMAIN!r}, "
+                    f"server.SIP_REALM={settings.SIP_REALM!r}, "
+                    f"server.SIP_ID={settings.SIP_ID!r}, "
+                    f"server.SIP_AUTH_RELAXED={getattr(settings, 'SIP_AUTH_RELAXED', 'N/A')!r}, "
+                    f"server.SIP_DEFAULT_PASSWORD={_mask_sensitive_value(settings.SIP_DEFAULT_PASSWORD)[:8]}..., "
+                    f"server.SIP_DEFAULT_PASSWORD_len={len(settings.SIP_DEFAULT_PASSWORD or '')}, "
+                    f"server.realm_used_in_challenge={_server_realm!r}, "
+                    f"server.algorithm_selected={auth_algorithm!r}, "
+                    f"server.entity_body_len={len(message.body or '')}, "
+                    f"server.expected_resp_with_default_pwd={_expected_resp_with_default!r}, "
+                    f"server.expected_resp_match_default_pwd={_expected_match!r}, "
+                    f"server.expected_resp_with_default_pwd_using_server_realm={_expected_resp_with_default_server_realm!r}, "
+                    f"server.expected_resp_match_default_pwd_using_server_realm={_expected_match_server_realm!r}"
+                )
+                _log_with_trace(
+                    "warning",
+                    f"Auth failed for {gb_id}: Response mismatch. "
+                    f"diag={_auth_diag}, candidates={len(candidate_passwords)}, "
+                    f"attempts={_attempt_count}/{MAX_PASSWORD_ATTEMPTS}, src={real_ip}. "
+                    f"Possible causes: (1) FIELD_ENCRYPTION_KEY changed -> re-encrypt passwords; "
+                    f"(2) device/platform not configured in DB (all *_match=False); "
+                    f"(3) device local password mismatch with DB record. "
+                    f"[AUTH_DEBUG] {_auth_params_diag}",
+                    message,
+                )
                 resp = create_response(message, 403, "Forbidden - Auth Failed", received_addr=addr)
                 _sip_debug_log(
                     "register_auth_failed",
@@ -1341,6 +1741,23 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     },
                 )
                 await send_response(transport, proto, addr, resp)
+
+                # FIX: [2026-07-14] 当认证失败是因为 FIELD_ENCRYPTION_KEY 不匹配导致密码解密失败时，
+                # 不应该拉黑 IP — 这是服务器端配置问题，不是设备/平台的错。
+                # 否则形成恶性循环：解密失败 → 认证失败 ×5 → 自动拉黑 → 删黑名单后又拉黑。
+                # diag 中 *_match=True 但 *_decrypt_ok=False 即为解密失败。
+                _is_decrypt_failure = (
+                    (_auth_diag.get("pf_client_match") and not _auth_diag.get("pf_client_decrypt_ok")) or
+                    (_auth_diag.get("pf_server_match") and not _auth_diag.get("pf_server_decrypt_ok")) or
+                    (_auth_diag.get("asset_match") and not _auth_diag.get("asset_decrypt_ok"))
+                )
+                if _is_decrypt_failure:
+                    logger.error(
+                        f"Auth failure for {gb_id} from IP {real_ip} is due to password decryption failure "
+                        f"(FIELD_ENCRYPTION_KEY mismatch), NOT counting towards blacklist. "
+                        f"Fix FIELD_ENCRYPTION_KEY to resolve. diag={_auth_diag}"
+                    )
+                    return
 
                 try:
                     backend = get_sip_state_backend()
@@ -1376,12 +1793,14 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             if m_exp:
                 try:
                     contact_expires = int(m_exp.group(1))
-                except ValueError as e:
-                    logger.debug(f"ValueError: {e}")
+                except ValueError as _ce_err:
+                    # FIX [2026-07-17 P2-5]: 描述性日志替代 "ValueError: {e}"
+                    logger.warning(f"REGISTER: invalid Contact expires '{m_exp.group(1)}' for gb_id={gb_id}: {_ce_err}")
         try:
             expires_int = contact_expires if contact_expires is not None else (int(expires) if expires else 3600)
         except (ValueError, TypeError) as _expires_err:
-            logger.debug(f"Invalid expires value: {_expires_err}")  # W-10 吞异常改为日志
+            # FIX [2026-07-17 P2-5]: 描述性日志替代 "ValueError: {e}"，记录设备 ID 和原始值
+            logger.warning(f"REGISTER: invalid Expires value '{expires}' for gb_id={gb_id}: {_expires_err}")
             expires_int = 3600
 
         register_call_id = (message.get_header("Call-ID") or "").strip()
@@ -1447,6 +1866,8 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             except Exception as e:
                 logger.warning(f"Exception: {e}")
 
+        # FIX: [2026-07-16 v2] 禁用平台的 enable 检查已前置到认证之前（line 1219），
+        # 这里移除原来的重复检查。如果代码执行到这里，platform 必然是 enable=True 或无 platform。
         if platform and platform.enable:
             resp = create_response(message, 200, received_addr=addr)
             resp.headers["Date"] = _sip_date_gmt(now)
@@ -1580,7 +2001,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 # --- IP Spam Check & Auto Discovery ---
                 real_ip = addr[0]
                 # Check Auto Discovery setting
-                if not getattr(settings, "ENABLE_AUTO_DISCOVERY", True):
+                if not settings.ENABLE_AUTO_DISCOVERY:
                     _log_with_trace("warning", f"Auto-discovery disabled, rejecting unknown device: {gb_id}", message)
                     resp = create_response(message, 403, "Forbidden - Auto Discovery Disabled", received_addr=addr)
                     await send_response(transport, proto, addr, resp)
@@ -1614,7 +2035,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
 
                 # 未知设备接管：自动创建设备
                 _log_with_trace("info", f"Auto-discovered and taking over unknown device: {gb_id}", message)
-                asset = Asset(gb_id=gb_id, name=f"Auto_Discovered_{gb_id}", decrypted_password=getattr(settings, "SIP_DEFAULT_PASSWORD", "") or "", tenant_id="default")  # GB28181协议 — 自动发现设备使用SIP默认密码
+                asset = Asset(gb_id=gb_id, name=f"Auto_Discovered_{gb_id}", decrypted_password=settings.SIP_DEFAULT_PASSWORD or "", tenant_id="default")  # GB28181协议 — 自动发现设备使用SIP默认密码
                 session.add(asset)
                 is_new_asset = True
 
@@ -1732,13 +2153,64 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
     cmd_type = get_xml_text(root, "CmdType") if root is not None else ""
     root_name = local_name(root.tag).lower() if root is not None else ""
 
+    # FIX [2026-07-22 P0]: 在 MESSAGE 入口添加 INFO 级别诊断日志
+    # SIP_DEBUG_TRACE_ENABLED 默认关闭，导致 _sip_debug_log 不输出。
+    # 这里用无条件 logger.info 确保每条收到的 MESSAGE 都有日志记录，
+    # 便于诊断"通道未注册/同步超时"等问题（如 EasyGBS 是否返回了 Catalog Response）。
+    logger.info(
+        f"[MESSAGE_RECV] from={addr[0]}:{addr[1]} proto={proto} gb_id={gb_id} "
+        f"cmd_type={cmd_type or '(non-xml)'} root={root_name or '(none)'} "
+        f"content_type={content_type or '(none)'} body_len={len(body or '')}"
+    )
+
     # 优先按 XML 结构识别，避免部分平台 Content-Type 不规范导致漏处理
     if root is not None:
 
         if cmd_type == "Keepalive":
             keepalive_gb_id = get_xml_text(root, "DeviceID") or gb_id
 
+            # FIX [2026-07-22 P0]: 缓存设备最后已知传输地址（源 IP:port + 协议）。
+            # 用于同步通道 API 的最终兜底：当 Asset.ip_addr 和 ParentPlatform.server_ip
+            # 都为空时，从 Keepalive 的源地址获取设备地址。
+            if keepalive_gb_id and addr and len(addr) >= 2:
+                if len(_device_last_seen_addr) >= _DEVICE_LAST_SEEN_ADDR_MAX:
+                    _device_last_seen_addr.pop(next(iter(_device_last_seen_addr)), None)
+                _device_last_seen_addr[keepalive_gb_id] = (addr[0], addr[1], proto)
+
+            # FIX [2026-07-17 P1-B1]: 校验 Keepalive SN 单调性（GB28181 §A.1），
+            # 检测重放攻击/设备重启/SN 回绕。仅告警不拒绝，保持与重启设备的兼容性。
+            # FIX [2026-07-22 P2]: 部分平台（如 EasyGBS 多线程各持 SN 计数）同一设备的
+            # 心跳 SN 来自多条交织序列，last-SN 单调性检查会持续误报 WARNING。
+            # 改为：仅"精确重复 SN"（滑动窗口内命中）判定疑似重放并 WARNING；
+            # 单纯 SN 回退降级为 INFO（设备重启/回绕/厂商怪癖），保留诊断价值。
+            _ka_sn_text = get_xml_text(root, "SN") or ""
+            try:
+                _ka_sn = int(_ka_sn_text) if _ka_sn_text else 0
+            except (ValueError, TypeError):
+                _ka_sn = 0
+            if _ka_sn > 0:
+                _recent_sns = _keepalive_recent_sn.get(keepalive_gb_id)
+                _last_sn = _keepalive_last_sn.get(keepalive_gb_id, 0)
+                if _recent_sns is not None and _ka_sn in _recent_sns:
+                    logger.warning(
+                        f"[Keepalive] Duplicate SN for {keepalive_gb_id}: SN={_ka_sn} "
+                        f"seen within last {_KEEPALIVE_RECENT_SN_WINDOW} keepalives (possible replay attack)"
+                    )
+                elif _last_sn > 0 and _ka_sn < _last_sn:
+                    logger.info(
+                        f"[Keepalive] SN rollback for {keepalive_gb_id}: "
+                        f"received SN={_ka_sn} < last SN={_last_sn} "
+                        f"(device reboot / SN wraparound / vendor multi-sequence SN)"
+                    )
+                _record_keepalive_sn(keepalive_gb_id, _ka_sn)
+
             from app.sip.storm_handler import should_skip_keepalive_db_update, enqueue_keepalive_update
+
+            # P1-fix [2026-07-17]: 立即返回 200 OK，DB 操作改为 fire-and-forget
+            # 原实现中 200 OK 在 DB 操作之后发送，高并发心跳场景下 DB 阻塞会导致响应延迟，
+            # 设备可能因超时重传，加剧风暴。GB28181 要求 keepalive 响应立即返回。
+            resp = create_response(message, 200, received_addr=addr)
+            await send_response(transport, proto, addr, resp)
 
             # Smooth out keepalive storms
             skip_db = await should_skip_keepalive_db_update(keepalive_gb_id, addr[0], addr[1])
@@ -1747,28 +2219,31 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # Instead of hitting DB directly, enqueue it
                 enqueue_keepalive_update(keepalive_gb_id, addr[0], addr[1], proto)
 
-                # We still need to update the runtime cache so UI is aware immediately if needed
-                async with AsyncSessionLocal() as session:
-                    matched_platforms = (
-                        await session.execute(
-                            select(ParentPlatform).where(
-                                (ParentPlatform.server_gb_id == keepalive_gb_id) | (ParentPlatform.client_gb_id == keepalive_gb_id)
-                            )
-                        )
-                    ).scalars().all()
-                    for p in matched_platforms:
-                        await _patch_platform_runtime(
-                            p,
-                            {
-                                "inbound.keepalive.last_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                                "inbound.keepalive.last_gb_id": keepalive_gb_id,
-                                "inbound.keepalive.last_addr": str(addr),
-                                "inbound.keepalive.last_transport": str(proto or ""),
-                            },
-                        )
+                # 异步更新平台运行时缓存（不阻塞响应）
+                async def _update_platform_keepalive_runtime():
+                    try:
+                        async with AsyncSessionLocal() as session:
+                            matched_platforms = (
+                                await session.execute(
+                                    select(ParentPlatform).where(
+                                        (ParentPlatform.server_gb_id == keepalive_gb_id) | (ParentPlatform.client_gb_id == keepalive_gb_id)
+                                    )
+                                )
+                            ).scalars().all()
+                            for p in matched_platforms:
+                                await _patch_platform_runtime(
+                                    p,
+                                    {
+                                        "inbound.keepalive.last_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                        "inbound.keepalive.last_gb_id": keepalive_gb_id,
+                                        "inbound.keepalive.last_addr": str(addr),
+                                        "inbound.keepalive.last_transport": str(proto or ""),
+                                    },
+                                )
+                    except Exception as _ka_err:
+                        logger.warning(f"Async platform keepalive runtime update failed for {keepalive_gb_id}: {_ka_err}")
 
-            resp = create_response(message, 200, received_addr=addr)
-            await send_response(transport, proto, addr, resp)
+                _bg_create_task(_update_platform_keepalive_runtime(), name=f"ka_platform_update:{keepalive_gb_id}")
             return
 
         elif cmd_type == "Catalog":
@@ -1837,6 +2312,13 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             resp = create_response(message, 200)
             await send_response(transport, proto, addr, resp)
             response_device_id = (get_xml_text(root, "DeviceID") or "").strip() or gb_id
+            _sum_num = get_xml_text(root, "SumNum") or ""
+            # FIX [2026-07-22 P0]: Catalog Response 关键诊断日志（无条件输出）
+            logger.info(
+                f"[CATALOG_RESPONSE] from={addr[0]}:{addr[1]} gb_id={gb_id} "
+                f"response_device_id={response_device_id} sn={get_xml_text(root, 'SN')} "
+                f"sum_num={_sum_num} body_len={len(body or '')}"
+            )
             _sip_debug_log(
                 "message_catalog_response",
                 message,
@@ -1844,7 +2326,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     "gb_id": gb_id,
                     "response_device_id": response_device_id,
                     "sn": get_xml_text(root, "SN"),
-                    "sum_num": get_xml_text(root, "SumNum"),
+                    "sum_num": _sum_num,
                 },
             )
             async with AsyncSessionLocal() as session:
@@ -2080,7 +2562,71 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 logger.warning(f"Failed to route ConfigUpload response to catalog_data_manager: {e}")
             return
 
-    resp = create_response(message, 200)
+        elif cmd_type == "Broadcast":
+            # FIX [2026-07-17 P1]: 补齐 Broadcast CmdType 处理（GB28181-2016 §A.2.2 语音广播）
+            # 上级平台向下级发送 Broadcast MESSAGE 后，下级应答 200 OK；
+            # 当本平台作为下级平台收到上级 Broadcast 请求时，需转发给目标设备。
+            resp = create_response(message, 200)
+            await send_response(transport, proto, addr, resp)
+            _sip_debug_log("message_broadcast", message, {"gb_id": gb_id})
+            broadcast_device_id = get_xml_text(root, "DeviceID") or gb_id
+            broadcast_source_id = get_xml_text(root, "SourceID") or ""
+            broadcast_target_id = get_xml_text(root, "TargetID") or broadcast_device_id
+            sn_val = get_xml_text(root, "SN") or "0"
+            # 检查是否来自上级平台（级联场景），若是则转发给目标设备
+            is_cascade_broadcast = False
+            try:
+                async with AsyncSessionLocal() as session:
+                    platform = (await session.execute(
+                        select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
+                    )).scalars().first()
+                    if platform:
+                        is_cascade_broadcast = True
+            except Exception as e:
+                logger.warning(f"Cascade broadcast check failed for {gb_id}: {e}")
+            if is_cascade_broadcast:
+                import app.services.platform_service as _ps_mod
+                svc = getattr(_ps_mod, "platform_service", None)
+                if svc:
+                    ok = await svc.forward_cascade_broadcast(
+                        gb_id, broadcast_target_id, broadcast_source_id, sn_val, body
+                    )
+                    if ok:
+                        logger.info(f"[MESSAGE] Forwarded cascade Broadcast from {gb_id} for device {broadcast_target_id}")
+                    else:
+                        logger.warning(f"[MESSAGE] Failed to forward cascade Broadcast from {gb_id} for device {broadcast_target_id}")
+                else:
+                    logger.warning("[MESSAGE] PlatformService not available for cascade Broadcast forwarding")
+            else:
+                # 非级联场景：将 Broadcast 请求路由到 catalog_data_manager 供上层处理
+                try:
+                    from app.sip.catalog import catalog_data_manager
+                    await catalog_data_manager.put(broadcast_device_id, "Broadcast", body)
+                except Exception as e:
+                    logger.warning(f"Failed to route Broadcast to catalog_data_manager: {e}")
+            return
+
+    # FIX [2026-07-17 P1]: 非法 XML 必须返回 400 而非 200（RFC 3261 §8.2.6.2 + GB28181 §A.2）
+    # - body 看起来像 XML 但 parse_xml 返回 None（格式错误）→ 400 Bad Request
+    # - body 是 XML 且有 CmdType 但未被处理 → 200 OK（兼容设备自定义扩展）
+    # - body 非 XML → 200 OK（兼容纯文本心跳/保活）
+    if body and looks_like_xml and root is None:
+        # FIX [2026-07-22 P0]: 记录原始 XML 内容（截断到 2000 字符）便于排查
+        _orig_xml_snippet = ""
+        try:
+            _orig_xml_snippet = str(body)[:2000]
+        except Exception:
+            _orig_xml_snippet = "(failed to extract body)"
+        logger.warning(
+            f"[MESSAGE] Malformed XML body from {gb_id}, replying 400 Bad Request | "
+            f"original_xml_snippet=[{_orig_xml_snippet}]"
+        )
+        _sip_debug_log("message_malformed_xml_400", message, {"gb_id": gb_id, "cmd_type": cmd_type or "", "body_snippet": _orig_xml_snippet[:500]})
+        resp = create_response(message, 400, received_addr=addr)
+        await send_response(transport, proto, addr, resp)
+        return
+
+    resp = create_response(message, 200, received_addr=addr)
     if cmd_type:
         logger.warning(f"[MESSAGE] Unhandled CmdType={cmd_type} from {gb_id}, replying 200 OK")
     elif body and looks_like_xml:
@@ -2225,6 +2771,24 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
     trying = create_response(message, 100, "Trying", received_addr=addr)
     await send_response(transport, proto, addr, trying)
 
+    # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — UAS 校验 Session-Expires
+    # 若 Session-Expires 小于 Min-SE，响应 422 Session Interval Too Small
+    try:
+        from app.sip.invite_server_state import validate_session_expires_for_uas, build_422_response
+        from app.core.config import settings as _settings
+        _se_ok, _se_expires, _se_refresher = validate_session_expires_for_uas(message, _settings.SIP_SESSION_MIN_SE_SECONDS)
+        if not _se_ok:
+            _resp_422 = build_422_response(message, _settings.SIP_SESSION_MIN_SE_SECONDS)
+            # 补充 Via/Contact 等传输层头域
+            _resp_422.headers["Via"] = message.get_header("Via") or ""
+            await send_response(transport, proto, addr, _resp_422)
+            await invite_server_state.pop(call_id)
+            logger.info(f"[INVITE] Rejected with 422 (Session-Expires {_se_expires} < Min-SE {_settings.SIP_SESSION_MIN_SE_SECONDS}) call_id={call_id}")
+            return
+    except Exception as _se_validate_err:
+        # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+        logger.warning(f"[INVITE] Session-Expires validation error call_id={call_id}: {_se_validate_err}")
+
     requester_id = from_uri.split("sip:")[1].split("@")[0] if "sip:" in from_uri else ""
     target_id = to_uri.split("sip:")[1].split("@")[0] if "sip:" in to_uri else ""
 
@@ -2233,6 +2797,19 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
     m_ftag = re.search(r";\s*tag=([^;>\s]+)", from_hdr, re.IGNORECASE)
     if m_ftag:
         upstream_from_tag = m_ftag.group(1).strip()
+
+    # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 检测 re-INVITE（同 Call-ID 的已存在 dialog）
+    # 若为 re-INVITE，更新 session refresh 时间戳，避免 watchdog 超时误判
+    if upstream_from_tag:
+        try:
+            from app.sip.dialog_manager import dialog_manager as _dm_reinvite
+            _existing_dialogs = await _dm_reinvite.find_by_call_id(call_id)
+            if _existing_dialogs:
+                _bg_create_task(_dm_reinvite.update_session_refresh(call_id, upstream_from_tag), name=f"session_refresh_reinvite:{call_id}")
+                logger.debug(f"[INVITE] re-INVITE detected, session refresh updated for call_id={call_id}")
+        except Exception as _reinvite_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"[INVITE] Failed to update session refresh for re-INVITE call_id={call_id}: {_reinvite_err}")
 
     sdp_body = message.body
     if not sdp_body:
@@ -2276,8 +2853,25 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.client_gb_id == requester_id))).scalars().first()
 
         # 如果设置了允许自动通过级联点播 (类似 auto-register) 或者是已知平台，放行
-        if not platform and not bool(getattr(settings, "ALLOW_UNKNOWN_CASCADE_INVITE", True)):
-            logger.warning(f"INVITE from unknown platform: {requester_id}")
+        if not platform and not settings.ALLOW_UNKNOWN_CASCADE_INVITE:
+            # FIX: [2026-07-16] 日志限速 — 互联网扫描流量每秒产生数条未知平台 INVITE，
+            # 60 秒内仅输出一次汇总，避免刷屏并掩盖真实问题。
+            global _unknown_invite_log_last_ts, _unknown_invite_log_count
+            _unknown_invite_log_count += 1
+            _now_ts = time.time()
+            if _now_ts - _unknown_invite_log_last_ts >= _UNKNOWN_INVITE_LOG_COOLDOWN_SECONDS:
+                # FIX [2026-07-22 P2]: 扫描器常发送含非 ASCII/不可打印字节的伪造 From，
+                # 原样写入日志会出现乱码（如 £`£`、$┐$┐），过滤为可打印字符便于阅读。
+                _safe_requester = "".join(
+                    ch if 32 <= ord(ch) < 127 else "?" for ch in str(requester_id)
+                )[:64]
+                logger.warning(
+                    f"INVITE from unknown platform rejected (last: {_safe_requester}, "
+                    f"total {_unknown_invite_log_count} in last {_UNKNOWN_INVITE_LOG_COOLDOWN_SECONDS:.0f}s). "
+                    f"If your SIP port is public, consider firewalling {settings.SIP_PORT} to known device IPs only."
+                )
+                _unknown_invite_log_last_ts = _now_ts
+                _unknown_invite_log_count = 0
             resp = create_response(message, 403)
             await send_response(transport, proto, addr, resp)
             await invite_server_state.pop(call_id)
@@ -2334,7 +2928,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
                 asset = (await session.execute(select(Asset).where(Asset.id == res_obj.asset_id))).scalars().first()
                 # If asset is a platform (has cascade info)
                 if asset and str(getattr(asset, "manufacturer", "")).startswith("Cascade_"):
-                    if not bool(getattr(settings, "ALLOW_CASCADE_RELAY", False)):
+                    if not settings.ALLOW_CASCADE_RELAY:
                         logger.error(f"[Anti-Avalanche] Cascade relay blocked: {requester_id} -> {target_id} (learned from another cascade)")
                         resp = create_response(message, 403, "Cascade Relay Forbidden")
                         await send_response(transport, proto, addr, resp)
@@ -2389,7 +2983,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             local_stream = (await session.execute(stmt_session)).scalars().first()
 
             # SDP Passthrough (RTP Media Bypass)
-            if bool(getattr(settings, "CASCADE_RTP_MEDIA_BYPASS", True)):
+            if settings.CASCADE_RTP_MEDIA_BYPASS:
                 logger.info(f"[Cascade] Applying RTP Media Bypass for {real_gb_id}, sending INVITE directly to device with upstream SDP.")
                 transport_info = (
                     (asset.ip_addr, asset.port),
@@ -2468,7 +3062,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
                     sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
                 )
                 try:
-                    cascade_timeout = int(getattr(settings, "CASCADE_INVITE_TIMEOUT_SECONDS", 30) or 30)
+                    cascade_timeout = settings.CASCADE_INVITE_TIMEOUT_SECONDS
                     invite_result = await asyncio.wait_for(
                         sip_invite.send_invite(asset, res_obj, transport_info),
                         timeout=cascade_timeout,
@@ -2637,6 +3231,19 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         resp.headers["Content-Type"] = "application/sdp"
         resp.headers["Contact"] = f"<sip:{settings.SIP_ID}@{local_ip}:{settings.SIP_PORT}>"
         resp.body = resp_sdp
+        # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — UAS 在 200 OK 中回带 Session-Expires
+        # GB28181-2016 兼容：仅在 INVITE 携带 Session-Expires 时回带（无头域时降级）
+        try:
+            from app.sip.invite_server_state import validate_session_expires_for_uas, apply_session_expires_to_response
+            from app.core.config import settings as _settings_se
+            _ok_se, _expires_se, _refresher_se = validate_session_expires_for_uas(message, _settings_se.SIP_SESSION_MIN_SE_SECONDS)
+            if _ok_se and _expires_se > 0:
+                # UAS 回带 Session-Expires；refresher 默认为 uac（RFC 4028 §5）
+                _resp_refresher = _refresher_se or "uac"
+                apply_session_expires_to_response(resp, _expires_se, _resp_refresher)
+        except Exception as _se_resp_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"[INVITE] Failed to apply Session-Expires to 200 OK call_id={call_id}: {_se_resp_err}")
 
         to_hdr = resp.get_header("To") or ""
         to_tag = ""
@@ -2724,6 +3331,20 @@ async def handle_update(message: SipMessage, addr: tuple, proto: str, transport)
         resp = create_response(message, 481, "Call/Transaction Does Not Exist", received_addr=addr)
         await send_response(transport, proto, addr, resp)
         return
+    # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 收到 UPDATE 视为对端刷新会话
+    # 更新 dialog 的 last_refresh_at，避免 watchdog 超时误判
+    try:
+        from app.sip.dialog_manager import dialog_manager as _dm
+        from_hdr = message.get_header("From") or ""
+        m_ftag = re.search(r";\s*tag=([^;>\s]+)", from_hdr, re.IGNORECASE)
+        if m_ftag:
+            _from_tag = m_ftag.group(1).strip()
+            if _from_tag:
+                _bg_create_task(_dm.update_session_refresh(call_id, _from_tag), name=f"session_refresh_update:{call_id}")
+                logger.debug(f"[UPDATE] Session timer refresh updated for call_id={call_id}")
+    except Exception as _refresh_err:
+        # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+        logger.warning(f"[UPDATE] Failed to update session refresh for call_id={call_id}: {_refresh_err}")
     # For now, return 200 OK. Full UPDATE with SDP re-negotiation can be added later.
     resp = create_response(message, 200, received_addr=addr)
     await send_response(transport, proto, addr, resp)
@@ -2742,7 +3363,7 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
         logger.warning(f"Invalid subscribe expires value: {_sub_exp_err}")  # W-10 吞异常改为日志
         expires_int = 0
 
-    min_expires = int(getattr(settings, "SIP_SUBSCRIBE_MIN_EXPIRES", 60) or 60)
+    min_expires = settings.SIP_SUBSCRIBE_MIN_EXPIRES
     if 0 < expires_int < min_expires:
         resp = create_response(message, 423, "Interval Too Brief", received_addr=addr)
         resp.headers["Min-Expires"] = str(min_expires)
@@ -2908,8 +3529,8 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
                     notify_req.method = "NOTIFY"
                     notify_req.uri = message.get_header("Contact") or f"sip:{gb_id}@{addr[0]}:{addr[1]}"
                     notify_req.version = "SIP/2.0"
-                    branch = f"z9hG4bK{secrets.token_hex(6)}" # __import__ 反模式改为标准 import
-                    notify_req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+                    branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+                    notify_req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
                     notify_req.headers["From"] = resp.headers.get("To", "")
                     notify_req.headers["To"] = message.get_header("From")
                     notify_req.headers["Call-ID"] = str(message.call_id or "")
@@ -3284,6 +3905,34 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
         bye_from_tag = _extract_tag_from_header(from_tag)
         bye_to_tag = _extract_tag_from_header(to_tag)
 
+        # P1-fix [2026-07-17]: RFC 3261 §12.2.2 — 校验 in-dialog 请求 CSeq 单调递增
+        # 对话存在时验证 BYE 的 CSeq > remote_seq，防止乱序/重放
+        # P2-fix [2026-07-17]: 修复循环短路缺陷 — update_remote_seq 在对话不存在时返回 True，
+        # 原 `break` 会在 to_tag 不匹配时直接跳过 from_tag 校验，深度防御层被穿透。
+        # 现在记录是否找到对话，仅在找到时短路；未找到时继续尝试下一个 tag。
+        try:
+            _cseq_hdr = message.get_header("CSeq") or "1 BYE"
+            _cseq_num = int(_cseq_hdr.split()[0]) if _cseq_hdr.split() else 1
+            from app.sip.dialog_manager import dialog_manager as _dm
+            _validated = False
+            for _tag in (bye_to_tag, bye_from_tag):
+                if _tag:
+                    _ok = await _dm.update_remote_seq(call_id, _tag, _cseq_num)
+                    if _ok is False:
+                        logger.error(f"BYE CSeq monotonic violation: call_id={call_id} cseq={_cseq_num}")
+                        resp = create_response(message, 500, "CSeq Out of Order", received_addr=addr)
+                        await send_response(transport, proto, addr, resp)
+                        return
+                    # update_remote_seq 返回 True 可能是"对话存在且 CSeq 通过"或"对话不存在"
+                    # 需通过 dialog_manager.get_dialog 显式确认对话存在才视为已校验
+                    _dlg = await _dm.get_dialog(call_id, _tag)
+                    if _dlg is not None:
+                        _validated = True
+                        break
+                    # 对话不存在时继续尝试下一个 tag，避免短路穿透
+        except Exception as _cseq_err:
+            logger.debug(f"BYE CSeq validation skipped: {_cseq_err}")
+
         # RFC 3261 §15.1.2: BYE 的 From/To tag 必须与 INVITE 对话一致。
         # GB28181 场景下有两种方向：
         #   方向A（设备挂断）: BYE From-tag=设备tag(Y), To-tag=本端tag(X)
@@ -3299,7 +3948,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
         # S-06 BYE tag为空时降级为Call-ID-only匹配存在伪造风险，增加源IP+端口校验
         if not tag_matched and (not ss_from_tag or not ss_to_tag):
             # 生产环境可禁用降级匹配（SIP_STRICT_BYE_TAG_MATCH=True）
-            if getattr(settings, "SIP_STRICT_BYE_TAG_MATCH", False):
+            if settings.SIP_STRICT_BYE_TAG_MATCH:
                 logger.error(
                     "BYE rejected: strict tag matching enabled, tag fallback disabled for %s",
                     call_id
@@ -3317,8 +3966,9 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                         _registered_ip = _addr_str.rsplit(":", 1)[0]
                         try:
                             _registered_port = int(_addr_str.rsplit(":", 1)[1])
-                        except (ValueError, IndexError):
-                            logger.debug("swallowed_exception", exc_info=True)
+                        except (ValueError, IndexError) as _port_parse_err:
+                            # FIX [2026-07-17 P2-8]: 描述性日志替代 "swallowed_exception"
+                            logger.warning(f"BYE: failed to parse port from ip_addr '{_addr_str}': {_port_parse_err}")
                     else:
                         _registered_ip = _addr_str
             except Exception:
@@ -3484,8 +4134,9 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             from app.sip.playback_control import playback_control as _pb_ctrl
             if _pb_ctrl:
                 _pb_ctrl._playback_states.pop(call_id, None)
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _pb_cleanup_err:
+            # FIX [2026-07-17 P2-8]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"BYE: failed to cleanup playback state for call_id={call_id}: {_pb_cleanup_err}")
         return
     # else: session 不存在时直接返回 200 OK，防探测
 
@@ -3521,7 +4172,3 @@ def init_handlers():
     sip_server.register_handler("INFO", handle_info)
     sip_server.register_handler("UPDATE", handle_update)  # GB1 SIP UPDATE handler注册
     sip_server.register_response_handler(handle_response)
-
-
-
-

@@ -1,0 +1,85 @@
+# FIX: [2026-07-16 P0] 防止生产密钥/敏感文件进入 Docker 构建上下文
+# 任何被 .dockerignore 排除的文件都不会被 docker build 上传到 daemon，
+# 即便 Dockerfile 使用精确 COPY，也能避免密钥泄露到镜像层/缓存/registry。
+
+# --- 环境变量与密钥 ---
+.env
+.env.*
+!.env.prod.example
+*.env.bak
+.env.production.bak
+.env.slowapi
+
+# --- 凭证与私钥 ---
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*_private_key*
+*_signing_key*
+
+# --- 版本控制 ---
+.git
+.gitignore
+.gitattributes
+.github
+.gitlab
+
+# --- 日志与运行时数据 ---
+logs/
+data/
+records/
+*.log
+*.log.*
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# --- Python 缓存与虚拟环境 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.tox/
+.venv/
+venv/
+env/
+ENV/
+
+# --- 测试与文档 ---
+tests/
+test_*.py
+*_test.py
+conftest.py
+docs/
+*.md
+!README.md
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- 构建产物 ---
+dist/
+build/
+*.egg-info/
+node_modules/
+
+# --- Docker 自身（避免递归） ---
+Dockerfile*
+.dockerignore
+docker-compose*.yml

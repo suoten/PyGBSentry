@@ -19,7 +19,7 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Validate tables prefix
         shell: bash

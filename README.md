@@ -5,7 +5,7 @@
 **让每一台服务器，都成为符合国标的智能视频中枢**
 
 [![License](https://img.shields.io/badge/License-AGPL--v3-blue)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Vue](https://img.shields.io/badge/Vue-3.x-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
@@ -314,12 +314,15 @@ Built on the **GB/T 28181-2022** standard, the platform ensures backward compati
 git clone https://github.com/suoten/PyGBSentry.git
 cd PyGBSentry/editions/open-source
 
-# Create environment config
+# Create environment config (all fields are required; docker compose will refuse to start if any is missing)
 cat > .env << 'EOF'
 POSTGRES_PASSWORD=YourStrongDbPass!
 REDIS_PASSWORD=YourStrongRedisPass!
 SECRET_KEY=change-me-to-32-char-random-string
 MEDIA_SERVER_SECRET=zlm-secret-key
+SIP_DEFAULT_PASSWORD=YourSipDevicePass!
+# Generate with: python -c "import secrets;print(secrets.token_hex(32))"
+FIELD_ENCRYPTION_KEY=replace-with-64-char-hex-key
 BACKEND_PUBLIC_HOST=192.168.1.100
 EOF
 
@@ -328,6 +331,8 @@ docker compose up -d
 ```
 
 Visit `http://<BACKEND_PUBLIC_HOST>` to enter the setup wizard and create your admin account.
+
+> **Required fields**: `SIP_DEFAULT_PASSWORD` is used for GB28181 device registration authentication; `FIELD_ENCRYPTION_KEY` is used to encrypt device/platform passwords at rest (production will refuse to start with an empty value). Replace the placeholder values with actual strong passwords/keys.
 
 > **Note**: The bundled ZLMediaKit only provides Linux binaries; Windows/macOS Docker Desktop cannot run the streaming container. Windows/macOS developers should use "Local Dev Mode" below.
 

@@ -62,6 +62,25 @@ async def remove_blacklist(
         )
 
     if rc > 0:
+        # FIX: [2026-07-16] 删除黑名单后必须清除认证失败计数，否则下级平台下次 REGISTER
+        # 失败一次就会立即触发 fail_count >= 5 再次拉黑，形成恶性循环。
+        try:
+            from app.sip.state_backend import get_sip_state_backend
+            backend = get_sip_state_backend()
+            if hasattr(backend, "clear_auth_failure"):
+                await backend.clear_auth_failure(ip)
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"clear_auth_failure for {ip} after blacklist removal failed: {e}")
+
+        # FIX: [2026-07-16] 也清除 handlers.py 中的 _digest_fail_tracker 和 _digest_locked
+        try:
+            from app.sip.handlers import _clear_auth_failures_by_ip
+            await _clear_auth_failures_by_ip(ip)
+        except Exception as e:
+            from loguru import logger
+            logger.warning(f"_clear_auth_failures_by_ip failed for {ip}: {e}")
+
         from app.sip.server import sip_server
 
         if hasattr(sip_server, "reload_ip_blacklist"):

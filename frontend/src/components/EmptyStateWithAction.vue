@@ -1,11 +1,14 @@
-﻿<template>
-  <div class="stub-component"><slot /></div>
+<template>
+  <div class="empty-state py-8 px-4 text-center">
+    <el-empty :description="description" />
+    <div v-if="$slots.action" class="mt-4 flex justify-center flex-wrap gap-2">
+      <slot name="action"></slot>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
-// Stub component — to be implemented
+defineProps<{
+  description: string
+}>()
 </script>
-
-<style scoped>
-.stub-component { display: contents; }
-</style>

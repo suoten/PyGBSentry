@@ -169,6 +169,12 @@ async def _touch_media_node_by_secret(secret: str | None, data: dict | None = No
                 return
             node.is_online = True
             node.last_seen_at = datetime.now(timezone.utc)
+            # FIX: [2026-07-16] Hook 回调成功 = ZLM 实际在线 → 清空历史探测错误。
+            # 原问题：启动初期 ZLM 未就绪时 health_service 探测失败并写入 last_probe_error，
+            # 之后 ZLM 起来后 hook 持续回调更新 last_seen_at，但 last_probe_error 永不清空，
+            # 前端"最近探测错误"列永远显示 "All connection attempts failed" 历史错误。
+            if getattr(node, "last_probe_error", None):
+                node.last_probe_error = None
             if isinstance(data, dict):
                 for key in ("load", "cpu", "mem", "mem_used", "streams", "zlm_streams"):
                     if key in data:
@@ -319,8 +325,7 @@ async def on_play(request: Request):
 def _log_play_auth_failure(app: str, stream: str, error_msg: str, data: dict) -> None:
     ip = (data if isinstance(data, dict) else {}).get("ip", "")
     logger.warning(
-        "on_play auth FAILED: app=%s stream=%s ip=%s error=%s",
-        app, stream, ip, error_msg
+        f"on_play auth FAILED: app={app} stream={stream} ip={ip} error={error_msg}"
     )
     try:
         fire_and_forget(_audit_play_rejection(app, stream, error_msg, ip))  # P0-16: 保存引用防 GC + 异常日志
@@ -395,11 +400,14 @@ async def on_publish(request: Request):
                 if not secure_compare(hashed, str(pc.hashed_push_key)):
                     return {"code": 401, "msg": "invalid pushKey"}
         except Exception as e:
-            logger.warning(f"Hook callback operation failed: {e}")  # i18n
-            return {"code": 500, "msg": "pushKey check failed"}
+            # FIX: [2026-07-16] DB 异常时 fail-open（放行流），而非 fail-closed（拒绝流）。
+            # 原问题：DB 异常时返回 {"code": 500}，ZLM 会拒绝推流，导致 GB28181 INVITE
+            # 建立的 live 流被立即关闭。DB 异常是临时故障，不应导致流被杀。
+            logger.warning(f"Hook on_publish pushKey check DB error (fail-open, allowing stream): {e}")
+            # 不返回，继续走正常流程（无 PushChannel 配置时放行）
 
     app_name = str(data.get("app", "") or "").strip()
-    enable_mp4_default = bool(getattr(settings, "ZLM_DEFAULT_ENABLE_MP4", True))
+    enable_mp4_default = settings.ZLM_DEFAULT_ENABLE_MP4
     if app_name == "rtp":
         enable_mp4_default = False
     # FIX: [2026-07-04] 回放流(playback)和下载流(download)不应开启 MP4 录制，造成存储浪费 [全栈工程师]
@@ -549,19 +557,32 @@ async def on_rtp_server_timeout(request: Request):
             # P0-RTP: 宽限期检查 — 如果会话刚创建不久（INVITE发送后grace period内），
             # 说明设备可能还在NAT穿透中，此时不应清理会话，而是重新打开RTP服务器等征设备推流
             # P0-RTP: 宽限期检查 — 使用 RTP_TIMEOUT_GRACE_SECONDS 配置
-            _grace_period = int(getattr(settings, "RTP_TIMEOUT_GRACE_SECONDS", 20) or 20)
+            _grace_period = settings.RTP_TIMEOUT_GRACE_SECONDS
             _should_skip_cleanup = False
             try:
                 async with AsyncSessionLocal() as _grace_db:
+                    # FIX [2026-07-17 P0]: StreamSession 模型只有 start_time 列，
+                    # 不存在 created_at 列（已确认 stream_session.py 模型定义）。
+                    # 原代码引用 StreamSession.created_at 会抛 AttributeError，
+                    # 被外层 `except Exception: logger.debug(...)` 静默吞掉，
+                    # 导致宽限期检查永远失败——所有 RTP 超时都立即清理会话，
+                    # 而非在 grace period 内重开 RTP 服务器等待设备 NAT 穿透。
                     _grace_stmt = select(StreamSession).where(
                         StreamSession.app == app_name,
                         StreamSession.stream == stream_id,
-                    ).order_by(StreamSession.created_at.desc()).limit(1)
+                    ).order_by(StreamSession.start_time.desc()).limit(1)
                     _grace_result = await _grace_db.execute(_grace_stmt)
                     _grace_session = _grace_result.scalars().first()
-                    if _grace_session and _grace_session.created_at:
+                    if _grace_session and _grace_session.start_time:
                         from datetime import datetime, timezone
-                        _elapsed = (datetime.now(timezone.utc) - _grace_session.created_at).total_seconds()
+                        # FIX [2026-07-17 P1]: start_time 列为 Column(DateTime)（naive，
+                        # 无 tzinfo），而 datetime.now(timezone.utc) 为 tz-aware，
+                        # 直接相减会抛 TypeError: can't subtract offset-naive and
+                        # offset-aware datetimes。统一转换为 tz-aware 后比较。
+                        _start = _grace_session.start_time
+                        if _start.tzinfo is None:
+                            _start = _start.replace(tzinfo=timezone.utc)
+                        _elapsed = (datetime.now(timezone.utc) - _start).total_seconds()
                         if _elapsed < _grace_period:
                             logger.info(
                                 f"[RTP Timeout] Grace period active: elapsed={_elapsed:.1f}s < "
@@ -569,21 +590,68 @@ async def on_rtp_server_timeout(request: Request):
                             )
                             _should_skip_cleanup = True
                             # 尝试重新打开 RTP 服务器，让设备继续推流
+                            # FIX [2026-07-17 P0-2]: 原实现丢失传输模式（tcp_mode 默认 0=UDP）、
+                            # 使用 port=0 让 ZLM 自动分配端口（与 SDP 协商端口不一致）、
+                            # 使用全局 settings 而非原会话节点（多节点环境开错节点）、
+                            # 使用全局 MEDIA_SERVER_SECRET（外置节点 secret 错乱）。
+                            # 现从原 StreamSession 读取节点信息与协议参数，确保重开与原会话一致。
                             try:
                                 from app.services.zlm_rtp_server_service import open_rtp_server
-                                _rtp_port = int(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT", 30000) or 30000)
-                                _zlm_host = str(getattr(settings, "MEDIA_SERVER_HOST", "127.0.0.1") or "127.0.0.1")
-                                _zlm_http_port = int(getattr(settings, "MEDIA_SERVER_HTTP_PORT", 8880) or 8880)
-                                _zlm_secret = str(getattr(settings, "MEDIA_SERVER_SECRET", "") or "")
+                                _tcp_mode_val = 0
+                                _rtp_port = 0
+                                _zlm_host = str(settings.MEDIA_SERVER_HOST or "127.0.0.1")
+                                _zlm_http_port = settings.MEDIA_SERVER_HTTP_PORT
+                                _zlm_secret = str(settings.MEDIA_SERVER_SECRET or "")
+                                if _grace_session:
+                                    _proto = str(getattr(_grace_session, "protocol", "UDP") or "UDP").upper()
+                                    if _proto == "TCP-PASSIVE":
+                                        _tcp_mode_val = 1
+                                    elif _proto == "TCP-ACTIVE":
+                                        _tcp_mode_val = 2
+                                    _rtp_port = int(getattr(_grace_session, "media_port", 0) or 0)
+                                    _node_id = str(getattr(_grace_session, "media_server_id", "") or "")
+                                    if _node_id:
+                                        try:
+                                            from app.core.media_nodes_db import get_db_media_node_by_id
+                                            async with AsyncSessionLocal() as _node_db:
+                                                _node = await get_db_media_node_by_id(_node_db, _node_id) if _node_id else None
+                                            if _node:
+                                                # RuntimeMediaNode.secret 已是明文（_to_runtime 解密）
+                                                _zlm_host = str(_node.host or _zlm_host)
+                                                _zlm_http_port = int(_node.http_port or _zlm_http_port)
+                                                _zlm_secret = str(_node.secret or _zlm_secret)
+                                        except Exception as _node_err:
+                                            logger.warning(f"[RTP Timeout] Failed to lookup original node {_node_id}: {_node_err}")
                                 await open_rtp_server(
                                     host=_zlm_host,
                                     http_port=_zlm_http_port,
                                     secret=_zlm_secret,
-                                    port=0,  # 让 ZLM 自动分配端口
+                                    port=_rtp_port,  # 复用原端口，与设备 SDP 协商一致
+                                    tcp_mode=_tcp_mode_val,  # 保持原始传输模式
+                                    app=app_name,
                                     stream_id=stream_id,
-                                    ssrc=ssrc or "0",
+                                    ssrc=ssrc or "",
                                 )
-                                logger.info(f"[RTP Timeout] Re-opened RTP server for {app_name}/{stream_id}")
+                                # FIX [2026-07-17 P1-D4]: ssrc 为空时不传 "0" 绕过 SSRC 校验
+                                # FIX [2026-07-17 P1]: TCP-ACTIVE 模式需 ZLM 主动连接设备
+                                if _tcp_mode_val == 2 and _grace_session:
+                                    try:
+                                        from app.services.zlm_rtp_server_service import connect_rtp_server
+                                        _dev_ip = str(getattr(_grace_session, "media_ip", "") or "")
+                                        _dev_port = int(getattr(_grace_session, "media_port", 0) or 0)
+                                        if _dev_ip and _dev_port > 0:
+                                            await connect_rtp_server(
+                                                host=_zlm_host,
+                                                http_port=_zlm_http_port,
+                                                secret=_zlm_secret,
+                                                dst_url=_dev_ip,
+                                                dst_port=_dev_port,
+                                                app=app_name,
+                                                stream_id=stream_id,
+                                            )
+                                    except Exception as _connect_err:
+                                        logger.warning(f"[RTP Timeout] TCP-ACTIVE connectRtpServer failed: {_connect_err}")
+                                logger.info(f"[RTP Timeout] Re-opened RTP server for {app_name}/{stream_id} (tcp_mode={_tcp_mode_val}, port={_rtp_port})")
                             except Exception as _reopen_err:
                                 logger.warning(
                                     f"[RTP Timeout] Failed to re-open RTP server for {app_name}/{stream_id}: {_reopen_err}"
@@ -668,7 +736,7 @@ async def on_stream_none_reader(request: Request):
         logger.info(f"[none_reader] Keeping recording/playback stream: {app_name}/{stream_id}")
         return {"code": 0, "close": False}
 
-    none_reader_delay = float(getattr(settings, "ZLM_NONE_READER_DELAY_SECONDS", 0) or 0)
+    none_reader_delay = float(settings.ZLM_NONE_READER_DELAY_SECONDS or 0)
     if none_reader_delay > 0 and app_name == "live":
         logger.info(f"[none_reader] Delayed close for live stream: {app_name}/{stream_id}, delay={none_reader_delay}s")
         _t = asyncio.create_task(_delayed_none_reader_cleanup(app_name, stream_id, ssrc, none_reader_delay, request.query_params.get("secret", ""), data if isinstance(data, dict) else None))
@@ -896,10 +964,10 @@ async def on_record_mp4(request: Request):
                         public_host = (
                             (getattr(node, "stream_ip", None) or "").strip()
                             or (getattr(node, "public_ip", None) or "").strip()
-                            or (str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "").strip())
+                            or (str(settings.STREAM_PUBLIC_HOST or "").strip())
                             or (getattr(node, "ip", None) or "").strip()
                         )
-                        public_http_port = int(getattr(settings, "STREAM_PUBLIC_HTTP_PORT", 0) or 0) or int(getattr(node, "http_port", 0) or 0)
+                        public_http_port = settings.STREAM_PUBLIC_HTTP_PORT or int(getattr(node, "http_port", 0) or 0)
                         if public_host:
                             base = f"http://{public_host}" if public_http_port in {0, 80} else f"http://{public_host}:{public_http_port}"
                             if not path.startswith("/"):
@@ -910,8 +978,8 @@ async def on_record_mp4(request: Request):
             if not effective_url:
                 return {"code": 0, "msg": "ignored"}
 
-            s3_bucket = getattr(settings, "S3_BUCKET", "")
-            s3_endpoint = getattr(settings, "S3_ENDPOINT", "")
+            s3_bucket = settings.S3_BUCKET
+            s3_endpoint = settings.S3_ENDPOINT
             _s3_pending = bool(s3_bucket and s3_endpoint and raw_file_path)
 
             try:
@@ -966,8 +1034,8 @@ async def on_record_mp4(request: Request):
                     s3_client = boto3.client(
                         's3',
                         endpoint_url=_s3_upload_s3_endpoint,
-                        aws_access_key_id=getattr(settings, "S3_ACCESS_KEY", ""),
-                        aws_secret_access_key=getattr(settings, "S3_SECRET_KEY", ""),
+                        aws_access_key_id=settings.S3_ACCESS_KEY,
+                        aws_secret_access_key=settings.S3_SECRET_KEY,
                         config=botocore.client.Config(signature_version='s3v4')
                     )
                     s3_key = f"record/{_s3_upload_app_name}/{_s3_upload_stream_id}/{_s3_upload_start_timestamp}.mp4"

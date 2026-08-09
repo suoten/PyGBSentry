@@ -19,7 +19,7 @@
 - alembic==1.14.1
 - pydantic==2.10.6
 - pydantic-settings==2.8.1
-- requests==2.32.3
+- requests==2.32.4
 - httpx==0.27.2
 - python-multipart==0.0.20
 - redis[hiredis]==5.2.1

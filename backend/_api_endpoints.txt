@@ -1,0 +1,2 @@
+﻿json.decoder.JSONDecodeError: Unexpected UTF-8 BOM (decode using utf-8-sig): li
+ne 1 column 1 (char 0)

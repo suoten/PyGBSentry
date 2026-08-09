@@ -68,7 +68,9 @@ def _encrypt_existing_secrets() -> None:
     for rid, sec in rows:
         # 幂等探测：能解密 => 已是密文，跳过；解密失败 => 视为明文予以加密。
         # 纯明文几乎不可能误判为可解密（AES-256-GCM tag 校验）。
-        if decrypt_field(sec, purpose=purpose) is not None:
+        # FIX [2026-07-19]: 必须使用 allow_plaintext=False 严格模式——
+        # 默认 True 时明文会返回原值（非 None），导致明文被误判为已加密而跳过迁移。
+        if decrypt_field(sec, purpose=purpose, allow_plaintext=False) is not None:
             skipped += 1
             continue
         encrypted = encrypt_field(sec, purpose=purpose)

@@ -96,8 +96,15 @@ def _install_test_settings_stub() -> None:
         m.sip_host_for_contact = lambda: "127.0.0.1"
         sys.modules["app.core.config"] = m
         return
-    # Always replace settings with stub to avoid pydantic field validation errors
-    existing.settings = settings_obj
+    # FIX [2026-07-19]: 仅在缺失时注入字段，避免覆盖真实 Settings 实例（否则会污染
+    # 其它依赖 settings.SIP_SESSION_EXPIRES_SECONDS / SIP_SESSION_MIN_SE_SECONDS 等字段的测试）。
+    # 使用 object.__setattr__ 绕过 pydantic v2 的 extra='forbid' 校验，与其它测试保持一致。
+    if not hasattr(existing, "settings") or existing.settings is None:
+        existing.settings = settings_obj
+    else:
+        for k, v in settings_obj.__dict__.items():
+            if not hasattr(existing.settings, k):
+                object.__setattr__(existing.settings, k, v)
     if not hasattr(existing, "sip_host_for_contact"):
         existing.sip_host_for_contact = lambda: "127.0.0.1"
 

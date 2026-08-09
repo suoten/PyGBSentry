@@ -92,30 +92,32 @@ class SipServer:
         self._tcp_clients = {} # (ip, port) -> writer
         self._response_cache = {}  # tx_key -> (SipMessage, ts)
         self._response_cache_lock = asyncio.Lock()
-        self._response_cache_ttl = int(getattr(settings, "SIP_RESPONSE_CACHE_TTL_SECONDS", 32) or 32)
-        self._response_cache_max_size = int(getattr(settings, "SIP_RESPONSE_CACHE_MAX_SIZE", 50000) or 50000)
+        self._response_cache_ttl = settings.SIP_RESPONSE_CACHE_TTL_SECONDS
+        self._response_cache_max_size = settings.SIP_RESPONSE_CACHE_MAX_SIZE
         self._ip_rate_lock = threading.Lock()  # threading.Lock for sync _schedule_process
         self._inflight = 0
         self._inflight_lock = asyncio.Lock()
-        self._max_inflight = int(getattr(settings, "SIP_MAX_INFLIGHT", 5000) or 5000)
+        self._max_inflight = settings.SIP_MAX_INFLIGHT
         self.ip_blacklist_cache = set()
         self._ip_blacklist_last_reload = 0.0
+        # FIX: [2026-07-14] 防止黑名单重载竞态条件（thundering herd）
+        # FIX: [2026-07-16 v2] 增加 pending 机制：reload 期间如有新请求，完成后再次 reload，
+        # 避免管理员删除 IP 后缓存不刷新导致下级平台无法注册（最长 60 秒不生效）。
+        self._ip_blacklist_reloading = False
+        self._ip_blacklist_reload_pending = False
         # Asyncio Queue for buffering burst traffic
         self._task_queue = asyncio.Queue(maxsize=10000)
         self._workers = []
         # IP rate limiting: sliding window
         self._ip_rate_tracker: dict[str, list[float]] = {}
-        self._ip_rate_limit = int(getattr(settings, "SIP_IP_RATE_LIMIT", 100) or 100)
+        self._ip_rate_limit = settings.SIP_IP_RATE_LIMIT
         self._ip_rate_window = 1.0  # seconds
         self._ip_only_fallback_count = 0
         self._background_tasks: set[asyncio.Task] = set()
         # FIX-LEAK: 全局字典定期清理配置（间隔可配置，从 settings 读取）
-        self._seen_requests_cleanup_interval = int(
-            getattr(settings, "SIP_SEEN_REQUESTS_CLEANUP_INTERVAL_SECONDS", 60) or 60)
-        self._auth_failure_cleanup_interval = int(
-            getattr(settings, "SIP_AUTH_FAILURE_CLEANUP_INTERVAL_SECONDS", 60) or 60)
-        self._cleanup_locks_cleanup_interval = int(
-            getattr(settings, "SIP_CLEANUP_LOCKS_CLEANUP_INTERVAL_SECONDS", 300) or 300)
+        self._seen_requests_cleanup_interval = settings.SIP_SEEN_REQUESTS_CLEANUP_INTERVAL_SECONDS
+        self._auth_failure_cleanup_interval = settings.SIP_AUTH_FAILURE_CLEANUP_INTERVAL_SECONDS
+        self._cleanup_locks_cleanup_interval = settings.SIP_CLEANUP_LOCKS_CLEANUP_INTERVAL_SECONDS
         self._last_seen_requests_cleanup = 0.0
         self._last_auth_failure_cleanup = 0.0
         self._last_cleanup_locks_cleanup = 0.0
@@ -177,7 +179,7 @@ class SipServer:
             ip_only_matches = [(k, w) for k, w in self._tcp_clients.items() if k[0] == ip]
             if ip_only_matches:
                 self._ip_only_fallback_count = getattr(self, '_ip_only_fallback_count', 0) + 1
-                _max_fallback = int(getattr(settings, "SIP_TCP_IP_ONLY_FALLBACK_MAX", 100) or 100)  # 可配置阈值
+                _max_fallback = settings.SIP_TCP_IP_ONLY_FALLBACK_MAX  # 可配置阈值
                 if self._ip_only_fallback_count > _max_fallback:
                     logger.warning(
                         "[SIP TCP Routing] IP-only fallback used %d times, disabling due to likely NAT. "
@@ -203,6 +205,11 @@ class SipServer:
         return None
 
     class UdpProtocol(asyncio.DatagramProtocol):
+        # FIX [2026-07-17 P1]: UDP 报文长度上限 — RFC 3261 §18.1.1 建议 SIP UDP 报文
+        # 不超过 MTU(1500) 以避免 IP 分片丢包。超过 8192 字节的 UDP SIP 报文几乎必然
+        # 是异常流量（攻击或实现缺陷），记录对端 IP 并丢弃。
+        _UDP_MAX_SIZE = 8192
+
         def __init__(self, server):
             self.server = server
 
@@ -211,11 +218,18 @@ class SipServer:
             logger.info(f"SIP UDP Listening on {settings.SIP_IP}:{settings.SIP_PORT}")
 
         def datagram_received(self, data, addr):
+            # FIX [2026-07-17 P1]: 超长 UDP 报文截断防护 + 对端 IP 记录
+            if len(data) > self._UDP_MAX_SIZE:
+                logger.warning(
+                    f"UDP datagram too large ({len(data)} bytes > {self._UDP_MAX_SIZE}) "
+                    f"from {addr}, dropping"
+                )
+                return
             self.server._schedule_process(data, addr, "UDP", self.server.udp_transport)
 
     async def _handle_tcp_client(self, reader, writer):
         addr = writer.get_extra_info('peername')
-        _MAX_TCP_CLIENTS = int(getattr(settings, "SIP_MAX_TCP_CLIENTS", 1000) or 1000)
+        _MAX_TCP_CLIENTS = settings.SIP_MAX_TCP_CLIENTS
         if len(self._tcp_clients) >= _MAX_TCP_CLIENTS:
             logger.warning(f"TCP connection limit reached ({_MAX_TCP_CLIENTS}), rejecting {addr}")
             try:
@@ -242,8 +256,8 @@ class SipServer:
         _TCP_MAX_CONTENT_LENGTH = 1048576
         buffer = b""
 
-        tcp_keepalive_interval = float(getattr(settings, "SIP_TCP_KEEPALIVE_INTERVAL_SECONDS", 30.0) or 30.0)
-        tcp_keepalive_max_miss = int(getattr(settings, "SIP_TCP_KEEPALIVE_MAX_MISS", 3) or 3)
+        tcp_keepalive_interval = settings.SIP_TCP_KEEPALIVE_INTERVAL_SECONDS
+        tcp_keepalive_max_miss = settings.SIP_TCP_KEEPALIVE_MAX_MISS
         keepalive_miss_count = 0
         last_data_time = time.monotonic()
 
@@ -270,8 +284,9 @@ class SipServer:
                                             logger.warning(f"TCP buffer overflow from {addr}, dropping connection")
                                             break
                                     continue
-                            except asyncio.TimeoutError as e:
-                                logger.debug(f"asyncio: {e}")
+                            except asyncio.TimeoutError as _ka_ack_err:
+                                # FIX [2026-07-17 P2-6]: 描述性日志替代 "asyncio: {e}"
+                                logger.debug(f"TCP keepalive ack timeout from {addr}: {_ka_ack_err}")
                             keepalive_miss_count += 1
                             if keepalive_miss_count > tcp_keepalive_max_miss:
                                 logger.info(f"TCP keepalive miss count exceeded for {addr}, closing connection")
@@ -385,8 +400,17 @@ class SipServer:
             if ip in self.ip_blacklist_cache:
                 logger.warning(f"Drop SIP packet from blacklisted IP: {addr[0]}")
                 return
-            blacklist_ttl = float(getattr(settings, "SIP_IP_BLACKLIST_CACHE_TTL_SECONDS", 60.0) or 60.0)
-            if blacklist_ttl > 0 and (now - self._ip_blacklist_last_reload) > blacklist_ttl:
+            blacklist_ttl = settings.SIP_IP_BLACKLIST_CACHE_TTL_SECONDS
+            # FIX: [2026-07-16 v3] 修复时钟混用 bug — _ip_blacklist_last_reload 存储的是 time.monotonic()，
+            # 但原代码用 time.time()（壁钟）与之比较，差值约 1.75×10⁹，永远大于 TTL 60 秒，
+            # 导致每个 SIP 包都触发一次 reload_ip_blacklist，持续消耗 DB 连接。
+            # 现在统一使用 time.monotonic() 进行 TTL 判断。
+            now_mono = time.monotonic()
+            if blacklist_ttl > 0 and (now_mono - self._ip_blacklist_last_reload) > blacklist_ttl:
+                # FIX: [2026-07-14] 立即更新时间戳防止 thundering herd —
+                # 否则在 reload 完成前，每个到达的 SIP 包都会触发一次并发 reload，
+                # 导致 DB 连接池耗尽和日志刷屏（日志可见 8 秒内 10+ 次 reload）。
+                self._ip_blacklist_last_reload = now_mono
                 fire_and_forget(self.reload_ip_blacklist())  # P0-16: 保存引用防 GC + 异常日志
             if settings.SIP_IP_BLACKLIST:
                 black_ips = [ip.strip() for ip in settings.SIP_IP_BLACKLIST.split(",") if ip.strip()]
@@ -394,7 +418,9 @@ class SipServer:
                     logger.warning(f"Drop SIP packet from blacklisted IP: {addr[0]}")
                     return
 
-        if int(self._inflight) >= int(self._max_inflight) and self._task_queue.full():
+        # P1-fix: 过载保护条件应为 OR — inflight 达上限或队列满任一条件满足即拒绝
+        # 原实现使用 AND 导致 inflight 饱和但队列未满时请求继续入队，worker 阻塞在 semaphore 上
+        if int(self._inflight) >= int(self._max_inflight) or self._task_queue.full():
             fire_and_forget(self._send_overload_response(data, addr, proto, transport))  # P0-16: 保存引用防 GC + 异常日志
             return
 
@@ -535,8 +561,9 @@ class SipServer:
             from app.services.tasks import device_watchdog
             import time as _time
             device_watchdog._last_offline_check_ts = _time.monotonic()
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _watchdog_err:
+            # FIX [2026-07-17 P2-6]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"_check_device_offline: failed to update device_watchdog timestamp: {_watchdog_err}")
         try:
             from app.db.session import AsyncSessionLocal
             from app.models.asset import Asset
@@ -544,7 +571,7 @@ class SipServer:
             from sqlalchemy import select, update
             import datetime
             now = datetime.datetime.now(datetime.timezone.utc)
-            default_grace_seconds = int(getattr(settings, "DEVICE_OFFLINE_GRACE_SECONDS", 60) or 60)
+            default_grace_seconds = settings.DEVICE_OFFLINE_GRACE_SECONDS
             # use per-device expires for grace calculation: grace = max(expires, default) * 1.5
             # Devices with longer registration periods need longer grace times
             async with AsyncSessionLocal() as session:
@@ -571,7 +598,7 @@ class SipServer:
                     # 之前: max(min(e*2,300),600) 永远返回600，长expires设备10分钟即判离线
                     # 之后: grace = expires * 1.5，上限由 DEVICE_OFFLINE_MAX_GRACE_SECONDS 控制
                     # FIX: [2026-07-03] getattr 默认值从 1800 改为 300，与 config.py 保持一致 [全栈工程师]
-                    max_grace_seconds = int(getattr(settings, "DEVICE_OFFLINE_MAX_GRACE_SECONDS", 300) or 300)
+                    max_grace_seconds = settings.DEVICE_OFFLINE_MAX_GRACE_SECONDS
                     grace = max(device_expires * 1.5, default_grace_seconds)
                     grace = min(grace, max_grace_seconds)
                     cutoff = now - datetime.timedelta(seconds=grace)
@@ -684,6 +711,16 @@ class SipServer:
         try:
             msg = SipMessage.parse(data)
 
+            # FIX [2026-07-29 P0 DIAG]: 临时诊断 — dump 原始入站 SIP 报文（MESSAGE/REGISTER）
+            # 用于对比 EasyGBS 发来的 MESSAGE 格式与我方发出的 catalog query 格式差异
+            try:
+                _method = (getattr(msg, "method", "") or "").strip().upper()
+                if _method in ("MESSAGE", "REGISTER") and addr[0] == "36.34.0.68":
+                    _raw_dump = data.decode("utf-8", errors="replace")
+                    logger.info(f"[RAW_IN_DIAG] Incoming {_method} from {addr}:\n{_raw_dump}")
+            except Exception:
+                pass
+
             # ==========================================
             # SIP L7 Firewall & Dynamic Blacklist
             # ==========================================
@@ -730,7 +767,9 @@ class SipServer:
             # 3. 防止非法的 BYE 信令 (伪造攻击断流)
             if msg.method == "BYE":
                 call_id = msg.get_header("Call-ID") or ""
-                if len(call_id) < 10 or not re.match(r'^[a-zA-Z0-9_.\-@]+$', call_id):
+                # P2-fix: 放宽正则，允许 RFC 3261 §25.1 word 字符集（含 +:= 等）
+                # 部分设备/代理生成的 Call-ID 包含冒号或加号，原正则过严会误拒
+                if len(call_id) < 10 or not re.match(r'^[a-zA-Z0-9_.\-@+:;=]+$', call_id):
                     logger.warning(f"[SIP L7 Firewall] Blocked suspicious BYE with abnormal Call-ID from {client_ip}")
                     return
             # ==========================================
@@ -809,9 +848,13 @@ class SipServer:
                     from app.sip.handlers import send_response
                     await send_response(transport, proto, addr, resp)
             else: # Response
-                with contextlib.suppress(Exception):
+                # P0-fix: 移除 contextlib.suppress 静默吞异常，改为带日志的 try/except
+                try:
                     from app.sip.transactions import tx_manager
                     tx_manager.resolve_from_response(msg)
+                except Exception as tx_err:
+                    _cid = msg.get_header("Call-ID") or "?"
+                    logger.warning(f"tx_manager.resolve_from_response failed for Call-ID={_cid}: {tx_err}")
                 for handler in list(self.response_handlers):
                     try:
                         await handler(msg, addr, proto, transport)
@@ -820,6 +863,14 @@ class SipServer:
 
         except Exception as e:
             logger.error(f"Error processing SIP message from {addr}: {e}")
+            # P1-fix: SIP 协议合规 — 内部错误应返回 500 Server Internal Error，避免客户端 T1 重传
+            try:
+                if msg is not None and getattr(msg, "method", None):
+                    from app.sip.handlers import send_response, create_response
+                    resp = create_response(msg, 500, "Server Internal Error")
+                    await send_response(transport, proto, addr, resp)
+            except Exception as inner_e:
+                logger.debug(f"Failed to send 500 response: {inner_e}")
 
     async def _auto_blacklist_ip(self, ip: str, reason: str):
         if ip in self.ip_blacklist_cache:
@@ -840,6 +891,14 @@ class SipServer:
             logger.error(f"Failed to auto blacklist IP {ip}: {e}")
 
     async def reload_ip_blacklist(self):
+        # FIX: [2026-07-14] 防止并发 reload（thundering herd 双重保护）
+        # FIX: [2026-07-16 v2] pending 机制：reload 期间到达的请求不丢弃，而是标记 pending，
+        # 当前 reload 完成后检查 pending 标志，若为 True 则再触发一次 reload。
+        # 这解决了管理员删除 IP 后缓存不刷新导致下级平台无法注册的问题。
+        if self._ip_blacklist_reloading:
+            self._ip_blacklist_reload_pending = True
+            return
+        self._ip_blacklist_reloading = True
         try:
             from app.db.session import AsyncSessionLocal
             from app.models.ip_blacklist import IpBlacklist
@@ -852,6 +911,12 @@ class SipServer:
                 logger.info(f"Loaded {len(self.ip_blacklist_cache)} IPs into blacklist cache.")
         except Exception as e:
             logger.error(f"Failed to reload IP blacklist: {e}")
+        finally:
+            self._ip_blacklist_reloading = False
+            # FIX: [2026-07-16 v2] 检查 pending 标志，若有新请求则再触发一次 reload
+            if self._ip_blacklist_reload_pending:
+                self._ip_blacklist_reload_pending = False
+                fire_and_forget(self.reload_ip_blacklist())
 
     async def reload_tls_cert(self):
         """
@@ -861,10 +926,10 @@ class SipServer:
         import ssl
         import os
         try:
-            tls_cert = self.tls_config.get("cert") or getattr(settings, "SIPS_CERT_FILE", None)
-            tls_key = self.tls_config.get("key") or getattr(settings, "SIPS_KEY_FILE", None)
-            tls_ca_cert = self.tls_config.get("ca") or getattr(settings, "SIPS_CA_CERT_FILE", None)
-            tls_port = self.tls_config.get("port") or getattr(settings, "SIPS_PORT", 5061)
+            tls_cert = self.tls_config.get("cert") or settings.SIPS_CERT_FILE
+            tls_key = self.tls_config.get("key") or settings.SIPS_KEY_FILE
+            tls_ca_cert = self.tls_config.get("ca") or settings.SIPS_CA_CERT_FILE
+            tls_port = self.tls_config.get("port") or settings.SIPS_PORT
             sip_ip = settings.SIP_IP or "0.0.0.0"
 
             if not tls_cert or not os.path.exists(tls_cert):
@@ -905,33 +970,57 @@ class SipServer:
         local_addr = (sip_ip, settings.SIP_PORT)
 
         # P0-SIP: 端口绑定重试 — 处理进程重启时旧端口尚未释放的竞态
-        _max_retries = int(getattr(settings, "SIP_BIND_MAX_RETRIES", 3) or 3)
-        _retry_delay = float(getattr(settings, "SIP_BIND_RETRY_DELAY", 1.0) or 1.0)
+        _max_retries = settings.SIP_BIND_MAX_RETRIES
+        _retry_delay = settings.SIP_BIND_RETRY_DELAY
         _bind_attempt = 0
 
         while True:
             _bind_attempt += 1
             try:
-                await loop.create_datagram_endpoint(
+                # P0-fix: 配置 reuse_port 与 socket 缓冲区，应对 REGISTER 风暴和多实例 HA
+                _reuse_port = settings.SIP_REUSE_PORT
+                self.udp_transport, _ = await loop.create_datagram_endpoint(
                     lambda: self.UdpProtocol(self),
                     local_addr=local_addr,
+                    reuse_port=_reuse_port,
                 )
+                # 设置 UDP socket 缓冲区（Linux 默认 208KB，需提升到 4MB）
+                _udp_sock = self.udp_transport.get_extra_info("socket")
+                if _udp_sock is not None:
+                    import socket as _socket_mod
+                    _rcvbuf = settings.SIP_UDP_RCVBUF
+                    _sndbuf = settings.SIP_UDP_SNDBUF
+                    for _optname, _val, _label in (
+                        (_socket_mod.SO_RCVBUF, _rcvbuf, "SO_RCVBUF"),
+                        (_socket_mod.SO_SNDBUF, _sndbuf, "SO_SNDBUF"),
+                    ):
+                        try:
+                            if _val > 0:
+                                _udp_sock.setsockopt(_socket_mod.SOL_SOCKET, _optname, _val)
+                                logger.debug(f"SIP UDP {_label} set to {_val}")
+                        except (OSError, ValueError) as _sock_err:
+                            logger.warning(f"Failed to set UDP {_label}={_val}: {_sock_err}")
+                    try:
+                        _actual_rcv = _udp_sock.getsockopt(_socket_mod.SOL_SOCKET, _socket_mod.SO_RCVBUF)
+                        logger.info(f"SIP UDP SO_RCVBUF actual={_actual_rcv} bytes (requested {_rcvbuf})")
+                    except OSError:
+                        pass
 
                 # ---------------------------------------------
                 # SIP over TLS (SIPS) / TCP Server Initialization
                 # ---------------------------------------------
                 ssl_context = None
-                tls_port = getattr(settings, "SIPS_PORT", 5061)
-                tls_cert = getattr(settings, "SIPS_CERT_FILE", None)
-                tls_key = getattr(settings, "SIPS_KEY_FILE", None)
-                tls_ca_cert = getattr(settings, "SIPS_CA_CERT_FILE", None)
+                tls_port = settings.SIPS_PORT
+                tls_cert = settings.SIPS_CERT_FILE
+                tls_key = settings.SIPS_KEY_FILE
+                tls_ca_cert = settings.SIPS_CA_CERT_FILE
 
-                if not getattr(settings, "ENABLE_SIPS", False):
-                    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+                if not settings.ENABLE_SIPS:
+                    _app_env = (settings.APP_ENV or "dev").lower()
                     if _app_env in {"prod", "production"}:
                         logger.warning("SECURITY: SIP TLS (SIPS) is disabled in production environment")
 
-                if getattr(settings, "ENABLE_SIPS", False) and tls_cert and tls_key:
+                if settings.ENABLE_SIPS and tls_cert and tls_key:
                     import ssl
                     import os
                     if os.path.exists(tls_cert) and os.path.exists(tls_key):
@@ -953,7 +1042,8 @@ class SipServer:
                             ssl_context = None
 
                 self.tcp_server = await asyncio.start_server(
-                    self._handle_tcp_client, sip_ip, settings.SIP_PORT, reuse_address=True
+                    self._handle_tcp_client, sip_ip, settings.SIP_PORT,
+                    reuse_address=True, backlog=settings.SIP_TCP_BACKLOG,
                 )
                 logger.info(f"SIP UDP/TCP Listening on {sip_ip}:{settings.SIP_PORT}")
 
@@ -967,7 +1057,8 @@ class SipServer:
                 }
                 if ssl_context:
                     self.tls_server = await asyncio.start_server(
-                        self._handle_tcp_client, sip_ip, tls_port, ssl=ssl_context, reuse_address=True
+                        self._handle_tcp_client, sip_ip, tls_port, ssl=ssl_context,
+                        reuse_address=True, backlog=settings.SIP_TCP_BACKLOG,
                     )
                     logger.info(f"SIP TLS (SIPS) Listening on {sip_ip}:{tls_port}")
 
@@ -975,7 +1066,13 @@ class SipServer:
 
                 # Start worker pool for processing SIP messages
                 worker_count = settings.SIP_WORKER_CONCURRENCY
-                self._workers = [asyncio.create_task(self._worker_loop()) for _ in range(worker_count)]
+                # FIX [2026-07-19 P2]: 为每个 worker 注册 done_callback，
+                # 确保任务意外退出（如 CancelledError 之外的异常）可被感知，
+                # 符合项目硬约束"禁止裸 asyncio.create_task"。
+                self._workers = [
+                    self._track_background_task(self._worker_loop())
+                    for _ in range(worker_count)
+                ]
 
                 self._track_background_task(self._prune_loop())
 
@@ -1048,6 +1145,22 @@ class SipServer:
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
         self._background_tasks.clear()
+
+        # FIX [2026-07-17 P4-2]: 关闭所有已建立的 TCP 客户端 writer，
+        # 避免文件描述符泄漏和 TIME_WAIT 堆积。
+        _tcp_clients_to_close = list(self._tcp_clients.items())
+        self._tcp_clients.clear()
+        for _addr, _writer in _tcp_clients_to_close:
+            try:
+                _writer.close()
+            except Exception as _close_err:
+                logger.debug(f"[SIP stop] failed to close TCP client writer for {_addr}: {_close_err}")
+        if _tcp_clients_to_close:
+            await asyncio.gather(
+                *(_writer.wait_closed() for _, _writer in _tcp_clients_to_close),
+                return_exceptions=True,
+            )
+            logger.info(f"[SIP stop] Closed {len(_tcp_clients_to_close)} TCP client connections")
 
         if self.udp_transport:
             self.udp_transport.close()

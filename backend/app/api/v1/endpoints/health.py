@@ -199,7 +199,7 @@ async def get_ops_overview(
     channels_with_record = sum(1 for r in res_count if r.id in resource_ids_with_record)
     record_completeness_pct = round(100.0 * channels_with_record / channel_total, 1) if channel_total else 0
     sip_rate_limit = {}
-    with_rate_metrics = bool(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_DEVICE", 0) or getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_TENANT", 0))
+    with_rate_metrics = bool(settings.SIP_INVITE_RATE_LIMIT_PER_DEVICE or settings.SIP_INVITE_RATE_LIMIT_PER_TENANT)
     if with_rate_metrics and getattr(sip_invite_module, "get_invite_rate_limit_metrics", None):
         try:
             sip_rate_limit = sip_invite_module.get_invite_rate_limit_metrics()
@@ -290,10 +290,10 @@ async def get_tuning_recommendations(
         profile = "stability_first"
     elif high_risk_ratio <= 0.05 and unstable_ratio <= 0.1:
         profile = "throughput_first"
-    current_snapshot_concurrency = int(getattr(settings, "SNAPSHOT_BATCH_CONCURRENCY", 5) or 5)
-    current_snapshot_timeout = float(getattr(settings, "SNAPSHOT_BATCH_ITEM_TIMEOUT_SECONDS", 45.0) or 45.0)
-    current_invite_per_device = int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_DEVICE", 8) or 8)
-    current_invite_per_tenant = int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_TENANT", 40) or 40)
+    current_snapshot_concurrency = settings.SNAPSHOT_BATCH_CONCURRENCY
+    current_snapshot_timeout = settings.SNAPSHOT_BATCH_ITEM_TIMEOUT_SECONDS
+    current_invite_per_device = settings.SIP_INVITE_RATE_LIMIT_PER_DEVICE
+    current_invite_per_tenant = settings.SIP_INVITE_RATE_LIMIT_PER_TENANT
     suggested_snapshot_concurrency = current_snapshot_concurrency
     suggested_snapshot_timeout = current_snapshot_timeout
     suggested_invite_per_device = current_invite_per_device
@@ -356,7 +356,7 @@ async def get_capacity_threshold_template(
         "p95_failure_rate_warn": 35 if profile != "stability_first" else 25,
         "p95_failure_rate_crit": 60 if profile != "stability_first" else 45,
     }
-    recommended_concurrency = int(getattr(settings, "SNAPSHOT_BATCH_CONCURRENCY", 5) or 5)
+    recommended_concurrency = settings.SNAPSHOT_BATCH_CONCURRENCY
     if profile == "large_cluster":
         recommended_concurrency = min(10, max(recommended_concurrency, 7))
     elif profile == "mid_cluster":

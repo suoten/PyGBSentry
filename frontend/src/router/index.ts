@@ -97,15 +97,15 @@ const ossRoutes = [
   { path: '/plugins/runtime/:pluginId', name: 'PluginRuntime', component: () => import('../views/PluginRuntime.vue'), meta: { requiresAuth: true, titleKey: 'route.plugin', hiddenInMenu: true, keepAlive: true } } // FIXED: 国际化
 ]
 
-// FIXED: [2026-07-10] E-01/F-02 OSS 版隐藏企业版页面 — 后端无对应端点模块，显示会导致 404 [全栈工程师]
-// 遵循"不新增功能"原则：OSS 版仅保留核心 GB28181 功能，企业版功能（组织/角色/API密钥/地图/工单/资产/流优化/发布/审计/AI视觉/配置向导）仅在 server 版可用
-const OSS_ENTERPRISE_PATHS = new Set<string>([
-  '/map', '/map-providers', '/work-orders', '/channels/region',
-  '/roles', '/api-keys', '/organizations', '/asset-management',
-  '/network', '/stream-optimization', '/release-center',
-  '/audit-center', '/ai-vision', '/setup',
-])
-const ossVisibleRoutes = isServerEdition ? serverRoutes : ossRoutes.filter(r => !OSS_ENTERPRISE_PATHS.has(r.path))
+// FIXED: [2026-07-13] 移除 ConvergeLoop [2026-07-10] 错误添加的 OSS_ENTERPRISE_PATHS 过滤。
+// 该过滤声称"后端无对应端点模块"，但实际后端已有全部端点：
+//   roles.py / user_api_keys.py / organizations.py / map.py / map_providers.py
+//   release_center.py / audit_center.py / asset_management.py / network.py
+//   work_orders.py / stream_optimization.py / setup.py
+// 过滤导致 OSS 版侧边栏菜单显示但点击 404（角色管理/接口密钥/组织管理/地图配置/
+// 发布中心/审计中心/资产管理/网络概况/工单管理/电子地图全部受影响）。
+// 2ad636a 中无此过滤，恢复原始行为：OSS 版注册全部 ossRoutes。[全栈工程师]
+const ossVisibleRoutes = isServerEdition ? serverRoutes : ossRoutes
 
 const routes = [
   { path: '/login', name: 'Login', component: () => import('../views/Login.vue'), meta: { titleKey: 'route.login' } }, // FIXED: 国际化
@@ -121,6 +121,14 @@ const router = createRouter({
 
 const APP_TITLE = 'PyGBSentry'
 
+// FIX: [2026-07-16] 模块级变量 — 页面刷新后重置为 0，确保首次路由必定触发
+// verify-token 调用以填充 _cachedRoleInfo 缓存。
+// 原实现将 _tokenVerifyTs 存入 sessionStorage，刷新后仍保留近期时间戳，
+// 导致路由守卫跳过 getVerifiedRoleInfo()，但模块级 _cachedRoleInfo 已丢失，
+// menuGroups computed 用 EMPTY_ROLE_INFO 过滤，左侧菜单只剩 4 个 bypass 路径。
+// getVerifiedRoleInfo() 内部已有 60s 缓存 TTL，无需外层 sessionStorage 重复限速。
+let _lastVerifyTs = 0
+
 router.beforeEach(async (to, from, next) => {
   try {
     const { clearStalePendingRequests } = await import('@/utils/httpDedupe')
@@ -128,19 +136,20 @@ router.beforeEach(async (to, from, next) => {
   } catch { /* ignore */ }
   const token = sessionStorage.getItem('token')  // P0-4: sessionStorage
   if (to.meta.requiresAuth && token) {
-    const lastVerify = Number(sessionStorage.getItem('_tokenVerifyTs') || 0)
     // SECURITY: 缩短 token 验证间隔到 1 分钟，确保 token 被吊销后最多 1 分钟内生效
-    if (Date.now() - lastVerify > 60 * 1000) {
+    // FIX: [2026-07-16] 使用模块级变量而非 sessionStorage —
+    // sessionStorage 跨刷新保留会导致刷新后跳过验证，菜单用空缓存渲染。
+    if (Date.now() - _lastVerifyTs > 60 * 1000) {
       // FIX C-1: 使用后端 verify-token 权威验证，不再信任可篡改的客户端存储
       const info = await getVerifiedRoleInfo()
       if (!info) {
         sessionStorage.removeItem('token')
         sessionStorage.removeItem('refresh_token')
-        sessionStorage.removeItem('_tokenVerifyTs')
+        _lastVerifyTs = 0
         next('/login')
         return
       }
-      sessionStorage.setItem('_tokenVerifyTs', String(Date.now()))
+      _lastVerifyTs = Date.now()
     }
   }
   if (to.path === '/register' && !allowPublicRegistration) {
@@ -183,6 +192,32 @@ router.beforeEach(async (to, from, next) => {
     }
     next()
   }
+})
+
+// FIX: [2026-07-21 P0] 捕获动态导入失败 — SPA 部署后旧 HTML 引用已删除的 JS chunk
+// (带 hash 文件名) 导致 "Failed to fetch dynamically imported module" 错误。
+// 此兜底机制:检测到该错误后自动刷新页面获取最新 index.html → 最新 JS chunk。
+// 防止用户卡在白屏/错误页面,需手动 F5 才能恢复。
+// 参考: https://router.vuejs.org/api/interfaces/Router.html#onerror
+let _isReloadingForChunkError = false
+router.onError((error, to) => {
+  // 匹配两种浏览器错误消息格式:
+  //   Chrome: "Failed to fetch dynamically imported module: https://.../Dashboard-cjI43gJv.js"
+  //   Firefox: "Importing a module script failed."
+  //   Safari: "Error: import() is not defined" (极旧版本,不在处理范围)
+  const isChunkLoadError =
+    error?.message?.includes('Failed to fetch dynamically imported module') ||
+    error?.message?.includes('Importing a module script failed') ||
+    error?.name === 'ChunkLoadError'
+  if (!isChunkLoadError || _isReloadingForChunkError) return
+
+  _isReloadingForChunkError = true
+  console.error('[Router] 检测到 chunk 加载失败,正在自动刷新以获取最新版本...', error)
+
+  // 刷新到目标路由,浏览器会重新获取最新的 index.html → 最新的 JS chunk
+  // 使用 location.assign 而非 reload,确保 URL 是目标路由而非当前页面
+  const targetPath = to?.fullPath || window.location.pathname
+  window.location.assign(targetPath)
 })
 
 router.afterEach((to) => {

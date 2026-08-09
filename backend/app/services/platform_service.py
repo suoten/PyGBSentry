@@ -18,7 +18,7 @@ from app.sip.message import SipMessage
 from app.sip.auth import DigestAuth
 from app.sip.trace_events import should_warn_unknown_event_once
 from app.services.sip_trace_store import schedule_store_sip_trace
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host
 from sqlalchemy import select, update
 import time
 import random
@@ -59,10 +59,12 @@ def _parse_sip_uri_host_port(value: str) -> tuple[str, int] | None:
 
 
 def _attach_trace_header(req: SipMessage) -> str:
-    call_id = (req.get_header("Call-ID") or "").strip()
-    if call_id:
-        req.headers["X-Trace-ID"] = call_id
-    return call_id
+    """返回 Call-ID 作为 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 请求添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request。
+    """
+    return (req.get_header("Call-ID") or "").strip()
 
 
 def _platform_proto(p: ParentPlatform) -> str:
@@ -71,10 +73,10 @@ def _platform_proto(p: ParentPlatform) -> str:
 
 
 def _sip_trace_should_log() -> bool:
-    if not bool(getattr(settings, "SIP_DEBUG_TRACE_ENABLED", False)):
+    if not settings.SIP_DEBUG_TRACE_ENABLED:
         return False
     try:
-        rate = float(getattr(settings, "SIP_TRACE_SAMPLE_RATE", 1.0) or 1.0)
+        rate = settings.SIP_TRACE_SAMPLE_RATE
     except Exception:
         rate = 1.0
     rate = max(0.0, min(1.0, rate))
@@ -105,9 +107,70 @@ class PlatformService:
         self._reg_states = {} # CallID -> {platform_id, status, last_auth}
         self._outbound_tcp = {}  # (ip, port) -> asyncio.StreamWriter
         self._keepalive_miss_count = {}  # server_gb_id -> int
+        # FIX: [2026-07-16 P0] keepalive CSeq 单调递增计数器（每平台独立）
+        self._keepalive_sn_counters = {}  # server_gb_id -> int
+        # FIX [2026-07-17 P1]: 级联重连指数退避 — 跟踪连续注册失败次数和上次尝试时间，
+        # 避免上级平台离线时每 30-60s 重试一次导致信令风暴和日志刷屏。
+        self._reconnect_failures = {}  # server_gb_id -> int (连续失败次数)
+        self._last_register_attempt = {}  # server_gb_id -> float (monotonic 时间戳)
         self._catalog_states = {}  # CallID -> {platform_id, tenant_id, batch_idx, batch_total}
         self._catalog_ack_counter = {}  # (tenant_id, platform_id) -> {total, ok, last_status_code}
         self._cascade_record_queries = {}  # local_sn -> {platform_id, server_gb_id, original_sn, original_channel_id, real_channel_id, created_at}
+
+    def _next_keepalive_sn(self, server_gb_id: str) -> int:
+        """FIX: [2026-07-16 P0] 为每个上级平台维护单调递增的 keepalive 序号，
+        避免同一 Call-ID 下 CSeq 回绕导致上级平台丢弃 keepalive。"""
+        current = self._keepalive_sn_counters.get(server_gb_id, 0)
+        next_sn = current + 1
+        self._keepalive_sn_counters[server_gb_id] = next_sn
+        return next_sn
+
+    def _get_reconnect_backoff(self, server_gb_id: str) -> float:
+        """
+        FIX [2026-07-17 P1]: 计算级联重连指数退避时间（秒）。
+        退避序列: 0(首次), 10, 20, 40, 80, 160, 300(上限)。
+        避免上级平台离线时高频重试导致信令风暴。
+        """
+        failures = self._reconnect_failures.get(server_gb_id, 0)
+        if failures <= 0:
+            return 0.0
+        return min(10.0 * (2 ** (failures - 1)), 300.0)
+
+    def _should_attempt_reconnect(self, p) -> bool:
+        """
+        FIX [2026-07-17 P1]: 检查是否应尝试重连上级平台。
+        基于上次注册尝试时间和连续失败次数计算指数退避。
+        返回 True 表示可以尝试，False 表示应等待退避时间。
+        """
+        server_gb_id = str(getattr(p, "server_gb_id", "") or "")
+        if not server_gb_id:
+            return True
+        last_attempt = self._last_register_attempt.get(server_gb_id, 0.0)
+        if last_attempt == 0.0:
+            return True
+        backoff = self._get_reconnect_backoff(server_gb_id)
+        elapsed = time.monotonic() - last_attempt
+        if elapsed < backoff:
+            return False
+        return True
+
+    def _record_register_attempt(self, p) -> None:
+        """FIX [2026-07-17 P1]: 记录注册尝试时间戳，用于退避计算。"""
+        server_gb_id = str(getattr(p, "server_gb_id", "") or "")
+        if server_gb_id:
+            self._last_register_attempt[server_gb_id] = time.monotonic()
+
+    def _mark_register_failed(self, p) -> None:
+        """FIX [2026-07-17 P1]: 标记注册失败，递增连续失败计数用于退避计算。"""
+        server_gb_id = str(getattr(p, "server_gb_id", "") or "")
+        if server_gb_id:
+            self._reconnect_failures[server_gb_id] = self._reconnect_failures.get(server_gb_id, 0) + 1
+
+    def _mark_register_success(self, p) -> None:
+        """FIX [2026-07-17 P1]: 注册成功时重置退避计数器。"""
+        server_gb_id = str(getattr(p, "server_gb_id", "") or "")
+        if server_gb_id:
+            self._reconnect_failures[server_gb_id] = 0
 
     async def start(self):
         self.running = True
@@ -195,7 +258,8 @@ class PlatformService:
             uri = f"sip:{p.server_gb_id}@{p.server_ip}:{p.server_port}"
         req.uri = uri
 
-        req.headers["Via"] = f"SIP/2.0/{req_proto} {settings.SIP_IP}:{settings.SIP_PORT};rport;branch=z9hG4bKnotify{cseq}{int(time.time() * 1000)}"
+        # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
+        req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性，兼容非标准客户端
         req.headers["Max-Forwards"] = "70"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.local_to_tag}"
         req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>;tag={sub.remote_from_tag}"
@@ -215,7 +279,8 @@ class PlatformService:
         rr = (sub.record_route or "").strip()
         if rr:
             req.headers["Route"] = rr
-        req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{settings.SIP_IP}:{settings.SIP_PORT}>"
+        # FIX [2026-07-17 P1-A2]: Contact 使用 sip_host_for_contact() 以支持 NAT 回路由
+        req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.body = xml_body
 
@@ -386,6 +451,26 @@ class PlatformService:
             proto=proto,
             addr=str(addr),
         )
+        # FIX: [2026-07-21 P0] 诊断级联平台非 200 响应（如 EasyGBS 返回 400 Bad Request）
+        # 当下级平台对 catalog query / keepalive 等 MESSAGE 返回非 200 时，记录完整响应内容
+        # （起始行 + 所有头 + body），便于精确定位下级平台拒绝的原因（如 Contact 头、XML 格式等）。
+        try:
+            _status_int = int(message.status_code or 0)
+        except Exception:
+            _status_int = 0
+        if _status_int != 0 and _status_int != 200:
+            try:
+                _resp_headers_dump = "; ".join(f"{k}: {v}" for k, v in message.headers.raw_items())
+                _resp_body_dump = (message.body or "")[:1000]
+                logger.warning(
+                    f"[CATALOG_DIAG] Non-200 response from {addr} ({proto}): "
+                    f"status={message.status_code} call_id={call_id} "
+                    f"cseq={message.get_header('CSeq') or ''} "
+                    f"headers=[{_resp_headers_dump}] "
+                    f"body=[{_resp_body_dump}]"
+                )
+            except Exception as _diag_e:
+                logger.warning(f"[CATALOG_DIAG] Failed to dump non-200 response: {_diag_e}")
         if call_id.startswith("keep_") and message.status_code == 200:
             server_gb_id = call_id.split("@", 1)[0].replace("keep_", "", 1)
             if server_gb_id:
@@ -520,7 +605,7 @@ class PlatformService:
 
                 # 级联注册续期 — 注册有效期80%时间已过时主动发送REGISTER续期
                 register_interval = int(p.register_interval or 3600) or 3600
-                call_id = f"reg_{p.server_gb_id}@{settings.SIP_IP}"
+                call_id = f"reg_{p.server_gb_id}@{sip_via_host()}"
                 async with self._state_lock:
                     state = dict(self._reg_states.get(call_id, {}))
                 last_ok_time = state.get("last_ok_time", 0)
@@ -534,11 +619,11 @@ class PlatformService:
 
                 await self._send_keepalive(p)
                 miss = self._keepalive_miss_count.get(p.server_gb_id, 0)
-                threshold = max(1, int(getattr(settings, "SIP_PLATFORM_KEEPALIVE_MISS_THRESHOLD", 3) or 3))
+                threshold = max(1, settings.SIP_PLATFORM_KEEPALIVE_MISS_THRESHOLD)
                 if miss >= threshold:
                     _sip_trace_log(
                         "platform_keepalive_miss_re_register",
-                        trace_id=f"reg_{p.server_gb_id}@{settings.SIP_IP}",
+                        trace_id=f"reg_{p.server_gb_id}@{sip_via_host()}",
                         server_gb_id=p.server_gb_id,
                         miss_count=miss,
                         threshold=threshold,
@@ -558,11 +643,34 @@ class PlatformService:
                     })
                     _safe_create_task(self.handle_platform_offline(platform_id, reason="keepalive_miss_threshold"))
                     self._keepalive_miss_count[p.server_gb_id] = 0
-                    await self._register(p)
+                    # FIX [2026-07-17 P1]: 重连指数退避 — 避免上级平台离线时每 60s 重试导致信令风暴。
+                    # 退避序列: 首次立即(0s), 后续 10s/20s/40s/80s/160s/300s(上限)。
+                    # 注册成功时在 _handle_response 200 OK 中重置 _reconnect_failures。
+                    # 检测上次注册是否失败: 若 last_ok_time < last_register_attempt 说明上次未收到 200 OK
+                    _sgb = str(getattr(p, "server_gb_id", "") or "")
+                    _last_attempt_ts = self._last_register_attempt.get(_sgb, 0)
+                    if _last_attempt_ts > 0 and last_ok_time < _last_attempt_ts:
+                        self._mark_register_failed(p)
+                    if self._should_attempt_reconnect(p):
+                        await self._register(p)
+                    else:
+                        _backoff = self._get_reconnect_backoff(_sgb)
+                        logger.info(
+                            f"[PlatformService] Skipping reconnect for {_sgb}: "
+                            f"backoff={_backoff:.0f}s, failures={self._reconnect_failures.get(_sgb, 0)}"
+                        )
             await asyncio.sleep(keepalive_interval)
 
     async def _send_keepalive(self, p: ParentPlatform):
-        sn = int(time.time()) % 100000
+        # FIX: [2026-07-16 P0] 原 Call-ID 固定为 keep_{server_gb_id}@{SIP_IP}，
+        # 且 CSeq 使用 int(time.time()) % 100000 在 ~27 小时后回绕，违反 RFC 3261 §8.1.1.5
+        # （同一 Call-ID 的 CSeq 必须单调递增）。上级平台可能因此丢弃 keepalive，误判下级离线。
+        # 修复：每次 keepalive 生成唯一 Call-ID（含递增序号），CSeq 使用同一序号保证单次事务内一致。
+        # FIX [2026-07-17 P1-B2]: XML <SN> 也必须单调递增（GB28181 §A.1），
+        # 原使用 int(time.time()) % 100000 约 27 小时回绕，上级平台可能因 SN 回退拒绝心跳。
+        # 改用 keepalive_seq（per-platform 单调递增计数器）作为 SN。
+        keepalive_seq = self._next_keepalive_sn(p.server_gb_id)
+        sn = keepalive_seq
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Notify>
 <CmdType>Keepalive</CmdType>
@@ -575,11 +683,13 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{p.server_gb_id}@{p.server_ip}:{p.server_port}"
         req_proto = _platform_proto(p)
-        req.headers["Via"] = f"SIP/2.0/{req_proto} {settings.SIP_IP}:{settings.SIP_PORT};rport;branch=z9hG4bKkeep{sn}"
-        req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag=keep{sn}"
+        # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
+        req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+        req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
         req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"keep_{p.server_gb_id}@{settings.SIP_IP}"
-        req.headers["CSeq"] = f"{sn} MESSAGE"
+        # 每次唯一 Call-ID，避免 CSeq 单调性约束冲突
+        req.headers["Call-ID"] = f"keep_{p.server_gb_id}_{keepalive_seq}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP(可能为0.0.0.0)
+        req.headers["CSeq"] = f"{keepalive_seq} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
 
         req.body = xml_body
@@ -588,7 +698,7 @@ class PlatformService:
         _safe_create_task(self._send_keepalive_tx(p, req, req_proto))
         await self._runtime_patch(p.tenant_id or "default", p.id, {
             "keepalive.last_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "keepalive.last_sent_call_id": f"keep_{p.server_gb_id}@{settings.SIP_IP}",
+            "keepalive.last_sent_call_id": f"keep_{p.server_gb_id}@{sip_via_host()}",
             "keepalive.last_sent_transport": req_proto,
             "keepalive.miss_count": self._keepalive_miss_count.get(p.server_gb_id, 0),
         })
@@ -610,8 +720,10 @@ class PlatformService:
                 ip=p.server_ip,
                 port=p.server_port,
                 proto=proto,
-                timeout_seconds=2.2,
-                retries=0,
+                # FIX: [2026-07-16] 原 2.2s 超时 + 0 重试对高延迟网络/级联平台不足，
+                # 3 次 miss 即标记离线并重注册。提升到 5s + 1 次重试，与注册超时一致。
+                timeout_seconds=settings.SIP_PLATFORM_KEEPALIVE_TIMEOUT_SECONDS,
+                retries=settings.SIP_PLATFORM_KEEPALIVE_RETRIES,
             )
             await self._runtime_patch(p.tenant_id or "default", p.id, {
                 "keepalive.last_tx_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -730,10 +842,11 @@ class PlatformService:
                         region_req.headers["Content-Type"] = "Application/MANSCDP+xml"
                         region_req.body = region_xml
                         req_proto = _platform_proto(p)
-                        region_req.headers["Via"] = f"SIP/2.0/{req_proto} {settings.SIP_IP}:{settings.SIP_PORT};rport;branch=z9hG4bKcatrg{region_sn}"
-                        region_req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag=catrg{region_sn}"
+                        # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
+                        region_req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                        region_req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
                         region_req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
-                        region_req.headers["Call-ID"] = f"cat_rg_{p.server_gb_id}@{settings.SIP_IP}"
+                        region_req.headers["Call-ID"] = f"cat_rg_{p.server_gb_id}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP
                         region_req.headers["CSeq"] = f"{region_sn} MESSAGE"
                         _attach_trace_header(region_req)
                         try:
@@ -804,10 +917,11 @@ class PlatformService:
                     req.headers["Content-Type"] = "Application/MANSCDP+xml"
                     req.body = xml_body
                     req_proto = _platform_proto(p)
-                    req.headers["Via"] = f"SIP/2.0/{req_proto} {settings.SIP_IP}:{settings.SIP_PORT};rport;branch=z9hG4bKcat{sn}"
-                    req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag=cat{sn}"
+                    # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
+                    req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                    req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
                     req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
-                    call_id = f"cat_{p.server_gb_id}_{batch_idx}@{settings.SIP_IP}"
+                    call_id = f"cat_{p.server_gb_id}_{batch_idx}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP
                     req.headers["Call-ID"] = call_id
                     req.headers["CSeq"] = f"{sn} MESSAGE"
                     trace_id = _attach_trace_header(req)
@@ -889,17 +1003,32 @@ class PlatformService:
                 error=str(e)[:200],
             )
 
-    async def push_catalog_incremental(self, tenant_id: str, platform_id: str, changed_resources: list) -> None:
+    async def push_catalog_incremental(
+        self,
+        tenant_id: str,
+        platform_id: str,
+        changed_resources: list,
+        event_type: str = "Update",
+    ) -> None:
         """
         级联增量目录同步 — 仅推送变更的通道条目，替代全量推送。
         当设备上下线时调用此方法，通过 SIP NOTIFY 推送增量变更给上级平台。
+
+        FIX [2026-07-17 P1]: GB28181-2016 §A.2.3 规定 Catalog NOTIFY 的每个 <Item>
+        必须包含 <Event> 元素标识变更类型（Add/Del/Update）。原实现缺少 <Event> 元素，
+        导致上级平台无法区分增量变更是新增、删除还是更新，只能按全量处理。
+
+        参数:
+            event_type: 默认事件类型，当资源对象未携带 event_type 属性时使用。
+                        调用方可传 "Add"/"Del"/"Update"。
+                        每个资源对象也可通过 event_type 属性/dict 键覆盖默认值。
         """
         try:
             async with AsyncSessionLocal() as session:
                 p = await get_or_404(session, ParentPlatform, platform_id)
                 if not p.is_online or not p.catalog_subscribed:
                     return
-                from app.core.config import settings, sip_host_for_contact
+                from app.core.config import settings, sip_host_for_contact, sip_via_host
                 from app.sip.send import send_sip_bytes
                 from app.sip.server import sip_server
                 from xml.sax.saxutils import escape as _xml_escape
@@ -910,15 +1039,32 @@ class PlatformService:
                 if not transport:
                     return
 
-                # 构建增量 Catalog Notify XML
+                # 构建增量 Catalog Notify XML — 每个 Item 必须包含 <Event> 元素
+                # GB28181-2016 §A.2.3: Event 取值 Add(新增)/Del(删除)/Update(更新)
+                _VALID_EVENTS = {"Add", "Del", "Update"}
+                default_ev = event_type if event_type in _VALID_EVENTS else "Update"
                 items_xml = ""
                 for res in changed_resources:
-                    res_gb_id = str(getattr(res, "gb_id", "") or "")
-                    res_name = _xml_escape(str(getattr(res, "name", "") or ""))
-                    res_status = "ON" if getattr(res, "status", 0) == 1 else "OFF"
-                    res_parent = str(getattr(res, "parent_gb_id", "") or p.client_gb_id)
-                    items_xml += f"<Item><DeviceID>{res_gb_id}</DeviceID><Name>{res_name}</Name>"
-                    items_xml += f"<Status>{res_status}</Status><ParentID>{res_parent}</ParentID></Item>\n"
+                    # 兼容 dict 与对象两种传入形式（删除场景通常传 dict）
+                    if isinstance(res, dict):
+                        res_gb_id = str(res.get("gb_id", "") or "")
+                        res_name = _xml_escape(str(res.get("name", "") or ""))
+                        res_status = "ON" if res.get("status", 0) == 1 else "OFF"
+                        res_parent = str(res.get("parent_gb_id", "") or p.client_gb_id)
+                        ev = str(res.get("event_type", "") or default_ev)
+                    else:
+                        res_gb_id = str(getattr(res, "gb_id", "") or "")
+                        res_name = _xml_escape(str(getattr(res, "name", "") or ""))
+                        res_status = "ON" if getattr(res, "status", 0) == 1 else "OFF"
+                        res_parent = str(getattr(res, "parent_gb_id", "") or p.client_gb_id)
+                        ev = str(getattr(res, "event_type", "") or default_ev)
+                    if ev not in _VALID_EVENTS:
+                        ev = default_ev
+                    items_xml += (
+                        f"<Item><DeviceID>{res_gb_id}</DeviceID><Name>{res_name}</Name>"
+                        f"<Status>{res_status}</Status><ParentID>{res_parent}</ParentID>"
+                        f"<Event>{ev}</Event></Item>\n"
+                    )
 
                 sn = int(time.time() * 1000) % 100000
                 xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -938,15 +1084,15 @@ class PlatformService:
                     sub_state["notify_cseq"] = cseq
                     self._reg_states[sub_key] = sub_state
 
-                branch = f"z9hG4bK{secrets.token_hex(6)}"
+                branch = f"z9hG4bK{secrets.token_hex(8)}"
                 req = SipMessage()
                 req.method = "NOTIFY"
                 req.uri = f"sip:{p.server_gb_id}@{addr[0]}:{addr[1]}"
                 req.version = "SIP/2.0"
-                req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+                req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
                 req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('from_tag', 'pygb')}"
                 req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('to_tag', '')}"
-                req.headers["Call-ID"] = sub_state.get("catalog_call_id", f"cat_{p.server_gb_id}@{settings.SIP_IP}")
+                req.headers["Call-ID"] = sub_state.get("catalog_call_id", f"cat_{p.server_gb_id}@{sip_via_host()}")
                 req.headers["CSeq"] = f"{cseq} NOTIFY"
                 req.headers["Contact"] = f"<sip:{p.client_gb_id}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
                 req.headers["Event"] = "Catalog"
@@ -972,7 +1118,7 @@ class PlatformService:
                 p = await get_or_404(session, ParentPlatform, platform_id)
                 if not p.is_online:
                     return
-                from app.core.config import settings, sip_host_for_contact
+                from app.core.config import settings, sip_host_for_contact, sip_via_host
                 from app.sip.send import send_sip_bytes
                 from app.sip.server import sip_server
                 from datetime import datetime, timezone, timedelta
@@ -984,7 +1130,7 @@ class PlatformService:
                     return
 
                 sn = int(time.time() * 1000) % 100000
-                now = datetime.now(timezone(timedelta(hours=float(getattr(settings, "APP_TIMEZONE_OFFSET_HOURS", 8)))))  # W-17 使用配置项替代硬编码UTC+8
+                now = datetime.now(timezone(timedelta(hours=settings.APP_TIMEZONE_OFFSET_HOURS)))  # W-17 使用配置项替代硬编码UTC+8
                 time_str = now.strftime("%Y-%m-%dT%H:%M:%S")
 
                 xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -1002,15 +1148,15 @@ class PlatformService:
                     sub_state["ts_cseq"] = cseq
                     self._reg_states[sub_key] = sub_state
 
-                branch = f"z9hG4bK{secrets.token_hex(6)}"
+                branch = f"z9hG4bK{secrets.token_hex(8)}"
                 req = SipMessage()
                 req.method = "MESSAGE"
                 req.uri = f"sip:{p.server_gb_id}@{addr[0]}:{addr[1]}"
                 req.version = "SIP/2.0"
-                req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+                req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
                 req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('from_tag', 'pygb')}"
                 req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
-                req.headers["Call-ID"] = sub_state.get("ts_call_id", f"ts_{p.server_gb_id}@{settings.SIP_IP}")
+                req.headers["Call-ID"] = sub_state.get("ts_call_id", f"ts_{p.server_gb_id}@{sip_via_host()}")
                 req.headers["CSeq"] = f"{cseq} MESSAGE"
                 req.headers["Content-Type"] = "Application/MANSCDP+xml"
                 req.headers["Max-Forwards"] = "70"
@@ -1035,12 +1181,21 @@ class PlatformService:
                     platforms = result.scalars().all()
 
                     for p in platforms:
-                        call_id = f"reg_{p.server_gb_id}@{settings.SIP_IP}"
+                        call_id = f"reg_{p.server_gb_id}@{sip_via_host()}"
                         async with self._state_lock:
                             state = dict(self._reg_states.get(call_id, {}))
                         last_ok = state.get("last_ok_time", 0)
 
                         if not p.is_online or (time.time() - last_ok) >= max(30, (p.register_interval or 3600) * 0.9):
+                            # FIX [2026-07-17 P1]: 重连指数退避 — 仅对离线平台应用退避，
+                            # 注册续期（is_online=True 但 interval 到期）不受退避限制。
+                            if not p.is_online:
+                                _sgb_loop = str(getattr(p, "server_gb_id", "") or "")
+                                _last_attempt_loop = self._last_register_attempt.get(_sgb_loop, 0)
+                                if _last_attempt_loop > 0 and last_ok < _last_attempt_loop:
+                                    self._mark_register_failed(p)
+                                if not self._should_attempt_reconnect(p):
+                                    continue
                             await self._runtime_patch(p.tenant_id or "default", p.id, {
                                 "register.last_auto_attempt_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                             })
@@ -1059,14 +1214,19 @@ class PlatformService:
             logger.warning(f"[PlatformService] Register auth recursion depth exceeded for platform {p.server_gb_id}, giving up")
             return
         if not call_id:
-            call_id = f"reg_{p.server_gb_id}@{settings.SIP_IP}"
+            call_id = f"reg_{p.server_gb_id}@{sip_via_host()}"
+
+        # FIX [2026-07-17 P1]: 记录注册尝试时间戳用于指数退避（仅在首次调用时记录，
+        # 不在 401 重试时重复记录，避免 _auth_depth 递归干扰退避计算）
+        if _auth_depth == 0:
+            self._record_register_attempt(p)
 
         async with self._state_lock:
             state = self._reg_states.get(call_id) or {"platform_id": p.id, "cseq": 0, "nc": 0}
             state["platform_id"] = p.id
             state["sent_mono"] = time.monotonic()
             if "from_tag" not in state:
-                state["from_tag"] = secrets.token_hex(4)
+                state["from_tag"] = secrets.token_hex(8)
             try:
                 state["cseq"] = (int(state.get("cseq") or 0) + 1) & 0x7FFFFFFF
                 if state["cseq"] == 0:
@@ -1087,18 +1247,36 @@ class PlatformService:
         req.uri = f"sip:{p.server_gb_id}@{p.server_ip}:{p.server_port}"
         req_proto = _platform_proto(p)
         branch = f"z9hG4bK{secrets.token_hex(8)}"
-        req.headers["Via"] = f"SIP/2.0/{req_proto} {settings.SIP_IP}:{settings.SIP_PORT};rport;branch={branch}"
+        # FIX [2026-07-17 P1-A2]: Via/Contact 必须使用 sip_host_for_contact() 暴露的公网/可达地址，
+        # 不能直用 settings.SIP_IP（通常为内网监听地址），否则 NAT 环境下上级平台无法回路由响应，
+        # 导致级联注册失败。同文件 lines 208/228/593/751/825 同类问题一并修复。
+        _contact_host = sip_host_for_contact()
+        req.headers["Via"] = f"SIP/2.0/{req_proto} {_contact_host}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={state['from_tag']}"
         req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = call_id
         req.headers["CSeq"] = f"{int(state.get('cseq') or 1)} REGISTER"
         req.headers["Expires"] = str(p.register_interval)
-        req.headers["Contact"] = f"<sip:{p.client_gb_id}@{settings.SIP_IP}:{settings.SIP_PORT}>"
+        req.headers["Contact"] = f"<sip:{p.client_gb_id}@{_contact_host}:{settings.SIP_PORT}>"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
 
         if auth_header:
             auth_params = DigestAuth.parse_auth_header(auth_header)
+            # FIX: [2026-07-14] 解密失败时不回退到空密码（空密码必然导致 Digest 认证失败，
+            # 且会向上级平台暴露"本平台用空密码注册"的异常行为）。
+            # 原 code `password=p.decrypted_password or ""` 在 FIELD_ENCRYPTION_KEY 不匹配时
+            # 解密返回 None，回退到空字符串，导致级联注册永远失败且日志刷屏。
+            # 修复：解密失败时直接放弃注册，记录明确错误指向 FIELD_ENCRYPTION_KEY。
+            _plain_pw = p.decrypted_password
+            if not _plain_pw:
+                logger.error(
+                    f"[PlatformService] Cannot register to parent platform {p.server_gb_id} "
+                    f"(client_gb_id={p.client_gb_id}): password decryption failed "
+                    f"(FIELD_ENCRYPTION_KEY mismatch or password not set). "
+                    f"Skipping register attempt to avoid futile auth failure."
+                )
+                return
             qop_raw = (auth_params.get("qop") or "").strip()
             qop_tokens = [token.strip().lower() for token in qop_raw.split(",") if token.strip()]
             qop = "auth" if "auth" in qop_tokens else ""
@@ -1117,7 +1295,7 @@ class PlatformService:
                 algorithm = "MD5"
             response = DigestAuth.calculate_response(
                 username=p.client_gb_id,
-                password=p.decrypted_password or "",
+                password=_plain_pw,
                 realm=auth_params.get("realm"),
                 method="REGISTER",
                 uri=req.uri,
@@ -1156,12 +1334,15 @@ class PlatformService:
         )
 
         try:
+            # FIX: [2026-07-16] 级联注册超时从 2.2s 提升到 5s（可配置），
+            # 跨网络/跨区域的上级平台响应可能较慢，2.2s 容易超时导致注册失败。
+            _cascade_register_timeout = settings.SIP_CASCADE_REGISTER_TIMEOUT_SECONDS
             resp, meta = await self._send_sip_request_and_wait(
                 req=req,
                 ip=p.server_ip,
                 port=p.server_port,
                 proto=req_proto,
-                timeout_seconds=2.2,
+                timeout_seconds=_cascade_register_timeout,
                 retries=2,
             )
             # FIX: [2026-07-03] 传递 _auth_depth 参数，使 401 重注册时的递归深度计数器能正确传递 [全栈工程师]
@@ -1247,12 +1428,20 @@ class PlatformService:
                 p = p_result.scalars().first()
             if p:
                 rtt_ms = int((time.monotonic() - sent_mono) * 1000) if sent_mono > 0 else 0
+                # FIX: [2026-07-16] 注册成功后重置 keepalive_miss_count，防止残留的旧 miss 计数
+                # 导致 keepalive 循环误判平台离线并触发不必要的重注册。
+                _server_gb_id = str(getattr(p, "server_gb_id", "") or "")
+                if _server_gb_id and _server_gb_id in self._keepalive_miss_count:
+                    self._keepalive_miss_count[_server_gb_id] = 0
+                # FIX [2026-07-17 P1]: 注册成功，重置重连退避计数器
+                self._mark_register_success(p)
                 await self._runtime_patch(p.tenant_id or "default", platform_id, {
                     "register.last_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     "register.last_status_code": 200,
                     "register.last_addr": str(addr),
                     "register.last_transport": str(proto or ""),
                     "register.last_rtt_ms": rtt_ms,
+                    "keepalive.miss_count": 0,
                 })
             logger.info(f"Successfully registered to parent platform {platform_id}")
 
@@ -1367,7 +1556,7 @@ class PlatformService:
         resp.headers["From"] = request.headers.get("From", "")
         to_header = request.headers.get("To", "")
         if "tag=" not in to_header:
-            to_header += f";tag={secrets.token_hex(4)}"
+            to_header += f";tag={secrets.token_hex(8)}"
         resp.headers["To"] = to_header
         resp.headers["Call-ID"] = request.headers.get("Call-ID", "")
         resp.headers["CSeq"] = request.headers.get("CSeq", "")
@@ -1428,11 +1617,11 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{platform.server_gb_id}@{domain}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{local_device_id}@{domain}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{local_device_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{platform.server_gb_id}@{domain}>"
-        req.headers["Call-ID"] = f"{sn}alarm@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{sn}alarm@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1490,12 +1679,12 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{platform.server_gb_id}@{domain}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{device_id}@{domain}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         to_header = f"<sip:{platform.server_gb_id}@{domain}>;tag={from_tag}" if from_tag else f"<sip:{platform.server_gb_id}@{domain}>"
         req.headers["To"] = to_header
-        req.headers["Call-ID"] = f"{sn}catalog@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{sn}catalog@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1574,9 +1763,9 @@ class PlatformService:
         req.method = "NOTIFY"
         req.uri = f"sip:{platform.server_gb_id}@{domain}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{device_id}@{domain}>;tag={sub_from_tag or secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>;tag={sub_from_tag or secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{platform.server_gb_id}@{domain}>;tag={sub_to_tag}" if sub_to_tag else f"<sip:{platform.server_gb_id}@{domain}>"
         req.headers["Call-ID"] = sub_call_id
         req.headers["CSeq"] = f"{sub_cseq} NOTIFY"
@@ -1651,11 +1840,11 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_gb_id}@{device_ip}:{device_port}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{device_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}devctrl@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{sn}devctrl@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1710,11 +1899,11 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_gb_id}@{device_ip}:{device_port}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{device_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{local_sn}cfgdl@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{local_sn}cfgdl@{sip_via_host()}"
         req.headers["CSeq"] = f"{local_sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1774,11 +1963,11 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{device_gb_id}@{device_ip}:{device_port}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{device_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{local_sn}recq@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{local_sn}recq@{sip_via_host()}"
         req.headers["CSeq"] = f"{local_sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1844,11 +2033,11 @@ class PlatformService:
         req.method = "MESSAGE"
         req.uri = f"sip:{server_gb_id}@{domain}"
         req.version = "SIP/2.0"
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{device_id}@{domain}>;tag={secrets.token_hex(4)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{server_gb_id}@{domain}>"
-        req.headers["Call-ID"] = f"{response_sn}recresp@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = f"{response_sn}recresp@{sip_via_host()}"
         req.headers["CSeq"] = f"{response_sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1865,6 +2054,121 @@ class PlatformService:
             self._cascade_record_queries.pop(k, None)
         if stale_keys:
             logger.debug(f"[PlatformService] Pruned {len(stale_keys)} stale cascade record queries")
+
+    async def forward_cascade_broadcast(
+        self,
+        source_platform_gb_id: str,
+        target_device_id: str,
+        source_id: str,
+        sn: str,
+        original_xml_body: str,
+    ) -> bool:
+        """
+        FIX [2026-07-17 P1]: 转发上级平台语音广播请求到目标设备（GB28181-2016 §A.2.2）。
+
+        当本平台作为下级平台收到上级平台的 Broadcast MESSAGE 时，需将广播请求
+        转发给真实目标设备。设备收到后会响应 200 OK 并发起 talk-back INVITE。
+
+        参数:
+            source_platform_gb_id: 上级平台的 server_gb_id（用于日志）
+            target_device_id: 目标设备/通道 GB ID（可能是虚拟 GB ID，需映射）
+            source_id: 广播源 ID（通常是上级平台 GB ID）
+            sn: 上级平台分配的 SN
+            original_xml_body: 原始 Broadcast XML body（已应答 200 OK）
+
+        返回:
+            True 转发成功，False 转发失败（设备未找到/无传输）
+        """
+        from app.models.resource import Resource
+        from app.models.asset import Asset
+        from app.sip.server import sip_server as _sip_server
+
+        real_gb_id = target_device_id
+        asset_id = None
+        async with AsyncSessionLocal() as session:
+            # 1) 检查是否为级联虚拟 GB ID，若是则映射到真实 Resource
+            mapping = (await session.execute(
+                select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == target_device_id)
+            )).scalars().first()
+            if mapping:
+                mapped_resource = (await session.execute(
+                    select(Resource).where(Resource.id == mapping.resource_id)
+                )).scalars().first()
+                if mapped_resource:
+                    real_gb_id = mapped_resource.gb_id
+                    asset_id = mapped_resource.asset_id
+            # 2) 若未映射，直接按 GB ID 查 Resource
+            if not asset_id:
+                res = (await session.execute(
+                    select(Resource).where(Resource.gb_id == target_device_id)
+                )).scalars().first()
+                if res:
+                    real_gb_id = res.gb_id
+                    asset_id = res.asset_id
+            if not asset_id:
+                logger.warning(
+                    f"[PlatformService] Cannot forward Broadcast from {source_platform_gb_id}: "
+                    f"no asset for target {target_device_id}"
+                )
+                return False
+            # 3) 加载 Asset 获取传输信息
+            asset = (await session.execute(select(Asset).where(Asset.id == asset_id))).scalars().first()
+            if not asset:
+                logger.warning(f"[PlatformService] Cannot forward Broadcast: asset {asset_id} not found")
+                return False
+            device_gb_id = asset.gb_id
+            device_ip = getattr(asset, "ip", None) or ""
+            device_port = getattr(asset, "port", None) or 5060
+            device_proto = getattr(asset, "transport", None) or "UDP"
+            if not device_ip:
+                logger.warning(f"[PlatformService] Cannot forward Broadcast: device {device_gb_id} has no IP")
+                return False
+
+        transport = _sip_server.get_transport(device_ip, device_port, device_proto)
+        if not transport:
+            logger.warning(
+                f"[PlatformService] Cannot forward Broadcast: no transport to "
+                f"{device_ip}:{device_port}/{device_proto}"
+            )
+            return False
+
+        # 构建 Broadcast Notify XML（GB28181-2016 §A.2.2）
+        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Notify>
+<CmdType>Broadcast</CmdType>
+<SN>{sn}</SN>
+<SourceID>{_xml_escape(source_id or source_platform_gb_id)}</SourceID>
+<TargetID>{_xml_escape(real_gb_id)}</TargetID>
+</Notify>
+"""
+        req = SipMessage()
+        req.method = "MESSAGE"
+        req.uri = f"sip:{device_gb_id}@{device_ip}:{device_port}"
+        req.version = "SIP/2.0"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        tag = secrets.token_hex(8)
+        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
+        req.headers["To"] = f"<sip:{device_gb_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Call-ID"] = f"{sn}bcast@{sip_via_host()}"
+        req.headers["CSeq"] = f"{int(time.time() * 1000) % 100000} MESSAGE"
+        req.headers["Content-Type"] = "Application/MANSCDP+xml"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        req.body = xml_body
+
+        try:
+            await self._send_sip_message(device_proto, (device_ip, device_port), req)
+            logger.info(
+                f"[PlatformService] Forwarded Broadcast to device {device_gb_id}, "
+                f"target={real_gb_id}, source_platform={source_platform_gb_id}"
+            )
+            return True
+        except Exception as e:
+            logger.warning(
+                f"[PlatformService] Failed to forward Broadcast to {device_gb_id}: {e}"
+            )
+            return False
 
 # Singleton
 platform_service = None

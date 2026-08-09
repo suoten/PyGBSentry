@@ -9,10 +9,15 @@ class TestWebhookUrlResolution:
         # Replace the settings reference in media_manager module with a mock
         # that forces the fallback path (empty MEDIA_SERVER_HOOK_BASE_URL → /index/hook)
         monkeypatch.delenv("RUNNING_IN_DOCKER", raising=False)
+        # FIX [2026-07-19]: 补齐 MediaManager.__init__ 与 _resolve_webhook_base 访问的所有
+        # settings 属性，避免 SimpleNamespace 缺失属性导致 AttributeError。
         mock_settings = SimpleNamespace(
+            EMBEDDED_ZLM_ENABLED=False,
             MEDIA_SERVER_HOOK_BASE_URL="",
             BACKEND_PUBLIC_HOST="localhost",
             BACKEND_PUBLIC_PORT=8000,
+            API_V1_STR="/api/v1",
+            MEDIA_SERVER_HOST="",
         )
         with patch("app.services.media_manager.settings", mock_settings):
             mm = MediaManager()

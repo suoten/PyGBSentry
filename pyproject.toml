@@ -12,7 +12,7 @@
 
 [tool.ruff]
 # ---- General settings ---------------------------------------------------
-target-version = "py311"
+target-version = "py312"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 line-length = 150
 src = ["backend/app", "backend/tests"]
 extend-exclude = [
@@ -66,7 +66,7 @@ line-ending = "lf"
 # Mypy — Static type checking
 # ============================================================================
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 # Gradual typing: start permissive, tighten over time
 strict = false
 warn_return_any = false

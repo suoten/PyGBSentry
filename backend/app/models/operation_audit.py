@@ -31,6 +31,7 @@ class OperationAudit(Base):
     result = Column(String(24), nullable=False, default="success", index=True)
 
     summary = Column(Text, nullable=False, default="")
-    tenant_id = Column(String(36), nullable=True)
+    # FIX: [2026-07-16 P1] 添加 tenant_id 索引，避免多租户审计查询全表扫描
+    tenant_id = Column(String(36), nullable=True, index=True)
 
     created_at = Column(DateTime, default=func.now(), index=True)

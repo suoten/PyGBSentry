@@ -1,76 +1,78 @@
-# FIX: [2026-07-03] stream/ 包缺少 __init__.py，导致 api.py 中 _mount(stream, ...) 找不到
-#      router 属性，实时预览全部 API 返回 404。根因：包拆分时遗漏了 __init__.py。
-#      修复：创建 __init__.py，导出 stream_play 的路由和 _shared 中的公共函数。 [全栈工程师]
-"""实时预览端点包 — 导出播放/停止路由及共享函数。"""
+"""stream 子模块聚合：将所有子模块 router 合并为统一的 router 导出，并重新导出被外部引用的名称。"""
 
 from fastapi import APIRouter
 
 from .stream_play import router as play_router
-from ._shared import (
-    logger,
-    _PlayIdempotencyGuard,
-    _stream_audit,
-    _record_play_trace,
-    _read_play_trace,
-    _record_play_failure,
-    _normalize_signal_proto,
-    _media_mode_label,
-    _build_signal_targets,
-    _build_live_session_stream_key,
-    _build_stream_match_hints,
-    _wait_zlm_stream_ready,
-    _probe_stream_across_nodes,
-    _probe_zlm_stream,
-    _record_runtime_play_health,
-    _resolve_media_mode_candidates,
-    _get_gb28181_play_config,
-    _ssrc_policy_chain,
-    _INVITE_ENDPOINT_HINTS,
-    _PLAY_STATUS_RECENT_FAILURE,
-    _do_warmup_flv,
-    _get_max_concurrent_streams,
-    _release_stream_session,
-    list_streams,
-    cleanup_stream_traces,
+from .stream_control import router as control_router
+from .stream_query import router as query_router
+from .stream_proxy import router as proxy_router
+
+router = APIRouter()
+
+router.include_router(play_router)
+router.include_router(control_router)
+router.include_router(query_router)
+router.include_router(proxy_router)
+
+# ---- 重新导出被外部模块引用的名称（保持向后兼容） ----
+
+# 从 stream_play 重新导出
+from .stream_play import (
+    StopStreamRequest,
+    play_stream,
+    stop_stream,
+    get_play_status,
+    get_play_diagnostics,
+    stream_error_catalog,
+    switch_stream_type,
+    _async_invite_wait_with_retry,
 )
+
+# 从 stream_control 重新导出
+from .stream_control import (
+    PlaybackControlRequest,
+    PlaybackSeekRequest,
+    PlaybackSpeedRequest,
+    playback_stream,
+    download_stream,
+    control_playback_stream,
+    playback_pause,
+    playback_resume,
+    playback_seek,
+    playback_speed,
+)
+
+# 从 stream_query 重新导出
+from .stream_query import (
+    list_streams,
+    get_webrtc_url,
+)
+
+# 从 stream_proxy 重新导出
+from .stream_proxy import (
+    BroadcastStartRequest,
+    BroadcastStopRequest,
+    get_push_token,
+    broadcast_start,
+    broadcast_stop,
+    talk_start,
+    talk_stop,
+)
+
+# 从 _shared 重新导出（被 device_record / response_handler / channel.py 等引用）
+from ._shared import (
+    _probe_zlm_stream,
+    _build_stream_match_hints,
+    _collect_probe_nodes,
+    _probe_stream_across_nodes,
+    _release_stream_session,
+    _close_zlm_stream,
+    _PlayIdempotencyGuard,
+)
+
+# FIX [2026-07-19]: 从 _response 重新导出 _build_full_play_response 和 _map_play_stream_error，
+# 供测试模块（test_stream_play_alignment.py）和外部调用方使用。
 from ._response import (
     _build_full_play_response,
     _map_play_stream_error,
-    _play_http_exception,
 )
-
-# 合并路由
-router = APIRouter()
-router.include_router(play_router)
-
-__all__ = [
-    "router",
-    "list_streams",
-    "_PlayIdempotencyGuard",
-    "_stream_audit",
-    "_record_play_trace",
-    "_read_play_trace",
-    "_record_play_failure",
-    "_normalize_signal_proto",
-    "_media_mode_label",
-    "_build_signal_targets",
-    "_build_live_session_stream_key",
-    "_build_stream_match_hints",
-    "_wait_zlm_stream_ready",
-    "_probe_stream_across_nodes",
-    "_probe_zlm_stream",
-    "_record_runtime_play_health",
-    "_resolve_media_mode_candidates",
-    "_get_gb28181_play_config",
-    "_ssrc_policy_chain",
-    "_INVITE_ENDPOINT_HINTS",
-    "_PLAY_STATUS_RECENT_FAILURE",
-    "_do_warmup_flv",
-    "_get_max_concurrent_streams",
-    "_release_stream_session",
-    "cleanup_stream_traces",
-    "_build_full_play_response",
-    "_map_play_stream_error",
-    "_play_http_exception",
-    "logger",
-]

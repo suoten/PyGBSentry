@@ -20,12 +20,21 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - backend
+      - backend_internal
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    # FIX: [2026-07-16 P1] 添加资源限制，防止 OOM 杀死数据库进程导致数据损坏
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
 
   redis:
     # DEVOPS: redis:6 存在已知 CVE，升级到 7-alpine（Redis 7 安全补丁最新，ACL/功能增强）
@@ -43,12 +52,21 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - backend
+      - backend_internal
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+    # FIX: [2026-07-16 P1] 添加资源限制，防止 Redis 被 OOM 驱逐导致缓存击穿
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   backend:
     build: ./backend
@@ -66,6 +84,12 @@ services:
       SIP_IP: ${SIP_IP:-0.0.0.0}
       # ⚠️ 必填项：生产环境安全密钥
       SECRET_KEY: ${SECRET_KEY:?Please set SECRET_KEY in .env or environment variable}  # FIXED: i18n - replaced hardcoded Chinese with English
+      # FIX: [2026-07-16] 字段加密独立密钥（生产必填！空值将拒绝启动）
+      FIELD_ENCRYPTION_KEY: ${FIELD_ENCRYPTION_KEY:?Please set FIELD_ENCRYPTION_KEY in .env or environment variable}
+      # SIP nonce HMAC 独立密钥（为空时从 SECRET_KEY 派生，建议独立设置）
+      SIP_NONCE_SECRET: ${SIP_NONCE_SECRET:-}
+      # TOTP 密钥加密独立密钥（为空时从 SECRET_KEY 派生）
+      TOTP_ENCRYPTION_KEY: ${TOTP_ENCRYPTION_KEY:-}
       MEDIA_SERVER_SECRET: ${MEDIA_SERVER_SECRET:?Please set MEDIA_SERVER_SECRET in .env or environment variable}  # FIXED: i18n - replaced hardcoded Chinese with English
       # ⚠️ Docker 部署时必须设为容器网络可达的 IP（如宿主机 IP），否则 ZLM Hook 不可达
       BACKEND_PUBLIC_HOST: ${BACKEND_PUBLIC_HOST:?Please set BACKEND_PUBLIC_HOST in .env or environment variable (localhost not available in Docker)}  # FIXED: i18n - replaced hardcoded Chinese with English
@@ -87,7 +111,9 @@ services:
       ENABLE_OPENAPI_DOCS: ${ENABLE_OPENAPI_DOCS:-false}
       TRIAL_DAYS: ${TRIAL_DAYS:-7}
       # FIXED: CORS configuration for cross-origin access
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-["http://localhost","http://localhost:80"]}
+      # FIX: [2026-07-16 P1] 移除默认 localhost，避免生产环境启动即崩溃
+      # 同源部署（nginx 反代 /api/）可不设此变量；跨域部署必须显式设置前端域名
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-}
     ports:
       - "8000:8000"           # 后端 API
       - "5060:5060/udp"       # SIP UDP
@@ -126,7 +152,8 @@ services:
           cpus: '0.5'
           memory: 512M
     networks:
-      - backend
+      # FIX: [2026-07-16 P1] backend 同时挂载 internal 网络（访问 db/redis）和 frontend 网络（访问 nginx）
+      - backend_internal
       - frontend
     logging:
       driver: json-file
@@ -172,6 +199,11 @@ volumes:
   backend_records:
 
 networks:
+  # FIX: [2026-07-16 P1] db/redis 仅挂载 internal 网络，禁止出站访问外部网络
+  backend_internal:
+    driver: bridge
+    internal: true
+  # backend 与 frontend 通信网络
   backend:
     driver: bridge
     internal: false

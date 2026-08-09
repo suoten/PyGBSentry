@@ -1,5 +1,6 @@
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.base import Base
 
@@ -24,9 +25,13 @@ class Organization(Base):
     id = Column(String(32), primary_key=True, default=generate_uuid)
 
     name = Column(String(128), nullable=False)
-    parent_id = Column(String(32), nullable=True, index=True)
+    # FIX: [2026-07-17 P1] 添加自引用 ForeignKey，防止脏数据；RESTRICT 阻止删除有子节点的组织
+    parent_id = Column(String(32), ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=True, index=True)
     tenant_id = Column(String(64), default="default", index=True)
     sort_order = Column(Integer, default=0)
+
+    # FIX: [2026-07-17 P1] 建立 ORM 关系，便于 eager loading
+    children = relationship("Organization", backref="parent", remote_side=[id], lazy="selectin")
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

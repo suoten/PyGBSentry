@@ -37,8 +37,9 @@ def fire_and_forget(coro: Awaitable[T], *, name: Optional[str] = None) -> Option
         # "coroutine was never awaited" warning, then give up.
         try:
             coro.close()  # type: ignore[attr-defined]
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _close_err:
+            # FIX [2026-07-17 P3-3]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"fire_and_forget: failed to close unawaited coroutine: {_close_err}")
         return None
 
     task = loop.create_task(coro, name=name) if name else loop.create_task(coro)

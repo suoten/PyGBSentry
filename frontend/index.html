@@ -5,13 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/icons/logo.svg" />
     <link rel="manifest" href="/manifest.json" />
     <meta name="theme-color" content="#409eff" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PyGBSentry" />
     <link rel="apple-touch-icon" href="/icons/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- P0-8: CSP meta（nginx 响应头优先；此 meta 作为开发模式兜底） -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:;" />
+    <!-- FIX: [2026-07-13] 1) 移除 frame-ancestors — 该指令只能通过 HTTP 响应头
+         传递，经 <meta> 投递时浏览器会忽略并告警（后端 SecurityHeadersMiddleware
+         已通过响应头设置 frame-ancestors 'none'）。
+         2) connect-src 移除通配 ws:/wss: — 违反安全约束（禁止通配 ws/wss），
+         与 nginx.conf 保持一致使用 'self'。 [全栈工程师] -->
+    <!-- FIX: [2026-07-18 P0] 恢复 'unsafe-eval' — vue-i18n 9.x 运行时消息编译器
+         需要 eval()，移除后 App.vue setup 抛出 EvalError 导致整个页面白屏。
+         之前 [2026-07-16 P0] 移除 unsafe-eval 的判断是错误的：虽然 Vue3 核心
+         生产构建不需要 eval，但 vue-i18n 的消息格式化（{0}、{name} 等占位符）
+         在运行时通过 new Function() 编译，需要 unsafe-eval 权限。 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: blob: https://*.tianditu.gov.cn http://*.autonavi.com https://*.bdimg.com https://*.openstreetmap.org https://basemaps.arcgis.com https://*.arcgis.com; connect-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; frame-src 'self'; worker-src 'self' blob:;" />
     <title>PyGBSentry</title>
   </head>
   <body>

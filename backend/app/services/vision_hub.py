@@ -42,7 +42,7 @@ class VisionHub:
 
     async def start(self):
         """Start."""
-        if not bool(getattr(settings, "VISION_HUB_ENABLED", False)):
+        if not settings.VISION_HUB_ENABLED:
             self.enabled = False
             logger.info("AI Vision Hub disabled by config (VISION_HUB_ENABLED=false).")
             return

@@ -376,10 +376,10 @@ async def get_gb28181_play_config(
         _parse_json_value(values.get("gb28181.bootstrap_learning_weights"), dict(_DEFAULT_BOOTSTRAP_WEIGHTS))
     )
     return {
-        "ssrc_policy": values.get("gb28181.ssrc_policy") or getattr(settings, "GB28181_SSRC_POLICY", "adaptive"),
-        "ssrc_retry_on_not_ready": (values.get("gb28181.ssrc_retry_on_not_ready") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.ssrc_retry_on_not_ready" in values else bool(getattr(settings, "GB28181_SSRC_RETRY_ON_NOT_READY", True)),
-        "ssrc_retry_order": values.get("gb28181.ssrc_retry_order") or getattr(settings, "GB28181_SSRC_RETRY_ORDER", "strict,off"),
-        "auto_ensure_embedded_media_node": (values.get("gb28181.auto_ensure_embedded_media_node") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.auto_ensure_embedded_media_node" in values else bool(getattr(settings, "GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE", True)),
+        "ssrc_policy": values.get("gb28181.ssrc_policy") or settings.GB28181_SSRC_POLICY,
+        "ssrc_retry_on_not_ready": (values.get("gb28181.ssrc_retry_on_not_ready") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.ssrc_retry_on_not_ready" in values else settings.GB28181_SSRC_RETRY_ON_NOT_READY,
+        "ssrc_retry_order": values.get("gb28181.ssrc_retry_order") or settings.GB28181_SSRC_RETRY_ORDER,
+        "auto_ensure_embedded_media_node": (values.get("gb28181.auto_ensure_embedded_media_node") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.auto_ensure_embedded_media_node" in values else settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE,
         "bootstrap_templates": bootstrap_templates,
         "bootstrap_learning_weights": bootstrap_learning_weights,
     }

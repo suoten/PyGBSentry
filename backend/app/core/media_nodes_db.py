@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from app.services.zlm_stream_control import _get_zlm_client
 from typing import Any
 
+# 节点探测失败日志限速：同一节点 60 秒内只输出一次 WARNING
+_NODE_FAIL_LOG_COOLDOWN: dict[str, float] = {}
+_NODE_FAIL_LOG_COOLDOWN_SECONDS = 60.0
+
 from datetime import datetime, timedelta, timezone
 import socket
 from urllib.parse import urlparse
@@ -51,16 +55,16 @@ def _to_runtime(node: MediaNode) -> RuntimeMediaNode:
     public_host = (
         (getattr(node, "stream_ip", None) or "").strip()
         or (node.public_ip or "").strip()
-        or (getattr(settings, "STREAM_PUBLIC_HOST", "") or "").strip()
+        or (settings.STREAM_PUBLIC_HOST or "").strip()
         or (node.ip or "").strip()
     )
     if not public_host:
         public_host = node.ip
-    public_http_port = int(getattr(settings, "STREAM_PUBLIC_HTTP_PORT", 0) or 0) or int(node.http_port or 0)
+    public_http_port = settings.STREAM_PUBLIC_HTTP_PORT or int(node.http_port or 0)
     # secret 为空时回退全局密钥，避免 getMediaList?secret= 刷屏与探测失败
     # P0-02: node 是 ORM MediaNode，secret 列存储密文，需通过 decrypted_secret 取明文
     _plain_secret = node.decrypted_secret
-    node_secret = (str(_plain_secret or "").strip() or str(getattr(settings, "MEDIA_SERVER_SECRET", "") or "").strip())
+    node_secret = (str(_plain_secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip())
     return RuntimeMediaNode(
         id=node.id,
         host=node.ip,
@@ -137,12 +141,12 @@ def _detect_lan_ip() -> str | None:
 
 
 async def _detect_public_ip() -> str | None:
-    if not bool(getattr(settings, "AUTO_DETECT_PUBLIC_IP", False)):
+    if not settings.AUTO_DETECT_PUBLIC_IP:
         return None
-    url = str(getattr(settings, "PUBLIC_IP_LOOKUP_URL", "") or "").strip()
+    url = str(settings.PUBLIC_IP_LOOKUP_URL or "").strip()
     if not url:
         return None
-    timeout_s = float(getattr(settings, "PUBLIC_IP_LOOKUP_TIMEOUT_SECONDS", 2.0) or 2.0)
+    timeout_s = settings.PUBLIC_IP_LOOKUP_TIMEOUT_SECONDS
     try:
         client = await _get_zlm_client()
         r = await client.get(url, timeout=timeout_s)
@@ -187,28 +191,57 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
         result = await db.execute(select(MediaNode).where(MediaNode.is_embedded.is_(True)).limit(1))
         existed = result.scalars().first()
         range_mode, range_start, range_end = _parse_rtp_port_range(
-            getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "")
+            settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE
         )
         # 计算更合理的“对外可达地址”默认值：优先 STREAM_PUBLIC_HOST，其次 BACKEND_PUBLIC_HOST；
         # 若仍是 localhost/127.0.0.1，则不写入（留给用户在运维中心手工填）。
         # W-19 MEDIA_SERVER_HOST回退值改为空字符串，非本地部署时显式报错
-        media_host = str(getattr(settings, "MEDIA_SERVER_HOST", "") or "").strip()
+        media_host = str(settings.MEDIA_SERVER_HOST or "").strip()
         # 强制使用环境配置里的 IP，如果它是 127.0.0.1 则让 ZLM 无法正确把 hook 连上来（或者它就是本地调试用）
         # 这里移除自动探测局域网 IP，保证和 .env 里的一致，或者确保不污染 DB
-        stream_public = str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "").strip()
-        backend_public = str(getattr(settings, "BACKEND_PUBLIC_HOST", "") or "").strip()
+        stream_public = str(settings.STREAM_PUBLIC_HOST or "").strip()
+        backend_public = str(settings.BACKEND_PUBLIC_HOST or "").strip()
         preferred_public = stream_public or backend_public
         if preferred_public.lower() in {"localhost", "127.0.0.1", "0.0.0.0"}:
             preferred_public = ""
         if not preferred_public:
             preferred_public = (await _detect_public_ip()) or ""
         preferred_public = preferred_public or None
-        backend_public_port = int(getattr(settings, "BACKEND_PUBLIC_PORT", 8000) or 8000)
-        api_v1_str = str(getattr(settings, "API_V1_STR", "/api/v1") or "/api/v1")
-        force_single = bool(getattr(settings, "FORCE_SINGLE_PORT_MULTIPLEXING", True))
+        backend_public_port = settings.BACKEND_PUBLIC_PORT
+        api_v1_str = str(settings.API_V1_STR or "/api/v1")
+        force_single = settings.FORCE_SINGLE_PORT_MULTIPLEXING
 
         if existed:
             changed = False
+            # FIX: [2026-07-16] 节点已存在但 secret 为空或无法解密时，用当前 MEDIA_SERVER_SECRET 重新填充。
+            # 根因 1: 首次创建节点时若 FIELD_ENCRYPTION_KEY 为空，encrypt_field 抛 ValueError 被外层
+            #         except 捕获，导致 secret 列为 None。
+            # 根因 2: 早期版本 MediaNode.secret 直接存明文（无 decrypted_secret 属性），
+            #         后续版本加了加密层但旧数据没迁移，secret 列存的是明文而非密文。
+            #         此时 decrypt_field(明文) 会失败（因为明文不是合法的 base64 密文格式）。
+            # 根因 3: FIELD_ENCRYPTION_KEY 被修改后，旧密文无法用新密钥解密。
+            # 这三种情况都会导致 health_service 误报 "Field decryption failed"。
+            _current_secret = getattr(existed, "secret", None) or ""
+            _need_refill = False
+            if not _current_secret:
+                _need_refill = True
+            else:
+                # secret 列有值，检查能否解密
+                try:
+                    from app.core.field_crypto import decrypt_field as _decrypt_check
+                    _decrypted = _decrypt_check(_current_secret, purpose="media_secret")
+                    if _decrypted is None:
+                        _need_refill = True
+                        logger.info(f"ensure_embedded_media_node: existing secret cannot be decrypted (likely plaintext from legacy version or key changed), will refill")
+                except Exception:
+                    _need_refill = True
+
+            if _need_refill:
+                _media_secret = str(settings.MEDIA_SERVER_SECRET or "").strip()
+                if _media_secret:
+                    existed.decrypted_secret = _media_secret  # setter 自动加密
+                    changed = True
+                    logger.info("ensure_embedded_media_node: refilled secret with current MEDIA_SERVER_SECRET (encrypted)")
             if (not (getattr(existed, "public_ip", None) or "").strip()) and preferred_public:
                 existed.public_ip = preferred_public
                 changed = True
@@ -225,10 +258,16 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
             current_hook_base = (getattr(existed, "hook_base_url", None) or "").strip()
             # FIXED-P0: 优先使用 MEDIA_SERVER_HOOK_BASE_URL 环境变量
             # ZLM 在本机时需要用 127.0.0.1 回调后端，不能用公网域名
-            global_hook_base = str(getattr(settings, "MEDIA_SERVER_HOOK_BASE_URL", "") or "").strip()
+            # FIX: [2026-07-16] 确保 hook_base_url 始终包含 /api/v1/hook 后缀，
+            # 否则 _resolve_webhook_base 会判定为 loopback URL 跳过，回退到公网域名
+            global_hook_base = str(settings.MEDIA_SERVER_HOOK_BASE_URL or "").strip()
             if global_hook_base:
-                if current_hook_base != global_hook_base:
-                    existed.hook_base_url = global_hook_base
+                # 附加 /api/v1/hook 后缀（用户配置可能只给了 http://127.0.0.1:8000）
+                _normalized_hook_base = global_hook_base.rstrip("/")
+                if not _normalized_hook_base.endswith(f"{api_v1_str}/hook"):
+                    _normalized_hook_base = f"{_normalized_hook_base}{api_v1_str}/hook"
+                if current_hook_base != _normalized_hook_base:
+                    existed.hook_base_url = _normalized_hook_base
                     changed = True
             elif not current_hook_base or _is_local_url(current_hook_base):
                 hook_host = (getattr(existed, "hook_ip", None) or "").strip() or media_host
@@ -267,14 +306,14 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
                 else None
             ),
             hook_ip=(media_host if media_host and not _is_local_host(media_host) else None),
-            http_port=int(getattr(settings, "MEDIA_SERVER_HTTP_PORT", 8880) or 8880),
-            rtsp_port=int(getattr(settings, "MEDIA_SERVER_RTSP_PORT", 554) or 554),
-            rtmp_port=int(getattr(settings, "MEDIA_SERVER_RTMP_PORT", 1935) or 1935),
-            rtp_proxy_port=int(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT", 30000) or 30000),
+            http_port=settings.MEDIA_SERVER_HTTP_PORT,
+            rtsp_port=settings.MEDIA_SERVER_RTSP_PORT,
+            rtmp_port=settings.MEDIA_SERVER_RTMP_PORT,
+            rtp_proxy_port=settings.MEDIA_SERVER_RTP_PROXY_PORT,
             rtp_port_mode=range_mode,
             rtp_port_range_start=int(range_start),
             rtp_port_range_end=int(range_end),
-            decrypted_secret=str(getattr(settings, "MEDIA_SERVER_SECRET", "") or ""),  # P0-02: setter 自动加密后存入 secret 列
+            decrypted_secret=str(settings.MEDIA_SERVER_SECRET or ""),  # P0-02: setter 自动加密后存入 secret 列
             is_embedded=True,
             # 内置节点默认允许自动下发配置（由 media_manager 生成 config.ini）
             auto_config_enabled=True,
@@ -327,8 +366,14 @@ async def get_all_media_from_nodes(nodes: list[RuntimeMediaNode]) -> list[dict[s
             logger.debug(f"getMediaList failed for node {node.id} ({node.host}:{node.http_port}): {e}")
         return items
 
-    results = await asyncio.gather(*[_fetch(n) for n in nodes])
+    # P1-fix: 添加 return_exceptions=True，单节点异常不会取消其他节点的并发查询
+    # 原实现下若 _fetch 抛出未预期异常（如 AttributeError 编程错误），gather 会取消所有兄弟任务
+    results = await asyncio.gather(*[_fetch(n) for n in nodes], return_exceptions=True)
     for batch in results:
+        if isinstance(batch, Exception):
+            # _fetch 内部已有 try/except 返回空列表，这里仅处理未预期的编程错误
+            logger.warning(f"get_all_media_list _fetch unexpected error: {batch}")
+            continue
         out.extend(batch)
     return out
 
@@ -341,7 +386,10 @@ async def get_all_media_from_nodes(nodes: list[RuntimeMediaNode]) -> list[dict[s
 #   - 30s TTL 自动过期（与 INVITE 超时匹配），无需调用方显式释放
 #   - 即使调用方异常未释放，30s 后自动失效，避免永久占用计数
 _node_inflight: dict[str, list[float]] = {}
-_INFLIGHT_TTL = 30.0
+# FIX: [2026-07-16] 原 30s TTL 与 INVITE 同步等待 22s + ZLM 流就绪探测 10s（共 32s）不匹配，
+# in-flight 计数过期后负载均衡可能再次选中该节点，导致节点过载。
+# 提升到 60s 覆盖完整点播周期。
+_INFLIGHT_TTL = 60.0
 
 
 def _prune_inflight(node_id: str, now: float) -> int:
@@ -436,11 +484,23 @@ async def _async_get_stream_count(node: RuntimeMediaNode) -> tuple[RuntimeMediaN
                         net_out = float(sys_info.get("NetTotalOut") or 0)
                         net_mbps = (net_in + net_out) / (1024 * 1024)
             except Exception as e:
-                logger.warning(f"getStatistic failed for node {node.id} ({node.host}:{node.http_port}): {e}")
+                # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING，避免 ZLM 宕机时刷屏
+                node_id_stat = str(node.id)
+                now_ts_stat = time.time()
+                last_ts_stat = _NODE_FAIL_LOG_COOLDOWN.get(node_id_stat, 0)
+                if now_ts_stat - last_ts_stat >= _NODE_FAIL_LOG_COOLDOWN_SECONDS:
+                    logger.warning(f"getStatistic failed for node {node_id_stat} ({node.host}:{node.http_port}): {e}")
+                    _NODE_FAIL_LOG_COOLDOWN[node_id_stat] = now_ts_stat
 
         return node, count, is_alive, cpu, mem, net_mbps
     except Exception as e:
-        logger.warning(f"_async_get_stream_count failed for node {getattr(node, 'id', '?')}: {e}")
+        # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING，避免 ZLM 宕机时刷屏
+        node_id_outer = str(getattr(node, 'id', '?'))
+        now_ts_outer = time.time()
+        last_ts_outer = _NODE_FAIL_LOG_COOLDOWN.get(node_id_outer, 0)
+        if now_ts_outer - last_ts_outer >= _NODE_FAIL_LOG_COOLDOWN_SECONDS:
+            logger.warning(f"_async_get_stream_count failed for node {node_id_outer}: {e}")
+            _NODE_FAIL_LOG_COOLDOWN[node_id_outer] = now_ts_outer
         return node, 999999, False, 0.0, 0.0, 0.0
 
 async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = None) -> RuntimeMediaNode | None:
@@ -469,7 +529,8 @@ async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = No
         return None
 
     tasks = [_async_get_stream_count(n) for n in nodes]
-    results = await asyncio.gather(*tasks)
+    # FIX [2026-07-17 P1-E2]: 启用 return_exceptions=True，单个节点探测失败不取消其他并发任务
+    results = await asyncio.gather(*tasks, return_exceptions=True)
 
     alive_nodes: list[tuple[RuntimeMediaNode, int, float, float, float]] = []
     for item in results:
@@ -490,7 +551,8 @@ async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = No
         all_nodes = await list_db_media_nodes(db)
         if all_nodes:
             fallback_tasks = [_async_get_stream_count(n) for n in all_nodes]
-            fallback_results = await asyncio.gather(*fallback_tasks)
+            # FIX [2026-07-17 P1-E2]: 启用 return_exceptions=True
+            fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
             for item in fallback_results:
                 if not isinstance(item, tuple):
                     continue

@@ -1,0 +1,218 @@
+.add-btn {
+  border-radius: var(--el-border-radius-base);
+  transition: box-shadow var(--transition-time-02);
+}
+
+.add-btn:hover {
+  box-shadow: var(--ds-shadow-2);
+}
+
+.users-card {
+  box-shadow: none;
+}
+
+.users-table {
+  border-radius: var(--el-border-radius-base);
+  overflow: hidden;
+}
+
+.users-table :deep(.el-table__body tr) {
+  transition: background-color var(--transition-time-02);
+}
+
+.users-table :deep(.el-table__body tr:hover > td.el-table__cell) {
+  background: var(--el-fill-color-light);
+}
+
+.username-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
+.avatar-wrapper {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--ds-radius-lg);
+  background: var(--el-color-primary-light-9);
+  color: var(--el-color-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: none;
+}
+
+.avatar-text {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.username-text {
+  font-weight: 500;
+  color: var(--el-text-color-primary);
+}
+
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+
+.tenant-tag {
+  font-family: Consolas, Monaco, monospace;
+}
+
+.role-tag {
+  font-weight: 500;
+}
+
+.status-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+.status-dot.active {
+  background: var(--el-color-success);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
+.status-dot.inactive {
+  background: var(--el-color-warning);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2);
+}
+
+.edit-btn {
+  transition: box-shadow var(--transition-time-02);
+}
+
+.edit-btn:hover {
+  box-shadow: var(--ds-shadow-2);
+}
+
+.delete-btn {
+  transition: box-shadow var(--transition-time-02);
+}
+
+.delete-btn:hover {
+  box-shadow: var(--ds-shadow-2);
+}
+
+.empty-action-btn {
+  border-radius: var(--el-border-radius-base);
+  transition: box-shadow var(--transition-time-02);
+}
+
+.empty-action-btn:hover {
+  box-shadow: var(--ds-shadow-2);
+}
+
+.user-dialog :deep(.el-dialog__header) {
+  display: none;
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--el-text-color-primary);
+  margin-bottom: var(--ds-space-6);
+  padding-bottom: var(--ds-space-4);
+  border-bottom: 2px solid var(--el-border-color-lighter);
+}
+
+.user-form {
+  padding: var(--ds-space-2) 0;
+}
+
+.input-wrapper,
+.select-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-icon {
+  position: absolute;
+  left: 12px;
+  z-index: 10;
+  color: var(--el-text-color-secondary);
+  font-size: 18px;
+}
+
+.form-input :deep(.el-input__wrapper),
+.form-select :deep(.el-input__wrapper) {
+  padding-left: 40px;
+  border-radius: var(--ds-radius-lg);
+  box-shadow: 0 0 0 1px var(--el-border-color-lighter) inset;
+  transition: all var(--transition-time-02);
+}
+
+.form-input :deep(.el-input__wrapper:hover),
+.form-select :deep(.el-input__wrapper:hover) {
+  box-shadow: 0 0 0 1px var(--el-color-primary-light-5) inset;
+}
+
+.form-input :deep(.el-input__wrapper.is-focus),
+.form-select :deep(.el-input__wrapper.is-focus) {
+  box-shadow: 0 0 0 2px var(--el-color-primary-light-8) inset;
+}
+
+.switch-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-3);
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--ds-space-3);
+  padding-top: var(--ds-space-4);
+  border-top: 1px solid var(--el-border-color-extra-light);
+}
+
+.cancel-btn {
+  border-radius: var(--ds-radius-lg);
+  transition: all var(--transition-time-02);
+}
+
+.cancel-btn:hover {
+  background: var(--el-fill-color-light);
+  border-color: var(--el-border-color);
+}
+
+.confirm-btn {
+  border-radius: var(--ds-radius-lg);
+  transition: box-shadow var(--transition-time-02);
+}
+
+.confirm-btn:hover {
+  box-shadow: var(--ds-shadow-2);
+}

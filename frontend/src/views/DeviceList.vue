@@ -130,7 +130,11 @@ const fetchDevices = async (silentArg?: boolean | number) => {
   const fb = filterBar.value
   try {
     const keyword = String(fb?.deviceKeyword || '').trim()
-    const status = fb?.deviceStatus === '' ? undefined : Number(fb?.deviceStatus)
+    // FIX: [2026-07-13] 当 deviceStatus 为 undefined/null 时 Number() 产生 NaN，
+    // 导致 /api/v1/devices?status=NaN 422 错误。使用显式空值检查避免 NaN。
+    // [全栈工程师]
+    const rawStatus = fb?.deviceStatus
+    const status = (rawStatus && rawStatus !== '') ? Number(rawStatus) : undefined
     const res = await deviceApi.list({ skip: (page.value - 1) * pageSize.value, limit: pageSize.value, organization_id: fb?.filterOrganizationId || undefined, keyword: keyword || undefined, status })
     const payload = res.data || {}; const items = Array.isArray(payload?.items) ? payload.items : []; const stats = payload?.stats || {}
     devices.value = items; total.value = Number(payload?.total || 0); totalDisplay.value = total.value

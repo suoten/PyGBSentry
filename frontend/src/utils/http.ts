@@ -120,10 +120,12 @@ api.interceptors.response.use(
       try {
         const refreshToken = safeSSGet('refresh_token')
         if (!refreshToken) throw new Error('No refresh token')
+        // FIX: [2026-07-16 P1] 为 token 刷新请求添加超时，避免后端慢响应时
+        // 阻塞所有排队的 401 重试请求导致前端假死
         const res = await axios.post(
           `${import.meta.env.VITE_API_BASE_URL || '/'}/api/v1/login/refresh-token`,
           { refresh_token: refreshToken },
-          { withCredentials: true }
+          { withCredentials: true, timeout: 10000 }
         )
         const newToken = res.data?.access_token || res.data?.token
         if (newToken && typeof newToken === 'string') {
@@ -174,7 +176,21 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
     if (status === HTTP_STATUS.TOO_MANY_REQUESTS) {
-      ElMessage.warning(i18n.global.t('common.tooManyRequests'))  // FIXED: 国际化
+      // FIX: [2026-07-16 P1] 解析 Retry-After 头，告知用户等待时间
+      const retryAfter = error.response.headers?.['retry-after']
+      const retryMsg = retryAfter
+        ? i18n.global.t('common.tooManyRequestsRetry', { seconds: retryAfter })
+        : i18n.global.t('common.tooManyRequests')
+      ElMessage.warning(retryMsg)  // FIXED: 国际化
+      return Promise.reject(error)
+    }
+    // FIX: [2026-07-16 P1] 处理 423 账户锁定，解析 Retry-After 头
+    if (status === HTTP_STATUS.LOCKED) {
+      const retryAfter = error.response.headers?.['retry-after']
+      const lockMsg = retryAfter
+        ? i18n.global.t('common.accountLockedRetry', { minutes: Math.ceil(Number(retryAfter) / 60) })
+        : i18n.global.t('common.accountLocked')
+      ElMessage.error(lockMsg)
       return Promise.reject(error)
     }
     if (status === HTTP_STATUS.NOT_IMPLEMENTED) {

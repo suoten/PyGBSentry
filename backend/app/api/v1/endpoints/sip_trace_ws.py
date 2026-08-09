@@ -70,14 +70,18 @@ async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
                 await asyncio.sleep(30)
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
-                except Exception:
+                except Exception as _hb_err:
+                    # P2-fix: 记录心跳停止原因，便于排查半开连接
+                    logger.debug(f"sip_trace_ws: heartbeat stopped: {_hb_err}")
                     break
-        heartbeat_task = asyncio.create_task(_heartbeat())
+        # P2-fix: 添加 name 参数便于 asyncio.all_tasks() 排查
+        heartbeat_task = asyncio.create_task(_heartbeat(), name="sip_trace_ws_heartbeat")
         try:
             while True:
                 await websocket.receive_text()
-        except WebSocketDisconnect:
-            logger.debug("swallowed_exception", exc_info=True)
+        except WebSocketDisconnect as _ws_err:
+            # FIX [2026-07-17 P3-11]: 描述性日志替代 "swallowed_exception"
+            logger.debug(f"sip_trace_ws: client disconnected: {_ws_err}")
         finally:
             heartbeat_task.cancel()
     finally:

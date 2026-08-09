@@ -215,7 +215,8 @@ const loginRules = reactive<FormRules>({
   ],
   password: [
     { required: true, message: () => t('login.passwordRequired'), trigger: 'blur' },
-    { min: 6, max: 128, message: () => t('login.passwordLength'), trigger: 'blur' }
+    // FIX: [2026-07-16 P1] 与注册页/后端校验对齐：min 8 而非 6
+    { min: 8, max: 128, message: () => t('login.passwordLength'), trigger: 'blur' }
   ]
 })
 const loading = ref(false)

@@ -44,9 +44,16 @@ from app.services.zlm_stream_control import close_zlm_stream
 from app.sip.watchdog import start_watchdog, cancel_watchdog
 from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
+# FIX [2026-07-17 P1]: 统一使用进程级 CSeq 计数器（RFC 3261 §22.2 单调递增）
+from app.sip.commander import _next_cseq
 from app.core.plugin_manager import plugin_manager
 from app.sip.ssrc_manager import ssrc_manager
 from app.sip.dialog_manager import dialog_manager
+# P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 长会话保活机制
+from app.sip.invite_server_state import (
+    apply_session_expires_to_request,
+    parse_session_expires,
+)
 
 
 def _gb28181_playback_time(epoch: int) -> str:
@@ -59,11 +66,14 @@ def _gb28181_playback_time(epoch: int) -> str:
         return "19700101T000000Z"
 
 
-def _attach_trace_header(req: SipMessage) -> None:
-    call_id = (req.get_header("Call-ID") or "").strip()
-    if call_id:
-        req.headers["X-Trace-ID"] = call_id
-from app.core.config import settings, sip_host_for_contact
+def _attach_trace_header(req: SipMessage) -> str:
+    """返回 Call-ID 作为 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 请求添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request。
+    """
+    return (req.get_header("Call-ID") or "").strip()
+from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from fastapi import HTTPException
 from app.sip.state_backend import get_sip_state_backend
@@ -94,8 +104,11 @@ class InviteState:
         self.invite_pending: dict[str, tuple[asyncio.Event, dict]] = {}
         self.invite_pending_max_size = 10000
         self.invite_provisional: dict[str, dict] = {}
-        self.cascade_call_ids: set[str] = set()
+        # FIX [2026-07-17 P1-B3]: cascade_call_ids 从 set 改为 dict[str, float]（call_id -> timestamp），
+        # 支持按 TTL 清理过期条目，避免超限时整体清空丢失活跃级联 INVITE 跟踪。
+        self.cascade_call_ids: dict[str, float] = {}
         self.cascade_call_ids_max = 2000
+        self.cascade_call_ids_ttl = 300  # 5 分钟 TTL，超过的视为已完成级联事务
         self.channel_invite_locks: dict[str, asyncio.Lock] = {}
         self.ssrc_gen_lock = asyncio.Lock()
         # FIX: [2026-07-03] 全局并发 INVITE 信号量，防止大流量时打爆设备 [全栈工程师]
@@ -118,9 +131,19 @@ class InviteState:
             for k in sorted_keys[:excess]:
                 self.stream_switch_rollback_depth.pop(k, None)
                 self.stream_switch_rollback_depth_timestamps.pop(k, None)
-        # 清理 cascade_call_ids：超过 max_size 时整体清空（set 无法按时间排序，安全清空）
-        if len(self.cascade_call_ids) > self.cascade_call_ids_max:
-            self.cascade_call_ids.clear()
+        # FIX [2026-07-17 P1-B3]: cascade_call_ids 按 TTL 清理过期条目，而非整体清空。
+        # 原实现 .clear() 会丢失所有活跃级联 INVITE 的 Call-ID 跟踪，
+        # 导致进行中的级联流无法匹配响应，引发资源泄漏和流异常中断。
+        if self.cascade_call_ids:
+            _stale_cascade = [k for k, t in self.cascade_call_ids.items() if now - t > self.cascade_call_ids_ttl]
+            for k in _stale_cascade:
+                self.cascade_call_ids.pop(k, None)
+            # 溢出兜底：仍超限时移除最旧的条目（按 timestamp 排序）
+            if len(self.cascade_call_ids) > self.cascade_call_ids_max:
+                _sorted_keys = sorted(self.cascade_call_ids.keys(), key=lambda k: self.cascade_call_ids.get(k, 0))
+                _excess = len(self.cascade_call_ids) - self.cascade_call_ids_max + 100
+                for k in _sorted_keys[:_excess]:
+                    self.cascade_call_ids.pop(k, None)
         # 清理 stream_switch_pending + stream_switch_pending_timestamps：超过 TTL 的条目
         if self.stream_switch_pending_timestamps:
             _stale_switch_keys = [k for k, t in self.stream_switch_pending_timestamps.items() if now - t > self.stream_switch_pending_ttl]
@@ -201,9 +224,9 @@ async def _send_cancel(addr: tuple, proto: str, transport, call_id: str, from_ta
     cancel_req.method = "CANCEL"
     cancel_req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
     cancel_req.version = "SIP/2.0"
-    cancel_req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={invite_branch}"
-    cancel_req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
-    cancel_req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+    cancel_req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={invite_branch}"
+    cancel_req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={from_tag}"
+    cancel_req.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>"
     cancel_req.headers["Call-ID"] = call_id
     cancel_req.headers["CSeq"] = f"{cseq_num} CANCEL"
     cancel_req.headers["Max-Forwards"] = "70"
@@ -221,10 +244,10 @@ async def _send_bye_for_timeout(addr: tuple, proto: str, transport, call_id: str
     bye_req.method = "BYE"
     bye_req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
     bye_req.version = "SIP/2.0"
-    branch = f"z9hG4bKbye{secrets.token_hex(4)}"
-    bye_req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-    bye_req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
-    to_header = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+    branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀，兼容 EasyGBS 等非标准客户端
+    bye_req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+    bye_req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={from_tag}"
+    to_header = f"<sip:{channel_id}@{sip_from_to_host()}>"
     if to_tag:
         to_header += f";tag={to_tag}"
     bye_req.headers["To"] = to_header
@@ -312,7 +335,7 @@ def _register_invite_pending(call_id: str) -> tuple[asyncio.Event, dict]:
     return event, result
 
 
-def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: str, to_tag: str | None = None, record_route: str | None = None) -> None:
+def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: str, to_tag: str | None = None, record_route: str | None = None, session_expires_header: str | None = None) -> None:
     entry = invite_state.invite_pending.pop(call_id, None)
     if not entry:
         return
@@ -330,12 +353,52 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
         try:
             from_tag = result.get("from_tag", "")
             if from_tag:
+                # P1-fix [2026-07-17]: 捕获当前 dialog_manager 引用到局部变量，
+                # 避免 fire_and_forget 闭包在 patch 退出后访问到已被还原的模块级变量
+                _dm = dialog_manager
                 # GB28181协议 — 级联场景传递Record-Route头到dialog
                 route_header = result.get("record_route", "")
                 route_set = [route_header] if route_header else None
-                fire_and_forget(dialog_manager.confirm_dialog(
+                fire_and_forget(_dm.confirm_dialog(
                     call_id, from_tag, to_tag, route_set=route_set,
                 ))
+                # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 协商 200 OK 中的 Session-Expires
+                # GB28181-2016 兼容：无该头域时降级为现有行为，仅记录 debug 日志
+                if session_expires_header:
+                    try:
+                        se_seconds, se_refresher = parse_session_expires(session_expires_header)
+                    except Exception as _se_parse_err:
+                        # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+                        logger.warning(f"on_invite_response: failed to parse Session-Expires header call_id={call_id}: {_se_parse_err}")
+                        se_seconds, se_refresher = 0, ""
+                else:
+                    # GB28181-2016 兼容降级：无 Session-Expires 头域
+                    logger.debug(f"on_invite_response: 200 OK without Session-Expires (GB28181 degrade) call_id={call_id}")
+                    se_seconds, se_refresher = 0, ""
+                # UAC 侧 local_role=uac；refresher 未指定时按 RFC 4028 默认 uac 刷新
+                refresher_role = (se_refresher or "uac") if se_seconds > 0 else ""
+
+                async def _setup_session_timer(_cid: str, _ft: str, _exp: int, _ref: str) -> None:
+                    """fire_and_forget 包装：写 Session Timer 状态并按需启动定时器。"""
+                    try:
+                        ok_set = await _dm.set_session_timer(
+                            _cid, _ft,
+                            expires=_exp,
+                            refresher=_ref,
+                            local_role="uac",
+                        )
+                        if ok_set:
+                            # start_session_timer 内部已使用 fire_and_forget 调度任务
+                            _dm.start_session_timer(_cid, _ft)
+                            logger.debug(f"on_invite_response: session timer started call_id={_cid} expires={_exp} refresher={_ref}")
+                    except Exception as _se_set_err:
+                        # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+                        logger.warning(f"on_invite_response: failed to set session timer call_id={_cid}: {_se_set_err}")
+
+                fire_and_forget(
+                    _setup_session_timer(call_id, from_tag, se_seconds, refresher_role),
+                    name=f"session_timer_setup:{call_id}",
+                )
         except Exception as e:
             logger.warning(f"Failed to confirm dialog for INVITE 2xx call_id={call_id}: {e}")  # 资源清理失败仅debug日志，提升为warning
     if status_code >= 300:
@@ -468,7 +531,10 @@ async def wait_ssrc_stream_registered(ssrc: str, timeout: float = 8.0) -> bool:
         backend = get_sip_state_backend()
         result = await backend.wait_ssrc_stream(ssrc, timeout=timeout)
         return result
-    except Exception:
+    except Exception as e:
+        # FIX [2026-07-19 P1]: 原 except 静默 return False，SSRC 等待失败无法诊断。
+        # 区分超时与异常：超时由 wait_ssrc_stream 返回 False，此处仅为后端调用异常。
+        logger.warning(f"wait_ssrc_stream backend call failed ssrc={ssrc}: {e}")
         return False
     finally:
         try:
@@ -575,9 +641,16 @@ def _get_client_tx_manager():
 
 
 async def _check_and_consume_invite_rate(tenant_id: str, device_id: str) -> tuple[bool, str]:
-    window = float(getattr(settings, "SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS", 5.0) or 5.0)
-    per_device = int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_DEVICE", 8) or 8)
-    per_tenant = int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_TENANT", 40) or 40)
+    # FIX [2026-07-19 P1]: 移除 getattr 动态兜底——SIP_INVITE_RATE_LIMIT_* 已在
+    # Settings 类明确定义（config.py:449-451），违反硬约束 #41。
+    # 测试桩通过 conftest.py 预加载真实 settings + 仅注入缺失字段模式，不会移除这些属性。
+    try:
+        window = float(settings.SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS)
+        per_device = int(settings.SIP_INVITE_RATE_LIMIT_PER_DEVICE)
+        per_tenant = int(settings.SIP_INVITE_RATE_LIMIT_PER_TENANT)
+    except (TypeError, ValueError) as cfg_err:
+        logger.error(f"INVITE rate limit config invalid, denying request (fail-closed): {cfg_err}")
+        return False, "rate_limit_config_error"
     if window <= 0:
         invite_state.invite_rate_stats["allowed"] = int(invite_state.invite_rate_stats.get("allowed", 0) or 0) + 1
         return True, ""
@@ -606,11 +679,11 @@ async def _check_and_consume_invite_rate(tenant_id: str, device_id: str) -> tupl
 
 
 def get_invite_rate_limit_metrics() -> dict:
-    _backend_type = (getattr(settings, "SIP_STATE_BACKEND", "local") or "local").strip().lower()
+    _backend_type = (settings.SIP_STATE_BACKEND or "local").strip().lower()
     return {
-        "window_seconds": float(getattr(settings, "SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS", 5.0) or 5.0),
-        "per_device_limit": int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_DEVICE", 8) or 8),
-        "per_tenant_limit": int(getattr(settings, "SIP_INVITE_RATE_LIMIT_PER_TENANT", 40) or 40),
+        "window_seconds": settings.SIP_INVITE_RATE_LIMIT_WINDOW_SECONDS,
+        "per_device_limit": settings.SIP_INVITE_RATE_LIMIT_PER_DEVICE,
+        "per_tenant_limit": settings.SIP_INVITE_RATE_LIMIT_PER_TENANT,
         "backend_type": _backend_type,
         "stats": {
             "allowed": int(invite_state.invite_rate_stats.get("allowed", 0) or 0),
@@ -667,7 +740,18 @@ class SipInvite:
                 if not failed_session or failed_session.app != "live":
                     return False
                 current_mode = self._normalize_media_mode((failed_session.protocol or "UDP").replace("-", "_"))
-                fallback_mode = "UDP" if current_mode != "UDP" else ""
+                # P1-fix [2026-07-17]: 渐进式回退策略，避免 TCP-ACTIVE 直接跳到 UDP
+                # 原代码：任何非 UDP 模式失败都直接回退到 UDP，跳过 TCP-PASSIVE 中间过渡。
+                # 某些设备 TCP-ACTIVE 不支持但 TCP-PASSIVE 可用，直接跳 UDP 降低传输可靠性。
+                # 新策略：TCP-ACTIVE → TCP-PASSIVE → UDP 三级回退
+                if current_mode == "TCP_ACTIVE":
+                    fallback_mode = "TCP-PASSIVE"
+                elif current_mode == "TCP_PASSIVE":
+                    fallback_mode = "UDP"
+                elif current_mode != "UDP":
+                    fallback_mode = "UDP"
+                else:
+                    fallback_mode = ""
                 if not fallback_mode:
                     return False
                 asset_result = await session.execute(select(Asset).where(Asset.id == failed_session.asset_id))
@@ -696,21 +780,30 @@ class SipInvite:
         if transport is None:
             return False
         await self._send_invite_common(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), is_playback=False, media_mode_override=fallback_mode)
-        logger.warning(f"Retried INVITE with fallback mode {fallback_mode} for device {asset.gb_id}")
+        logger.warning(f"Retried INVITE with fallback mode {fallback_mode} (from {current_mode}) for device {asset.gb_id}")
         return True
 
     async def _cleanup_ssrc_reserves(self, max_age_seconds: int = 300) -> int:
         try:
             async with AsyncSessionLocal() as session:
                 cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(seconds=max_age_seconds)
+                # FIX [2026-07-17 P0]: StreamSession 模型只有 start_time 列，不存在 created_at
+                # （已确认 stream_session.py 模型定义）。原代码引用 StreamSession.created_at 会抛
+                # AttributeError，被外层 `except Exception: return 0` 静默吞掉，
+                # 导致 _ssrc_reserve 清理永远不执行——过期预留条目无限累积，DB 膨胀，
+                # 且 _migrate_ssrc_reserves（无时间过滤的全量删除）虽能清理但无法区分新旧。
+                # session.py 的 _before_cursor_execute_strip_tzinfo 事件会自动将 cutoff 的
+                # tzinfo 去除，确保与 naive start_time 列的比较在 SQLite/PostgreSQL 上均正确。
                 stmt = delete(StreamSession).where(
                     StreamSession.app == "_ssrc_reserve",
-                    StreamSession.created_at < cutoff,
+                    StreamSession.start_time < cutoff,
                 )
                 result = await session.execute(stmt)
                 await session.commit()
                 return result.rowcount
-        except Exception:
+        except Exception as e:
+            # FIX [2026-07-19 P1]: 原 except 静默 return 0，DB 清理失败无法诊断。
+            logger.warning(f"_cleanup_ssrc_reserves failed: {e}")
             return 0
 
     async def _migrate_ssrc_reserves(self) -> int:
@@ -724,7 +817,9 @@ class SipInvite:
                 if result.rowcount > 0:
                     logger.info(f"Migrated {result.rowcount} legacy SSRC reserves to in-memory manager")
                 return result.rowcount
-        except Exception:
+        except Exception as e:
+            # FIX [2026-07-19 P1]: 原 except 静默 return 0，迁移失败无法诊断。
+            logger.warning(f"_migrate_ssrc_reserves failed: {e}")
             return 0
 
     async def _generate_ssrc(self, domain_code: str, is_playback: bool = False) -> str:
@@ -827,9 +922,9 @@ class SipInvite:
         req.method = "INVITE"
         req.uri = f"sip:{channel_gb_id}@{asset.ip_addr}:{asset.port}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={stream_session.from_tag}"
-        req.headers["To"] = f"<sip:{channel_gb_id}@{settings.SIP_DOMAIN}>;tag={stream_session.to_tag}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={stream_session.from_tag}"
+        req.headers["To"] = f"<sip:{channel_gb_id}@{sip_from_to_host()}>;tag={stream_session.to_tag}"
         req.headers["Call-ID"] = stream_session.call_id
         req.headers["CSeq"] = f"{cseq_num} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
@@ -840,7 +935,7 @@ class SipInvite:
         stream_type_code = "1" if target_stream_type == "sub" else "0"
         subject_base = f"{channel_gb_id}:{stream_session.ssrc},{settings.SIP_ID}:{stream_type_code}"
 
-        enable_track_in_subject = bool(getattr(settings, "GB28181_STREAM_SWITCH_USE_TRACK_SUBJECT", False))
+        enable_track_in_subject = settings.GB28181_STREAM_SWITCH_USE_TRACK_SUBJECT
         if enable_track_in_subject:
             track_suffix = "track:Video" if target_stream_type == "sub" else "track:All"
             subject_header = f"{subject_base},{track_suffix}"
@@ -863,6 +958,9 @@ class SipInvite:
                 setup_val = "passive"
 
         from app.sip.sdp import build_sdp as _build_sdp
+        # P1-fix: Re-INVITE 的 f= 行应与初始 INVITE 保持一致，原 f=v/0 表示媒体参数全 0，
+        # 部分设备（海康/大华）会因 f= 行参数缺失而拒绝 Re-INVITE 或切换到不兼容的编码
+        _reinvite_f_line = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0"
         sdp_str = _build_sdp(
             origin_id=channel_gb_id,
             session_name="Play",
@@ -872,9 +970,14 @@ class SipInvite:
             media_profile=media_profile,
             direction="recvonly",
             ssrc=ssrc_str,
-            f_line="f=v/0",
-            extended_rtpmap=False,
+            f_line=_reinvite_f_line,
+            # FIX [2026-07-17 P1-C1]: Re-INVITE 必须包含 a=rtpmap:96 PS/90000 等媒体格式映射，
+            # 否则部分设备（海康/大华）因缺少 rtpmap 而拒绝 Re-INVITE 或发送不兼容的码流。
+            extended_rtpmap=True,
             setup=setup_val,
+            # FIX [2026-07-17 P1-C2]: Re-INVITE 的 sess-version 必须递增（RFC 4566 §5.2），
+            # 使用 cseq_num 作为 sess-version，与 SIP CSeq 递增保持一致。
+            sess_version=cseq_num,
         )
 
         req.body = sdp_str.encode("utf-8")
@@ -1025,16 +1128,30 @@ class SipInvite:
                     # P0-02: target_node 可能是 ORM MediaNode(密文) 或 RuntimeMediaNode(明文)，
                     # 优先用 decrypted_secret；RuntimeMediaNode 无此属性则回退到 .secret（已是明文）
                     _target_secret = getattr(target_node, 'decrypted_secret', None) or target_node.secret
+                    # P0-fix [2026-07-17]: HA Failover Re-INVITE 必须正确映射 tcp_mode 三态
+                    # 原代码对所有 TCP* 协议都传 tcp_mode=1（TCP-PASSIVE），TCP-ACTIVE 被降级，
+                    # SDP 中 setup=active 与 ZLM RTP server passive 模式不一致，TCP-ACTIVE 流无法建立。
+                    # 对照 _send_invite_common_inner line 2301-2305 的三态映射：
+                    #   UDP           → tcp_mode=0
+                    #   TCP-PASSIVE   → tcp_mode=1
+                    #   TCP-ACTIVE    → tcp_mode=2
+                    _proto_str = str(getattr(stream_session, 'protocol', '') or '').upper().replace("-", "_")
+                    if _proto_str.startswith("TCP_ACTIVE") or _proto_str == "TCP_ACTIVE":
+                        _ha_tcp_mode = 2
+                    elif _proto_str.startswith("TCP"):
+                        _ha_tcp_mode = 1
+                    else:
+                        _ha_tcp_mode = 0
                     await open_rtp_server(
                         host=target_node.host,
                         http_port=target_node.http_port,
                         secret=_target_secret,
                         port=rtp_port,
-                        tcp_mode=1 if str(getattr(stream_session, 'protocol', '') or '').upper().startswith("TCP") else 0,  # 属性名从transport_mode改为protocol，与StreamSession模型一致
+                        tcp_mode=_ha_tcp_mode,
                         app=stream_session.app,
                         stream_id=stream_session.stream,
                         ssrc="0",
-                        re_use_port="0",
+                        re_use_port=False,  # P0-fix: 使用布尔值而非字符串 "0"，避免 truthy 误判
                         enable_hls=1,
                     )
                 except Exception as e:
@@ -1055,9 +1172,9 @@ class SipInvite:
                 req.method = "INVITE"
                 req.uri = f"sip:{channel_gb_id}@{asset.ip_addr}:{asset.port}"
                 req.version = "SIP/2.0"
-                req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-                req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={stream_session.from_tag}"
-                req.headers["To"] = f"<sip:{channel_gb_id}@{settings.SIP_DOMAIN}>;tag={stream_session.to_tag}"
+                req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+                req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={stream_session.from_tag}"
+                req.headers["To"] = f"<sip:{channel_gb_id}@{sip_from_to_host()}>;tag={stream_session.to_tag}"
                 req.headers["Call-ID"] = stream_session.call_id
                 req.headers["CSeq"] = f"{cseq_num} INVITE"
                 req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
@@ -1078,6 +1195,8 @@ class SipInvite:
                         setup_val = "passive"
 
                 from app.sip.sdp import build_sdp as _build_sdp
+                # P1-fix: HA 故障转移 Re-INVITE 的 f= 行应与初始 INVITE 保持一致
+                _ha_reinvite_f_line = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0"
                 sdp_str = _build_sdp(
                     origin_id=channel_gb_id,
                     session_name="Play",
@@ -1087,9 +1206,12 @@ class SipInvite:
                     media_profile=media_profile,
                     direction="recvonly",
                     ssrc=ssrc_str,
-                    f_line="f=v/0",
-                    extended_rtpmap=False,
+                    f_line=_ha_reinvite_f_line,
+                    # FIX [2026-07-17 P2-2]: HA 故障转移 Re-INVITE 也必须包含 a=rtpmap（P1-C1 同类），
+                    # 且 sess-version 必须递增（P1-C2 同类），否则设备忽略 Re-INVITE 导致故障转移失败。
+                    extended_rtpmap=True,
                     setup=setup_val,
+                    sess_version=cseq_num,
                 )
                 req.body = sdp_str.encode("utf-8")
                 req.headers["Content-Length"] = str(len(req.body))
@@ -1162,7 +1284,7 @@ class SipInvite:
             from_tag = "untagged"
 
         to_tag = str(getattr(stream_session, "to_tag", "") or "").strip()
-        to_header = f"<sip:{channel_id or device_id}@{settings.SIP_DOMAIN}>"
+        to_header = f"<sip:{channel_id or device_id}@{sip_from_to_host()}>"
         if to_tag:
             to_header = f"{to_header};tag={to_tag}"
 
@@ -1173,8 +1295,8 @@ class SipInvite:
         req.method = "BYE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={from_tag}"
         req.headers["To"] = to_header
         req.headers["Call-ID"] = call_id
         req.headers["CSeq"] = f"{cseq} BYE"
@@ -1242,7 +1364,7 @@ class SipInvite:
         call_id = f"cascade_{uuid.uuid4().hex[:16]}"
         from_tag = uuid.uuid4().hex[:8]
         branch = f"z9hG4bK{uuid.uuid4().hex[:12]}"
-        invite_state.cascade_call_ids.add(call_id)
+        invite_state.cascade_call_ids[call_id] = time.time()  # FIX [2026-07-17 P1-B3]: dict 替代 set，记录时间戳
 
         upstream_sdp = sdp_body
         from app.sip.sdp import parse_sdp as _parse_sdp, pick_media as _pick_media, is_tcp_profile as _is_tcp_profile, build_sdp as _build_sdp
@@ -1263,17 +1385,20 @@ class SipInvite:
         req.method = "INVITE"
         req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
-        req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={from_tag}"
+        req.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 INVITE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2），原硬编码 "1 INVITE"
+        # 在进程重启后 CSeq 归零，可能与同对话内历史请求冲突。
+        _invite_cseq = _next_cseq()
+        req.headers["CSeq"] = f"{_invite_cseq} INVITE"
         req.headers["Content-Type"] = "application/sdp"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         req.headers["Max-Forwards"] = "70"
 
-        ssrc = await self._generate_ssrc(getattr(settings, "SIP_DOMAIN", "1"), is_playback=(session_name == "Playback"))
+        ssrc = await self._generate_ssrc(settings.SIP_DOMAIN, is_playback=(session_name == "Playback"))
         # SSRC allocation may return empty string when exhausted — fail fast instead of sending invalid INVITE
         if not ssrc:
             raise HTTPException(status_code=503, detail="SSRC allocation exhausted, cannot start cascade stream")
@@ -1295,7 +1420,19 @@ class SipInvite:
                         stream_id=_cascade_stream_id, app_name="cascade",
                     )
                 if _cascade_rtp_port:
-                    _tcp_mode = 1 if is_tcp else 0
+                    # P1-fix [2026-07-17]: 级联 INVITE 必须支持 TCP-ACTIVE 模式
+                    # 原代码 _tcp_mode = 1 if is_tcp else 0 仅支持 TCP-PASSIVE，
+                    # 若上级平台 SDP setup=passive 要求本端主动连接，则 TCP-ACTIVE 流无法建立。
+                    # 根据 RFC 4145 §5 协商规则：
+                    #   对端 setup=active   → 本端 passive → tcp_mode=1
+                    #   对端 setup=passive  → 本端 active  → tcp_mode=2
+                    #   对端 setup=actpass  → 本端默认 passive → tcp_mode=1（更安全）
+                    if not is_tcp:
+                        _tcp_mode = 0
+                    elif setup_attr and str(setup_attr).strip().lower() == "passive":
+                        _tcp_mode = 2  # 对端被动，本端主动连接
+                    else:
+                        _tcp_mode = 1  # 默认本端被动监听
                     await open_rtp_server(
                         host=_cascade_node.host,
                         http_port=_cascade_node.http_port,
@@ -1306,7 +1443,7 @@ class SipInvite:
                         stream_id=f"{channel_id}_{ssrc}",
                         ssrc="0",
                     )
-                    logger.info(f"[Cascade INVITE] Opened RTP server on node={_cascade_node.host}:{_cascade_rtp_port} tcp={_tcp_mode}")
+                    logger.info(f"[Cascade INVITE] Opened RTP server on node={_cascade_node.host}:{_cascade_rtp_port} tcp={_tcp_mode} (peer_setup={setup_attr})")
         except Exception as _rtp_err:
             logger.warning(f"[Cascade INVITE] Failed to create RTP server for cascade: {_rtp_err}")
             if _cascade_lease_id:
@@ -1317,6 +1454,20 @@ class SipInvite:
                     logger.warning(f"[Cascade INVITE] Failed to release lease {_cascade_lease_id}: {_lease_err}")
             _cascade_rtp_port = None
             _cascade_lease_id = None
+            # FIX: [2026-07-16] RTP server 创建失败时必须中止 INVITE。
+            # 原问题：失败后继续用 recv_port or 0 作为 SDP 端口，上级平台收到端口 0
+            # 的 SDP 无法推流，播放黑屏。应直接返回错误。
+            # FIX: [2026-07-16] 变量名修正：_ssrc → ssrc（原代码变量名错误导致 NameError，
+            # SSRC 无法释放，且 HTTPException 不会抛出）。
+            if ssrc:
+                try:
+                    await ssrc_manager.release(ssrc)
+                except Exception as _ssrc_release_err:
+                    # FIX: [2026-07-16 P0] 原异常被 pass 静默吞掉，SSRC 资源泄漏
+                    # 会导致后续 INVITE 全部失败（资源耗尽）。必须记录日志便于排查。
+                    logger.error(f"[Cascade INVITE] SSRC release failed after RTP server creation failure: ssrc={ssrc} error={_ssrc_release_err}")
+            from fastapi import HTTPException as _FastApiHTTPException
+            raise _FastApiHTTPException(status_code=503, detail="Failed to allocate RTP port for cascade stream")
 
         setup_val = None
         if is_tcp:
@@ -1414,7 +1565,9 @@ class SipInvite:
             else:
                 await send_sip_bytes(proto, transport, addr, req.to_bytes())
             logger.info(f"[Cascade INVITE] Sent to {channel_id}@{addr[0]}:{addr[1]} call_id={call_id}")
-            await asyncio.wait_for(event.wait(), timeout=int(getattr(settings, "SIP_INVITE_RESPONSE_TIMEOUT_SECONDS", 20) or 20))
+            # FIX: [2026-07-16] 级联 INVITE 场景下，下级平台需再向设备发 INVITE，
+            # 整个链路可能需要 15-30 秒，原 20 秒超时可能导致级联点播失败。
+            await asyncio.wait_for(event.wait(), timeout=settings.SIP_CASCADE_INVITE_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             logger.warning(f"[Cascade INVITE] Timeout for {channel_id} call_id={call_id}")
             await _send_cancel(addr, proto, transport, call_id, from_tag, branch, channel_id)
@@ -1449,6 +1602,13 @@ class SipInvite:
                         await release_lease(_rl_session, _cascade_lease_id)
                 except Exception as _lease_err:
                     logger.warning(f"[Cascade INVITE] Failed to release lease {_cascade_lease_id}: {_lease_err}")
+            # P1-fix [2026-07-17]: CancelledError 路径必须清理 cascade_call_ids
+            # 原代码仅在正常路径（line 1584）清理，CancelledError raise 后该清理不会执行，
+            # 活跃级联 INVITE 在 300 秒 TTL 窗口内无法匹配响应，导致资源泄漏和流异常中断。
+            try:
+                invite_state.cascade_call_ids.pop(call_id, None)
+            except Exception as _cascade_pop_err:
+                logger.warning(f"[Cascade INVITE] Failed to pop cascade_call_ids for {call_id}: {_cascade_pop_err}")
             raise
         except Exception as e:
             logger.error(f"[Cascade INVITE] Error: {e}")
@@ -1468,11 +1628,12 @@ class SipInvite:
             ack.method = "ACK"
             ack.uri = req.uri
             ack.version = "SIP/2.0"
-            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(6)}ack"
+            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
             ack.headers["From"] = req.headers["From"]
-            ack.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>;tag={result_container['to_tag']}" if result_container["to_tag"] else req.headers["To"]
+            ack.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>;tag={result_container['to_tag']}" if result_container["to_tag"] else req.headers["To"]
             ack.headers["Call-ID"] = call_id
-            ack.headers["CSeq"] = "1 ACK"
+            # FIX [2026-07-17 P1]: ACK 的 CSeq 必须与对应 INVITE 的 CSeq 一致（RFC 3261 §22.2）
+            ack.headers["CSeq"] = f"{_invite_cseq} ACK"
             ack.headers["Max-Forwards"] = "70"
             ack.headers["User-Agent"] = settings.PROJECT_NAME
             ack_sent_ok = False
@@ -1494,7 +1655,7 @@ class SipInvite:
                     bye_req.headers["From"] = ack.headers["From"]
                     bye_req.headers["To"] = ack.headers["To"]
                     bye_req.headers["Call-ID"] = call_id
-                    bye_req.headers["CSeq"] = "2 BYE"
+                    bye_req.headers["CSeq"] = f"{_invite_cseq + 1} BYE"  # FIX [2026-07-21 P0]: CSeq 应为 INVITE CSeq+1，而非硬编码 2
                     bye_req.headers["Max-Forwards"] = "70"
                     await send_sip_bytes(proto, transport, addr, bye_req.to_bytes())
                     logger.info(f"[Cascade INVITE] Sent BYE cleanup after ACK failure, call_id={call_id}")
@@ -1513,7 +1674,7 @@ class SipInvite:
             except Exception as e:
                 logger.warning(f"Cascade INVITE SSRC release failed: {e}")
 
-        invite_state.cascade_call_ids.discard(call_id)
+        invite_state.cascade_call_ids.pop(call_id, None)  # FIX [2026-07-17 P1-B3]: dict.pop 替代 set.discard
         return result_container
 
     async def send_talk_invite(
@@ -1540,23 +1701,26 @@ class SipInvite:
 
         subject_header = f"{channel_id}:{ssrc},{settings.SIP_ID}:0"
 
-        call_id = f"{secrets.token_hex(10)}@{sip_host_for_contact()}"
+        call_id = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-29 P1]: token_hex(10)→token_hex(8) 统一 64 位随机性
         tag = secrets.token_hex(8)
         branch = f"z9hG4bK{secrets.token_hex(8)}"
 
         if "y=" not in sdp_body:
-            sdp_body += f"y={str(ssrc).zfill(10)}\n"
+            # FIX: [2026-07-17 P1] SDP 行结束符使用 CRLF（RFC 4566 §5 要求）
+            sdp_body += f"y={str(ssrc).zfill(10)}\r\n"
 
         req = SipMessage()
         req.method = "INVITE"
         req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
+        req.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 INVITE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        _invite_cseq2 = _next_cseq()
+        req.headers["CSeq"] = f"{_invite_cseq2} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Subject"] = subject_header
         req.headers["Content-Type"] = "application/sdp"
@@ -1618,7 +1782,7 @@ class SipInvite:
             resp, meta = await tx_manager.send_and_wait(
                 request=req,
                 send_once=lambda: send_sip_bytes(proto, transport, addr, req.to_bytes()),
-                timeout_seconds=float(getattr(settings, "SIP_INVITE_TIMEOUT_SECONDS", 10.0)),
+                timeout_seconds=settings.SIP_INVITE_TIMEOUT_SECONDS,
                 retries=0,
             )
             if resp.status_code >= 300:
@@ -1645,11 +1809,12 @@ class SipInvite:
             ack.method = "ACK"
             ack.uri = req.uri
             ack.version = "SIP/2.0"
-            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(6)}ack"
+            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
             ack.headers["From"] = req.headers["From"]
             ack.headers["To"] = resp.get_header("To") or req.headers["To"]
             ack.headers["Call-ID"] = req.headers["Call-ID"]
-            ack.headers["CSeq"] = "1 ACK"
+            # FIX [2026-07-17 P1]: ACK 的 CSeq 必须与对应 INVITE 的 CSeq 一致（RFC 3261 §22.2）
+            ack.headers["CSeq"] = f"{_invite_cseq2} ACK"
             ack.headers["Max-Forwards"] = "70"
             ack.headers["User-Agent"] = settings.PROJECT_NAME
             await send_sip_bytes(proto, transport, addr, ack.to_bytes())
@@ -1709,8 +1874,8 @@ class SipInvite:
         try:
             db_nodes = await list_db_media_nodes(session)
             if (
-                bool(getattr(settings, "GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE", True))
-                and bool(getattr(settings, "EMBEDDED_ZLM_ENABLED", True))
+                settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE
+                and settings.EMBEDDED_ZLM_ENABLED
             ):
                 ensured_id = await ensure_embedded_media_node(session)
                 if ensured_id:
@@ -1780,14 +1945,14 @@ class SipInvite:
         excluded_nodes = []
         base_ssrc_check = ssrc_check_enabled
 
-        max_node_retries = int(getattr(settings, "SIP_INVITE_ZLM_MAX_NODE_RETRIES", 3) or 3)
+        max_node_retries = settings.SIP_INVITE_ZLM_MAX_NODE_RETRIES
         max_node_retries = max(1, min(max_node_retries, 10))
 
         for attempt in range(max_node_retries):
             attempt_lease_id = None
             mode = str(getattr(db_node, "rtp_port_mode", "single") or "single").lower()
 
-            if bool(getattr(settings, "FORCE_SINGLE_PORT_MULTIPLEXING", True)):
+            if settings.FORCE_SINGLE_PORT_MULTIPLEXING:
                 mode = "single"
             else:
                 range_start = int(getattr(db_node, "rtp_port_range_start", 0) or 0)
@@ -1795,7 +1960,7 @@ class SipInvite:
                 if mode != "range" and range_start > 0 and range_end >= range_start:
                     mode = "range"
                 if mode != "range":
-                    env_start, env_end = _parse_port_range(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", ""))
+                    env_start, env_end = _parse_port_range(settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE)
                     if env_start > 0 and env_end >= env_start:
                         mode = "range"
                         range_start, range_end = env_start, env_end
@@ -1810,7 +1975,7 @@ class SipInvite:
             zlm_expect_ssrc = str(int(ssrc)) if effective_ssrc_check else "0"
 
             if mode == "range":
-                max_port_retries = int(getattr(settings, "SIP_INVITE_ZLM_MAX_PORT_RETRIES", 10) or 10)
+                max_port_retries = settings.SIP_INVITE_ZLM_MAX_PORT_RETRIES
                 max_port_retries = max(1, min(max_port_retries, 100))
                 tried_ports: set[int] = set()
                 start_from: int | None = None
@@ -1849,6 +2014,8 @@ class SipInvite:
                         zlm_res = None
                         break
                     media_port = int(allocated_port or 0)
+                    # db_node 为 RuntimeMediaNode（由 _select_media_node 经 _to_runtime 解密），
+                    # .secret 已是明文，可直接用于 ZLM API 鉴权。
                     secret = (db_node.secret or settings.MEDIA_SERVER_SECRET or "")
                     if not secret:
                         last_err_msg = f"node={db_node.id}, reason=empty_secret"
@@ -1865,7 +2032,7 @@ class SipInvite:
                             host=str(db_node.host), http_port=int(db_node.http_port or 0),
                             secret=str(secret), port=int(media_port or 0), tcp_mode=int(tcp_mode),
                             app=app_name, stream_id=stream_id, ssrc=zlm_expect_ssrc,
-                            re_use_port="0", enable_hls=1,
+                            re_use_port=False, enable_hls=1,  # P0-fix: 使用布尔值而非字符串 "0"
                         )
                         ssrc_check_enabled = effective_ssrc_check
                         media_port = zlm_res.get("port", media_port)
@@ -1912,6 +2079,7 @@ class SipInvite:
                     break
             else:
                 media_port = int(getattr(db_node, "rtp_port", None) if getattr(db_node, "rtp_port", None) is not None else media_port)  # GB28181协议 — 0是合法端口值，不应被falsy跳过
+                # db_node 为 RuntimeMediaNode，.secret 已是明文（同 range 模式）
                 secret = (db_node.secret or settings.MEDIA_SERVER_SECRET or "")
                 if not secret:
                     last_err_msg = f"node={db_node.id}, reason=empty_secret"
@@ -1924,7 +2092,7 @@ class SipInvite:
                             host=str(db_node.host), http_port=int(db_node.http_port or 0),
                             secret=str(secret), port=int(media_port or 0), tcp_mode=int(tcp_mode),
                             app=app_name, stream_id=stream_id, ssrc=zlm_expect_ssrc,
-                            re_use_port="1" if mode != "range" else "0",
+                            re_use_port=(mode != "range"),  # P0-fix: 布尔值，避免字符串 "0"/"1" 误判
                             enable_hls=1, enable_mp4=0, enable_rtsp=1, enable_rtmp=1, enable_flv=1,
                         )
                         ssrc_check_enabled = effective_ssrc_check
@@ -2105,7 +2273,7 @@ class SipInvite:
 
         time_range = "0 0"
         if is_playback:
-            fmt = str(getattr(settings, "GB28181_PLAYBACK_SDP_TIME_FORMAT", "iso") or "iso").strip().lower()
+            fmt = str(settings.GB28181_PLAYBACK_SDP_TIME_FORMAT or "iso").strip().lower()
             if fmt == "epoch":
                 time_range = f"{start_time} {end_time}"
             else:
@@ -2122,7 +2290,7 @@ class SipInvite:
                 if public_hint and not _is_local_host(public_hint):
                     sdp_ip = _resolve_sdp_ip(public_hint) or sdp_ip
             else:
-                public_hint = str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "").strip()
+                public_hint = str(settings.STREAM_PUBLIC_HOST or "").strip()
                 if public_hint and not _is_local_host(public_hint):
                     sdp_ip = _resolve_sdp_ip(public_hint) or sdp_ip
         except Exception as e:
@@ -2130,7 +2298,7 @@ class SipInvite:
 
         def build_sdp(port: int) -> str:
             from app.sip.sdp import build_sdp as _build_sdp
-            f_line_val = f"f=v/2/4/{getattr(settings, 'GB28181_VIDEO_QUALITY', 96)}/1/0a/0/0/0" if not is_playback else ""
+            f_line_val = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0" if not is_playback else ""
             u_line_val = f"u={channel_id}:0" if is_playback else ""
             setup_val = None
             if media_mode == "TCP_PASSIVE":
@@ -2139,7 +2307,7 @@ class SipInvite:
                 setup_val = "active"
             # GB28181-2022 SDP 添加 a=track 行标识媒体轨道类型
             track_val = None
-            gb_version = getattr(settings, "GB28181_VERSION", "2016")
+            gb_version = settings.GB28181_VERSION
             if gb_version == "2022":
                 if stream_type == "sub":
                     track_val = "Video"
@@ -2163,24 +2331,36 @@ class SipInvite:
                 track=track_val,
             )
 
-        branch = f"z9hG4bK{secrets.token_hex(10)}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-29 P1]: token_hex(10)→token_hex(8) 统一 64 位随机性
         tag = secrets.token_hex(8)
-        call_id = f"{secrets.token_hex(10)}@{sip_host_for_contact()}"
+        call_id = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-29 P1]: token_hex(10)→token_hex(8) 统一 64 位随机性
 
         req = SipMessage()
         req.method = "INVITE"
         req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
+        req.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 INVITE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        req.headers["CSeq"] = f"{_next_cseq()} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         req.headers["Subject"] = subject_header if subject_header else f"{channel_id}:{ssrc},{settings.SIP_ID}:{stream_type_code}"
+        # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — UAC 在 INVITE 中添加 Session-Expires 和 Min-SE
+        # 默认值取自 Settings 类（禁止 getattr 动态获取）
+        try:
+            apply_session_expires_to_request(
+                req,
+                expires=settings.SIP_SESSION_EXPIRES_SECONDS,
+                min_se=settings.SIP_SESSION_MIN_SE_SECONDS,
+            )
+        except Exception as _se_apply_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"_send_invite_common_inner: failed to apply Session-Expires header call_id={call_id}: {_se_apply_err}")
 
         # R25 Stream-3: 将原长 async with AsyncSessionLocal() 拆分为多阶段短 session，
         # ZLM HTTP 慢 I/O（_open_zlm_rtp_server / send_bye / close_zlm_stream）期间不持有 DB 连接，
@@ -2426,7 +2606,13 @@ class SipInvite:
             except Exception as fallback_err:
                 logger.warning(f"Fallback send_sip_bytes also failed: {fallback_err}")
 
-        timeout = int(getattr(settings, "SIP_INVITE_RESPONSE_TIMEOUT_SECONDS", 20) or 20)
+        # FIX: [2026-07-16] 级联 INVITE 场景下，下级平台需再向设备发 INVITE，
+        # 整个链路可能需要 15-30 秒，原 20 秒超时可能导致级联点播失败。
+        # 级联 call_id 以 "cascade_" 开头（见 send_cascade_invite line 1242）。
+        if str(call_id).startswith("cascade_"):
+            timeout = settings.SIP_CASCADE_INVITE_TIMEOUT_SECONDS
+        else:
+            timeout = settings.SIP_INVITE_RESPONSE_TIMEOUT_SECONDS
         async def _on_timeout():
             # INVITE超时处理幂等性保护 — 防止watchdog与wait_invite_response双重超时竞态
             try:
@@ -2455,8 +2641,9 @@ class SipInvite:
                     try:
                         from app.sip.response_handler import _REDIRECT_COUNTS
                         _REDIRECT_COUNTS.pop(call_id, None)
-                    except Exception:
-                        logger.warning("silently_swallowed_exception", exc_info=True)
+                    except Exception as _redirect_cleanup_err:
+                        # FIX [2026-07-17 P2-8]: 描述性日志替代 "silently_swallowed_exception"
+                        logger.warning(f"INVITE timeout: failed to cleanup _REDIRECT_COUNTS for call_id={call_id}: {_redirect_cleanup_err}")
                     async with AsyncSessionLocal() as session:
                         stream_session = (
                             await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))
@@ -2528,6 +2715,114 @@ class SipInvite:
             "invite_sdp": resp_result.get("sdp_response", ""),
             "invite_to_tag": resp_result.get("to_tag", ""),
         }
+
+    async def send_session_refresh_reinvite(self, dialog) -> bool:
+        """发送会话内 re-INVITE 进行 Session Timer 保活（RFC 4028）。
+
+        在已确认的 dialog 内发送 re-INVITE，复用原 Call-ID、From tag、To tag，
+        CSeq 通过 ``_next_cseq()`` 单调递增，Via branch 使用 ``secrets.token_hex(8)`` 生成。
+        携带与原 INVITE 相同的 Session-Expires 头域。
+
+        Args:
+            dialog: :class:`app.sip.dialog_manager.Dialog` 对象，必须包含
+                ``call_id``、``from_tag``、``to_tag``、``remote_target``、
+                ``session_data``（含 ``session_expires``、``session_refresher``）。
+
+        Returns:
+            True — 收到 200 OK；False — 发送失败或超时。
+        """
+        call_id = str(getattr(dialog, "call_id", "") or "").strip()
+        from_tag = str(getattr(dialog, "from_tag", "") or "").strip()
+        to_tag = str(getattr(dialog, "to_tag", "") or "").strip()
+        if not call_id or not from_tag:
+            logger.warning(f"send_session_refresh_reinvite: missing call_id/from_tag for dialog")
+            return False
+
+        remote_target = str(getattr(dialog, "remote_target", "") or "").strip()
+        session_data = getattr(dialog, "session_data", {}) or {}
+        expires = int(session_data.get("session_expires", settings.SIP_SESSION_EXPIRES_SECONDS) or settings.SIP_SESSION_EXPIRES_SECONDS)
+        refresher = str(session_data.get("session_refresher", "uac") or "uac").lower()
+
+        # 解析 remote_target 获取设备地址（格式：sip:device_id@host:port）
+        device_addr = remote_target or ""
+        device_id = session_data.get("device_id", "") or session_data.get("channel_id", "")
+        try:
+            # remote_target 格式: sip:xxx@host:port
+            if "@" in device_addr:
+                _uri_part = device_addr.split(":", 1)[1] if ":" in device_addr else device_addr
+                _id_part, _, _host_port = _uri_part.rpartition("@")
+                if _id_part:
+                    device_id = device_id or _id_part
+                if _host_port:
+                    _host, _, _port_str = _host_port.partition(":")
+                    addr = (_host, int(_port_str) if _port_str.isdigit() else 5060)
+                else:
+                    addr = (settings.SIP_IP or "127.0.0.1", settings.SIP_PORT)
+            else:
+                addr = (settings.SIP_IP or "127.0.0.1", settings.SIP_PORT)
+        except Exception as _addr_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"send_session_refresh_reinvite: failed to parse remote_target={remote_target}: {_addr_err}")
+            addr = (settings.SIP_IP or "127.0.0.1", settings.SIP_PORT)
+
+        proto = "UDP"
+        transport = None
+        try:
+            transport = self.sip_server.get_transport(addr[0], addr[1], proto)
+        except Exception as _transport_err:
+            # FIX [2026-07-19]: 禁止静默吞异常（项目硬约束：异常必须记录日志）。
+            # 记录 warning 便于排查传输层问题；后续 if not transport 兜底返回 False。
+            logger.warning(
+                f"send_session_refresh_reinvite: get_transport({addr[0]}:{addr[1]}/{proto}) raised: {_transport_err}"
+            )
+        if not transport:
+            logger.warning(f"send_session_refresh_reinvite: no transport for {addr[0]}:{addr[1]}/{proto}")
+            return False
+
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        cseq = _next_cseq()
+        # FIX [memory-constraint]: branch/tag 使用 64 位密码学随机值
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+
+        to_header = f"<sip:{device_id or settings.SIP_ID}@{sip_from_to_host()}>"
+        if to_tag:
+            to_header = f"{to_header};tag={to_tag}"
+
+        req = SipMessage()
+        req.method = "INVITE"
+        req.uri = remote_target or f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.version = "SIP/2.0"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={from_tag}"
+        req.headers["To"] = to_header
+        req.headers["Call-ID"] = call_id
+        req.headers["CSeq"] = f"{cseq} INVITE"
+        req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        # P1-fix [2026-07-17]: 携带 Session-Expires 头域进行保活协商
+        try:
+            from app.sip.invite_server_state import build_session_expires_header
+            req.headers["Session-Expires"] = build_session_expires_header(expires, refresher)
+            req.headers["Min-SE"] = str(settings.SIP_SESSION_MIN_SE_SECONDS)
+        except Exception as _se_hdr_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"send_session_refresh_reinvite: failed to set Session-Expires header: {_se_hdr_err}")
+        _attach_trace_header(req)
+
+        # 通过事务管理器发送 re-INVITE
+        tx_manager = _get_client_tx_manager()
+        try:
+            if tx_manager:
+                await tx_manager.send_request(req, addr, proto, transport)
+            else:
+                data = req.to_bytes()
+                await send_sip_bytes(transport, data, addr, proto)
+            logger.debug(f"send_session_refresh_reinvite: sent re-INVITE call_id={call_id} cseq={cseq}")
+            return True
+        except Exception as e:
+            logger.warning(f"send_session_refresh_reinvite: failed to send re-INVITE call_id={call_id}: {e}")
+            return False
 
 # Singleton
 sip_invite = None

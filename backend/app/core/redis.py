@@ -7,6 +7,9 @@ import json
 from typing import Callable, Dict, Optional
 from loguru import logger
 
+# P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
+from app.core.async_utils import fire_and_forget
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
@@ -47,7 +50,7 @@ async def init_redis():
                 socket_timeout=5,
                 password=settings.REDIS_SENTINEL_PASSWORD or None,
             )
-            _sentinel_max_conn = int(getattr(settings, "REDIS_MAX_CONNECTIONS", 50) or 50)
+            _sentinel_max_conn = settings.REDIS_MAX_CONNECTIONS
             _sentinel_pool = redis.ConnectionPool(
                 max_connections=_sentinel_max_conn,
                 retry_on_timeout=True,
@@ -70,7 +73,7 @@ async def init_redis():
                 socket_timeout=5,
                 socket_connect_timeout=5,
                 retry_on_timeout=True,
-                max_connections=int(getattr(settings, "REDIS_MAX_CONNECTIONS", 50) or 50),
+                max_connections=settings.REDIS_MAX_CONNECTIONS,
             )
         else:
             redis_client = redis.Redis(
@@ -79,7 +82,7 @@ async def init_redis():
                 password=settings.REDIS_PASSWORD,
                 db=settings.REDIS_DB,
                 decode_responses=True,
-                max_connections=int(getattr(settings, "REDIS_MAX_CONNECTIONS", 50) or 50),
+                max_connections=settings.REDIS_MAX_CONNECTIONS,
                 socket_connect_timeout=float(settings.REDIS_SOCKET_CONNECT_TIMEOUT or 3.0),
                 socket_timeout=float(settings.REDIS_SOCKET_TIMEOUT or 3.0),
                 retry_on_timeout=True,
@@ -106,6 +109,18 @@ async def close_redis():
         await redis_client.close()
         logger.info("Redis connection closed")
     redis_client = None
+
+
+async def get_redis() -> Optional[redis.Redis]:
+    """获取 Redis 客户端；不可用（未连接/连接失败）时返回 None，不抛异常。
+
+    供 logout 吊销、health_service 指标、log_masker 自定义规则等调用方使用。
+    与 ensure_redis() 的区别：本函数直接返回客户端对象，由调用方判空。
+    """
+    global redis_client
+    if redis_client is None:
+        await ensure_redis()
+    return redis_client
 
 
 async def ensure_redis():
@@ -180,7 +195,11 @@ def start_redis_watchdog():
         logger.warning("Cannot start Redis watchdog: no running event loop.")
         return
     if _redis_watchdog_task is None or _redis_watchdog_task.done():
-        _redis_watchdog_task = asyncio.create_task(_redis_watchdog_loop())
+        # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+        _redis_watchdog_task = fire_and_forget(
+            _redis_watchdog_loop(),
+            name="redis_watchdog_loop",
+        )
         logger.info("Redis watchdog started.")
 
 
@@ -241,8 +260,9 @@ class RedisHACluster:
                 from app.services.media_manager import media_manager
                 if media_manager:
                     load_info["streams"] = getattr(media_manager, "active_stream_count", 0)
-            except Exception:
-                logger.warning("silently_swallowed_exception", exc_info=True)
+            except Exception as _mm_err:
+                # FIX [2026-07-17 P3-5]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"[Cluster HA] Failed to read active_stream_count from media_manager: {_mm_err}")
             await redis_client.hset(self._node_key, mapping=load_info)
             # 同时写入旧格式以保持兼容
             await redis_client.hset("pygbsentry:nodes", self.node_id, time.time())
@@ -297,7 +317,10 @@ class RedisHACluster:
             self.pubsub = redis_client.pubsub()
             channels = list(_CLUSTER_CHANNELS.values())
             await self.pubsub.subscribe(*channels)
-            self._subscriber_task = asyncio.create_task(self._subscriber_loop())
+            self._subscriber_task = fire_and_forget(
+                self._subscriber_loop(),
+                name="cluster_ha_subscriber_loop",
+            )
             logger.info(f"[Cluster HA] Subscriber started for {len(channels)} channels")
         except Exception as e:
             logger.warning(f"[Cluster HA] Failed to start subscriber: {e}")

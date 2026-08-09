@@ -1,12 +1,13 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 from app.sip.trace_events import should_warn_unknown_event_once
 from app.services.sip_trace_store import schedule_store_sip_trace
 from app.sip.send import send_sip_bytes
 from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from loguru import logger
 import random
+import secrets  # FIX [2026-07-22 P1]: Call-ID 统一使用 64 位密码学随机值
 import asyncio
 
 # GB28181协议 — PTZ指令限流器，防止SIP消息洪泛
@@ -15,7 +16,7 @@ import time as _ptz_time
 # PTZ 紧急操作白名单（来自 settings.PTZ_EMERGENCY_WHITELIST，逗号分隔的 GB ID）
 _PTZ_EMERGENCY_WHITELIST: set[str] = set(
     s.strip()
-    for s in str(getattr(settings, "PTZ_EMERGENCY_WHITELIST", "") or "").split(",")
+    for s in str(settings.PTZ_EMERGENCY_WHITELIST or "").split(",")
     if s.strip()
 )
 
@@ -51,20 +52,23 @@ class _PtzRateLimiter:
         self._last_send[device_id] = _ptz_time.monotonic()
         return True
 
-_ptz_rate_limiter = _PtzRateLimiter(min_interval=float(getattr(settings, "PTZ_MIN_INTERVAL_SECONDS", 0.1) or 0.1))
+_ptz_rate_limiter = _PtzRateLimiter(min_interval=settings.PTZ_MIN_INTERVAL_SECONDS)
 
 
-def _attach_trace_header(req: SipMessage) -> None:
-    call_id = (req.get_header("Call-ID") or "").strip()
-    if call_id:
-        req.headers["X-Trace-ID"] = call_id
+def _attach_trace_header(req: SipMessage) -> str:
+    """返回 Call-ID 作为 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 请求添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request。
+    """
+    return (req.get_header("Call-ID") or "").strip()
 
 
 def _sip_trace_should_log() -> bool:
-    if not bool(getattr(settings, "SIP_DEBUG_TRACE_ENABLED", False)):
+    if not settings.SIP_DEBUG_TRACE_ENABLED:
         return False
     try:
-        rate = float(getattr(settings, "SIP_TRACE_SAMPLE_RATE", 1.0) or 1.0)
+        rate = settings.SIP_TRACE_SAMPLE_RATE
     except Exception:
         logger.warning("SIP_TRACE_SAMPLE_RATE config parse failed")  # 国际化
         rate = 1.0
@@ -116,11 +120,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_{call_suffix}@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去后缀+SIP_DOMAIN，兼容非标准客户端
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -150,12 +154,20 @@ class SipPtz:
 
         # 3D 放大/定位 (DragZoom - GB/T 28181-2022 & 2016 扩展)
         if command in ("dragzoomin", "dragzoomout") and drag_data:
-            length = drag_data.get("length", 720)
-            width = drag_data.get("width", 1280)
-            mid_point_x = drag_data.get("midPointX", 640)
-            mid_point_y = drag_data.get("midPointY", 360)
-            length_x = drag_data.get("lengthX", 100)
-            length_y = drag_data.get("lengthY", 100)
+            # FIX: [2026-07-16 P1] 原直接将 drag_data 字段插入 XML f-string，
+            # 若客户端传入字符串值可导致 XML 注入。强制 int() 转换并校验范围。
+            def _safe_int(val, default, lo=0, hi=65535):
+                try:
+                    v = int(val)
+                    return max(lo, min(hi, v))
+                except (TypeError, ValueError):
+                    return default
+            length = _safe_int(drag_data.get("length", 720), 720)
+            width = _safe_int(drag_data.get("width", 1280), 1280)
+            mid_point_x = _safe_int(drag_data.get("midPointX", 640), 640)
+            mid_point_y = _safe_int(drag_data.get("midPointY", 360), 360)
+            length_x = _safe_int(drag_data.get("lengthX", 100), 100)
+            length_y = _safe_int(drag_data.get("lengthY", 100), 100)
             cmd_type = "DragZoomIn" if command == "dragzoomin" else "DragZoomOut"
 
             xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -220,23 +232,34 @@ class SipPtz:
                 cmd_code = 0x20
                 combine_code2 = (speed & 0x0F) << 4
             # GB4 PTZ扩展命令 — 聚焦控制
+            # FIX: [2026-07-16 P0] 原焦点指令位定义错误：
+            #   focus_near=0x28(bit5+bit3) 会同时触发 zoom out + up
+            #   focus_far=0x48(bit6+bit3) 会同时触发 focus near + up
+            #   iris_close=0x09(bit0+bit3) 会同时触发 right + up
+            # 按 GB/T 28181-2016 标准：
+            #   bit6 = 聚焦增大（远焦 focus_far）= 0x40
+            #   bit7 = 聚焦减小（近焦 focus_near）= 0x80
+            # 光圈控制使用 combine_code2 高 4 位：
+            #   0x10 = 光圈增大（iris_open）
+            #   0x20 = 光圈减小（iris_close）
             elif command == "focus_near":
-                cmd_code = 0x20
+                cmd_code = 0x80  # bit7: 聚焦减小（近焦）
                 combine_code2 = 0
             elif command == "focus_far":
-                cmd_code = 0x40
+                cmd_code = 0x40  # bit6: 聚焦增大（远焦）
                 combine_code2 = 0
             elif command == "focus_stop":
                 cmd_code = 0x00
-            # GB4 PTZ扩展命令 — 光圈控制
+            # GB4 PTZ扩展命令 — 光圈控制（使用 combine_code2 高 4 位）
             elif command == "iris_open":
-                cmd_code = 0x80
-                combine_code2 = 0
+                cmd_code = 0x00
+                combine_code2 = 0x10  # 光圈增大
             elif command == "iris_close":
-                cmd_code = 0x01
-                combine_code2 = 0
+                cmd_code = 0x00
+                combine_code2 = 0x20  # 光圈减小
             elif command == "iris_stop":
                 cmd_code = 0x00
+                combine_code2 = 0
 
             ptz_hex = self._get_ptz_cmd(cmd_code, param1, param2, combine_code2)
 
@@ -318,11 +341,11 @@ class SipPtz:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_ptz@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -392,11 +415,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_preset@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -438,11 +461,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_preset_set@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -484,11 +507,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_preset_delete@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -512,17 +535,24 @@ class SipPtz:
 
     def _get_iris_cmd(self, command: str, speed: int = 128) -> str:
         """
-        生成光圈控制命令
-        command: 'in'(光圈?, 'out'(光圈?, 'stop'
-        speed: 0-255
-        """
-        speed = max(0, min(255, int(speed)))
+        生成光圈控制命令（GB28181-2016 附录 A）
+        command: 'in'(光圈增大/iris open), 'out'(光圈减小/iris close), 'stop'
+        speed: 0-15（光圈速度占用 CombineCode2 高 4 位）
 
+        FIX [2026-07-17 P1]: 原实现 cmd_code=0x02/0x04 与方向位冲突：
+        - 0x02 = bit1 = 左转，0x04 = bit2 = 下转
+        按 GB28181 附录 A，光圈控制使用 CombineCode2 高 4 位：
+        - 0x10 = 光圈增大（iris open）
+        - 0x20 = 光圈减小（iris close）
+        cmd_code 保持 0x00，与 send_ptz 主入口的 iris_open/iris_close 映射一致。
+        """
+        # 光圈速度占用 CombineCode2 高 4 位（0-15），低 4 位保留为 0
         if command == 'in':
-            # 光圈控制指令扩展为8字节
-            cmd = [0xA5, 0x0F, 0x01, 0x02, speed, 0x00, 0x00]
+            # 光圈增大：CombineCode2 高 4 位 = 0x10
+            cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x10]
         elif command == 'out':
-            cmd = [0xA5, 0x0F, 0x01, 0x04, speed, 0x00, 0x00]
+            # 光圈减小：CombineCode2 高 4 位 = 0x20
+            cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x20]
         else:  # stop
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
 
@@ -552,11 +582,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_iris@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -581,17 +611,23 @@ class SipPtz:
 
     def _get_focus_cmd(self, command: str, speed: int = 128) -> str:
         """
-        生成聚焦控制命令
+        生成聚焦控制命令（GB28181-2016 附录 A）
         command: 'near'(近焦), 'far'(远焦), 'stop'
-        speed: 0-255
-        """
-        speed = max(0, min(255, int(speed)))
+        speed: 0-255（聚焦速度占用 Param1）
 
+        FIX [2026-07-17 P1]: 原实现 cmd_code=0x01/0x03 与方向位冲突：
+        - 0x01 = bit0 = 右转，0x03 = bit0+bit1 = 右转+左转
+        按 GB28181 附录 A，聚焦控制使用 CmdCode 的高 2 位：
+        - bit7 = 0x80 = 聚焦减小（近焦 focus_near）
+        - bit6 = 0x40 = 聚焦增大（远焦 focus_far）
+        与 send_ptz 主入口的 focus_near/focus_far 映射一致。
+        """
         if command == 'near':
-            # 聚焦控制指令扩展为8字节
-            cmd = [0xA5, 0x0F, 0x01, 0x01, speed, 0x00, 0x00]
+            # 近焦：CmdCode bit7 = 0x80
+            cmd = [0xA5, 0x0F, 0x01, 0x80, 0x00, 0x00, 0x00]
         elif command == 'far':
-            cmd = [0xA5, 0x0F, 0x01, 0x03, speed, 0x00, 0x00]
+            # 远焦：CmdCode bit6 = 0x40
+            cmd = [0xA5, 0x0F, 0x01, 0x40, 0x00, 0x00, 0x00]
         else:  # stop
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00]
 
@@ -621,11 +657,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_focus@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -718,11 +754,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_cruise@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -802,11 +838,11 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}"
-        req.headers["To"] = f"<sip:{asset.gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_scan@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME

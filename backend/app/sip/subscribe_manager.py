@@ -195,7 +195,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
 
         if not sub.remote_addr or not sub.remote_proto:
             return
@@ -210,8 +210,8 @@ class SubscribeManager:
         req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}"
         req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
         req.headers["Call-ID"] = sub.call_id
@@ -287,7 +287,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
 
         if not sub.remote_addr or not sub.remote_proto:
             raise RuntimeError("No remote address or protocol for inbound subscribe renew")
@@ -305,8 +305,8 @@ class SubscribeManager:
         req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}"
         req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
         req.headers["Call-ID"] = sub.call_id
@@ -325,7 +325,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
         from app.db.session import AsyncSessionLocal
         from app.models.asset import Asset
         from sqlalchemy import select
@@ -349,8 +349,8 @@ class SubscribeManager:
         req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
         req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>"  # F-01 to_tag为空时不附加;tag=，避免畸形SIP头
         req.headers["Call-ID"] = sub.call_id
@@ -467,7 +467,16 @@ class SubscribeManager:
                         f"({consecutive_failures}/{max_consecutive_failures})"
                     )
                     if consecutive_failures >= max_consecutive_failures:
+                        # FIX [2026-07-17 P2]: 续期 5 次全部失败后，best-effort 发送
+                        # SUBSCRIBE Expires: 0 正式终止订阅（RFC 3265 §3.2.1），
+                        # 让设备清理订阅状态，避免设备侧资源泄漏。
+                        logger.warning(
+                            f"[SubscribeManager] Giving up outbound subscribe after "
+                            f"{max_consecutive_failures} rejections: "
+                            f"device={sub.device_id} event={sub.event}"
+                        )
                         sub.running = False
+                        await self._send_outbound_unsubscribe(sub)
                         break
                     continue
                 sub.last_sent = time.monotonic()
@@ -489,7 +498,86 @@ class SubscribeManager:
                         f"device={sub.device_id} event={sub.event}"
                     )
                     sub.running = False
+                    # FIX [2026-07-17 P2]: 续期 5 次全部异常后，best-effort 发送
+                    # SUBSCRIBE Expires: 0 正式终止订阅（RFC 3265 §3.2.1）。
+                    # 若设备不可达则发送也会失败，仅记录日志后清理本地状态。
+                    await self._send_outbound_unsubscribe(sub)
                     break
+
+    async def _send_outbound_unsubscribe(self, sub: OutboundSubscribe) -> None:
+        """
+        FIX [2026-07-17 P2]: 出站订阅终止时 best-effort 发送 SUBSCRIBE Expires: 0。
+
+        RFC 3265 §3.2.1 规定订阅者终止订阅应发送 SUBSCRIBE with Expires: 0。
+        当续期循环放弃后调用此方法，让设备清理订阅状态。若设备不可达则
+        发送失败，仅记录日志，本地状态已在调用前清理。
+        """
+        from app.sip.server import sip_server
+        from app.sip.message import SipMessage
+        from app.sip.send import send_sip_bytes
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
+        from app.db.session import AsyncSessionLocal
+        from app.models.asset import Asset
+        from sqlalchemy import select
+
+        try:
+            async with AsyncSessionLocal() as session:
+                asset = (await session.execute(
+                    select(Asset).where(Asset.gb_id == sub.device_id)
+                )).scalars().first()
+            if not asset:
+                logger.info(
+                    f"[SubscribeManager] Cannot send unsubscribe: "
+                    f"device {sub.device_id} not found"
+                )
+                return
+            addr = (str(asset.ip_addr or ""), int(asset.port or 5060))
+            proto = str(getattr(asset, "transport", "UDP") or "UDP")
+        except Exception as e:
+            logger.warning(
+                f"[SubscribeManager] Unsubscribe asset lookup failed for "
+                f"{sub.device_id}: {e}"
+            )
+            return
+
+        transport = sip_server.get_transport(addr[0], addr[1], proto)
+        if not transport:
+            logger.info(
+                f"[SubscribeManager] Cannot send unsubscribe: "
+                f"no transport to {addr[0]}:{addr[1]}/{proto}"
+            )
+            return
+
+        domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
+        sub.cseq += 1
+        req = SipMessage()
+        req.method = "SUBSCRIBE"
+        req.uri = f"sip:{sub.device_id}@{domain}"
+        req.version = "SIP/2.0"
+
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={sub.from_tag}"
+        req.headers["To"] = f"<sip:{sub.device_id}@{domain}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{sub.device_id}@{domain}>"
+        req.headers["Call-ID"] = sub.call_id
+        req.headers["CSeq"] = f"{sub.cseq} SUBSCRIBE"
+        req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
+        req.headers["Event"] = sub.event
+        req.headers["Expires"] = "0"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+
+        try:
+            await send_sip_bytes(proto, transport, addr, req.to_bytes())
+            logger.info(
+                f"[SubscribeManager] Sent unsubscribe (Expires=0) to device "
+                f"{sub.device_id} event={sub.event}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"[SubscribeManager] Failed to send unsubscribe to "
+                f"{sub.device_id} event={sub.event}: {e}"
+            )
 
     async def notify_catalog_change(self, device_id: str, channels: list):
         """设备目录变更后，向已订阅的上级发送 SIP NOTIFY"""
@@ -523,7 +611,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
         from xml.sax.saxutils import escape as _xml_escape
 
         if not sub.remote_addr or not sub.remote_proto:
@@ -543,7 +631,18 @@ class SubscribeManager:
                 ch_name = _xml_escape(str(getattr(ch, "name", "") or ""))
                 ch_status = str(getattr(ch, "status", "ON") or "ON").upper()
                 ch_parent = str(getattr(ch, "parent_gb_id", "") or "")
-                # GB28181协议 — Catalog Item补全Table 9必填字段
+                # P1-fix [2026-07-17]: GB28181 §A.1 Catalog Item 必填字段补全
+                # 原实现遗漏 PTZType/Longitude/Latitude/IP/Port 等字段，导致下级平台
+                # 收到 NOTIFY 后目录信息不完整，无法正确显示设备类型和位置。
+                ch_ptz_type = str(getattr(ch, "ptz_type", "") or "").strip()
+                ch_longitude = str(getattr(ch, "longitude", "") or "").strip()
+                ch_latitude = str(getattr(ch, "latitude", "") or "").strip()
+                ch_ip = str(getattr(ch, "ip_addr", "") or str(getattr(ch, "ip", "") or "")).strip()
+                ch_port = str(getattr(ch, "port", "") or "").strip()
+                ch_parental = str(getattr(ch, "parental", "") or "").strip()
+                if not ch_parental:
+                    # 默认为摄像头（非目录）
+                    ch_parental = "0" if not ch_parent else "1"
                 items_xml += "<Item>"
                 items_xml += f"<DeviceID>{ch_id}</DeviceID>"
                 items_xml += f"<Name>{ch_name}</Name>"
@@ -552,13 +651,27 @@ class SubscribeManager:
                 items_xml += f"<Owner>{_xml_escape(str(getattr(ch, 'owner', '') or ''))}</Owner>"
                 items_xml += f"<CivilCode>{_xml_escape(str(getattr(ch, 'civil_code', '') or ''))}</CivilCode>"
                 items_xml += f"<Address>{_xml_escape(str(getattr(ch, 'address', '') or ''))}</Address>"
-                items_xml += f"<Parental>{_xml_escape(str(getattr(ch, 'parental', '') or ''))}</Parental>"
+                items_xml += f"<Parental>{_xml_escape(ch_parental)}</Parental>"
+                # PTZType 仅对摄像头（Parental=0）有意义；目录项可不填
+                if ch_parental == "0" and ch_ptz_type:
+                    items_xml += f"<PTZType>{_xml_escape(ch_ptz_type)}</PTZType>"
                 items_xml += f"<SafetyWay>{_xml_escape(str(getattr(ch, 'safety_way', '') or ''))}</SafetyWay>"
                 items_xml += f"<RegisterWay>{_xml_escape(str(getattr(ch, 'register_way', '') or ''))}</RegisterWay>"
                 items_xml += f"<Secrecy>{_xml_escape(str(getattr(ch, 'secrecy', '') or ''))}</Secrecy>"
+                # GB28181-2022 §A.1: Status 字段：ON=在线/OFF=离线/OK=正常（目录）/ERROR=异常
                 items_xml += f"<Status>{ch_status}</Status>"
                 if ch_parent:
-                    items_xml += f"<ParentID>{ch_parent}</ParentID>"
+                    items_xml += f"<ParentID>{_xml_escape(ch_parent)}</ParentID>"
+                # 经纬度：仅在非空时填充，避免填充 0/0 误指向非洲海域
+                if ch_longitude and ch_longitude != "0":
+                    items_xml += f"<Longitude>{_xml_escape(ch_longitude)}</Longitude>"
+                if ch_latitude and ch_latitude != "0":
+                    items_xml += f"<Latitude>{_xml_escape(ch_latitude)}</Latitude>"
+                # IP/Port：仅在已知时填充
+                if ch_ip:
+                    items_xml += f"<IP>{_xml_escape(ch_ip)}</IP>"
+                if ch_port:
+                    items_xml += f"<Port>{_xml_escape(ch_port)}</Port>"
                 items_xml += "</Item>\n"
             return items_xml
 
@@ -578,8 +691,10 @@ class SubscribeManager:
             req.method = "NOTIFY"
             req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
             req.version = "SIP/2.0"
-            branch = f"z9hG4bK{secrets.token_hex(6)}"
-            req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+            # P1-fix [2026-07-17]: Via branch 必须使用 64 位密码学随机性（RFC 3261 §8.1.1.7）
+            # 原代码 token_hex(6)=48 位，与项目硬约束 64 位不一致
+            branch = f"z9hG4bK{secrets.token_hex(8)}"
+            req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
             req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}"
             req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
             req.headers["Call-ID"] = sub.call_id
@@ -648,7 +763,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
 
         if not sub.remote_addr or not sub.remote_proto:
             return
@@ -679,8 +794,8 @@ class SubscribeManager:
         req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}"
         req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
         req.headers["Call-ID"] = sub.call_id
@@ -723,7 +838,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
 
         if not sub.remote_addr or not sub.remote_proto:
             return
@@ -753,8 +868,8 @@ class SubscribeManager:
         req.uri = f"sip:{sub.device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}"
         req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
         req.headers["Call-ID"] = sub.call_id
@@ -781,7 +896,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
         from app.db.session import AsyncSessionLocal
         from app.models.asset import Asset
         from sqlalchemy import select
@@ -808,22 +923,24 @@ class SubscribeManager:
             logger.warning(f"[SubscribeManager] No transport for device {device_id}")
             return False
 
-        call_id = f"sub_MobilePosition_{device_id}_{secrets.token_hex(4)}@{sip_host_for_contact()}"
-        from_tag = secrets.token_hex(4)
+        call_id = f"sub_MobilePosition_{device_id}_{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-17 P1]: 64位随机性
+        from_tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性
         sn = int(time.time() * 1000) % 100000
-        domain = str(getattr(settings, "SIP_DOMAIN", sip_host_for_contact()))
+        domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
 
         req = SipMessage()
         req.method = "SUBSCRIBE"
         req.uri = f"sip:{device_id}@{domain}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={from_tag}"
         req.headers["To"] = f"<sip:{device_id}@{domain}>"
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 SUBSCRIBE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        from app.sip.commander import _next_cseq as _sub_next_cseq
+        req.headers["CSeq"] = f"{_sub_next_cseq()} SUBSCRIBE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Event"] = "MobilePosition"
         req.headers["Expires"] = str(expires)
@@ -879,7 +996,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
         from app.db.session import AsyncSessionLocal
         from app.models.asset import Asset
         from sqlalchemy import select
@@ -896,15 +1013,15 @@ class SubscribeManager:
             return False
 
         sn = int(time.time() * 1000) % 100000
-        domain = str(getattr(settings, "SIP_DOMAIN", sip_host_for_contact()))
+        domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
 
         req = SipMessage()
         req.method = "SUBSCRIBE"
         req.uri = f"sip:{device_id}@{domain}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={sub.from_tag}"
         req.headers["To"] = f"<sip:{device_id}@{domain}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{device_id}@{domain}>"
         req.headers["Call-ID"] = sub.call_id
@@ -940,7 +1057,7 @@ class SubscribeManager:
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
         from app.sip.send import send_sip_bytes
-        from app.core.config import settings, sip_host_for_contact
+        from app.core.config import settings, sip_host_for_contact, sip_via_host
         from app.db.session import AsyncSessionLocal
         from app.models.asset import Asset
         from sqlalchemy import select
@@ -970,15 +1087,15 @@ class SubscribeManager:
             return False
 
         sn = int(time.time() * 1000) % 100000
-        domain = str(getattr(settings, "SIP_DOMAIN", sip_host_for_contact()))
+        domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
 
         req = SipMessage()
         req.method = "SUBSCRIBE"
         req.uri = f"sip:{device_id}@{domain}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bK{secrets.token_hex(6)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={sub.from_tag}"
         req.headers["To"] = f"<sip:{device_id}@{domain}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{device_id}@{domain}>"
         req.headers["Call-ID"] = sub.call_id
@@ -1071,7 +1188,7 @@ async def send_subscribe_to_device(
     from app.sip.server import sip_server
     from app.sip.message import SipMessage
     from app.sip.send import send_sip_bytes
-    from app.core.config import settings, sip_host_for_contact
+    from app.core.config import settings, sip_host_for_contact, sip_via_host
     from app.db.session import AsyncSessionLocal
     from app.models.asset import Asset
     from sqlalchemy import select
@@ -1090,19 +1207,19 @@ async def send_subscribe_to_device(
         return False
 
     if not call_id:
-        call_id = f"sub_{event}_{device_id}_{secrets.token_hex(4)}@{sip_host_for_contact()}"
+        call_id = f"sub_{event}_{device_id}_{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-17 P1]: 64位随机性
     if not from_tag:
-        from_tag = secrets.token_hex(4)
+        from_tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性
     sn = int(time.time() * 1000) % 100000
 
-    domain = str(getattr(settings, "SIP_DOMAIN", sip_host_for_contact()))
+    domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
     req = SipMessage()
     req.method = "SUBSCRIBE"
     req.uri = f"sip:{device_id}@{domain}"
     req.version = "SIP/2.0"
 
-    branch = f"z9hG4bK{secrets.token_hex(6)}"
-    req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+    branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+    req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
     req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={from_tag}"
     req.headers["To"] = f"<sip:{device_id}@{domain}>"
     req.headers["Call-ID"] = call_id

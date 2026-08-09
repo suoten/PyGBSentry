@@ -25,11 +25,16 @@ from app.core.config import settings
 
 _TTL_SECONDS = 120
 _REPLAY_CACHE_MAX = 1024
+# FIX [2026-07-18 P1]: 允许同一 ticket 在 5 秒窗口内被多次验证（浏览器重试场景）。
+# 原问题：浏览器在 WebSocket 连接失败时可能立即重试（如 nginx 暂时 502），
+# 如果使用同一 ticket URL（如用户刷新页面），第二次连接会被判为 replay 而拒绝。
+# 实际上 ws-ticket 已经过期检查（120s TTL），5 秒内的"重放"是合理的网络重试行为。
+_REPLAY_GRACE_SECONDS = 5.0
 _replay: "OrderedDict[str, float]" = OrderedDict()
 
 
 def _secret() -> bytes:
-    return str(getattr(settings, "SECRET_KEY", "") or "").encode("utf-8")
+    return str(settings.SECRET_KEY or "").encode("utf-8")
 
 
 def _b64encode(data: bytes) -> str:
@@ -72,8 +77,13 @@ async def consume_ws_ticket(ticket: str) -> Optional[Any]:
     # replay protection
     now = time.time()
     if payload_b64 in _replay:
-        logger.warning("ws_ticket: replay detected")
-        return None
+        # FIX [2026-07-18 P1]: 5 秒内的"重放"视为合法重试（浏览器连接失败重连场景）
+        _first_seen = _replay[payload_b64]
+        if now - _first_seen > _REPLAY_GRACE_SECONDS:
+            logger.warning("ws_ticket: replay detected")
+            return None
+        # 在 grace 窗口内，放行但不重新记录时间（防止无限重放）
+        logger.debug(f"ws_ticket: replay within grace window ({now - _first_seen:.2f}s), allowing")
     try:
         raw = _b64decode(payload_b64)
         body = json.loads(raw.decode("utf-8"))
@@ -83,7 +93,9 @@ async def consume_ws_ticket(ticket: str) -> Optional[Any]:
     if int(body.get("exp", 0)) < now:
         logger.warning("ws_ticket: expired")
         return None
-    _replay[payload_b64] = now
-    if len(_replay) > _REPLAY_CACHE_MAX:
-        _replay.popitem(last=False)
+    # 只在首次成功验证时记录，grace 窗口内的重放不更新时间戳
+    if payload_b64 not in _replay:
+        _replay[payload_b64] = now
+        if len(_replay) > _REPLAY_CACHE_MAX:
+            _replay.popitem(last=False)
     return body.get("payload")

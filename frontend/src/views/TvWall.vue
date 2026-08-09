@@ -538,7 +538,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n' // FIXED: 国际化
-import { Loading, FolderOpened, Connection, VideoPause, Setting, Star, Monitor, Download, FullScreen, Grid, VideoPlay, Pointer } from '@element-plus/icons-vue'
+import { Loading, FolderOpened, Connection, VideoPause, Setting, Star, Monitor, Download, FullScreen, Grid, VideoPlay, Pointer, Refresh, Warning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import JessibucaPlayer from '../components/JessibucaPlayer.vue'

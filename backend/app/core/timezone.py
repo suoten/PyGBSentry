@@ -8,7 +8,7 @@ from loguru import logger
 
 
 def get_app_timezone_name() -> str:
-    tz_name = str(getattr(settings, "APP_TIMEZONE", "") or "").strip()
+    tz_name = str(settings.APP_TIMEZONE or "").strip()
     if not tz_name:
         return "Asia/Shanghai"
     try:

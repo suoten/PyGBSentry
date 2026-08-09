@@ -1,150 +1,288 @@
-/**
- * Friendly error message generator — converts axios/FastAPI errors into
- * user-friendly messages with optional suggestions and retry hints.
- */
-import i18n from '@/locales'
+import { ElMessageBox } from 'element-plus'
+import axios from 'axios'
+import i18n from '@/locales' // FIXED: 国际化
 
-export interface FriendlyError {
+const t = i18n.global.t
+
+export type FriendlyError = {
   message: string
-  suggestion: string
-  status: number | null
-  reasonCode: string
-  retryable: boolean
-  diagnostics: string
-  upgradeHookReport: unknown
+  suggestion?: string
+  status?: number
+  reasonCode?: string
+  retryable?: boolean
+  diagnostics?: Record<string, unknown>
+  upgradeHookReport?: Record<string, unknown>
 }
 
-/** Extract a human-readable detail string from an axios error response. */
-function _extractDetail(data: unknown): string {
-  if (!data || typeof data !== 'object') return ''
-  const obj = data as Record<string, unknown>
-  // FastAPI HTTPException detail
-  if (typeof obj.detail === 'string') return obj.detail
-  // Pydantic validation error array
-  if (Array.isArray(obj.detail)) {
-    const first = obj.detail[0] as Record<string, unknown> | undefined
-    if (first) {
-      const loc = Array.isArray(first.loc) ? first.loc.join('.') : ''
-      const msg = typeof first.msg === 'string' ? first.msg : ''
-      return loc ? `${loc}: ${msg}` : msg
+// FIXED-P2: W-18 错误消息匹配添加英文关键词，兼容后端英文返回
+export function getFriendlyError(error: unknown): FriendlyError {
+  const res = (error as Record<string, unknown>)?.response
+  const status = res?.status
+  const data = res?.data
+
+  const pickString = (...list: Record<string, unknown>[]) => {
+    for (const item of list) {
+      const value = typeof item === 'string' ? item.trim() : ''
+      if (value) return value
+    }
+    return ''
+  }
+
+  const structuredDetail =
+    data && typeof data === 'object'
+      ? typeof (data as Record<string, unknown>).detail === 'object' && (data as Record<string, unknown>).detail
+        ? (data as Record<string, unknown>).detail
+        : null
+      : null
+
+  const reasonCode = pickString(structuredDetail?.reason_code, structuredDetail?.reasonCode, data?.reason_code, data?.reasonCode)
+  const suggestion = pickString(structuredDetail?.suggestion, data?.suggestion)
+  const retryable =
+    typeof structuredDetail?.retryable === 'boolean'
+      ? structuredDetail.retryable
+      : typeof data?.retryable === 'boolean'
+        ? data.retryable
+        : undefined
+  const diagnostics =
+    structuredDetail?.diagnostics && typeof structuredDetail.diagnostics === 'object'
+      ? structuredDetail.diagnostics
+      : data?.diagnostics && typeof data.diagnostics === 'object'
+        ? data.diagnostics
+        : undefined
+
+  const detail = pickString(
+    typeof (data as Record<string, unknown>)?.detail === 'string' ? (data as Record<string, unknown>).detail : '',
+    structuredDetail?.message,
+    structuredDetail?.detail,
+    (data as Record<string, unknown>)?.message,
+    (data as Record<string, unknown>)?.msg,
+    res?.data?.detail?.msg
+  )
+  const msg = detail || (error as Error)?.message || t('error.requestFailed') // FIXED: 国际化
+
+  if (!status && (axios.isCancel(error) || (error as Record<string, unknown>)?.code === 'ERR_CANCELED' || (error as Record<string, unknown>)?.name === 'CanceledError' || (error as Record<string, unknown>)?.name === 'AbortError' || String((error as Error)?.message || '').toLowerCase() === 'canceled')) {
+    return { message: t('error.requestCanceled'), suggestion: '', status: 0, retryable: true } // FIXED: 国际化
+  }
+
+  if (status === 401) {
+    return { message: t('error.unauthorized'), suggestion: t('error.relogin'), status } // FIXED: 国际化
+  }
+  if (status === 405) {
+    return { message: t('error.methodNotAllowed'), suggestion: t('error.methodNotAllowedSuggestion'), status } // FIXED: 国际化
+  }
+  const normalized = (msg || '').trim()
+
+  if (status === 402 || reasonCode === 'SUBSCRIPTION_EXPIRED' || normalized === 'SUBSCRIPTION_EXPIRED') {
+    return {
+      message: t('error.subscriptionExpired'), // FIXED: 国际化
+      suggestion: t('error.subscriptionExpiredSuggestion'), // FIXED: 国际化
+      status,
+      reasonCode: 'SUBSCRIPTION_EXPIRED',
+      retryable: false
     }
   }
-  if (typeof obj.message === 'string') return obj.message
-  return ''
-}
-
-/** Status-code → handler descriptor for HTTP errors. */
-interface StatusHandler {
-  msgKey: string
-  reasonCode: string
-  retryable?: boolean
-  useDetail?: boolean
-}
-
-const NETWORK_ERROR_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ERR_NETWORK'])
-
-const STATUS_HANDLERS: Record<number, StatusHandler> = {
-  400: { msgKey: 'common.badRequest', reasonCode: '', useDetail: true },
-  401: { msgKey: 'common.sessionExpired', reasonCode: 'auth', useDetail: true },
-  403: { msgKey: 'common.forbidden', reasonCode: 'forbidden', useDetail: true },
-  404: { msgKey: 'common.notFound', reasonCode: 'not_found', useDetail: true },
-  422: { msgKey: 'common.validationFailed', reasonCode: 'validation', useDetail: true },
-  423: { msgKey: 'common.locked', reasonCode: 'locked', useDetail: true },
-  429: { msgKey: 'common.tooManyRequests', reasonCode: 'rate_limit', retryable: true, useDetail: true },
-  500: { msgKey: 'common.serverError', reasonCode: 'server', retryable: true },
-  501: { msgKey: 'common.notImplemented', reasonCode: 'not_implemented' },
-  502: { msgKey: 'common.serviceUnavailable', reasonCode: 'unavailable', retryable: true },
-  503: { msgKey: 'common.serviceUnavailable', reasonCode: 'unavailable', retryable: true },
-  504: { msgKey: 'common.gatewayTimeout', reasonCode: 'timeout', retryable: true },
-}
-
-/** Build the default FriendlyError template. */
-function _emptyError(): FriendlyError {
-  return {
-    message: i18n.global.t('common.unknownError'),
-    suggestion: '',
-    status: null,
-    reasonCode: '',
-    retryable: false,
-    diagnostics: '',
-    upgradeHookReport: null,
+  if (status === 403) {
+    if (reasonCode === 'SUBSCRIPTION_EXPIRED') {
+      return {
+        message: t('error.subscriptionExpired'), // FIXED: 国际化
+        suggestion: t('error.subscriptionExpiredSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode: 'SUBSCRIPTION_EXPIRED',
+        retryable: false
+      }
+    }
+    if (reasonCode === 'PLUGIN_NOT_PURCHASED') {
+      return {
+        message: t('error.pluginNotPurchased'), // FIXED: 国际化
+        suggestion: t('error.pluginPurchaseSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode: 'PLUGIN_NOT_PURCHASED',
+        retryable: false
+      }
+    }
+    if (
+      normalized === 'PLUGIN_NOT_PURCHASED' ||
+      normalized === 'SUBSCRIPTION_EXPIRED' ||
+      normalized.includes('PLUGIN_NOT_PURCHASED') ||
+      normalized.includes('未购买') || normalized.includes('not purchased') || normalized.includes('unpurchased') ||
+      normalized.includes('无授权') || normalized.includes('unauthorized') || normalized.includes('no license') ||
+      normalized.includes('授权无效') || normalized.includes('invalid license') || normalized.includes('license invalid') ||
+      normalized.includes('缺少 license') || normalized.includes('missing license')
+    ) {
+      return {
+        message: normalized === 'PLUGIN_NOT_PURCHASED' ? t('error.pluginNotPurchased') : (msg || t('error.pluginNoAuth')), // FIXED: 国际化
+        suggestion: t('error.pluginPurchaseSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode: normalized === 'PLUGIN_NOT_PURCHASED' ? 'PLUGIN_NOT_PURCHASED' : undefined,
+        retryable: false
+      }
+    }
+    return { message: t('error.forbidden'), suggestion: t('error.forbiddenSuggestion'), status } // FIXED: 国际化
   }
+  if (status === 404) {
+    if (reasonCode === 'asset_not_found' || reasonCode === 'channel_not_found_under_device' || reasonCode === 'asset_channel_changed') {
+      return {
+        message: msg || t('error.deviceChannelUnavailable'), // FIXED: 国际化
+        suggestion: suggestion || t('error.deviceChannelRetrySuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable,
+        diagnostics
+      }
+    }
+    if (reasonCode === 'device_offline') {
+      return {
+        message: msg || t('error.deviceOffline'), // FIXED: 国际化
+        suggestion: suggestion || t('error.deviceOfflineSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable: true,
+        diagnostics
+      }
+    }
+    if (msg.includes('设备或通道不存在') || msg.includes('device or channel not found')) {
+      return {
+        message: t('error.deviceChannelUnavailable'), // FIXED: 国际化
+        suggestion: t('error.deviceChannelSelectSuggestion'), // FIXED: 国际化
+        status
+      }
+    }
+    return { message: t('error.resourceNotFound'), suggestion: t('error.resourceDeletedSuggestion'), status } // FIXED: 国际化
+  }
+  if (status === 400) {
+    if (msg.includes('时间范围') || msg.includes('time range') || msg.includes('start_time') || msg.includes('end_time')) {
+      return { message: msg, suggestion: t('error.timeRangeSuggestion'), status } // FIXED: 国际化
+    }
+    if (msg.includes('OTP')) {
+      return { message: msg, suggestion: t('error.otpSuggestion'), status } // FIXED: 国际化
+    }
+    if (msg.includes('用户名或密码错误') || msg.toLowerCase().includes('incorrect') || msg.includes('密码错误') || msg.includes('incorrect credentials') || msg.includes('wrong password')) {
+      return { message: t('error.incorrectCredentials'), suggestion: t('error.incorrectCredentialsSuggestion'), status } // FIXED: 国际化
+    }
+    if ((msg.includes('插件') || msg.includes('plugin')) && (msg.includes('废弃') || msg.includes('不允许') || msg.includes('deprecated') || msg.includes('not allowed'))) {
+      return { message: msg, suggestion: t('error.pluginDeprecatedSuggestion'), status } // FIXED: 国际化
+    }
+    if ((msg.includes('开源版') || msg.includes('open-source')) && (msg.includes('版本') || msg.includes('兼容') || msg.includes('version') || msg.includes('compatible'))) {
+      return { message: msg, suggestion: t('error.pluginVersionSuggestion'), status } // FIXED: 国际化
+    }
+    if (msg.includes('connector_url') || msg.includes('连接器') || msg.includes('connector')) {
+      return { message: msg, suggestion: t('error.connectorSuggestion'), status } // FIXED: 国际化
+    }
+    return { message: msg || t('error.badRequest'), suggestion: t('error.checkInputSuggestion'), status } // FIXED: 国际化
+  }
+  if (status === 422) {
+    return { message: msg || t('error.unprocessableEntity'), suggestion: t('error.checkInputSuggestion'), status } // FIXED: 国际化
+  }
+  if (status === 429) {
+    return { message: t('error.tooManyRequests'), suggestion: t('error.tooManyRequestsSuggestion'), status } // FIXED: 国际化
+  }
+  if (status === 502) {
+    if (msg.includes('插件市场') || msg.includes('plugin marketplace') || msg.toLowerCase().includes('marketplace')) {
+      return { message: t('error.marketplaceUnavailable'), suggestion: t('error.marketplaceSuggestion'), status } // FIXED: 国际化
+    }
+    if (msg.includes('连接器') || msg.includes('report') || msg.includes('connector')) {
+      return { message: t('error.externalServiceUnavailable'), suggestion: t('error.connectorUrlSuggestion'), status } // FIXED: 国际化
+    }
+    return { message: msg || t('error.upstreamUnavailable'), suggestion: t('error.retryLater'), status } // FIXED: 国际化
+  }
+  if (status === 503) {
+    if (reasonCode === 'media_stream_not_ready') {
+      return {
+        message: msg || t('error.streamNotReady'), // FIXED: 国际化
+        suggestion: suggestion || t('error.streamNotReadySuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable,
+        diagnostics
+      }
+    }
+    if (reasonCode === 'media_node_unreachable' || reasonCode === 'media_node_unavailable') {
+      return {
+        message: msg || t('error.mediaServerConnectFailed'), // FIXED: 国际化
+        suggestion: suggestion || t('error.mediaServerSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable,
+        diagnostics
+      }
+    }
+    if (reasonCode === 'device_transport_unavailable') {
+      return {
+        message: msg || t('error.deviceTransportUnavailable'), // FIXED: 国际化
+        suggestion: suggestion || t('error.deviceTransportSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable,
+        diagnostics
+      }
+    }
+    if (reasonCode === 'sip_service_unavailable') {
+      return {
+        message: msg || t('error.sipServiceUnavailable'), // FIXED: 国际化
+        suggestion: suggestion || t('error.sipServiceSuggestion'), // FIXED: 国际化
+        status,
+        reasonCode,
+        retryable,
+        diagnostics
+      }
+    }
+    return {
+      message: msg || t('error.serviceUnavailable'), // FIXED: 国际化
+      suggestion: suggestion || t('error.serviceUnavailableSuggestion'), // FIXED: 国际化
+      status,
+      reasonCode,
+      retryable,
+      diagnostics
+    }
+  }
+  if (status === 500) {
+    const uhr = structuredDetail?.upgrade_hook_report
+    if (uhr && typeof uhr === 'object') {
+      return {
+        message:
+          pickString(typeof structuredDetail?.message === 'string' ? structuredDetail.message : '', '') ||
+          t('error.upgradeHookFailed'), // FIXED: 国际化
+        suggestion: t('error.upgradeHookSuggestion'), // FIXED: 国际化
+        status,
+        upgradeHookReport: uhr as Record<string, unknown>
+      }
+    }
+    return { message: t('error.internalServerError'), suggestion: t('error.internalServerErrorSuggestion'), status } // FIXED: 国际化
+  }
+  if (status === 501) {
+    return { message: detail || t('error.notImplemented'), suggestion: t('error.notImplementedSuggestion'), status, retryable: false } // FIXED: 国际化
+  }
+  if (msg.includes('Network Error') || msg.includes('Failed to fetch')) {
+    return { message: t('error.networkError'), suggestion: t('error.networkErrorSuggestion'), status } // FIXED: 国际化
+  }
+  if (msg.includes('timeout') || msg.includes('超时') || msg.includes('timed out')) {
+    return { message: t('error.timeout'), suggestion: t('error.timeoutSuggestion'), status } // FIXED: 国际化
+  }
+  if (msg.includes('拉流') || msg.includes('pull stream') || msg.includes('stream pull') || msg.includes('stream') || msg.includes('play')) {
+    return { message: msg, suggestion: suggestion || t('error.streamSuggestion'), status, reasonCode, retryable, diagnostics } // FIXED: 国际化
+  }
+  return { message: msg, suggestion: suggestion || t('error.retryOrContactAdmin'), status, reasonCode, retryable, diagnostics } // FIXED: 国际化
 }
 
-/** Handle network-level errors (no HTTP response received). */
-function _handleNetworkError(code: string): FriendlyError {
-  const retryable = NETWORK_ERROR_CODES.has(code)
-  return {
-    ..._emptyError(),
-    message: i18n.global.t('common.networkError'),
-    retryable,
-    reasonCode: 'network',
-  }
-}
-
-/** Handle an HTTP error by status code using a lookup table. */
-function _handleHttpError(status: number, detail: string): FriendlyError {
-  const handler = STATUS_HANDLERS[status]
-  if (!handler) {
-    return { ..._emptyError(), message: detail || i18n.global.t('common.unknownError'), status }
-  }
-  const message = handler.useDetail
-    ? (detail || i18n.global.t(handler.msgKey))
-    : i18n.global.t(handler.msgKey)
-  return {
-    ..._emptyError(),
-    message,
-    status,
-    reasonCode: handler.reasonCode,
-    retryable: handler.retryable ?? false,
-  }
-}
-
-/**
- * Convert an axios error into a FriendlyError with i18n messages.
- */
-export function getFriendlyError(error: unknown): FriendlyError {
-  if (!error || typeof error !== 'object') return _emptyError()
-
-  const axiosErr = error as {
-    response?: { status?: number; data?: unknown }
-    code?: string
-    message?: string
-  }
-
-  // Network-level errors (no response from server)
-  if (!axiosErr.response) {
-    return _handleNetworkError(axiosErr.code || '')
-  }
-
-  const status = axiosErr.response.status ?? 0
-  const detail = _extractDetail(axiosErr.response.data)
-  return _handleHttpError(status, detail)
-}
-
-/**
- * Extract a plain error message string from an axios/FastAPI error.
- * Returns `fallback` if no detail can be extracted.
- */
 export function getApiErrorMessage(error: unknown, fallback: string): string {
+  const err = error as Record<string, unknown> | undefined
+  if (err?.name === 'CanceledError' || err?.name === 'AbortError' || err?.code === 'ERR_CANCELED' || err?._isCanceled) {
+    return ''
+  }
   const f = getFriendlyError(error)
-  return (f.message || '').trim() || fallback
+  const m = (f.message || '').trim()
+  return m || fallback
 }
 
-/**
- * If an error response contains an upgrade-hook report (plugin marketplace
- * upgrade flow), prompt the user with the details.  Currently a safe no-op
- * when no report is present.
- */
-export function promptUpgradeHookReportIfPresent(error: unknown): void {
-  if (!error || typeof error !== 'object') return
-  const axiosErr = error as { response?: { data?: unknown } }
-  const data = axiosErr.response?.data as Record<string, unknown> | undefined
-  if (!data || typeof data !== 'object') return
-  const report = data.upgrade_hook_report
-  if (!report) return
-  // Log the report for debugging; a full UI prompt can be added per-product
-  console.info('[upgrade-hook-report]', report)
+export async function promptUpgradeHookReportIfPresent(friendly: FriendlyError): Promise<void> {
+  const r = friendly.upgradeHookReport
+  if (!r || typeof r !== 'object') return
+  try {
+    await ElMessageBox.alert(JSON.stringify(r, null, 2), t('error.upgradeHookReportTitle'), { // FIXED: 国际化
+      confirmButtonText: t('common.ok'), // FIXED: 国际化
+      customClass: 'plugin-upgrade-hook-report-dialog'
+    })
+  } catch {
+    /* 关闭弹窗 */
+  }
 }
-
-export default getFriendlyError

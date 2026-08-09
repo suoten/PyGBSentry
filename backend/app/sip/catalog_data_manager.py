@@ -66,14 +66,8 @@ class CatalogDataManager:
         # key: (gb_id, cmd_type) -> _Entry
         self._entries: dict[tuple[str, str], _Entry] = {}
         self._monitor_running: bool = False
-        self._monitor_interval = float(
-            getattr(settings, "CATALOG_MONITOR_INTERVAL_SECONDS", _DEFAULT_MONITOR_INTERVAL)
-            or _DEFAULT_MONITOR_INTERVAL
-        )
-        self._entry_ttl = float(
-            getattr(settings, "CATALOG_ENTRY_TTL_SECONDS", _DEFAULT_ENTRY_TTL)
-            or _DEFAULT_ENTRY_TTL
-        )
+        self._monitor_interval = settings.CATALOG_MONITOR_INTERVAL_SECONDS
+        self._entry_ttl = settings.CATALOG_ENTRY_TTL_SECONDS
 
     # ------------------------------------------------------------------
     # 写入

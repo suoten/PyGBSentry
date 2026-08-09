@@ -2662,6 +2662,16 @@ onBeforeUnmount(() => {
   window.removeEventListener('contextmenu', hideContextMenuByContextmenu)
   window.removeEventListener('resize', hideContextMenu)
   window.removeEventListener('keydown', onGlobalKeyDown)
+  // FIX: [2026-07-16 P1-E] 无论 playStreamId 是否已设置，都需清理 playRequest 定时器和 abort。
+  // 原实现仅在 playStreamId.value 为真时调用 closePlayer，导致点播请求进行中切走页面时
+  // playRequestInterval 和 playRequestTimeouts 泄漏，持续修改已卸载组件的响应式状态。
+  clearPlayRequestTimers()
+  if (playRequestAbort) {
+    try {
+      playRequestAbort.abort()
+    } catch { /* abort best-effort */ }
+    playRequestAbort = null
+  }
   // 离开页面时兜底停止实时预览，避免流会话占用
   try {
     if (playStreamId.value) {

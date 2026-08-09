@@ -12,6 +12,7 @@ from app.models.asset import Asset
 from app.models.resource import Resource
 from app.models.organization import Organization
 from app.models.asset_stream_policy import AssetStreamPolicy
+from app.models.asset_stream_health import AssetStreamHealth  # FIX: [2026-07-13] 级联删除流健康度记录
 from app.models.ip_blacklist import IpBlacklist
 try:
     # 可选依赖：部分部署/版本可能没有该模型与对应表
@@ -518,6 +519,11 @@ async def delete_device(
     result = await db.execute(stmt)
     asset = get_or_404(result, detail="Asset not found")  # ORM查询结果空值判断
 
+    # FIX: [2026-07-13] 级联删除关联记录，避免 ForeignKeyViolationError。
+    # FIX: [2026-07-14] 补充 AssetStreamPolicy 级联删除，日志确认 asset_stream_policies_asset_id_fkey 约束违反导致删除 500。
+    await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == asset.id))
+    await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id == asset.id))
+    await db.execute(delete(Resource).where(Resource.asset_id == asset.id))
     await db.delete(asset)
     await db.commit()
     return {"status": "ok", "message": "Device deleted"}  # i18n
@@ -542,9 +548,15 @@ async def batch_delete_devices(
     if not assets:
         return {"status": "ok", "deleted_count": 0}
 
-    for asset in assets:
-        await db.execute(delete(Resource).where(Resource.asset_id == asset.id))
-        await db.delete(asset)
+    # FIX: [2026-07-16 P0] 原在循环内逐个执行 delete（N+1 查询），删除 N 个设备
+    # 会发起 3N+1 次 DB 往返。NVR 共 IP 场景下删除 100+ 路设备会耗尽连接池。
+    # 改为批量 IN 查询，将 3N+1 次往返降为 4 次。
+    asset_ids = [asset.id for asset in assets]
+    await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id.in_(asset_ids)))
+    await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id.in_(asset_ids)))
+    await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)))
+    # 批量删除 Asset
+    await db.execute(delete(Asset).where(Asset.id.in_(asset_ids)))
 
     await db.commit()
     return {"status": "ok", "deleted_count": len(assets)}
@@ -607,9 +619,13 @@ async def blacklist_device(
         res = await db.execute(stmt)
         assets = res.scalars().all()
         assets_removed = len(assets)
-        for a in assets:
-            await db.execute(delete(Resource).where(Resource.asset_id == a.id))
-            await db.execute(delete(Asset).where(Asset.id == a.id))
+        # FIX: [2026-07-16 P0] 批量 IN 删除替代循环内逐条删除
+        if assets:
+            asset_ids = [a.id for a in assets]
+            await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id.in_(asset_ids)))
+            await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id.in_(asset_ids)))
+            await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)))
+            await db.execute(delete(Asset).where(Asset.id.in_(asset_ids)))
         await db.commit()
     # 3. 仅删除当前设备
     elif req.delete_current:
@@ -619,6 +635,8 @@ async def blacklist_device(
         res = await db.execute(stmt)
         asset = res.scalars().first()
         if asset:
+            # FIX: [2026-07-13] 级联删除 AssetStreamHealth，避免外键约束违反
+            await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id == asset.id))
             await db.execute(delete(Resource).where(Resource.asset_id == asset.id))
             await db.execute(delete(Asset).where(Asset.id == asset.id))
             await db.commit()
@@ -806,6 +824,8 @@ async def cleanup_dummy_assets(
     del_stmt = select(Asset.id).where(Asset.id.in_(dummy_ids))
     del_ids = [r[0] for r in (await db.execute(del_stmt)).all() if r and r[0]]
     if del_ids:
+        # FIX: [2026-07-13] 级联删除 AssetStreamHealth，避免外键约束违反
+        await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id.in_(del_ids)))
         await db.execute(delete(Asset).where(Asset.id.in_(del_ids)))
     await db.commit()
     return {"status": "ok", "dummy_deleted": len(dummy_ids), "resources_reassigned": resources_reassigned}

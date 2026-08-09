@@ -792,7 +792,7 @@ import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 
 import { useI18n } from 'vue-i18n'
 
-import { Close, VideoCamera, Folder, Loading, FolderOpened, CircleCheck, Download, Pointer, VideoPause, Fold, Expand, Camera } from '@element-plus/icons-vue'
+import { Close, VideoCamera, Folder, Loading, FolderOpened, CircleCheck, Download, Pointer, VideoPause, Fold, Expand, Camera, Refresh, Warning } from '@element-plus/icons-vue'
 
 import PageContainer from '../components/PageContainer.vue'
 
@@ -970,6 +970,20 @@ const layoutCount = computed(() => {
 
 
 const isRoamLayout = computed(() => layout.value === '1+3' || layout.value === '1+5' || layout.value === '1+7')
+
+// FIX: [2026-07-16 P1] 16路分屏时基于 hardwareConcurrency/deviceMemory 显示性能警告
+// 违反项目硬约束："16路分屏时需基于 hardwareConcurrency/deviceMemory 向用户显示性能警告"
+watch(layout, (val) => {
+  if (val === '16') {
+    const cores = navigator.hardwareConcurrency || 4
+    const memory = (navigator as any).deviceMemory || 4
+    if (cores < 4 || memory < 4) {
+      ElMessage.warning(t('monitor.performanceWarning16Low') || '当前设备性能较低（CPU核心数或内存不足），16路分屏可能导致浏览器卡顿或崩溃，建议使用4核8GB以上设备')
+    } else if (cores < 8 || memory < 8) {
+      ElMessage.warning(t('monitor.performanceWarning16Medium') || '16路分屏对设备性能要求较高，如遇卡顿请减少分屏数或关闭其他标签页')
+    }
+  }
+})
 
 
 
@@ -1937,7 +1951,17 @@ onBeforeUnmount(async () => {
 
   handlePanelMouseUp()
 
+  // FIX: [2026-07-17 P1] 兜底移除拖拽 window 监听器，防止组件卸载时泄漏
+  window.removeEventListener('mousemove', handlePanelMouseMove)
+  window.removeEventListener('mouseup', handlePanelMouseUp)
+
   window.removeEventListener('resize', handleWindowResize)
+
+  // FIX: [2026-07-17 P1] 清理 clickTimer，防止卸载后回调修改已卸载组件状态
+  if (clickTimer) {
+    clearTimeout(clickTimer)
+    clickTimer = null
+  }
 
   if (_clockInterval) {
 

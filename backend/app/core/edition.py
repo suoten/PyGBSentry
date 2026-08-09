@@ -25,7 +25,7 @@ from app.core.config import settings
 @lru_cache(maxsize=1)
 def _edition() -> str:
     """Return the normalised edition string (lower-case)."""
-    return (getattr(settings, "APP_EDITION", "") or "oss").strip().lower()
+    return (settings.APP_EDITION or "oss").strip().lower()
 
 
 def is_oss_edition() -> bool:
@@ -48,7 +48,7 @@ def edition_label() -> str:
 
 def has_plugin_marketplace() -> bool:
     """Plugin Marketplace is a server-edition feature; OSS exposes 501 stubs."""
-    return is_server_edition() and bool(getattr(settings, "PLUGIN_MARKETPLACE_ENABLED", False))
+    return is_server_edition() and settings.PLUGIN_MARKETPLACE_ENABLED
 
 
 def has_license_verification() -> bool:

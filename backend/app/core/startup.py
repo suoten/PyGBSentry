@@ -24,7 +24,7 @@ async def _session_call(fn):
 
 async def phase_schema_migration():
     """Phase 1: Run database schema migration (Alembic or legacy)."""
-    use_alembic = getattr(settings, 'USE_ALEMBIC', False)
+    use_alembic = settings.USE_ALEMBIC
     if use_alembic:
         import subprocess
         import sys
@@ -202,7 +202,7 @@ async def phase_load_plugins(plugin_manager):
 
 async def phase_marketplace_registration(plugin_manager):
     """Phase 4: Register OSS instance to marketplace (if enabled)."""
-    if not bool(getattr(settings, "PLUGIN_MARKETPLACE_ENABLED", False)):
+    if not settings.PLUGIN_MARKETPLACE_ENABLED:
         logger.info("Startup step: PLUGIN_MARKETPLACE_ENABLED=False, marketplace integration disabled.")
         return
 
@@ -225,7 +225,7 @@ async def phase_marketplace_registration(plugin_manager):
 async def phase_data_migrations():
     """Phase 5: Run optional data migrations (split catalog, regions, embedded media node)."""
     # Split catalog migrations
-    if not bool(getattr(settings, "RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP", False)):
+    if not settings.RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP:
         logger.info(
             "Startup step: split_migrations skipped (RUN_SPLIT_CATALOG_MIGRATIONS_ON_STARTUP=false). "
             "To migrate an old database, set to true in .env or run: python scripts/run_split_catalog_migrations.py"
@@ -285,7 +285,7 @@ async def phase_data_migrations():
             logger.warning("Channel placement split migration skipped/failed: {}", e)
 
     # Region seeding
-    if not bool(getattr(settings, "RUN_REGION_SEED_ON_STARTUP", False)):
+    if not settings.RUN_REGION_SEED_ON_STARTUP:
         logger.info(
             "Startup step: ensure_regions_seeded_from_sql skipped (RUN_REGION_SEED_ON_STARTUP=false). "
             "To use built-in regions, set to true in .env or run: python scripts/seed_regions.py"
@@ -303,7 +303,7 @@ async def phase_data_migrations():
             logger.warning(f"Startup step: ensure_regions_seeded_from_sql failed: {e}")
 
     # Embedded media node
-    if not bool(getattr(settings, "ENSURE_EMBEDDED_MEDIA_NODE_ON_STARTUP", False)):
+    if not settings.ENSURE_EMBEDDED_MEDIA_NODE_ON_STARTUP:
         logger.info(
             "Startup step: ensure_embedded_media_node skipped (ENSURE_EMBEDDED_MEDIA_NODE_ON_STARTUP=false). "
             "If initial_data has not been run or node needs to be populated: python scripts/ensure_embedded_media_node.py"
@@ -350,7 +350,7 @@ async def phase_check_secret_consistency():
         if _secret_node:
             _db_secret_plain = _secret_node.decrypted_secret
             if _db_secret_plain and _db_secret_plain != settings.MEDIA_SERVER_SECRET:
-                _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+                _app_env = (settings.APP_ENV or "dev").lower()
                 if _app_env in {"prod", "production"}:
                     logger.error(
                         "FATAL: MEDIA_SERVER_SECRET mismatch with DB MediaNode.secret (node_id=%s). "
@@ -378,7 +378,7 @@ async def phase_check_secret_consistency():
 
 async def phase_init_redis():
     """Phase 8: Initialize Redis connection."""
-    if not bool(getattr(settings, "INIT_REDIS_ON_STARTUP", False)):
+    if not settings.INIT_REDIS_ON_STARTUP:
         logger.info(
             "Startup step: init_redis skipped (INIT_REDIS_ON_STARTUP=false). "
             "Set INIT_REDIS_ON_STARTUP=true in .env and start redis-server when Redis is needed"
@@ -388,7 +388,9 @@ async def phase_init_redis():
     logger.info("Startup step: init_redis...")
     try:
         from app.core.redis import init_redis
-        redis_task = asyncio.create_task(init_redis())
+        # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+        # 注意：此处需要可等待的 task 引用，因此直接使用 fire_and_forget 返回值
+        redis_task = fire_and_forget(init_redis(), name="init_redis")
         done, pending = await asyncio.wait({redis_task}, timeout=10)
         if redis_task in done:
             exc = redis_task.exception()
@@ -435,12 +437,12 @@ async def phase_init_sip(sip_server):
         await asyncio.wait_for(sip_server.start(), timeout=20)
         logger.info("Startup step: sip_server.start done.")
     except asyncio.TimeoutError:
-        if bool(getattr(settings, "SIP_STARTUP_REQUIRED", True)):
+        if settings.SIP_STARTUP_REQUIRED:
             logger.error("Startup step: sip_server.start timeout (20s), abort startup.")
             raise
         logger.warning("Startup step: sip_server.start timeout (20s), continue startup without SIP.")
     except OSError as e:
-        if bool(getattr(settings, "SIP_STARTUP_REQUIRED", True)):
+        if settings.SIP_STARTUP_REQUIRED:
             logger.error(f"Startup step: sip_server.start failed: {e}. abort startup.")
             raise
         logger.warning(f"Startup step: sip_server.start failed: {e}. Continue startup without SIP.")
@@ -514,7 +516,7 @@ async def phase_start_background_services(sip_server, plugin_manager):
 
     # Embedded ZLMediaKit
     from app.services.media_manager import media_manager
-    zlm_boot_timeout = int(getattr(settings, "EMBEDDED_ZLM_START_TIMEOUT_SECONDS", 3600) or 0)
+    zlm_boot_timeout = settings.EMBEDDED_ZLM_START_TIMEOUT_SECONDS
     logger.info("Startup step: media_manager.start (embedded ZLM)...")
     try:
         if zlm_boot_timeout > 0:
@@ -557,27 +559,27 @@ async def phase_start_background_services(sip_server, plugin_manager):
 async def phase_start_license_sync(plugin_manager):
     """Phase 12: Start paid license sync loop and OSS heartbeat."""
     paid_license_sync_task = None
-    sync_enabled = bool(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_ENABLED", True))
+    sync_enabled = settings.PLUGIN_PAID_LICENSE_SYNC_ENABLED
     try:
-        configured_interval = int(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_INTERVAL_SECONDS", 0) or 0)
+        configured_interval = settings.PLUGIN_PAID_LICENSE_SYNC_INTERVAL_SECONDS
     except Exception:
         configured_interval = 0
     try:
-        fallback_interval = int(getattr(settings, "PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS", 60) or 0)
+        fallback_interval = settings.PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS
     except Exception:
         fallback_interval = 0
     paid_license_sync_interval = configured_interval if configured_interval > 0 else fallback_interval
-    if bool(getattr(settings, "PLUGIN_LICENSE_DAILY_CHECK_MODE", False)):
+    if settings.PLUGIN_LICENSE_DAILY_CHECK_MODE:
         daily_interval = 86400
         if paid_license_sync_interval > 0:
             paid_license_sync_interval = max(paid_license_sync_interval, daily_interval)
         else:
             paid_license_sync_interval = daily_interval
     try:
-        paid_license_sync_jitter = max(0, int(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_JITTER_SECONDS", 5) or 0))
+        paid_license_sync_jitter = max(0, settings.PLUGIN_PAID_LICENSE_SYNC_JITTER_SECONDS)
     except Exception:
         paid_license_sync_jitter = 0
-    run_sync_on_startup = bool(getattr(settings, "PLUGIN_PAID_LICENSE_SYNC_ON_STARTUP", True))
+    run_sync_on_startup = settings.PLUGIN_PAID_LICENSE_SYNC_ON_STARTUP
 
     if sync_enabled and paid_license_sync_interval > 0:
         async def _paid_license_sync_loop():
@@ -598,13 +600,16 @@ async def phase_start_license_sync(plugin_manager):
                 except Exception as e:
                     logger.warning("Paid license sync tick failed: {}", e)
 
-        paid_license_sync_task = asyncio.create_task(_paid_license_sync_loop())
+        paid_license_sync_task = fire_and_forget(
+            _paid_license_sync_loop(),
+            name="paid_license_sync_loop",
+        )
 
     # OSS heartbeat
     oss_heartbeat_task = None
     oss_heartbeat_interval = 300
     try:
-        oss_heartbeat_interval = max(60, int(getattr(settings, "OSS_INSTANCE_HEARTBEAT_INTERVAL_SECONDS", 300) or 300))
+        oss_heartbeat_interval = max(60, settings.OSS_INSTANCE_HEARTBEAT_INTERVAL_SECONDS)
     except Exception as e:
         logger.warning(f"Failed to parse OSS heartbeat interval: {e}")
     if getattr(plugin_manager, "_oss_instance_id", None):
@@ -620,7 +625,10 @@ async def phase_start_license_sync(plugin_manager):
                 except Exception as e:
                     logger.warning("OSS instance heartbeat error: {}", e)
 
-        oss_heartbeat_task = asyncio.create_task(_oss_heartbeat_loop())
+        oss_heartbeat_task = fire_and_forget(
+            _oss_heartbeat_loop(),
+            name="oss_heartbeat_loop",
+        )
 
     return paid_license_sync_task, oss_heartbeat_task
 
@@ -631,9 +639,19 @@ async def phase_start_cleanup_loops():
     from app.sip.ssrc_manager import ssrc_manager
     from app.sip.catalog_data_manager import catalog_data_manager
 
-    _bg_dialog_cleanup = asyncio.create_task(dialog_manager.cleanup_loop())
-    _bg_ssrc_cleanup = asyncio.create_task(ssrc_manager.cleanup_loop())
-    _bg_catalog_monitor = asyncio.create_task(catalog_data_manager.monitor_loop())
+    # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+    _bg_dialog_cleanup = fire_and_forget(
+        dialog_manager.cleanup_loop(),
+        name="dialog_cleanup_loop",
+    )
+    _bg_ssrc_cleanup = fire_and_forget(
+        ssrc_manager.cleanup_loop(),
+        name="ssrc_cleanup_loop",
+    )
+    _bg_catalog_monitor = fire_and_forget(
+        catalog_data_manager.monitor_loop(),
+        name="catalog_monitor_loop",
+    )
 
     return _bg_dialog_cleanup, _bg_ssrc_cleanup, _bg_catalog_monitor
 
@@ -653,7 +671,10 @@ async def phase_start_log_drain():
             except Exception:
                 await asyncio.sleep(1)
 
-    _log_drain_task = asyncio.create_task(_drain_log_queue(log_manager, _get_log_queue))
+    _log_drain_task = fire_and_forget(
+        _drain_log_queue(log_manager, _get_log_queue),
+        name="log_queue_drainer",
+    )
     logger.info("Startup step: log queue drainer started.")
     return _log_drain_task
 
@@ -661,13 +682,13 @@ async def phase_start_log_drain():
 def emit_security_warnings():
     """Emit security warnings for non-ideal configurations."""
     _security_warnings = []
-    if not getattr(settings, "PLUGIN_LICENSE_MACHINE_CODE_ENABLED", False):
+    if not settings.PLUGIN_LICENSE_MACHINE_CODE_ENABLED:
         _security_warnings.append("PLUGIN_LICENSE_MACHINE_CODE_ENABLED=False: machine code binding disabled, license can be copied across machines")
-    if not getattr(settings, "PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED", False):
+    if not settings.PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED:
         _security_warnings.append("PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED=False: activation token disabled, trial period can be reset")
-    if not getattr(settings, "PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD", False):
+    if not settings.PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD:
         _security_warnings.append("PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered")
-    if _security_warnings and (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}:
+    if _security_warnings and (settings.APP_ENV or "dev").lower() in {"prod", "production"}:
         for _w in _security_warnings:
             logger.warning(f"[Security] {_w}")
         logger.warning("[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02")

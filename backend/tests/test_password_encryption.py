@@ -210,7 +210,9 @@ class TestMigrationIdempotency(unittest.TestCase):
                 sa.text(f"SELECT id, password FROM {table} WHERE password IS NOT NULL AND password <> ''")
             ).fetchall()
             for rid, pwd in rows:
-                if decrypt_field(pwd, purpose=purpose) is not None:
+                # FIX [2026-07-19]: 必须使用 allow_plaintext=False 严格模式，
+                # 与 alembic 迁移 c1d2e3f4a5b6 行为保持一致。
+                if decrypt_field(pwd, purpose=purpose, allow_plaintext=False) is not None:
                     skipped += 1
                     continue
                 encrypted = encrypt_field(pwd, purpose=purpose)

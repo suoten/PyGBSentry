@@ -2,6 +2,11 @@
 # --------------------------------------
 # Configure notification receivers and routing rules.
 # Customize email/webhook/DingTalk/WeChat settings before deploying.
+#
+# FIX: [2026-07-16 P1] WARNING: All receivers below are commented out by default.
+# Alerts will NOT be sent until you configure at least one receiver.
+# To enable notifications, uncomment the email_configs/webhook_configs sections
+# below and fill in your SMTP/webhook credentials.
 
 global:
   # SMTP configuration for email notifications

@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, Integer, DateTime
+from sqlalchemy import Column, String, Integer, DateTime, ForeignKey
 from sqlalchemy.sql import func
 from app.db.base import Base
 
@@ -24,7 +24,9 @@ class AssetStreamHealth(Base):
 
     id = Column(String(32), primary_key=True, default=generate_uuid)
 
-    asset_id = Column(String(32), nullable=False, unique=True, index=True)
+    # FIX: [2026-07-17 P1] 添加 ForeignKey + ondelete=CASCADE，
+    # 删除 Asset 时自动清理关联的流健康统计记录，防止孤儿数据
+    asset_id = Column(String(32), ForeignKey("assets.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
 
     last_status_code = Column(Integer, nullable=True)
     last_mode = Column(String(16), nullable=True, comment="最后一次成功的流模式 UDP/TCP_PASSIVE/...")

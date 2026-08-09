@@ -68,6 +68,7 @@ async def ensure_split_channel_region_parents(db: AsyncSession) -> int:
         logger.warning("channel_placement_migration failed (non-fatal): {}", e)
         try:
             await db.rollback()
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _rb_err:
+            # FIX [2026-07-17 P3-14]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"channel_placement_migration: db.rollback also failed: {_rb_err}")
         return 0

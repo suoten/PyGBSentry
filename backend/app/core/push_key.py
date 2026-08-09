@@ -8,7 +8,22 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import secrets
 from typing import Optional
+
+
+def generate_push_key(prefix_len: int = 8) -> tuple[str, str]:
+    """Generate a new push key, returning ``(full_key, prefix)``.
+
+    Format: ``<prefix>.<raw_secret>`` — compatible with :func:`parse_push_key`.
+
+    FIX: [2026-07-13] 从 2ad636a 恢复 — push_channels 端点需要此函数生成新推流密钥。
+    [全栈工程师]
+    """
+    raw = secrets.token_urlsafe(24)
+    prefix = raw[:prefix_len].lower()
+    full = f"{prefix}.{raw}"
+    return full, prefix
 
 
 def parse_push_key(value: str) -> Optional[tuple[str, str]]:

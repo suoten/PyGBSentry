@@ -8,7 +8,10 @@ Type=simple
 User=pygbsentry
 Group=pygbsentry
 WorkingDirectory=/opt/pygbsentry/backend
-ExecStart=/opt/pygbsentry/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+# FIX [2026-07-29 P0]: --workers 1 — SIP UDP/TCP 端口不能多进程共享（SIP_REUSE_PORT=false），
+# 多 worker 会导致第二个 worker 绑定端口失败→崩溃→uvicorn 关闭所有 worker→应用 11ms 内死亡。
+# SIP 服务器必须单 worker 运行；如需横向扩展，请部署多实例并使用 SIP_REUSE_PORT=true + 负载均衡。
+ExecStart=/opt/pygbsentry/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=10
 StartLimitIntervalSec=300

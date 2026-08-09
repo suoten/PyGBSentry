@@ -11,27 +11,39 @@ aiosqlite==0.21.0
 pydantic==2.10.6
 email-validator==2.2.0
 pydantic-settings==2.8.1
+python-dotenv==1.0.1  # FIX [2026-07-17]: config.py 显式 import load_dotenv，补全声明
 redis[hiredis]==5.2.1
-python-multipart==0.0.20
-jinja2==3.1.3
-requests==2.32.3
+python-multipart==0.0.20  # safe: CVE-2024-53981 (DoS via malformed boundary) fixed in 0.0.18
+jinja2==3.1.6  # P0-SEC: CVE-2024-56201 (sandbox escape) + CVE-2024-56326 (RCE via indirect references) fixed in 3.1.6
+requests==2.32.4  # P1-SEC: CVE-2024-47081 (.netrc credential leak to redirect target) fixed in 2.32.4
 httpx==0.27.2
-aiohttp==3.11.18
+aiohttp==3.11.18  # safe: CVE-2024-23334 (path traversal) fixed in 3.9.4
 slowapi==0.1.9
 loguru==0.7.3
 psutil==6.1.1
 websockets==14.2
 defusedxml==0.7.1
-cryptography==44.0.1
+cryptography==44.0.1  # safe: CVE-2024-12797 (NULL deref in PKCS#12) fixed in 44.0.1
 openpyxl==3.1.2
+# xlrd 1.2.0 — Python2 时代遗留库，是支持 .xls (BIFF) 解析的最后一个版本
+# (xlrd 2.0+ 已移除 .xls 支持，openpyxl 也不支持 .xls)。
+# 风险面：仅用于解析用户上传的 .xls 文件（channel_import.py / push_channels.py）。
+# 缓解措施：(1) 导入接口限制 10MB 上传大小；(2) 接口需 owner/admin/operator 鉴权；
+# (3) xlrd 仅解析数据，不执行宏/公式。保留 1.2.0 不升级（无可用升级路径）。
 xlrd==1.2.0
 PyJWT[crypto]==2.10.1
-passlib[bcrypt]==1.7.4
-bcrypt==4.0.1
+# P0-SEC [2026-07-17]: 移除 passlib（自 2020 年停止维护，且与 bcrypt>=4.1 存在
+# __about__ 属性读取报错 bug）。改为直接使用 bcrypt 库封装 hash/verify 函数
+# （app/core/security.py）。passlib bcrypt 哈希格式 ($2b$) 与原生 bcrypt 完全兼容，
+# 存量用户密码哈希无需迁移即可验证通过。
+bcrypt==4.3.0
 pysnmp==4.4.12  # P1-38: DEPRECATED but still used by snmp_trap.py; pysnmp 5.x/6.x API 不兼容，pin 到 4.x
 kafka-python-ng==2.2.2
 pika==1.3.2
 prometheus-client==0.21.1
+# FIX [2026-07-17]: uuid7 — 50+ 模型文件 import uuid7，代码有 try/except 降级到 uuid.uuid4。
+# 声明为可选依赖：安装后使用 UUIDv7（时间有序），未安装时回退 uuid4。
+uuid7>=0.1.4; python_version >= '3.12'
 # P1-36: opentelemetry 锁定版本范围（上界 <2.0.0 防止 major 版本破坏性变更）
 opentelemetry-api>=1.20.0,<2.0.0; python_version >= '3.9'
 opentelemetry-sdk>=1.20.0,<2.0.0; python_version >= '3.9'

@@ -1,11 +1,20 @@
-﻿<template>
-  <div class="stub-component"><slot /></div>
+<template>
+  <div class="table-skeleton p-4">
+    <el-skeleton :rows="rows" animated />
+  </div>
 </template>
 
 <script setup lang="ts">
-// Stub component — to be implemented
+withDefaults(
+  defineProps<{
+    rows?: number
+  }>(),
+  { rows: 6 }
+)
 </script>
 
 <style scoped>
-.stub-component { display: contents; }
+.table-skeleton {
+  min-height: 200px;
+}
 </style>

@@ -1,5 +1,5 @@
 from app.sip.message import SipMessage
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host
 from app.sip.send import send_sip_bytes
 from loguru import logger
 import secrets  # P4 安全随机数 — random→secrets
@@ -126,8 +126,9 @@ async def wait_talk_200_ok(call_id: str, timeout: float = 5.0) -> dict:
         if _sock:
             try:
                 _sock.close()
-            except Exception:
-                logger.warning("silently_swallowed_exception", exc_info=True)
+            except Exception as _sock_err:
+                # FIX [2026-07-17 P3-7]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"Talk: failed to close socket after timeout (call_id={call_id}): {_sock_err}")
         # FIX R23-SEVERE: 超时后释放 SSRC，避免泄漏
         _ssrc = result.get("ssrc")
         if _ssrc:
@@ -219,9 +220,13 @@ def _unregister_talk_pending(call_id: str) -> None:
                 st.pop("socket", None)
     try:
         loop = asyncio.get_running_loop()
-        loop.create_task(_do_unregister())
-    except RuntimeError:
-        logger.debug("swallowed_exception", exc_info=True)
+        # P0-fix [2026-07-17]: 改用 fire_and_forget，提供 task name + done_callback + GC 保护
+        # 原 loop.create_task(_do_unregister()) 无引用无异常回调，注销失败无任何日志
+        from app.core.async_utils import fire_and_forget
+        fire_and_forget(_do_unregister(), name=f"talk_unregister:{call_id}")
+    except RuntimeError as _loop_err:
+        # FIX [2026-07-17 P3-7]: 描述性日志替代 "swallowed_exception"，记录无事件循环场景
+        logger.debug(f"unregister_talk_pending: no running loop to schedule cleanup task: {_loop_err}")
 
 class SipTalk:
     def __init__(self, sip_server):
@@ -249,17 +254,34 @@ class SipTalk:
         channel_id = resource.gb_id # Usually audio channel or device ID
 
         # FIX: [2026-07-04] 使用 ZLM 的 host 和 RTP 端口，而非原始 UDP socket [全栈工程师]
-        zlm_host = str(getattr(settings, "MEDIA_SERVER_HOST", "") or "") or str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "") or sip_host_for_contact()
-        zlm_http_port = int(getattr(settings, "MEDIA_SERVER_HTTP_PORT", 0) or 0) or int(getattr(settings, "STREAM_PUBLIC_HTTP_PORT", 0) or 0)
+        zlm_host = str(settings.MEDIA_SERVER_HOST or "") or str(settings.STREAM_PUBLIC_HOST or "") or sip_host_for_contact()
+        zlm_http_port = settings.MEDIA_SERVER_HTTP_PORT or settings.STREAM_PUBLIC_HTTP_PORT
+
+        # FIX [2026-07-17 P4-1]: 优先从活跃媒体节点获取解密后的明文 secret，
+        # 避免多节点部署或节点 secret 与全局不一致时 ZLM API 鉴权失败。
+        _zlm_api_secret = ""
+        try:
+            from app.db.session import AsyncSessionLocal
+            from app.core.media_nodes_db import get_active_media_node_id, get_db_node_by_id
+            async with AsyncSessionLocal() as _db:
+                _active_id = await get_active_media_node_id(_db)
+                if _active_id:
+                    _node = await get_db_node_by_id(_db, _active_id)
+                    if _node:
+                        _zlm_api_secret = str(_node.decrypted_secret or "").strip()
+        except Exception as _node_err:
+            logger.warning(f"talk: failed to read active node secret, falling back to global: {_node_err}")
+        if not _zlm_api_secret:
+            _zlm_api_secret = str(settings.MEDIA_SERVER_SECRET or '')
 
         # 查询 ZLM RTP proxy 端口（与 send_talk_invite 一致的逻辑）
-        _rtp_port = int(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT", 0) or 0)
+        _rtp_port = settings.MEDIA_SERVER_RTP_PROXY_PORT
         if not _rtp_port:
             try:
                 from app.core.http_client import get_http_client
                 _client = await get_http_client()
                 _url = f"http://{zlm_host}:{zlm_http_port}/index/api/getServerConfig"
-                _resp = await _client.post(_url, data={"secret": getattr(settings, 'MEDIA_SERVER_SECRET', '') or ''}, timeout=3.0)
+                _resp = await _client.post(_url, data={"secret": _zlm_api_secret}, timeout=3.0)
                 if _resp.status_code == 200:
                     _data = _resp.json() or {}
                     if _data.get("code") in (0, "0"):
@@ -292,7 +314,8 @@ class SipTalk:
             "a=sendonly",
             f"y={ssrc}",
         ]
-        sdp = "\n".join(sdp_lines) + "\n"
+        # FIX: [2026-07-17 P1] SDP 行结束符使用 CRLF（RFC 4566 §5 要求）
+        sdp = "\r\n".join(sdp_lines) + "\r\n"
         req = SipMessage()
         req.method = "INVITE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
@@ -300,13 +323,15 @@ class SipTalk:
 
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
-        call_id = f"{secrets.token_hex(10)}@{sip_host_for_contact()}"
+        call_id = f"{secrets.token_hex(10)}@{sip_via_host()}"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 INVITE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        from app.sip.commander import _next_cseq as _talk_next_cseq
+        req.headers["CSeq"] = f"{_talk_next_cseq()} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
         req.headers["Max-Forwards"] = "70"
@@ -373,7 +398,7 @@ class SipTalk:
         """发送双向对讲 INVITE (a=sendrecv)，通过 ZLM WHIP 接收前端音频上行"""
         # 实现双向对讲 INVITE — SDP 中 a=sendrecv 替代 a=sendonly
         ssrc = await self._generate_ssrc(gb_domain)  # C-20 _generate_ssrc已改为async
-        call_id = f"talk_{int(time.time() * 1000)}_{secrets.randbelow(9000) + 1000}@{sip_host_for_contact()}"  # P4 安全随机数 — random→secrets
+        call_id = f"talk_{int(time.time() * 1000)}_{secrets.randbelow(9000) + 1000}@{sip_via_host()}"  # P4 安全随机数 — random→secrets
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
 
@@ -384,13 +409,29 @@ class SipTalk:
         if not _rtp_port:
             _rtp_port = getattr(_settings, "MEDIA_SERVER_RTP_PROXY_PORT", 0) or 0
         if not _rtp_port:
+            # FIX [2026-07-17 P4-1]: 优先从活跃媒体节点获取解密后的明文 secret，
+            # 避免多节点部署或节点 secret 与全局不一致时 ZLM API 鉴权失败。
+            _zlm_api_secret = ""
+            try:
+                from app.db.session import AsyncSessionLocal
+                from app.core.media_nodes_db import get_active_media_node_id, get_db_node_by_id
+                async with AsyncSessionLocal() as _db:
+                    _active_id = await get_active_media_node_id(_db)
+                    if _active_id:
+                        _node = await get_db_node_by_id(_db, _active_id)
+                        if _node:
+                            _zlm_api_secret = str(_node.decrypted_secret or "").strip()
+            except Exception as _node_err:
+                logger.warning(f"talk: failed to read active node secret for talk INVITE: {_node_err}")
+            if not _zlm_api_secret:
+                _zlm_api_secret = str(getattr(_settings, 'MEDIA_SERVER_SECRET', '') or '')
             # 尝试从 ZLM getServerConfig API 查询实际 rtp_proxy.port
             try:
                 from app.core.http_client import get_http_client
                 _client = await get_http_client()
                 _url = f"http://{zlm_host}:{zlm_http_port}/index/api/getServerConfig"
                 # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
-                _resp = await _client.post(_url, data={"secret": getattr(_settings, 'MEDIA_SERVER_SECRET', '') or ''}, timeout=3.0)
+                _resp = await _client.post(_url, data={"secret": _zlm_api_secret}, timeout=3.0)
                 if _resp.status_code == 200:
                     _data = _resp.json() or {}
                     if _data.get("code") in (0, "0"):
@@ -431,11 +472,13 @@ class SipTalk:
         req.method = "INVITE"
         req.uri = f"sip:{device_id}@{device_host}:{device_port}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{transport.upper()} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["Via"] = f"SIP/2.0/{transport.upper()} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = from_header
         req.headers["To"] = to_header
         req.headers["Call-ID"] = call_id
-        req.headers["CSeq"] = "1 INVITE"
+        # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
+        from app.sip.commander import _next_cseq as _talk_next_cseq2
+        req.headers["CSeq"] = f"{_talk_next_cseq2()} INVITE"
         req.headers["Contact"] = f"<sip:{sip_id}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
         req.headers["Max-Forwards"] = "70"
@@ -536,7 +579,7 @@ class SipTalk:
                     bye.method = "BYE"
                     bye.uri = f"sip:{_addr[0]}:{_addr[1]}"
                     bye.version = "SIP/2.0"
-                    bye.headers["Via"] = f"SIP/2.0/{_proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={bye_branch}"
+                    bye.headers["Via"] = f"SIP/2.0/{_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={bye_branch}"
                     bye.headers["From"] = _from_header
                     bye.headers["To"] = bye_to
                     bye.headers["Call-ID"] = call_id
@@ -580,7 +623,7 @@ class SipTalk:
         req.method = "BYE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}" if from_tag else f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>"
         req.headers["To"] = to_header
         req.headers["Call-ID"] = call_id
@@ -652,8 +695,9 @@ async def start_talk_cleanup_loop() -> None:
                     if sock:
                         try:
                             sock.close()
-                        except Exception:
-                            logger.warning("silently_swallowed_exception", exc_info=True)
+                        except Exception as _sock_err:
+                            # FIX [2026-07-17 P3-7]: 描述性日志替代 "silently_swallowed_exception"
+                            logger.warning(f"Talk cleanup loop: failed to close socket: {_sock_err}")
                     ssrc = st.get("ssrc")
                     if ssrc:
                         try:

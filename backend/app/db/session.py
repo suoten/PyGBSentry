@@ -22,7 +22,7 @@ db_uri = str(settings.SQLALCHEMY_DATABASE_URI or "")
 is_sqlite = db_uri.lower().startswith("sqlite")
 
 if is_sqlite:
-    _sqlite_timeout = float(getattr(settings, "SQLITE_CONNECT_TIMEOUT_SECONDS", 15.0) or 15.0)
+    _sqlite_timeout = settings.SQLITE_CONNECT_TIMEOUT_SECONDS
     engine_kwargs["connect_args"] = {"timeout": _sqlite_timeout}
     # UNIFIED: SQLite 与非 SQLite 统一使用 DB_POOL_SIZE / DB_MAX_OVERFLOW 作为配置源，
     # 但 SQLite 的 NullPool 不支持 pool_size/max_overflow 参数，故不传入 engine_kwargs。
@@ -33,6 +33,7 @@ else:
             "pool_size": settings.DB_POOL_SIZE,
             "max_overflow": settings.DB_MAX_OVERFLOW,
             "pool_recycle": settings.DB_POOL_RECYCLE,
+            "pool_timeout": 30,  # FIX: 连接池耗尽时最多等待 30s，避免无限挂起
         }
     )
     # FIXED-P0: asyncpg 与 aware datetime 不兼容的统一解决方案
@@ -47,7 +48,7 @@ else:
     # P2-7: statement_cache_size 原设为 0 以规避上述问题；根因现已由
     # _before_cursor_execute_strip_tzinfo 事件修复，故改为可配置以恢复 5-15% 性能。
     # 默认 0（保持兼容），生产环境可在 .env 中设置 DB_STATEMENT_CACHE_SIZE=100 开启。
-    _stmt_cache_size = int(getattr(settings, "DB_STATEMENT_CACHE_SIZE", 0) or 0)
+    _stmt_cache_size = settings.DB_STATEMENT_CACHE_SIZE
     engine_kwargs["connect_args"] = {
         "statement_cache_size": _stmt_cache_size,
     }
@@ -166,7 +167,7 @@ def _after_cursor_execute_slow_query_monitor(conn, cursor, statement, parameters
     if start_time is None:
         return
     elapsed = _time.time() - start_time
-    threshold = float(getattr(settings, "SLOW_QUERY_THRESHOLD_SECONDS", 1.0) or 1.0)
+    threshold = settings.SLOW_QUERY_THRESHOLD_SECONDS
     if elapsed > threshold:
         # 截断 SQL 语句，避免日志过长
         stmt_preview = str(statement)[:300].replace("\n", " ")

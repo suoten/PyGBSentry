@@ -126,7 +126,7 @@ async def _seed_from_sql(db: AsyncSession, rows: list[dict[str, Any]]) -> int:
 
 async def _seed_minimal_root(db: AsyncSession) -> int:
     """SQL 文件缺失时写入最小根行政区划。"""
-    root_code = str(getattr(settings, "SIP_DOMAIN", "") or "3402000000")
+    root_code = str(settings.SIP_DOMAIN or "3402000000")
     if not re.match(r"^\d{10}$", root_code):
         root_code = "0000000000"
     existing = (
@@ -187,6 +187,7 @@ async def ensure_regions_seeded_from_sql(db: AsyncSession) -> dict[str, Any]:
         logger.warning("ensure_regions_seeded_from_sql failed (non-fatal): {}", e)
         try:
             await db.rollback()
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _rb_err:
+            # FIX [2026-07-17 P3-17]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"ensure_regions_seeded_from_sql: db.rollback also failed: {_rb_err}")
         return {"error": str(e), "imported": 0}

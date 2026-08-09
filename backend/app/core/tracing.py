@@ -1,75 +1,169 @@
-"""Distributed tracing setup (best-effort, optional).
+"""OpenTelemetry distributed tracing integration.
 
-When OpenTelemetry is installed and configured via environment variables, this
-wires FastAPI/SQLAlchemy instrumentation. When OTel is unavailable, it is a
-no-op so tracing never blocks startup.
+This module provides optional OpenTelemetry tracing support. When the
+opentelemetry packages are installed and OTEL_ENABLED=true, all HTTP
+requests and key business operations will be traced.
+
+If OpenTelemetry packages are not installed, all operations degrade
+gracefully to no-ops.
 """
+
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Callable
 
 from loguru import logger
 
+# Check if OpenTelemetry is available
+_OTEL_AVAILABLE = False
+try:
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+    from opentelemetry.instrumentation.redis import RedisInstrumentor
+    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+    _OTEL_AVAILABLE = True
+except ImportError:
+    pass
 
-def setup_tracing(app: Any = None, **kwargs: Any) -> bool:
-    """Initialise OpenTelemetry tracing if available.
 
-    Returns True when tracing was enabled, False otherwise. Failures are
-    logged at DEBUG level and swallowed.
+def is_enabled() -> bool:
+    """Check if OpenTelemetry tracing is enabled via environment variable."""
+    return _OTEL_AVAILABLE and os.environ.get("OTEL_ENABLED", "false").lower() in ("true", "1", "yes")
 
-    FIX: [2026-07-10] 原实现只要 opentelemetry 包安装就强制启用 tracing，
-    但 main.py 注释声称 "enabled via OTEL_ENABLED=true"。
-    实际未检查 OTEL_ENABLED 导致 tracing 总是开启。
-    更严重的是 FastAPIInstrumentor 的 ASGI 中间件在遇到未匹配路由时
-    尝试访问 scope["route"].path，但 scope["route"] 是 _IncludedRouter
-    对象（无 .path 属性），导致 500 错误。
-    修复：严格按 OTEL_ENABLED=true 才启用，默认关闭。 [全栈工程师]
+
+def setup_tracing(app=None) -> bool:
     """
-    import os
-    # FIX: [2026-07-10] tracing 必须显式 opt-in，避免 OpenTelemetry ASGI 中间件
-    # 在未匹配路由时崩溃（_IncludedRouter 无 .path 属性导致 500）
-    if os.environ.get("OTEL_ENABLED", "false").lower() != "true":
-        logger.debug("tracing: OTEL_ENABLED!=true, tracing disabled (opt-in)")
-        return False
-    service_name = os.environ.get("OTEL_SERVICE_NAME") or "PyGBSentry"
-    try:
-        from opentelemetry import trace
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    Initialize OpenTelemetry tracing with the configured exporter.
 
-        provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
-        # Console exporter is optional; only add if explicitly requested.
-        exporter_kind = os.environ.get("OTEL_EXPORTER", "").lower()
-        if exporter_kind in ("otlp", "otlp_proto_grpc", "otlp_proto_http"):
-            try:
-                if "grpc" in exporter_kind:
-                    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-                else:
-                    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-                provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
-            except Exception as e:
-                logger.debug(f"tracing: OTLP exporter unavailable: {e}")
+    Supports:
+    - OTEL_EXPORTER=otlp (default) - OTLP exporter (Jaeger/Tempo/etc.)
+    - OTEL_EXPORTER=console - Console exporter (for debugging)
+    - OTEL_EXPORTER=none - No exporter (tracing API available but no export)
+
+    Environment variables:
+    - OTEL_ENABLED: Enable/disable tracing (default: false)
+    - OTEL_EXPORTER: Exporter type (default: otlp)
+    - OTEL_SERVICE_NAME: Service name (default: pygbsentry)
+    - OTEL_EXPORTER_OTLP_ENDPOINT: OTLP endpoint (default: http://localhost:4317)
+    - OTEL_EXPORTER_OTLP_PROTOCOL: OTLP protocol: grpc or http/protobuf (default: grpc)
+
+    Returns:
+        True if tracing was successfully set up, False otherwise.
+    """
+    if not _OTEL_AVAILABLE:
+        logger.info("OpenTelemetry packages not installed, tracing disabled")
+        return False
+
+    if not is_enabled():
+        logger.info("OpenTelemetry tracing disabled (OTEL_ENABLED not set)")
+        return False
+
+    try:
+        service_name = os.environ.get("OTEL_SERVICE_NAME", "pygbsentry")
+        resource = Resource.create({SERVICE_NAME: service_name})
+
+        provider = TracerProvider(resource=resource)
+
+        exporter_type = os.environ.get("OTEL_EXPORTER", "otlp").lower()
+
+        if exporter_type == "console":
+            from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+            processor = BatchSpanProcessor(ConsoleSpanExporter())
+            provider.add_span_processor(processor)
+            logger.info(f"OpenTelemetry tracing enabled: console exporter, service={service_name}")
+
+        elif exporter_type == "otlp":
+            protocol = os.environ.get("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
+            endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+
+            if protocol == "http/protobuf":
+                from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+                exporter = OTLPSpanExporter(endpoint=f"{endpoint}/v1/traces")
+            else:
+                from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+                exporter = OTLPSpanExporter(endpoint=endpoint)
+
+            processor = BatchSpanProcessor(exporter)
+            provider.add_span_processor(processor)
+            logger.info(f"OpenTelemetry tracing enabled: OTLP/{protocol} exporter, endpoint={endpoint}, service={service_name}")
+
+        elif exporter_type == "none":
+            # No exporter, but tracing API is available
+            logger.info(f"OpenTelemetry tracing enabled: no exporter, service={service_name}")
+
+        else:
+            logger.warning(f"Unknown OTEL_EXPORTER: {exporter_type}, tracing disabled")
+            return False
 
         trace.set_tracer_provider(provider)
 
+        # Auto-instrument FastAPI if app is provided
         if app is not None:
             try:
-                from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
                 FastAPIInstrumentor.instrument_app(app)
+                logger.info("OpenTelemetry: FastAPI instrumented")
             except Exception as e:
-                logger.debug(f"tracing: FastAPI instrumentation skipped: {e}")
-            try:
-                from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-                SQLAlchemyInstrumentor.instrument()
-            except Exception as e:
-                logger.debug(f"tracing: SQLAlchemy instrumentation skipped: {e}")
+                logger.warning(f"OpenTelemetry: FastAPI instrumentation failed: {e}")
 
-        logger.info(f"tracing: enabled (service={service_name})")
+        # Auto-instrument httpx
+        try:
+            HTTPXClientInstrumentor().instrument()
+        except Exception as _inst_err:
+            # FIX [2026-07-17 P3-25]: 描述性日志替代静默吞异常
+            logger.debug(f"OpenTelemetry: httpx instrumentation failed: {_inst_err}")
+
+        # Auto-instrument Redis
+        try:
+            RedisInstrumentor().instrument()
+        except Exception as _inst_err:
+            # FIX [2026-07-17 P3-25]: 描述性日志替代静默吞异常
+            logger.debug(f"OpenTelemetry: Redis instrumentation failed: {_inst_err}")
+
+        # Auto-instrument SQLAlchemy
+        try:
+            SQLAlchemyInstrumentor().instrument()
+        except Exception as _inst_err:
+            # FIX [2026-07-17 P3-25]: 描述性日志替代静默吞异常
+            logger.debug(f"OpenTelemetry: SQLAlchemy instrumentation failed: {_inst_err}")
+
         return True
-    except ImportError:
-        logger.debug("tracing: opentelemetry not installed; tracing disabled")
-        return False
+
     except Exception as e:
-        logger.debug(f"tracing: setup failed: {e}")
+        logger.warning(f"OpenTelemetry setup failed: {e}")
         return False
+
+
+def get_tracer(name: str = "pygbsentry"):
+    """Get a tracer instance. Returns a no-op tracer if OTEL is not available."""
+    if _OTEL_AVAILABLE and is_enabled():
+        return trace.get_tracer(name)
+    return _NoOpTracer()
+
+
+class _NoOpSpan:
+    """No-op span that discards all operations."""
+    def __enter__(self):
+        return self
+    def __exit__(self, *args):
+        pass
+    def set_attribute(self, *args, **kwargs):
+        pass
+    def add_event(self, *args, **kwargs):
+        pass
+    def record_exception(self, *args, **kwargs):
+        pass
+    def set_status(self, *args, **kwargs):
+        pass
+
+
+class _NoOpTracer:
+    """No-op tracer that returns no-op spans."""
+    def start_as_current_span(self, *args, **kwargs):
+        return _NoOpSpan()
+    def start_span(self, *args, **kwargs):
+        return _NoOpSpan()

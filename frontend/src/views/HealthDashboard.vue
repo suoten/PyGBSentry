@@ -1,352 +1,696 @@
-﻿<template>
+<template>
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader :title="t('health.title')" :description="t('health.description')">
+        <PageHeader :title="t('healthPage.title')" :description="t('healthPage.description')">
           <template #actions>
-            <el-button size="small" @click="refreshAll" :loading="loading">
-              <el-icon class="mr-1"><Refresh /></el-icon>
-              {{ t('common.refresh') }}
-            </el-button>
+            <div class="flex items-center gap-2 flex-wrap">
+              <el-select v-model="autoRefresh" style="width: 140px" @change="onAutoRefreshChange">
+                <el-option :label="t('healthPage.manualRefresh')" value="0" />
+                <el-option :label="t('healthPage.every15s')" value="15" />
+                <el-option :label="t('healthPage.every30s')" value="30" />
+                <el-option :label="t('healthPage.every60s')" value="60" />
+              </el-select>
+              <el-button @click="resetFilters">{{ t('healthPage.resetFilters') }}</el-button>
+              <el-button @click="previewRecommendations" :loading="applying">{{ t('healthPage.smartPreview') }}</el-button>
+              <el-button @click="previewP5Template" :loading="loading">{{ t('healthPage.p5Template') }}</el-button>
+              <el-button @click="previewDailyReport" :loading="loading">{{ t('healthPage.dailyReport') }}</el-button>
+              <el-button @click="downloadDailyReportCsv">{{ t('healthPage.downloadDailyCsv') }}</el-button>
+              <el-button @click="exportCurrentCsv">{{ t('healthPage.exportCsv') }}</el-button>
+              <el-button type="primary" @click="fetchData" :loading="loading">
+                <el-icon class="mr-1"><Refresh /></el-icon> {{ t('healthPage.refresh') }}
+              </el-button>
+            </div>
           </template>
         </PageHeader>
       </template>
 
-      <!-- System Health Gauges -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-        <el-card shadow="hover" class="health-gauge-card">
-          <div class="health-gauge-title">{{ t('ops.cpuUsage') }}</div>
-          <VChart class="health-gauge" :option="cpuGaugeOption" autoresize style="height: 160px" />
-        </el-card>
-        <el-card shadow="hover" class="health-gauge-card">
-          <div class="health-gauge-title">{{ t('ops.memoryUsage') }}</div>
-          <VChart class="health-gauge" :option="memoryGaugeOption" autoresize style="height: 160px" />
-        </el-card>
-        <el-card shadow="hover" class="health-gauge-card">
-          <div class="health-gauge-title">Disk</div>
-          <VChart class="health-gauge" :option="diskGaugeOption" autoresize style="height: 160px" />
-        </el-card>
-        <el-card shadow="hover" class="health-gauge-card">
-          <div class="health-gauge-title">{{ t('health.onlineRate') }}</div>
-          <VChart class="health-gauge" :option="onlineGaugeOption" autoresize style="height: 160px" />
-        </el-card>
-      </div>
-
-      <!-- Service Status & Device Overview -->
-      <div class="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
-        <!-- Service Status -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="font-semibold">{{ t('health.serviceStatus') }}</span>
-          </template>
-          <div class="space-y-3" v-loading="loading">
-            <div class="health-row">
-              <span class="health-row-label">ZLM</span>
-              <el-tag :type="ops.zlm_status === 'Online' ? 'success' : 'danger'" effect="dark">
-                {{ ops.zlm_status === 'Online' ? t('network.online') : t('network.offline') }}
-              </el-tag>
-              <span class="health-row-detail" v-if="ops.zlm_target">{{ ops.zlm_target }}</span>
-              <span class="health-row-error" v-if="ops.zlm_error">{{ ops.zlm_error }}</span>
-            </div>
-            <div class="health-row">
-              <span class="health-row-label">{{ t('health.uptime') }}</span>
-              <span class="health-row-value">{{ formatUptime(ops.uptime_seconds) }}</span>
-            </div>
-            <div class="health-row">
-              <span class="health-row-label">{{ t('health.processMemory') }}</span>
-              <span class="health-row-value">{{ ops.process_memory_mb }} MB</span>
-            </div>
-            <div class="health-row">
-              <span class="health-row-label">{{ t('health.processThreads') }}</span>
-              <span class="health-row-value">{{ ops.process_threads }}</span>
-            </div>
-            <div class="health-row">
-              <span class="health-row-label">{{ t('health.pythonVersion') }}</span>
-              <span class="health-row-value">{{ ops.python_version }}</span>
-            </div>
-            <div class="health-row">
-              <span class="health-row-label">{{ t('health.platform') }}</span>
-              <span class="health-row-value text-sm">{{ ops.platform }}</span>
-            </div>
-          </div>
-        </el-card>
-
-        <!-- Device Overview -->
-        <el-card shadow="never">
-          <template #header>
-            <span class="font-semibold">{{ t('health.deviceOverview') }}</span>
-          </template>
-          <div class="grid grid-cols-2 gap-4" v-loading="loading">
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('network.deviceTotal') }}</div>
-              <div class="health-stat-value">{{ overview.device_total }}</div>
-            </div>
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('network.online') }}</div>
-              <div class="health-stat-value" style="color: var(--el-color-success)">{{ overview.device_online }}</div>
-            </div>
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('network.channelTotal') }}</div>
-              <div class="health-stat-value">{{ overview.channel_total }}</div>
-            </div>
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('network.online') }} ({{ t('network.channelTotal') }})</div>
-              <div class="health-stat-value" style="color: var(--el-color-success)">{{ overview.channel_online }}</div>
-            </div>
-          </div>
-          <el-divider />
-          <div class="grid grid-cols-2 gap-4">
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('health.onlineRate') }}</div>
-              <div class="health-stat-value">
-                {{ overview.device_online_rate_pct?.toFixed(1) || '0.0' }}%
-              </div>
-            </div>
-            <div class="health-stat-box">
-              <div class="health-stat-label">{{ t('health.channelOnlineRate') }}</div>
-              <div class="health-stat-value">
-                {{ overview.channel_total ? ((overview.channel_online / overview.channel_total) * 100).toFixed(1) : '0.0' }}%
-              </div>
-            </div>
-          </div>
-        </el-card>
-      </div>
-
-      <!-- Overall Health Summary -->
-      <el-card shadow="never">
-        <template #header>
-          <span class="font-semibold">{{ t('health.systemHealth') }}</span>
-        </template>
-        <div class="flex items-center gap-4">
-          <el-tag :type="overallHealthTag" effect="dark" size="large">
-            {{ overallHealthLabel }}
-          </el-tag>
-          <el-progress
-            :percentage="overallScore"
-            :color="overallHealthColor"
-            :stroke-width="20"
-            :text-inside="true"
-            style="flex: 1"
-          />
+    <TableCard class="mb-4">
+      <div class="grid grid-cols-1 md:grid-cols-8 gap-3">
+        <el-select v-model="filters.risk_level" :placeholder="t('healthPage.riskLevel')" clearable>
+          <el-option :label="t('healthPage.riskLow')" value="low" />
+          <el-option :label="t('healthPage.riskMedium')" value="medium" />
+          <el-option :label="t('healthPage.riskHigh')" value="high" />
+        </el-select>
+        <el-select v-model="filters.current_policy_mode" :placeholder="t('healthPage.currentPolicy')" clearable>
+          <el-option label="GLOBAL" value="GLOBAL" />
+          <el-option label="AUTO" value="AUTO" />
+          <el-option label="UDP" value="UDP" />
+          <el-option :label="t('healthPage.tcpPassive')" value="TCP_PASSIVE" />
+          <el-option :label="t('healthPage.tcpActive')" value="TCP_ACTIVE" />
+        </el-select>
+        <el-input-number v-model="filters.min_failure_rate" :min="0" :max="100" :step="5" class="w-full" :placeholder="t('healthPage.minFailureRate')" />
+        <el-switch v-model="filters.only_diff" inline-prompt :active-text="t('healthPage.diffOnly')" :inactive-text="t('healthPage.all')" />
+        <el-switch v-model="alertConfig.enabled" inline-prompt :active-text="t('healthPage.riskAlert')" :inactive-text="t('healthPage.silent')" />
+        <el-input-number v-model="alertConfig.highRiskThreshold" :min="1" :max="50" :step="1" class="w-full" />
+        <el-input-number v-model="alertConfig.holdMinutes" :min="1" :max="120" :step="1" class="w-full" />
+        <div class="flex items-center gap-2">
+          <el-button type="warning" @click="applyHighRiskRecommendations" :loading="applying">{{ t('healthPage.applyHighRisk') }}</el-button>
+          <el-button type="success" @click="applySelectedRecommendations" :disabled="selectedRows.length === 0" :loading="applying">{{ t('healthPage.applySelected') }}</el-button>
         </div>
-        <div class="mt-3 text-sm text-gray-500">
-          {{ t('health.systemHealth') }}: CPU {{ ops.cpu }}% | {{ t('ops.memoryUsage') }} {{ ops.memory_percent }}% | Disk {{ ops.disk_percent }}% | ZLM {{ ops.zlm_status }}
+      </div>
+    </TableCard>
+
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.onlineRate') }}</div>
+        <div class="text-2xl font-bold" :style="{ color: healthOverview.online_rate_pct >= 90 ? 'var(--el-color-success)' : healthOverview.online_rate_pct >= 70 ? 'var(--el-color-warning)' : 'var(--el-color-danger)' }">{{ healthOverview.online_rate_pct?.toFixed(1) ?? '-' }}%</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.deviceOnline') }}</div>
+        <div class="text-2xl font-bold text-emerald-400">{{ healthOverview.device_online ?? '-' }} / {{ healthOverview.device_total ?? '-' }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.channelOnline') }}</div>
+        <div class="text-2xl font-bold text-sky-400">{{ healthOverview.channel_online ?? '-' }} / {{ healthOverview.channel_total ?? '-' }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.recordCount') }}</div>
+        <div class="text-2xl font-bold text-blue-400">{{ healthOverview.record_count ?? '-' }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.recordCompleteness') }}</div>
+        <div class="text-2xl font-bold" :style="{ color: healthOverview.record_completeness_pct >= 90 ? 'var(--el-color-success)' : 'var(--el-color-warning)' }">{{ healthOverview.record_completeness_pct?.toFixed(1) ?? '-' }}%</div>
+      </el-card>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+      <el-card class="app-surface text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.totalDevices') }}</div>
+        <div class="text-2xl font-bold text-sky-400">{{ stats.total }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.highFailureRate') }}</div>
+        <div class="text-2xl font-bold text-rose-400">{{ stats.highFailure }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.autoSwitched') }}</div>
+        <div class="text-2xl font-bold text-amber-300">{{ stats.autoSwitched }}</div>
+      </el-card>
+      <el-card shadow="hover" class="text-center">
+        <div class="mb-1" style="color: var(--el-text-color-secondary)">{{ t('healthPage.unstable') }}</div>
+        <div class="text-2xl font-bold text-yellow-300">{{ stats.unstable }}</div>
+      </el-card>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+      <el-card shadow="hover">
+        <div class="text-sm mb-2" style="color: var(--el-text-color-secondary)">{{ t('healthPage.capacityBaselineLevel') }}</div>
+        <el-tag :type="capacityBaseline.health_level === 'red' ? 'danger' : capacityBaseline.health_level === 'yellow' ? 'warning' : 'success'">
+          {{ capacityBaseline.health_level || 'green' }}
+        </el-tag>
+        <div class="text-xs mt-2" style="color: var(--el-text-color-secondary)">
+          {{ t('healthPage.highRiskRatio') }} {{ (capacityBaseline.high_risk_ratio * 100).toFixed(1) }}%，{{ t('healthPage.unstableRatio') }} {{ (capacityBaseline.unstable_ratio * 100).toFixed(1) }}%
         </div>
       </el-card>
+      <el-card shadow="hover">
+        <div class="text-sm mb-2" style="color: var(--el-text-color-secondary)">{{ t('healthPage.sipRateLimitHit') }}</div>
+        <div class="text-xs">
+          {{ t('healthPage.deviceRateLimit') }}: {{ sipRateStats.blocked_device }} {{ t('healthPage.times') }} · {{ t('healthPage.tenantRateLimit') }}: {{ sipRateStats.blocked_tenant }} {{ t('healthPage.times') }}
+        </div>
+        <div class="text-xs mt-2" style="color: var(--el-text-color-secondary)">
+          backend(redis/local/fallback): {{ sipRateStats.backend_redis }}/{{ sipRateStats.backend_local }}/{{ sipRateStats.backend_fallback }}
+        </div>
+      </el-card>
+      <el-card shadow="hover">
+        <div class="text-sm mb-2" style="color: var(--el-text-color-secondary)">{{ t('healthPage.p4TuningAdvice') }}</div>
+        <div class="text-xs">{{ t('healthPage.policy') }}: {{ tuningRecommendations.profile }} · {{ t('healthPage.changedCount') }}: {{ tuningRecommendations.changed_count }}</div>
+        <div class="text-xs mt-2" style="color: var(--el-text-color-secondary)">{{ tuningRecommendations.reason || '—' }}</div>
+      </el-card>
+    </div>
+
+    <TableCard>
+      <el-table :data="paginatedHealthData" style="width: 100%" v-loading="loading" stripe border row-key="device_id" @selection-change="onSelectionChange" :empty-text="t('healthPage.noHealthData')">
+        <el-table-column type="selection" width="44" />
+        <el-table-column prop="device_id" :label="t('healthPage.deviceIdCol')" width="180" sortable />
+        <el-table-column prop="device_name" :label="t('common.name')" min-width="140" />
+
+        <el-table-column prop="last_mode" :label="t('healthPage.lastModeCol')" width="120">
+          <template #default="scope">
+            <el-tag :type="getModeTagType(scope.row.last_mode)" size="small">
+              {{ scope.row.last_mode || '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="current_policy_mode" :label="t('healthPage.policyCol')" width="110">
+          <template #default="scope">
+            <el-tag effect="plain">{{ scope.row.current_policy_mode }}</el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column :label="t('healthPage.successRateCol')" width="180" sortable :sort-method="sortBySuccessRate">
+          <template #default="scope">
+            <div class="flex items-center">
+              <el-progress
+                :percentage="calculateSuccessRate(scope.row)"
+                :status="getProgressStatus(scope.row)"
+                :stroke-width="15"
+                text-inside
+                class="w-full"
+              />
+            </div>
+            <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
+              {{ scope.row.success_total }} {{ t('healthPage.success') }} / {{ scope.row.fail_total }} {{ t('healthPage.fail') }}
+            </div>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="failure_rate" :label="t('healthPage.failureRateCol')" width="130" sortable>
+          <template #default="scope">
+            <el-tag :type="scope.row.failure_rate > 50 ? 'danger' : scope.row.failure_rate > 20 ? 'warning' : 'success'" effect="plain">
+              {{ scope.row.failure_rate }}%
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="recommended_mode" :label="t('healthPage.recommendCol')" width="120">
+          <template #default="scope">
+            <el-tag :type="getModeTagType(scope.row.recommended_mode)" size="small">
+              {{ scope.row.recommended_mode }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="risk_level" :label="t('healthPage.riskCol')" width="90">
+          <template #default="scope">
+            <el-tag :type="scope.row.risk_level === 'high' ? 'danger' : scope.row.risk_level === 'medium' ? 'warning' : 'success'" effect="plain" size="small">
+              {{ scope.row.risk_level === 'high' ? t('healthPage.riskHigh') : scope.row.risk_level === 'medium' ? t('healthPage.riskMedium') : t('healthPage.riskLow') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="recommend_reason" :label="t('healthPage.recommendReasonCol')" min-width="220" show-overflow-tooltip />
+
+        <el-table-column prop="consecutive_failures" :label="t('healthPage.consecutiveFailuresCol')" width="110" sortable>
+          <template #default="scope">
+            <el-badge :value="scope.row.consecutive_failures" :type="scope.row.consecutive_failures > 0 ? 'danger' : 'info'" v-if="scope.row.consecutive_failures > 0" />
+            <span v-else class="text-xs" style="color: var(--el-text-color-secondary)">0</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="auto_switch_count" :label="t('healthPage.autoSwitchCountCol')" width="120" sortable>
+           <template #default="scope">
+            <span :class="{'text-amber-300 font-semibold': scope.row.auto_switch_count > 0}">
+              {{ scope.row.auto_switch_count }}
+            </span>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="last_status_code" :label="t('healthPage.lastStatusCodeCol')" width="110">
+          <template #default="scope">
+            <el-tag :type="getStatusTagType(scope.row.last_status_code)" effect="plain" size="small">
+              {{ scope.row.last_status_code ?? '—' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+
+        <el-table-column prop="updated_at" :label="t('common.updateTime')" min-width="180">
+          <template #default="scope">
+            {{ formatDate(scope.row.updated_at) }}
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div class="mt-4 flex justify-end">
+        <el-pagination
+          v-model:current-page="page"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 20, 50, 100]"
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="healthData.length"
+        />
+      </div>
+    </TableCard>
     </PageContainer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'  // FIXED: 国际化
 import api from '@/utils/http'
-import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
-import VChart from 'vue-echarts'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { GaugeChart } from 'echarts/charts'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
+import { getFriendlyError } from '../utils/errorMessage'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
-import { getFriendlyError } from '../utils/errorMessage'
+import TableCard from '../components/TableCard.vue'
 
-use([CanvasRenderer, GaugeChart])
+interface DeviceHealth {
+  device_id: string
+  device_name: string
+  last_mode: string | null
+  last_status_code: number | null
+  success_total: number
+  fail_total: number
+  consecutive_failures: number
+  auto_switch_count: number
+  failure_rate: number
+  current_policy_mode: string
+  recommended_mode: string
+  recommend_reason: string
+  risk_level: string
+  updated_at: string | null
+}
 
-const { t } = useI18n()
+interface HealthFilters {
+  risk_level: string | null
+  min_failure_rate: number
+  current_policy_mode: string | null
+  only_diff: boolean
+}
 
+interface ApplyResult {
+  device_id: string
+  previous_mode: string
+  recommended_mode: string
+  would_apply: boolean
+  applied: boolean
+  reason: string
+}
+
+interface SipRateStats {
+  allowed: number
+  blocked_device: number
+  blocked_tenant: number
+  backend_redis: number
+  backend_local: number
+  backend_fallback: number
+}
+
+interface CapacityBaseline {
+  high_risk_ratio: number
+  unstable_ratio: number
+  health_level: string
+  sip_rate_limit?: {
+    stats?: SipRateStats
+  }
+}
+
+interface TuningRecommendations {
+  profile: string
+  reason: string
+  changed_count: number
+}
+
+interface P5Template {
+  profile: string
+  fleet_size: number
+  recommended_concurrency: number
+  performance_target?: {
+    snapshot_p95_ms?: number
+    play_first_frame_p95_ms?: number
+  }
+}
+
+const healthData = ref<DeviceHealth[]>([])
+const { t } = useI18n()  // FIXED: 国际化
 const loading = ref(false)
-
-interface OpsStatus {
-  cpu: number
-  memory_percent: number
-  disk_percent: number
-  zlm_status: string
-  zlm_streams: number
-  zlm_target: string
-  zlm_error: string
-  uptime_seconds: number
-  process_memory_mb: number
-  process_threads: number
-  platform: string
-  python_version: string
-}
-
-interface DeviceOverview {
-  device_total: number
-  device_online: number
-  channel_total: number
-  channel_online: number
-  device_online_rate_pct: number
-}
-
-const ops = ref<OpsStatus>({
-  cpu: 0, memory_percent: 0, disk_percent: 0,
-  zlm_status: 'Offline', zlm_streams: 0, zlm_target: '', zlm_error: '',
-  uptime_seconds: 0, process_memory_mb: 0, process_threads: 0,
-  platform: '', python_version: ''
+const applying = ref(false)
+const selectedRows = ref<DeviceHealth[]>([])
+const autoRefresh = ref('0')
+const refreshTimer = ref<number | null>(null)
+const highRiskFirstSeenAt = ref<number | null>(null)
+const alertCooldownUntil = ref(0)
+const capacityBaseline = ref<CapacityBaseline>({
+  high_risk_ratio: 0,
+  unstable_ratio: 0,
+  health_level: 'green'
+})
+const tuningRecommendations = ref<TuningRecommendations>({
+  profile: 'balanced',
+  reason: '',
+  changed_count: 0
+})
+const p5Template = ref<P5Template>({
+  profile: 'balanced',
+  fleet_size: 0,
+  recommended_concurrency: 5
+})
+const filters = ref<HealthFilters>({
+  risk_level: null,
+  min_failure_rate: 0,
+  current_policy_mode: null,
+  only_diff: false
+})
+const alertConfig = ref({
+  enabled: true,
+  highRiskThreshold: 3,
+  holdMinutes: 5
 })
 
-const overview = ref<DeviceOverview>({
-  device_total: 0, device_online: 0, channel_total: 0,
-  channel_online: 0, device_online_rate_pct: 0
+const page = ref(1)
+const pageSize = ref(20)
+
+const paginatedHealthData = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  const end = start + pageSize.value
+  return healthData.value.slice(start, end)
 })
 
-const fetchOps = async () => {
-  try {
-    const res = await api.get('/api/v1/ops/status')
-    ops.value = { ...ops.value, ...res.data }
-  } catch (e: unknown) {
-    const f = getFriendlyError(e)
-    ElMessage.error(f.message)
-  }
-}
+watch(() => healthData.value, () => {
+  page.value = 1
+})
 
-const fetchOverview = async () => {
-  try {
-    const res = await api.get('/api/v1/metrics/devices-overview')
-    overview.value = { ...overview.value, ...res.data }
-  } catch (e: unknown) {
-    const f = getFriendlyError(e)
-    ElMessage.error(f.message)
-  }
-}
+const stats = computed(() => {
+  const total = healthData.value.length
+  const highFailure = healthData.value.filter(d => {
+    return d.failure_rate > 50
+  }).length
+  const autoSwitched = healthData.value.filter(d => d.auto_switch_count > 0).length
+  const unstable = healthData.value.filter(d => d.consecutive_failures > 0).length
+  
+  return { total, highFailure, autoSwitched, unstable }
+})
 
-const refreshAll = async () => {
-  loading.value = true
-  await Promise.allSettled([fetchOps(), fetchOverview()])
-  loading.value = false
-}
-
-// --- Gauge Options ---
-const makeGauge = (value: number, name: string, thresholds: [number, number]) => {
-  const [warn, crit] = thresholds
+const sipRateStats = computed<SipRateStats>(() => {
+  const s = capacityBaseline.value?.sip_rate_limit?.stats
   return {
-    series: [{
-      type: 'gauge',
-      startAngle: 200,
-      endAngle: -20,
-      min: 0, max: 100,
-      progress: { show: true, width: 14 },
-      axisLine: { lineStyle: { width: 14, color: [[warn / 100, '#67c23a'], [crit / 100, '#e6a23c'], [1, '#f56c6c']] } },
-      axisTick: { show: false },
-      splitLine: { length: 8, lineStyle: { width: 1, color: '#999' } },
-      axisLabel: { show: false },
-      pointer: { width: 4 },
-      detail: { valueAnimation: true, formatter: '{value}%', fontSize: 18, offsetCenter: [0, '60%'] },
-      data: [{ value: Math.round(value), name }]
-    }]
+    allowed: Number(s?.allowed || 0),
+    blocked_device: Number(s?.blocked_device || 0),
+    blocked_tenant: Number(s?.blocked_tenant || 0),
+    backend_redis: Number(s?.backend_redis || 0),
+    backend_local: Number(s?.backend_local || 0),
+    backend_fallback: Number(s?.backend_fallback || 0)
+  }
+})
+
+const healthOverview = ref<{ device_total: number; device_online: number; channel_total: number; channel_online: number; online_rate_pct: number; record_count: number; channels_with_record: number; record_completeness_pct: number }>({ device_total: 0, device_online: 0, channel_total: 0, channel_online: 0, online_rate_pct: 0, record_count: 0, channels_with_record: 0, record_completeness_pct: 0 })
+
+const fetchData = async () => {
+  loading.value = true
+  try {
+    const params: Record<string, string | number | boolean> = {}
+    if (filters.value.risk_level) params.risk_level = filters.value.risk_level
+    if (filters.value.current_policy_mode) params.current_policy_mode = filters.value.current_policy_mode
+    if (filters.value.min_failure_rate > 0) params.min_failure_rate = filters.value.min_failure_rate
+    if (filters.value.only_diff) params.only_diff = true
+    const [devicesRes, baselineRes, tuningRes, p5Res, overviewRes] = await Promise.all([
+      api.get('/api/v1/health/devices', { params }),
+      api.get('/api/v1/health/capacity-baseline'),
+      api.get('/api/v1/health/tuning-recommendations'),
+      api.get('/api/v1/health/capacity-threshold-template'),
+      api.get('/api/v1/health/overview').catch(() => ({ data: null }))
+    ])
+    healthData.value = devicesRes.data
+    capacityBaseline.value = baselineRes.data || capacityBaseline.value
+    tuningRecommendations.value = tuningRes.data || tuningRecommendations.value
+    p5Template.value = p5Res.data || p5Template.value
+    if (overviewRes.data) healthOverview.value = overviewRes.data
+    evaluateRiskAlert()
+  } catch (error) {
+    const friendly = getFriendlyError(error)
+    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+  } finally {
+    loading.value = false
   }
 }
 
-const cpuGaugeOption = computed(() => makeGauge(ops.value.cpu, 'CPU', [60, 80]))
-const memoryGaugeOption = computed(() => makeGauge(ops.value.memory_percent, 'MEM', [70, 85]))
-const diskGaugeOption = computed(() => makeGauge(ops.value.disk_percent, 'DISK', [70, 90]))
-const onlineGaugeOption = computed(() => makeGauge(overview.value.device_online_rate_pct || 0, 'ONLINE', [50, 80]))
-
-// --- Overall Health ---
-const overallScore = computed(() => {
-  const cpuOk = ops.value.cpu < 80 ? 100 - ops.value.cpu : 0
-  const memOk = ops.value.memory_percent < 85 ? 100 - ops.value.memory_percent : 0
-  const diskOk = ops.value.disk_percent < 90 ? 100 - ops.value.disk_percent : 0
-  const zlmOk = ops.value.zlm_status === 'Online' ? 100 : 0
-  const devOk = overview.value.device_total > 0 ? overview.value.device_online_rate_pct : 100
-  return Math.round(cpuOk * 0.25 + memOk * 0.2 + diskOk * 0.15 + zlmOk * 0.25 + devOk * 0.15)
-})
-
-const overallHealthTag = computed(() => {
-  const s = overallScore.value
-  if (s >= 80) return 'success'
-  if (s >= 50) return 'warning'
-  return 'danger'
-})
-
-const overallHealthLabel = computed(() => {
-  const s = overallScore.value
-  if (s >= 80) return t('health.healthy')
-  if (s >= 50) return t('health.warning')
-  return t('health.critical')
-})
-
-const overallHealthColor = computed(() => {
-  const s = overallScore.value
-  if (s >= 80) return '#67c23a'
-  if (s >= 50) return '#e6a23c'
-  return '#f56c6c'
-})
-
-// --- Helpers ---
-const formatUptime = (seconds: number) => {
-  if (!seconds) return '-'
-  const d = Math.floor(seconds / 86400)
-  const h = Math.floor((seconds % 86400) / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h ${m}m`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+const onSelectionChange = (rows: DeviceHealth[]) => {
+  selectedRows.value = rows
 }
 
-// --- Lifecycle ---
-let pollTimer: ReturnType<typeof setInterval> | null = null
+const applyRecommendations = async (payload: Record<string, unknown>, tip: string) => {
+  applying.value = true
+  try {
+    const res = await api.post('/api/v1/health/apply-recommendations', payload)
+    const data = res.data as { matched: number; would_apply: number; applied: number; results: ApplyResult[] }
+    ElMessage.success(t('healthPage.applyExecuted', { tip, matched: data.matched, wouldApply: data.would_apply, applied: data.applied }))
+    await fetchData()
+  } catch (error) {
+    const friendly = getFriendlyError(error)
+    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+  } finally {
+    applying.value = false
+  }
+}
+
+const applySelectedRecommendations = async () => {
+  const deviceIds = selectedRows.value.map(item => item.device_id)
+  if (deviceIds.length === 0) {
+    ElMessage.warning(t('healthPage.pleaseSelectDevice'))
+    return
+  }
+  try {
+    await ElMessageBox.confirm(t('healthPage.confirmApplySelected', { count: deviceIds.length }), t('healthPage.confirmAction'), {
+      confirmButtonText: t('common.ok'),
+      cancelButtonText: t('healthPage.cancel'),
+      type: 'warning'
+    })
+    await applyRecommendations({ device_ids: deviceIds, only_diff: true }, t('healthPage.applyBySelected'))
+  } catch { /* cleanup: ignore */ }
+}
+
+const applyHighRiskRecommendations = async () => {
+  try {
+    await ElMessageBox.confirm(t('healthPage.confirmApplyHighRisk'), t('healthPage.confirmAction'), {
+      confirmButtonText: t('common.ok'),
+      cancelButtonText: t('healthPage.cancel'),
+      type: 'warning'
+    })
+    await applyRecommendations({ risk_level: 'high', only_diff: true }, t('healthPage.applyByHighRisk'))
+  } catch { /* cleanup: ignore */ }
+}
+
+const previewRecommendations = async () => {
+  applying.value = true
+  try {
+    const payload: Record<string, unknown> = {
+      dry_run: true,
+      only_diff: filters.value.only_diff
+    }
+    if (filters.value.risk_level) payload.risk_level = filters.value.risk_level
+    if (filters.value.min_failure_rate > 0) payload.min_failure_rate = filters.value.min_failure_rate
+    const res = await api.post('/api/v1/health/apply-recommendations', payload)
+    const data = res.data as { matched: number; would_apply: number; results: ApplyResult[] }
+    const previewIds = data.results.filter(item => item.would_apply).slice(0, 5).map(item => item.device_id).join(', ')
+    ElNotification({
+      title: t('healthPage.previewResultTitle'),
+      type: data.would_apply > 0 ? 'warning' : 'success',
+      message: data.would_apply > 0
+        ? t('healthPage.previewMatchedWithChange', { matched: data.matched, wouldApply: data.would_apply, sample: previewIds || t('healthPage.none') })
+        : t('healthPage.previewMatchedNoChange', { matched: data.matched })
+    })
+  } catch (error) {
+    const friendly = getFriendlyError(error)
+    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+  } finally {
+    applying.value = false
+  }
+}
+
+const previewDailyReport = async () => {
+  loading.value = true
+  try {
+    const res = await api.get('/api/v1/health/report/daily', { params: { top_limit: 5 } })
+    const data = res.data as {
+      total_devices: number
+      high_risk: number
+      medium_risk: number
+      low_risk: number
+      would_apply: number
+      top_risky: Array<{ device_id: string }>
+    }
+    const topIds = data.top_risky.map(item => item.device_id).join(', ')
+    ElNotification({
+      title: t('healthPage.dailyReportTitle'),
+      type: data.high_risk > 0 ? 'warning' : 'success',
+      message: t('healthPage.dailyReportMessage', { total: data.total_devices, high: data.high_risk, medium: data.medium_risk, low: data.low_risk, wouldApply: data.would_apply, top: topIds || t('healthPage.none') })
+    })
+  } catch (error) {
+    const friendly = getFriendlyError(error)
+    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+  } finally {
+    loading.value = false
+  }
+}
+
+const previewP5Template = async () => {
+  loading.value = true
+  try {
+    const data = p5Template.value
+    const target = data.performance_target || {}
+    ElNotification({
+      title: t('healthPage.p5TemplateTitle'),
+      type: 'info',
+      message: t('healthPage.p5TemplateMessage', { fleetSize: data.fleet_size, profile: data.profile, concurrency: data.recommended_concurrency, snapshotP95: target.snapshot_p95_ms || '-', firstFrameP95: target.play_first_frame_p95_ms || '-' })
+    })
+  } finally {
+    loading.value = false
+  }
+}
+
+const downloadDailyReportCsv = () => {
+  const url = '/api/v1/health/report/daily.csv'
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener'
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+}
+
+const exportCurrentCsv = () => {
+  const columns = [
+    ['Device ID', 'device_id'],
+    ['Name', 'device_name'],
+    ['Risk', 'risk_level'],
+    ['Current Policy', 'current_policy_mode'],
+    ['Recommended', 'recommended_mode'],
+    ['Failure Rate', 'failure_rate'],
+    ['Consecutive Failures', 'consecutive_failures'],
+    ['Auto Switches', 'auto_switch_count'],
+    ['Reason', 'recommend_reason'],
+    ['Updated At', 'updated_at']
+  ] as Array<[string, keyof DeviceHealth]>
+  const header = columns.map(item => item[0]).join(',')
+  const body = healthData.value.map(row => {
+    return columns.map(([, key]) => {
+      const value = row[key]
+      const text = value === null || value === undefined ? '' : String(value)
+      return `"${text.replace(/"/g, '""')}"`
+    }).join(',')
+  }).join('\n')
+  const csv = `${header}\n${body}`
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `health-dashboard-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+  ElMessage.success(t('healthPage.exportedRecords', { count: healthData.value.length }))
+}
+
+const clearRefreshTimer = () => {
+  if (refreshTimer.value !== null) {
+    window.clearInterval(refreshTimer.value)
+    refreshTimer.value = null
+  }
+}
+
+const onAutoRefreshChange = () => {
+  clearRefreshTimer()
+  const interval = Number(autoRefresh.value)
+  if (interval > 0) {
+    refreshTimer.value = window.setInterval(() => {
+      fetchData()
+    }, interval * 1000)
+  }
+}
+
+const resetFilters = async () => {
+  filters.value = {
+    risk_level: null,
+    min_failure_rate: 0,
+    current_policy_mode: null,
+    only_diff: false
+  }
+}
+
+const evaluateRiskAlert = () => {
+  if (!alertConfig.value.enabled) {
+    highRiskFirstSeenAt.value = null
+    return
+  }
+  const highRiskCount = healthData.value.filter(item => item.risk_level === 'high').length
+  if (highRiskCount < alertConfig.value.highRiskThreshold) {
+    highRiskFirstSeenAt.value = null
+    return
+  }
+  const now = Date.now()
+  if (highRiskFirstSeenAt.value === null) {
+    highRiskFirstSeenAt.value = now
+    return
+  }
+  const holdMs = alertConfig.value.holdMinutes * 60 * 1000
+  if (now - highRiskFirstSeenAt.value < holdMs) {
+    return
+  }
+  if (now < alertCooldownUntil.value) {
+    return
+  }
+  alertCooldownUntil.value = now + 10 * 60 * 1000
+  ElNotification({
+    title: t('healthPage.highRiskAlertTitle'),
+    type: 'error',
+    duration: 0,
+    message: t('healthPage.highRiskAlertMessage', { count: highRiskCount })
+  })
+}
+
+const calculateSuccessRate = (row: DeviceHealth) => {
+  const total = row.success_total + row.fail_total
+  if (total === 0) return 0
+  return Math.round((row.success_total / total) * 100)
+}
+
+const sortBySuccessRate = (a: DeviceHealth, b: DeviceHealth) => {
+  return calculateSuccessRate(a) - calculateSuccessRate(b)
+}
+
+const getProgressStatus = (row: DeviceHealth) => {
+  const rate = calculateSuccessRate(row)
+  if (rate >= 90) return 'success'
+  if (rate >= 70) return 'warning'
+  return 'exception'
+}
+
+const getModeTagType = (mode: string | null) => {
+  if (!mode) return 'info'
+  if (mode === 'UDP') return 'success'
+  if (mode.includes('TCP')) return 'warning'
+  return ''
+}
+
+const getStatusTagType = (code: number | null) => {
+  if (!code) return 'info'
+  if (code >= 200 && code < 300) return 'success'
+  if (code >= 400) return 'danger'
+  return 'warning'
+}
+
+const formatDate = (dateStr: string | null) => {
+  if (!dateStr) return '-'
+  const value = new Date(dateStr)
+  if (Number.isNaN(value.getTime())) return '-'
+  return value.toLocaleString('zh-CN', { hour12: false })
+}
 
 onMounted(() => {
-  refreshAll()
-  pollTimer = setInterval(refreshAll, 15000)
+  const saved = localStorage.getItem('health_alert_config')
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved)
+      if (parsed && typeof parsed === 'object') {
+        alertConfig.value = {
+          ...alertConfig.value,
+          ...(parsed as Record<string, unknown>)
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+  fetchData()
 })
 
+watch(filters, () => {
+  fetchData()
+}, { deep: true })
+
+watch(alertConfig, (value) => {
+  localStorage.setItem('health_alert_config', JSON.stringify(value))
+  evaluateRiskAlert()
+}, { deep: true })
+
 onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
+  clearRefreshTimer()
 })
 </script>
 
-<style scoped>
-.health-gauge-card {
-  text-align: center;
-}
-.health-gauge-title {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 4px;
-}
-.health-gauge {
-  width: 100%;
-}
-.health-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-}
-.health-row-label {
-  font-weight: 500;
-  min-width: 100px;
-  color: var(--el-text-color-secondary);
-}
-.health-row-value {
-  color: var(--el-text-color-primary);
-}
-.health-row-detail {
-  font-size: 12px;
-  color: var(--el-text-color-secondary);
-}
-.health-row-error {
-  font-size: 12px;
-  color: var(--el-color-danger);
-}
-.health-stat-box {
-  text-align: center;
-  padding: 12px;
-  border-radius: 8px;
-  background: var(--el-fill-color-light);
-}
-.health-stat-label {
-  font-size: 13px;
-  color: var(--el-text-color-secondary);
-  margin-bottom: 4px;
-}
-.health-stat-value {
-  font-size: 24px;
-  font-weight: bold;
-  color: var(--el-text-color-primary);
-}
-</style>
+<style scoped></style>

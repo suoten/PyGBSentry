@@ -1,0 +1,35 @@
+/**
+ * Design Tokens — 兼容性映射层
+ *
+ * 已废弃：--ds-* token 系统
+ * 现统一使用 Element Plus 的 --el-* token
+ * 此文件保留用于向后兼容，新代码请直接使用 --el-* token
+ *
+ * @deprecated 请使用 style.css 中的 --el-* token
+ */
+:root {
+  /* spacing */
+  --ds-space-1: 8px;
+  --ds-space-2: 12px;
+  --ds-space-3: 14px;
+  --ds-space-4: 16px;
+  --ds-space-5: 20px;
+  --ds-space-6: 24px;
+  --ds-space-8: 32px;
+
+  /* radius */
+  --ds-radius-sm: 2px;
+  --ds-radius-md: 4px;
+  --ds-radius-lg: 8px;
+  --ds-radius-xl: 10px;
+
+  /* typography */
+  --ds-font-size-base: 14px;
+  --ds-line-height-base: 1.6;
+  --ds-font-family-sans: 'Helvetica Neue', Helvetica, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', '微软雅黑', Arial, sans-serif;
+
+  /* shadow */
+  --ds-shadow-1: 0 1px 4px rgba(15, 23, 42, 0.03);
+  --ds-shadow-2: 0 2px 8px rgba(15, 23, 42, 0.05);
+  --ds-shadow-3: 0 4px 12px rgba(15, 23, 42, 0.08);
+}

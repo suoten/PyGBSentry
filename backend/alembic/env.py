@@ -52,13 +52,17 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = config.get_main_option("sqlalchemy.url") or ""
+    # FIX: [2026-07-12] render_as_batch 仅对 SQLite 启用 [全栈工程师]
+    # SQLite 不支持 ALTER TABLE，batch 模式通过"建新表→复制→删旧→重命名"实现
+    # PostgreSQL/MySQL 原生支持 ALTER TABLE，batch 模式反而会不必要地重建表
+    _is_sqlite = "sqlite" in url.lower()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        render_as_batch=True,
+        render_as_batch=_is_sqlite,
     )
 
     with context.begin_transaction():
@@ -67,12 +71,16 @@ def run_migrations_offline() -> None:
 
 def do_run_migrations(connection):
     """同步迁移执行（在 async 上下文中被调用）"""
-    # FIXED: render_as_batch=True 支持 SQLite（SQLite 不支持 ALTER TABLE，
-    # batch 模式通过"创建新表→复制数据→删除旧表→重命名"实现等价效果）
+    # FIX: [2026-07-12] render_as_batch 仅对 SQLite 启用 [全栈工程师]
+    # SQLite 不支持 ALTER TABLE，batch 模式通过"建新表→复制→删旧→重命名"实现
+    # PostgreSQL/MySQL 原生支持 ALTER TABLE，batch 模式反而会不必要地重建表
+    # （如 b1c2d3e4f5g6 修改 alarms.device_id 类型时，batch 会重建整个 alarms 表）
+    _dialect_name = (getattr(getattr(connection, "dialect", None), "name", "") or "").lower()
+    _is_sqlite = _dialect_name == "sqlite"
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        render_as_batch=True,
+        render_as_batch=_is_sqlite,
     )
     with context.begin_transaction():
         context.run_migrations()

@@ -183,10 +183,10 @@ async def _build_repaired_url(db: AsyncSession, record: Record) -> str | None:
 
 
 def _record_download_sign_secret() -> str:
-    secret = str(getattr(settings, "RECORD_DOWNLOAD_SIGN_SECRET", "") or "").strip()
+    secret = str(settings.RECORD_DOWNLOAD_SIGN_SECRET or "").strip()
     if secret:
         return secret
-    return str(getattr(settings, "SECRET_KEY", "") or "").strip()
+    return str(settings.SECRET_KEY or "").strip()
 
 
 def _record_download_signature(record_id: str, tenant_id: str, exp: int, inline: bool) -> str:
@@ -656,7 +656,7 @@ async def sign_record_download_url(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    if not bool(getattr(settings, "RECORD_DOWNLOAD_SIGN_ENABLED", True)):
+    if not settings.RECORD_DOWNLOAD_SIGN_ENABLED:
         await _record_query_audit(
             db,
             current_user,
@@ -702,7 +702,7 @@ async def sign_record_download_url(
             extra_summary=f"record_id={record_id}; asset_tenant={asset.tenant_id}",
         )
         raise HTTPException(status_code=403, detail="Permission denied")
-    exp = int(time.time()) + int(ttl_seconds or int(getattr(settings, "RECORD_DOWNLOAD_SIGN_TTL_SECONDS", 900) or 900))
+    exp = int(time.time()) + int(ttl_seconds or settings.RECORD_DOWNLOAD_SIGN_TTL_SECONDS)
     tenant_id = str(asset.tenant_id or "default").strip() or "default"
     sig = _record_download_signature(record_id=record_id, tenant_id=tenant_id, exp=exp, inline=inline)
     base = str(request.base_url).rstrip("/")
@@ -729,7 +729,7 @@ async def download_record_public(
     inline: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
-    if not bool(getattr(settings, "RECORD_DOWNLOAD_SIGN_ENABLED", True)):
+    if not settings.RECORD_DOWNLOAD_SIGN_ENABLED:
         await _record_public_download_audit(
             db,
             tenant_id="default",
@@ -797,7 +797,7 @@ async def download_record_public(
 @router.get("/download/audit/summary")
 async def get_record_public_download_audit_summary(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("records.view")),  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("records.manage")),  # FIX: [2026-07-16 P1] records.view→records.manage
     record_id: str | None = Query(None),
     client_ip: str | None = Query(None),
     result: str | None = Query(None),
@@ -887,10 +887,10 @@ async def get_record_play_url(
         try:
             import boto3
             from botocore.config import Config
-            s3_bucket = getattr(settings, "S3_BUCKET", "")
-            s3_endpoint = getattr(settings, "S3_ENDPOINT", "")
-            s3_access_key = getattr(settings, "S3_ACCESS_KEY", "")
-            s3_secret_key = getattr(settings, "S3_SECRET_KEY", "")
+            s3_bucket = settings.S3_BUCKET
+            s3_endpoint = settings.S3_ENDPOINT
+            s3_access_key = settings.S3_ACCESS_KEY
+            s3_secret_key = settings.S3_SECRET_KEY
 
             if not all([s3_bucket, s3_endpoint, s3_access_key, s3_secret_key]):
                 raise HTTPException(status_code=500, detail="Server S3 config missing")
@@ -1017,7 +1017,9 @@ class DeleteBatchPayload(BaseModel):
 async def delete_records_batch(
     payload: DeleteBatchPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("records.view")),  # 角色检查→权限码检查
+    # FIX: [2026-07-16 P1] 原使用 records.view（查看权限）保护删除/修复操作，
+    # 拥有查看权限的用户可批量删除录像。改为 records.manage 写入权限。
+    current_user: User = Depends(deps.require_permission("records.manage")),  # 角色检查→权限码检查
 ):
     ids = [str(x) for x in (payload.ids or []) if str(x)]
     ids = ids[:500]
@@ -1052,7 +1054,7 @@ class RepairUrlBatchPayload(BaseModel):
 async def repair_record_url(
     record_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("records.view")),  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("records.manage")),  # FIX: [2026-07-16 P1] records.view→records.manage
 ):
     row = get_or_404(await db.execute(select(Record).where(Record.id == record_id)), detail="Record not found")  # ORM查询结果空值判断
     asset = get_or_404(await db.execute(select(Asset).where(Asset.id == row.asset_id)), detail="Asset not found")  # ORM查询结果空值判断
@@ -1075,7 +1077,7 @@ async def repair_record_url(
 async def repair_records_batch(
     payload: RepairUrlBatchPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("records.view")),  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("records.manage")),  # FIX: [2026-07-16 P1] records.view→records.manage
 ):
     ids = [str(x) for x in (payload.ids or []) if str(x)]
     ids = ids[:200]
@@ -1117,7 +1119,7 @@ async def repair_records_batch(
 async def delete_record_index(
     record_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("records.view")),  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("records.manage")),  # FIX: [2026-07-16 P1] records.view→records.manage
 ):
     row = get_or_404(await db.execute(select(Record).where(Record.id == record_id)), detail="Record not found")  # ORM查询结果空值判断
     asset = get_or_404(await db.execute(select(Asset).where(Asset.id == row.asset_id)), detail="Asset not found")  # ORM查询结果空值判断

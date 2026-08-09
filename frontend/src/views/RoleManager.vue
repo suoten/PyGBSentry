@@ -224,8 +224,13 @@ const rolePermissionTree = computed(() => {
     const children: PermissionNode[] = []
     for (const name of g.names) {
       const r = routes.find(rt => rt.name === name)
-      if (r && r.meta && r.meta.title && !r.meta.hiddenInMenu) {
-        children.push({ code: getCode(name), label: String(r.meta.title || '') })
+      // FIX: [2026-07-13] 路由配置已改用 `meta.titleKey`（i18n 翻译键），旧代码仅检查 `meta.title`
+      // 会导致所有路由都被跳过，权限树为空。现在优先使用 titleKey + i18n 翻译。
+      if (r && r.meta && (r.meta.titleKey || r.meta.title) && !r.meta.hiddenInMenu) {
+        const label = r.meta.titleKey
+          ? t(String(r.meta.titleKey))
+          : String(r.meta.title || '')
+        children.push({ code: getCode(name), label })
         usedNames.add(name)
       }
     }
@@ -246,8 +251,12 @@ const rolePermissionTree = computed(() => {
   for (const r of routes) {
     const name = String(r.name || '')
     if (!name || usedNames.has(name) || skipNames.has(name)) continue
-    if (r.meta?.hiddenInMenu || !r.meta?.title) continue
-    otherChildren.push({ code: getCode(name), label: String(r.meta.title || '') })
+    // FIX: [2026-07-13] 同上，优先使用 titleKey + i18n 翻译
+    if (r.meta?.hiddenInMenu || (!r.meta?.titleKey && !r.meta?.title)) continue
+    const label = r.meta.titleKey
+      ? t(String(r.meta.titleKey))
+      : String(r.meta.title || '')
+    otherChildren.push({ code: getCode(name), label })
   }
   if (otherChildren.length > 0) {
     const uniqueChildren: PermissionNode[] = []

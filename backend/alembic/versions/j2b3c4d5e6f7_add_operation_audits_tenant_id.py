@@ -9,8 +9,8 @@ operation_audits 表时均未包含此列。audit_center_service 写入审计
 日志时会尝试设置 tenant_id，在仅有 Alembic 建表路径的旧库上触发
 OperationalError: no such column: tenant_id，导致审计日志写入失败。
 
-本迁移在最新 head（i1a2b3c4d5e6）之上补齐该列，采用幂等 try/except
-模式以兼容已通过 create_all 建好该列的库。
+FIX [2026-07-12]: 原实现使用 try/except 包裹 op.add_column，在 PostgreSQL 上
+无法防止 DDL 错误导致的事务 abort。改为 sa.inspect() 预检列是否存在后再添加。
 
 Revision ID: j2b3c4d5e6f7
 Revises: i1a2b3c4d5e6
@@ -30,14 +30,27 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
+def _column_exists(table_name: str, column_name: str) -> bool:
+    """检查列是否已存在（跨数据库兼容的幂等检查）。
+
+    使用 sa.inspect() 检查列是否存在，避免 PostgreSQL 的
+    InFailedSQLTransactionError（try/except 无法防止 PostgreSQL
+    事务 abort）。
+    """
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    try:
+        existing_columns = [c['name'] for c in inspector.get_columns(table_name)]
+    except Exception:
+        return False
+    return column_name in existing_columns
+
+
 def upgrade() -> None:
     # FIX: [2026-07-04] 补充 operation_audits.tenant_id 列，对齐 ORM 模型定义 [全栈工程师]
-    # 根因：模型已定义 tenant_id 但 Alembic 建表迁移遗漏该列，导致 audit_center_service
-    # 写入审计日志时 OperationalError。采用幂等模式避免重复列错误。
-    try:
+    # FIX: [2026-07-12] 改为 inspect 预检，兼容 PostgreSQL [数据库工程师]
+    if not _column_exists('operation_audits', 'tenant_id'):
         op.add_column('operation_audits', sa.Column('tenant_id', sa.String(length=36), nullable=True))
-    except Exception:
-        pass  # 列已存在时忽略（create_all 路径已建好该列的库）
 
 
 def downgrade() -> None:

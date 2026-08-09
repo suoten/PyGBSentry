@@ -23,7 +23,8 @@ services:
       - '--storage.tsdb.retention.size=10GB'
       - '--web.enable-lifecycle'
     ports:
-      - "9090:9090"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露未认证的 Prometheus
+      - "127.0.0.1:9090:9090"
     depends_on:
       - backend
 
@@ -35,7 +36,8 @@ services:
       - ./deploy/monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager_data:/alertmanager
     ports:
-      - "9093:9093"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露 Alertmanager
+      - "127.0.0.1:9093:9093"
 
   grafana:
     # DEVOPS: 10.4.0 升级到 11.2.0（Grafana 11 稳定版，仪表板向后兼容，安全补丁最新）
@@ -53,7 +55,8 @@ services:
       - ./deploy/monitoring/grafana_dashboard_provider.yml:/etc/grafana/provisioning/dashboards/provider.yml:ro
       - ./deploy/monitoring/grafana_datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
     ports:
-      - "3000:3000"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露 Grafana（虽有密码但默认暴露）
+      - "127.0.0.1:3000:3000"
     depends_on:
       - prometheus
 
@@ -71,7 +74,8 @@ services:
       - '--path.sysfs=/host/sys'
       - '--path.rootfs=/rootfs'
     ports:
-      - "9100:9100"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露主机指标
+      - "127.0.0.1:9100:9100"
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
@@ -80,7 +84,8 @@ services:
     environment:
       DATA_SOURCE_NAME: "postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/pygb28181?sslmode=disable"
     ports:
-      - "9187:9187"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露（DSN 含明文 DB 密码）
+      - "127.0.0.1:9187:9187"
     depends_on:
       - db
 
@@ -93,7 +98,8 @@ services:
       REDIS_ADDR: "redis:6379"
       REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
     ports:
-      - "9121:9121"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露 Redis 指标
+      - "127.0.0.1:9121:9121"
     depends_on:
       - redis
 
@@ -106,7 +112,8 @@ services:
       - ./deploy/monitoring/loki-config.yml:/etc/loki/local-config.yaml:ro
       - loki_data:/loki
     ports:
-      - "3100:3100"
+      # FIX: [2026-07-16 P1] 绑定 127.0.0.1 防止公网暴露日志内容
+      - "127.0.0.1:3100:3100"
     command: -config.file=/etc/loki/local-config.yaml
 
   promtail:

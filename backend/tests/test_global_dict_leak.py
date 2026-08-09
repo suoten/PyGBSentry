@@ -36,12 +36,16 @@ class TestSeenRequestsLock(unittest.IsolatedAsyncioTestCase):
             h._SEEN_REQUESTS.clear()
 
     async def test_check_and_record_seen_request_dedup(self):
-        """同一 dedup_key 的非 INVITE 请求第二次应判定为重复。"""
+        """同一 dedup_key 的非 INVITE/REGISTER 请求第二次应判定为重复。
+
+        注意：INVITE 和 REGISTER 方法被豁免去重（RFC 3261 §17.2.1/§17.2.2 + UDP 重传保护），
+        因此测试使用 MESSAGE 方法验证去重逻辑。
+        """
         from app.sip.handlers import check_and_record_seen_request
 
-        first = await check_and_record_seen_request("call1~1", "REGISTER")
+        first = await check_and_record_seen_request("call1~1", "MESSAGE")
         self.assertFalse(first, "首次记录应返回 False（非重复）")
-        second = await check_and_record_seen_request("call1~1", "REGISTER")
+        second = await check_and_record_seen_request("call1~1", "MESSAGE")
         self.assertTrue(second, "重复请求应返回 True")
 
     async def test_invite_not_deduped(self):
@@ -63,12 +67,15 @@ class TestSeenRequestsLock(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(_SEEN_REQUESTS), 0)
 
     async def test_concurrent_dedup_no_corruption(self):
-        """100 个协程并发对同一 key 调用，字典状态应一致不损坏。"""
+        """100 个协程并发对同一 key 调用，字典状态应一致不损坏。
+
+        注意：使用 MESSAGE 方法（非 REGISTER/INVITE），因为 REGISTER/INVITE 被豁免去重。
+        """
         from app.sip.handlers import check_and_record_seen_request, _SEEN_REQUESTS
 
         key = "concurrent~1"
         results = await asyncio.gather(
-            *[check_and_record_seen_request(key, "REGISTER") for _ in range(100)]
+            *[check_and_record_seen_request(key, "MESSAGE") for _ in range(100)]
         )
         # 恰好 1 个 False（首次记录），其余 99 个 True（重复）
         self.assertEqual(results.count(False), 1)
@@ -370,6 +377,9 @@ class TestBackgroundTaskCancellation(unittest.IsolatedAsyncioTestCase):
         server.tls_server = None
         server._workers = []
         server._task_queue = asyncio.Queue()
+        # FIX [2026-07-19]: stop() 会访问 _tcp_clients 以关闭 TCP 客户端 writer，
+        # __new__ 跳过 __init__ 时未初始化此属性，导致 AttributeError。
+        server._tcp_clients = {}
 
         # 启动一个模拟的 _prune_loop
         async def _fake_prune():

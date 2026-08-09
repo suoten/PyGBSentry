@@ -289,7 +289,7 @@
                 <el-descriptions :column="2" size="small" border>
                   <el-descriptions-item label="SIP_ID">{{ diagnosisData.sip_config.sip_id || '—' }}</el-descriptions-item>
                   <el-descriptions-item label="SIP_DOMAIN">{{ diagnosisData.sip_config.sip_domain || '—' }}</el-descriptions-item>
-                  <el-descriptions-item label="SIP_IP">{{ maskSipIp(diagnosisData.sip_config.sip_ip) || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="SIP_IP">{{ diagnosisData.sip_config.sip_ip || '—' }}</el-descriptions-item>
                   <el-descriptions-item label="SIP_PORT">{{ diagnosisData.sip_config.sip_port || '—' }}</el-descriptions-item>
                 </el-descriptions>
               </el-collapse-item>
@@ -328,7 +328,6 @@ import type { FormInstance, FormRules } from 'element-plus'
 import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getFriendlyError } from '../utils/errorMessage'
-import { maskSipIp } from '../utils/sipMask' // FIX H-10: SIP IP 脱敏
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'

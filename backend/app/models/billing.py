@@ -66,3 +66,66 @@ class TenantSubscription(Base):
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# FIX: [2026-07-13] 以下三个模型类从 2ad636a 恢复 — billing 端点导入
+# TenantBranding/PluginOrder/SubscriptionDowngradeLog 但 ConvergeLoop Round 0
+# 将它们删除，导致 billing 端点导入失败、/api/v1/billing/* 全部 404。[全栈工程师]
+
+class TenantBranding(Base):
+    """租户品牌定制（产品名、Logo、主题色等）。"""
+
+    __tablename__ = "tenant_branding"
+
+    id = Column(String(32), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), nullable=False, unique=True, index=True)
+    product_name = Column(String(128), default="PyGBSentry")
+    logo_url = Column(String(255), nullable=True)
+    primary_color = Column(String(16), default="#1f2937")
+    welcome_text = Column(String(255), default="Welcome to PyGBSentry")
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class PluginOrder(Base):
+    """插件订单记录。"""
+
+    __tablename__ = "plugin_orders"
+
+    id = Column(String(32), primary_key=True, default=generate_uuid)
+    order_no = Column(String(64), nullable=False, unique=True, index=True)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    user_id = Column(String(32), nullable=False, index=True)
+    plugin_id = Column(String(64), nullable=False, index=True)
+    plugin_name = Column(String(128), nullable=False)
+    amount = Column(Integer, default=0)
+    currency = Column(String(8), default="CNY")
+    status = Column(String(24), default="pending", index=True)
+    pay_channel = Column(String(32), default="pending")
+    paid_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=True)
+    callback_payload = Column(Text, nullable=True)
+    license_data = Column(Text, nullable=True)
+    billing_period = Column(String(16), nullable=True)
+    quantity = Column(Integer, default=1)
+    order_type = Column(String(24), default="license")
+    upgrade_policy = Column(String(24), nullable=True)
+    version_major = Column(String(16), nullable=True)
+    maintenance_until = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class SubscriptionDowngradeLog(Base):
+    """订阅降级操作日志（用于审计和 affected_plugins 追踪）。"""
+
+    __tablename__ = "subscription_downgrade_logs"
+
+    id = Column(String(32), primary_key=True, default=generate_uuid)
+    tenant_id = Column(String(64), nullable=False, index=True)
+    old_plan_code = Column(String(64), nullable=False)
+    new_plan_code = Column(String(64), nullable=False)
+    affected_plugins = Column(Text, default="[]")
+    retains_single = Column(Text, default="[]")
+    operator_id = Column(String(32), nullable=True)
+    created_at = Column(DateTime, default=func.now())

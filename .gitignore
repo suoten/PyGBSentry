@@ -44,6 +44,31 @@ backend/timelapse/
 *.db-journal
 *.db-shm
 *.db-wal
+*.log
+_log_tail.txt
+
+# 调试残留与审计产物（P0-3）
+aa.txt
+backend/audit_results.json
+backend/audit_test_results.json
+backend/audit_l*_report.json
+backend/audit_l*_detail.txt
+backend/audit_output.txt
+backend/fail_*.txt
+backend/verify_tests.txt
+backend/l3.txt
+backend/l4.txt
+backend/l5.txt
+backend/l302_detail.txt
+backend/_summarize_audit.py
+backend/_audit_l302_detail.py
+backend/audit_reports/
+frontend/_build_output.txt
+frontend/vitest-*.txt
+tools/audit_output.txt
+
+# LoopEngine 工作区目录（内部状态文件，不提交）
+.loopengine/
 
 # Binary / Model / Archive files
 *.pt
@@ -64,6 +89,19 @@ mobile/.hbuilderx
 .DS_Store
 Thumbs.db
 CACHEDIR.TAG
+
+# FIX: [2026-07-16 P0] SSL 私钥/证书文件 — 防止误提交到 Git 历史
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*_private_key*
+*_signing_key*
+deploy/nginx/ssl/*.pem
+deploy/nginx/ssl/*.key
 
 # Development artifacts
 _backend_full.json
@@ -92,3 +130,24 @@ backend/www/snap/
 
 # Trae IDE 工作区文档（内部规划文档，不提交）
 .trae/
+
+# ConvergeLoop 自动补充（防止 git add -A 卡死）
+*.py[cod]
+venv/
+env/
+site-packages/
+.mypy_cache/
+.tox/
+.eggs/
+node_modules/
+.next/
+.nuxt/
+.output/
+vendor/
+target/
+*.so
+*.dll
+*.dylib
+*.exe
+*.bin
+.convergeloop/

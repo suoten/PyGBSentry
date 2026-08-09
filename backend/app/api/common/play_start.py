@@ -112,6 +112,8 @@ async def start_play(
         # 4. 解析媒体节点 host/http_port
         host = settings.STREAM_PUBLIC_HOST
         http_port = settings.STREAM_PUBLIC_HTTP_PORT
+        # FIX: [2026-07-16] 增加流就绪探测前的默认值
+        _probe_secret = str(settings.MEDIA_SERVER_SECRET or "")
         try:
             if node_id:
                 from app.core.media_nodes_db import get_db_media_node_by_id  # noqa: WPS433
@@ -121,18 +123,47 @@ async def start_play(
                 if db_node:
                     host = str(db_node.public_host or db_node.host or host)
                     http_port = int(db_node.public_http_port or db_node.http_port or http_port)
+                    _probe_secret = str(db_node.secret or _probe_secret)
                 elif node:
                     host = str(node.get("public_host") or node.get("host") or host)
                     http_port = int(node.get("public_http_port") or node.get("http_port") or http_port)
+                    _probe_secret = str(node.get("secret") or _probe_secret)
         except Exception as node_err:
             logger.debug("common.play_start media node lookup failed: {}", node_err)
+
+        # FIX: [2026-07-16] 在返回播放 URL 之前，等待 ZLM 流注册就绪。
+        # 原问题：send_invite 返回后立即构造 URL 返回前端，但 200 OK 到达时设备才开始推流，
+        # ZLM 需要额外几秒才能注册流。前端拿到 URL 后播放器报"流不存在"或黑屏。
+        # 复用 stream_play.py 的 _wait_zlm_stream_ready 逻辑，最长等待 5 秒。
+        try:
+            from app.api.v1.endpoints.stream._shared import _wait_zlm_stream_ready
+            _max_attempts = settings.PLAY_START_STREAM_READY_MAX_ATTEMPTS
+            _interval = settings.PLAY_START_STREAM_READY_INTERVAL
+            _zlm_ok, _stream_ready, _media_item, _detail = await _wait_zlm_stream_ready(
+                host,
+                http_port,
+                _probe_secret,
+                app_name,
+                stream_id,
+                max_attempts=_max_attempts,
+                interval_seconds=_interval,
+                extra_apps=["rtp"],
+                ssrc=ssrc,
+            )
+            if not _stream_ready:
+                logger.warning(
+                    f"[play_start] ZLM stream not ready after {_max_attempts * _interval:.1f}s "
+                    f"(app={app_name}, stream={stream_id}) - returning URL anyway, frontend should retry"
+                )
+        except Exception as _probe_err:
+            logger.warning(f"[play_start] ZLM stream ready probe failed: {_probe_err} - returning URL anyway")
 
         # 5. 构造播放地址（与 stream_play 响应结构保持一致）
         flv_suffix = "" if app_name == "rtp" else ".live"
         flv_url = f"http://{host}:{http_port}/{app_name}/{stream_id}{flv_suffix}.flv"
         ws_url = f"ws://{host}:{http_port}/{app_name}/{stream_id}{flv_suffix}.flv"
         hls_url = f"http://{host}:{http_port}/{app_name}/{stream_id}/hls.m3u8"
-        rtsp_port = int(getattr(settings, "ZLM_RTSP_PORT", 554) or 554)
+        rtsp_port = settings.ZLM_RTSP_PORT
         rtsp_url = f"rtsp://{host}:{rtsp_port}/{app_name}/{stream_id}"
 
         return {

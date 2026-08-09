@@ -66,6 +66,7 @@ async def ensure_split_region_directory_parents(db: AsyncSession) -> int:
         logger.warning("region_directory_split_migration failed (non-fatal): {}", e)
         try:
             await db.rollback()
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _rb_err:
+            # FIX [2026-07-17 P3-16]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"region_directory_split_migration: db.rollback also failed: {_rb_err}")
         return 0

@@ -37,7 +37,7 @@ _MAX_LOG_LINES = 10000
 _MAX_LOG_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 @router.get("/files")
-def list_log_files(current_user=Depends(deps.get_current_active_user)):  # S-06-03 添加认证
+def list_log_files(current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限，普通用户不应看到日志文件列表
     if not LOGS_DIR.exists():
         return []
 
@@ -60,10 +60,16 @@ def list_log_files(current_user=Depends(deps.get_current_active_user)):  # S-06-
     return files
 
 @router.get("/files/{filepath:path}/lines")
-def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: int = 1000, current_user=Depends(deps.get_current_active_user)):  # S-06-03 添加认证
+def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: int = 1000, current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限
     target = (LOGS_DIR / filepath).resolve()
-    if not str(target).startswith(str(LOGS_DIR)):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # FIX: [2026-07-16 P1] 用 is_relative_to 替换 startswith，防止同前缀目录绕过（如 logs_secret/）
+    try:
+        if not target.is_relative_to(LOGS_DIR):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except (TypeError, ValueError):
+        # Python 3.8 兼容：is_relative_to 在 3.9+ 才有
+        if not str(target).startswith(str(LOGS_DIR) + os.sep) and target != LOGS_DIR:
+            raise HTTPException(status_code=403, detail="Access denied")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -113,8 +119,9 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
             if remaining and len(lines) < _MAX_LOG_LINES:
                 try:
                     lines.appendleft(remaining.decode("utf-8", errors="ignore"))
-                except Exception:
-                    logger.warning("silently_swallowed_exception", exc_info=True)
+                except Exception as _decode_err:
+                    # FIX [2026-07-17 P3-10]: 描述性日志替代 "silently_swallowed_exception"
+                    logger.warning(f"logs endpoint: failed to decode remaining log bytes: {_decode_err}")
 
         # Filter by keyword if provided
         if keyword:
@@ -139,10 +146,15 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/files/{filepath:path}/download")
-def download_log_file(filepath: str, current_user=Depends(deps.get_current_active_user)):  # S-06-03 添加认证
+def download_log_file(filepath: str, current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限，普通用户不应下载日志（含敏感信息）
     target = (LOGS_DIR / filepath).resolve()
-    if not str(target).startswith(str(LOGS_DIR)):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # FIX: [2026-07-16 P1] 用 is_relative_to 替换 startswith，防止同前缀目录绕过
+    try:
+        if not target.is_relative_to(LOGS_DIR):
+            raise HTTPException(status_code=403, detail="Access denied")
+    except (TypeError, ValueError):
+        if not str(target).startswith(str(LOGS_DIR) + os.sep) and target != LOGS_DIR:
+            raise HTTPException(status_code=403, detail="Access denied")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -203,30 +215,47 @@ class LogManager:
 log_manager = LogManager()
 
 # Thread-safe queue shared between sync log handler and async drainer
+# FIX: [2026-07-16 P1] 设置 maxsize 防止 WebSocket 消费慢时 queue 无限增长导致 OOM
+_LOG_QUEUE_MAXSIZE = 1000
 _log_queue: Optional[asyncio.Queue] = None  # P1-8: Optional 类型标注
 _log_queue_ref: list = []  # 惰性初始化
+# FIX: [2026-07-16 P1] 统计被丢弃的日志条目数，定期记录 warning
+_dropped_log_count: int = 0
 
 def _get_log_queue() -> asyncio.Queue:
-    global _log_queue, _log_queue_ref
+    global _log_queue, _log_queue_ref, _dropped_log_count
     if _log_queue is None:
-        _log_queue = asyncio.Queue()
+        _log_queue = asyncio.Queue(maxsize=_LOG_QUEUE_MAXSIZE)
         log_manager.set_queue(_log_queue)
     return _log_queue
 
 # Custom Log Handler to push logs to WebSocket
 class WebSocketLogHandler(logging.Handler):
     def emit(self, record):
+        global _dropped_log_count
         log_entry = self.format(record)
         try:
             q = _get_log_queue()
             q.put_nowait(log_entry)
+        except asyncio.QueueFull:
+            # FIX: [2026-07-16 P1] queue 满时丢弃最旧日志并计数，避免 OOM
+            _dropped_log_count += 1
+            if _dropped_log_count % 100 == 0:
+                logger.warning(f"[LogQueue] Dropped {_dropped_log_count} log entries (queue full, maxsize={_LOG_QUEUE_MAXSIZE})")
+            try:
+                q.get_nowait()  # 丢弃最旧的一条
+                q.put_nowait(log_entry)
+            except Exception as _q_err:
+                # FIX [2026-07-17 P3-31]: 描述性日志替代静默吞异常
+                logger.debug(f"WebSocketLogHandler: queue overflow drop failed: {_q_err}")
         except Exception as e:
             logger.warning(f"Error: {e}")
 
 # Add handler to root logger
 ws_handler = WebSocketLogHandler()
 ws_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logging.getLogger().addHandler(ws_handler)
+# FIX: [2026-07-16 P1] 改为只订阅应用日志，避免 root logger 的第三方库日志刷屏
+logging.getLogger("app").addHandler(ws_handler)
 
 
 @router.websocket("/ws/logs")

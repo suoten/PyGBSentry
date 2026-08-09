@@ -54,7 +54,15 @@ async def _wait_stream_registered(
             )
             if on_found:
                 try:
-                    await asyncio.shield(on_found(registered_app, registered_stream, media_item))
+                    # P1-fix: asyncio.shield 仅防止外部取消，不提供超时。
+                    # 若 on_found 回调（DB 写入、SIP 发送）因死锁挂起，外层 while 的 timeout 检查永远无法执行。
+                    # 包裹 wait_for 超时 5s，超时后记录 warning 但不取消内部协程（shield 语义保证）
+                    await asyncio.wait_for(
+                        asyncio.shield(on_found(registered_app, registered_stream, media_item)),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(f"[StreamWait] on_found callback timed out after 5s for app={registered_app} stream={registered_stream}")
                 except Exception as e:
                     logger.warning(f"[StreamWait] on_found callback failed: {e}")
             return True, media_item
@@ -249,7 +257,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         for k in _keys[:len(_REDIRECT_COUNTS) - _REDIRECT_COUNTS_MAX + 100]:
                             _REDIRECT_COUNTS.pop(k, None)
                     try:
-                        from app.core.config import settings, sip_host_for_contact
+                        from app.core.config import settings, sip_host_for_contact, sip_via_host
                         new_branch = f"z9hG4bK{secrets.token_hex(8)}"
                         cseq_header = message.get_header("CSeq") or "1 INVITE"
                         cseq_parts = cseq_header.split()
@@ -267,18 +275,34 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         redirect_req.method = "INVITE"
                         redirect_req.uri = new_uri
                         redirect_req.version = "SIP/2.0"
-                        redirect_req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={new_branch}"
+                        redirect_req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={new_branch}"
                         redirect_req.headers["From"] = from_h
                         redirect_req.headers["To"] = to_h_no_tag
                         redirect_req.headers["Call-ID"] = call_id
                         redirect_req.headers["CSeq"] = f"{cseq_num} INVITE"
                         redirect_req.headers["Max-Forwards"] = "70"
-                        redirect_req.headers["User-Agent"] = getattr(settings, "PROJECT_NAME", "PyGBSentry")
+                        redirect_req.headers["User-Agent"] = settings.PROJECT_NAME
                         redirect_req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
                         # C-04 3xx重定向INVITE携带原始SDP，而非空body
+                        # FIX [2026-07-17 P1-C3]: 原 SDP 不可用时不能发送空 body 的 INVITE，
+                        # 否则目标设备因 SDP 缺失拒绝 INVITE，重定向链路中断。
+                        # 修复：校验 original_sdp 非空，设置 Content-Type/Content-Length，
+                        # 若 SDP 不可用则放弃重定向并记录错误。
                         _pending_entry = invite_module.invite_state.invite_pending.get(call_id)
-                        original_sdp = _pending_entry[1].get("original_sdp", "") if _pending_entry else ""
+                        original_sdp = ""
+                        if _pending_entry and isinstance(_pending_entry, tuple) and len(_pending_entry) >= 2:
+                            _pending_dict = _pending_entry[1]
+                            if isinstance(_pending_dict, dict):
+                                original_sdp = str(_pending_dict.get("original_sdp", "") or "")
+                        if not original_sdp:
+                            logger.error(
+                                f"3xx redirect: original SDP not available for Call-ID={call_id}, "
+                                f"cannot send redirect INVITE without SDP. Aborting redirect."
+                            )
+                            return
                         redirect_req.body = original_sdp
+                        redirect_req.headers["Content-Type"] = "application/sdp"
+                        redirect_req.headers["Content-Length"] = str(len(redirect_req.body))
 
                         # S-02 3xx重定向INVITE发送到Contact URI目标地址(RFC 3261 §8.1.3.4)，而非原响应方地址
                         _redirect_addr = addr  # fallback to original addr
@@ -288,8 +312,9 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 _redirect_host = _uri_match.group(2)
                                 _redirect_port = int(_uri_match.group(3) or 5060)
                                 _redirect_addr = (_redirect_host, _redirect_port)
-                        except (ValueError, TypeError, IndexError):
-                            logger.debug("swallowed_exception", exc_info=True)
+                        except (ValueError, TypeError, IndexError) as _redirect_uri_err:
+                            # FIX [2026-07-17 P2-8]: 描述性日志替代 "swallowed_exception"
+                            logger.warning(f"3xx redirect: failed to parse Contact URI '{new_uri}': {_redirect_uri_err}")
                         await send_sip_bytes(proto, transport, _redirect_addr, redirect_req.to_bytes())
                         # S-07 3xx重定向后取消原watchdog并注册新watchdog，
                         # 否则原watchdog超时会清理pending条目和资源，导致重定向INVITE无响应
@@ -300,7 +325,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                 _on_timeout_cb = _pending_entry[1].get("watchdog_on_timeout")
                                 if _on_timeout_cb:
                                     from app.sip.watchdog import start_watchdog
-                                    _invite_timeout = int(getattr(settings, "SIP_INVITE_RESPONSE_TIMEOUT_SECONDS", 20) or 20)
+                                    _invite_timeout = settings.SIP_INVITE_RESPONSE_TIMEOUT_SECONDS
                                     start_watchdog(key=f"invite:{call_id}", timeout_seconds=_invite_timeout, on_timeout=_on_timeout_cb)
                         except Exception as _wd_err:
                             logger.warning(f"3xx redirect: failed to reset watchdog for Call-ID={call_id}: {_wd_err}")
@@ -341,10 +366,10 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
         rseq_header = message.get_header("RSeq") or ""
         if "100rel" in require_header.lower() and rseq_header and call_id_val:
             try:
-                from app.core.config import settings, sip_host_for_contact
+                from app.core.config import settings, sip_host_for_contact, sip_via_host
                 cseq_header = message.get_header("CSeq") or "1 INVITE"
                 cseq_num = cseq_header.split()[0] if cseq_header else "1"
-                branch = f"z9hG4bK{secrets.token_hex(6)}"
+                branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
                 _extract_tag(message.get_header("From")) or ""
                 _extract_tag(message.get_header("To")) or ""
 
@@ -354,10 +379,11 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 if "<" in prack.uri:
                     try:
                         prack.uri = prack.uri.split("<")[1].split(">")[0]
-                    except (IndexError, ValueError):
-                        logger.debug("swallowed_exception", exc_info=True)
+                    except (IndexError, ValueError) as _prack_uri_err:
+                        # FIX [2026-07-17 P2-8]: 描述性日志替代 "swallowed_exception"
+                        logger.warning(f"PRACK: failed to extract URI from Contact '{prack.uri}': {_prack_uri_err}")
                 prack.version = "SIP/2.0"
-                prack.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+                prack.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
                 from_h = message.get_header("From") or ""
                 prack.headers["From"] = from_h
                 to_h = message.get_header("To") or ""
@@ -433,7 +459,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
         cseq_num = cseq_header.split(" ")[0]
         req.headers["CSeq"] = f"{cseq_num} ACK"
         req.headers["Max-Forwards"] = "70"
-        req.headers["User-Agent"] = getattr(settings, "PROJECT_NAME", "PyGBSentry")
+        req.headers["User-Agent"] = settings.PROJECT_NAME
 
         data = req.to_bytes()
 
@@ -491,6 +517,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
             message.body or "",
             to_tag=to_tag,
             record_route=message.get_header("Record-Route"),  # GB28181协议 — 传递Record-Route头到dialog
+            # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 传递 200 OK 中的 Session-Expires 头域
+            session_expires_header=message.get_header("Session-Expires"),
         )
         # C-19 4xx-6xx错误处理 — 原elif分支因call_id非空为死代码，移入此分支
         if status_code >= 400:
@@ -577,11 +605,32 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
 
                         sdp_body = message.body or ""
                         sdp_lower = sdp_body.lower()
-                        is_tcp_active_reply = (
+                        # P1-fix [2026-07-17]: TCP-ACTIVE 语义反转修复（RFC 4145 §5）
+                        # 原代码：设备 200 OK 中 a=setup:active → 设置 protocol="TCP-ACTIVE"
+                        #   → 后续调用 connectRtpServer（ZLM 主动连接设备）
+                        # 实际语义：a=setup:active 表示"发送方（设备）将主动发起 TCP 连接"
+                        #   → 设备主动连接平台 → 平台为被动方 → protocol 应为 "TCP-PASSIVE"
+                        #   → 不应调用 connectRtpServer（ZLM 已在被动监听）
+                        # 正常 TCP-ACTIVE 流程：平台发 setup:active，设备回 setup:passive
+                        #   → is_device_passive_reply=True → 保持 TCP-ACTIVE → connectRtpServer ✓
+                        is_device_active_reply = (
                             ("tcp/rtp/avp" in sdp_lower) and ("a=setup:active" in sdp_lower)
                         )
-                        if is_tcp_active_reply and stream_session.protocol != "TCP-ACTIVE":
-                            stream_session.protocol = "TCP-ACTIVE"
+                        is_device_passive_reply = (
+                            ("tcp/rtp/avp" in sdp_lower) and ("a=setup:passive" in sdp_lower)
+                        )
+                        if is_device_active_reply:
+                            # 设备主动连接平台，平台为被动方
+                            if stream_session.protocol == "TCP-ACTIVE":
+                                logger.warning(
+                                    f"[TCP] Protocol conflict: platform sent setup:active but device replied setup:active "
+                                    f"(call_id={stream_session.call_id}). Falling back to TCP-PASSIVE."
+                                )
+                            stream_session.protocol = "TCP-PASSIVE"
+                        elif is_device_passive_reply:
+                            # 设备被动接受连接，平台为主动方（正常 TCP-ACTIVE 流程）
+                            if stream_session.protocol != "TCP-ACTIVE":
+                                stream_session.protocol = "TCP-ACTIVE"
                         dev_ssrc = ""
                         dev_port = 0
                         dev_ip = ""
@@ -656,7 +705,7 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                         try:
                                             from app.services.zlm_rtp_server_service import update_rtp_server_ssrc
                                             await update_rtp_server_ssrc(
-                                                host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or getattr(settings, 'STREAM_PUBLIC_HOST', '') or node.ip,
+                                                host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or (settings.STREAM_PUBLIC_HOST or '') or node.ip,
                                                 http_port=node.http_port or 0,
                                                 secret=node.decrypted_secret or settings.MEDIA_SERVER_SECRET or "",  # P0-02: ORM 对象，decrypted_secret 解密
                                                 app=stream_session.app,
@@ -665,6 +714,32 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                             )
                                         except Exception as zlm_err:
                                             logger.error(f"Failed to call update_rtp_server_ssrc API: {zlm_err}")
+                                            # FIX: [2026-07-16] updateRtpServerSSRC 失败（通常是 RTP session
+                                            # 已被 ZLM 超时清理）时，调用 _try_reopen_rtp_server_on_ssrc_mismatch
+                                            # 重新打开 RTP 服务器并绑定 SSRC。原问题：该恢复函数已定义（line 902）
+                                            # 但从未在生产代码中调用，导致 ZLM 丢弃所有 RTP 包，播放器黑屏。
+                                            try:
+                                                _tcp_mode_val = 0
+                                                if stream_session.protocol == "TCP-PASSIVE":
+                                                    _tcp_mode_val = 1
+                                                elif stream_session.protocol == "TCP-ACTIVE":
+                                                    _tcp_mode_val = 2
+                                                _recovered = await _try_reopen_rtp_server_on_ssrc_mismatch(
+                                                    host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or (settings.STREAM_PUBLIC_HOST or '') or node.ip,
+                                                    http_port=node.http_port or 0,
+                                                    secret=node.decrypted_secret or settings.MEDIA_SERVER_SECRET or "",
+                                                    app=stream_session.app,
+                                                    stream_id=stream_session.stream,
+                                                    ssrc=str(int(dev_ssrc)),
+                                                    tcp_mode=_tcp_mode_val,
+                                                    rtp_port=stream_session.media_port or 0,
+                                                )
+                                                if not _recovered:
+                                                    logger.error(f"SSRC mismatch recovery failed for {stream_session.stream}")
+                                                else:
+                                                    logger.info(f"SSRC mismatch recovery succeeded for {stream_session.stream}")
+                                            except Exception as _recovery_err:
+                                                logger.error(f"SSRC mismatch recovery exception: {_recovery_err}")
                             except Exception as inner_e:
                                 logger.error(f"Failed to update ZLM SSRC on 200 OK: {inner_e}")
 
@@ -672,8 +747,11 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             try:
                                 if dev_port > 0:
                                     logger.info(f"[TCP-ACTIVE] Device requires TCP connection to {addr[0]}:{dev_port}")
-                                    _tcp_connect_retries = 3
-                                    _tcp_connect_delay = 0.5
+                                    # FIX: [2026-07-16] 原 3 次重试总等待 3s 不足，
+                                    # 某些设备/级联平台在 200 OK 后需更长时间准备 TCP 监听端口。
+                                    # 提升到 6 次 + 可配置，总等待约 10.5s。
+                                    _tcp_connect_retries = settings.ZLM_TCP_ACTIVE_CONNECT_RETRIES
+                                    _tcp_connect_delay = settings.ZLM_TCP_ACTIVE_CONNECT_DELAY
                                     last_error = None
                                     for attempt in range(_tcp_connect_retries):
                                         try:
@@ -683,16 +761,21 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                                                 node_result = await session.execute(select(MediaNode).where(MediaNode.id == stream_session.media_server_id))
                                                 node = node_result.scalars().first()
                                                 if node:
+                                                    # P1-fix [2026-07-17]: 处理 c=0.0.0.0 回退
+                                                    # 部分设备 200 OK 的 c= 行返回 0.0.0.0（表示"使用信令地址"），
+                                                    # 但 "0.0.0.0" 是 truthy 字符串，`dev_ip or addr[0]` 不会回退。
+                                                    # ZLM 连接 0.0.0.0 会失败或连到本机，导致 TCP-ACTIVE 播放失败。
+                                                    _effective_dst_ip = dev_ip if dev_ip and dev_ip != "0.0.0.0" else addr[0]
                                                     await connect_rtp_server(
-                                                        host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or getattr(settings, 'STREAM_PUBLIC_HOST', '') or node.ip,
+                                                        host=getattr(node, 'stream_ip', None) or getattr(node, 'public_ip', None) or (settings.STREAM_PUBLIC_HOST or '') or node.ip,
                                                         http_port=node.http_port or 0,
                                                         secret=node.decrypted_secret or settings.MEDIA_SERVER_SECRET or "",  # P0-02: ORM 对象，decrypted_secret 解密
-                                                        dst_url=dev_ip or addr[0],
+                                                        dst_url=_effective_dst_ip,
                                                         dst_port=dev_port,
                                                         app=stream_session.app,
                                                         stream_id=stream_session.stream
                                                     )
-                                                    logger.info(f"[TCP-ACTIVE] Successfully connected ZLM to device at {addr[0]}:{dev_port} (attempt {attempt + 1})")
+                                                    logger.info(f"[TCP-ACTIVE] Successfully connected ZLM to device at {_effective_dst_ip}:{dev_port} (attempt {attempt + 1})")
                                                     last_error = None
                                                     break
                                         except Exception as inner_e:
@@ -810,8 +893,9 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                     if _talk_sock_err:
                         try:
                             _talk_sock_err.close()
-                        except Exception:
-                            logger.warning("silently_swallowed_exception", exc_info=True)
+                        except Exception as _talk_sock_close_err:
+                            # FIX [2026-07-17 P2-8]: 描述性日志替代 "silently_swallowed_exception"
+                            logger.warning(f"Failed to close talk socket on call_id={call_id}: {_talk_sock_close_err}")
                     _talk_ssrc_err = _talk_res_err.get("ssrc")
                     if _talk_ssrc_err:
                         try:
@@ -854,6 +938,8 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 message.reason_phrase or "",
                 message.body or "",
                 record_route=message.get_header("Record-Route"),  # GB28181协议 — 传递Record-Route头到dialog
+                # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 传递 Session-Expires 头域
+                session_expires_header=message.get_header("Session-Expires"),
             )
             # 流切换失败时主动触发回退（不做协议降级重试）
             if is_stream_switch and invite_module.sip_invite:
@@ -896,6 +982,16 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
 # P0-RTP: SSRC Mismatch Recovery
 # ---------------------------------------------------------------------------
 
+# FIX [2026-07-18 P1]: 防止同一 stream 的 SSRC 恢复并发重入。
+# 原问题：两个 INVITE 200 OK 几乎同时到达（如 keepalive re-INVITE 与新 INVITE 重叠），
+# 都触发 _try_reopen_rtp_server_on_ssrc_mismatch，导致：
+#   1) 第一次成功创建 RTP session
+#   2) 第二次失败（ZLM 报 port already in use 或 connection refused）
+# 解决方案：使用 (app, stream_id) 作为去重键，60 秒内只允许一次恢复尝试。
+_ssrc_recovery_inflight: dict[str, float] = {}
+_SSRC_RECOVERY_DEDUP_TTL = 60.0
+
+
 async def _try_reopen_rtp_server_on_ssrc_mismatch(
     *,
     host: str,
@@ -912,19 +1008,26 @@ async def _try_reopen_rtp_server_on_ssrc_mismatch(
     场景：INVITE 200 OK 到达后调用 updateRtpServerSSRC，但 RTP session 已被 ZLM
     超时清理。此时重新 openRtpServer 创建新 session，再 updateRtpServerSSRC 绑定 SSRC。
 
-    Args:
-        host: ZLM 主机地址
-        http_port: ZLM HTTP 端口
-        secret: ZLM API secret
-        app: 应用名
-        stream_id: 流 ID
-        ssrc: 要绑定的 SSRC
-        tcp_mode: TCP 模式 (0=UDP, 1=TCP被动, 2=TCP主动)
-        rtp_port: 期望的 RTP 端口 (0=自动分配)
-
-    Returns:
-        True 表示恢复成功，False 表示恢复失败
+    FIX [2026-07-18 P1]: 新增去重机制，60 秒内同一 (app, stream_id) 只允许一次恢复，
+    避免并发 200 OK 触发重复恢复导致 ZLM 资源冲突。
     """
+    import time as _time_mod
+    _dedup_key = f"{app or ''}:{stream_id or ''}"
+    _now = _time_mod.monotonic()
+    # 清理过期条目
+    _expired = [k for k, ts in _ssrc_recovery_inflight.items() if _now - ts > _SSRC_RECOVERY_DEDUP_TTL]
+    for _k in _expired:
+        _ssrc_recovery_inflight.pop(_k, None)
+    if _dedup_key in _ssrc_recovery_inflight:
+        logger.info(
+            f"[SSRC Recovery] Skipping duplicate recovery for {_dedup_key} "
+            f"(already in progress or recently completed)"
+        )
+        return True  # 假设前一次成功，避免上层误判
+
+    # 标记恢复进行中
+    _ssrc_recovery_inflight[_dedup_key] = _now
+
     from app.services.zlm_rtp_server_service import (
         open_rtp_server,
         update_rtp_server_ssrc,
@@ -951,13 +1054,19 @@ async def _try_reopen_rtp_server_on_ssrc_mismatch(
                 f"[SSRC Recovery] open_rtp_server returned code={open_result.get('code')} "
                 f"for {app}/{stream_id}"
             )
+            # FIX [2026-07-18 P1]: 恢复失败时清理去重键，允许下次调用重试
+            _ssrc_recovery_inflight.pop(_dedup_key, None)
             return False
 
         # Step 2: 更新 SSRC 绑定
+        # FIX [2026-07-17 P0]: 必须传入 app 参数，否则 update_rtp_server_ssrc
+        # 抛 TypeError: missing required keyword-only argument: 'app'，
+        # 导致 SSRC 不匹配恢复机制永远失败，所有 SSRC 变更后的 GB28181 流黑屏。
         update_result = await update_rtp_server_ssrc(
             host=host,
             http_port=http_port,
             secret=secret,
+            app=app,
             stream_id=stream_id,
             ssrc=ssrc,
         )
@@ -966,6 +1075,24 @@ async def _try_reopen_rtp_server_on_ssrc_mismatch(
                 f"[SSRC Recovery] update_rtp_server_ssrc returned code={update_result.get('code')} "
                 f"for {app}/{stream_id}"
             )
+            # FIX [2026-07-17 P1-C4]: Step 2 失败时关闭 Step 1 创建的 RTP session，
+            # 防止端口/资源泄漏，长期累积导致端口耗尽。
+            try:
+                from app.services.zlm_stream_control import _close_on_node_client
+                from app.services.zlm_rtp_server_service import get_shared_zlm_client
+                _client = await get_shared_zlm_client()
+                await _close_on_node_client(_client, host, http_port, secret, app, stream_id)
+                logger.info(
+                    f"[SSRC Recovery] Cleaned up RTP session after updateRtpServerSSRC "
+                    f"failure for {app}/{stream_id}"
+                )
+            except Exception as _cleanup_err:
+                logger.warning(
+                    f"[SSRC Recovery] Failed to cleanup RTP session for {app}/{stream_id}: "
+                    f"{_cleanup_err}"
+                )
+            # FIX [2026-07-18 P1]: 恢复失败时清理去重键，允许下次调用重试
+            _ssrc_recovery_inflight.pop(_dedup_key, None)
             return False
 
         logger.info(f"[SSRC Recovery] Successfully reopened RTP server for {app}/{stream_id}")
@@ -974,4 +1101,6 @@ async def _try_reopen_rtp_server_on_ssrc_mismatch(
         logger.warning(
             f"[SSRC Recovery] Failed to reopen RTP server for {app}/{stream_id}: {e}"
         )
+        # FIX [2026-07-18 P1]: 恢复失败时清理去重键，允许下次调用重试
+        _ssrc_recovery_inflight.pop(_dedup_key, None)
         return False

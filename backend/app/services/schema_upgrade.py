@@ -91,13 +91,16 @@ _MEDIA_AND_STREAM_STMTS = [
         media_ip VARCHAR(64) NULL,
         media_port INTEGER NULL,
         start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        protocol VARCHAR(10) DEFAULT 'UDP'
+        protocol VARCHAR(16) DEFAULT 'UDP'
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_stream_sessions_call_id ON stream_sessions (call_id)",
     "CREATE INDEX IF NOT EXISTS idx_stream_sessions_ssrc ON stream_sessions (ssrc)",
     "CREATE INDEX IF NOT EXISTS idx_stream_sessions_media_server ON stream_sessions (media_server_id)",
     "CREATE INDEX IF NOT EXISTS idx_stream_sessions_cascade_platform_id ON stream_sessions (cascade_platform_id)",
+    # FIX: [2026-07-16 P0] 添加 (app, stream) 复合索引——点播链路最高频查询，
+    # ZLM hook 回调/SSRC 查找/流就绪检测都按 WHERE app=? AND stream=? 查询
+    "CREATE INDEX IF NOT EXISTS idx_stream_sessions_app_stream ON stream_sessions (app, stream)",
     "ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS media_ip VARCHAR(64) NULL",
     "ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS media_port INTEGER NULL",
     "ALTER TABLE stream_sessions ADD COLUMN IF NOT EXISTS media_port_lease_id VARCHAR(32) NULL",
@@ -431,6 +434,8 @@ _AUDIT_AND_ACCESS_STMTS = [
     "CREATE INDEX IF NOT EXISTS idx_operation_audits_result ON operation_audits (result)",
     "CREATE INDEX IF NOT EXISTS idx_operation_audits_created_at ON operation_audits (created_at)",
     "ALTER TABLE operation_audits ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36) DEFAULT NULL",
+    # FIX: [2026-07-16 P1] 添加 tenant_id 索引，避免多租户审计查询全表扫描
+    "CREATE INDEX IF NOT EXISTS idx_operation_audits_tenant_id ON operation_audits (tenant_id)",
     """
     CREATE TABLE IF NOT EXISTS access_sources (
         id VARCHAR(32) PRIMARY KEY,
@@ -444,6 +449,11 @@ _AUDIT_AND_ACCESS_STMTS = [
         path VARCHAR(512) NULL,
         stream_name VARCHAR(128) NULL,
         enabled BOOLEAN DEFAULT TRUE,
+        gb_enabled BOOLEAN DEFAULT FALSE,
+        gb_id VARCHAR(64) NULL,
+        gb_name VARCHAR(128) NULL,
+        gb_parent_gb_id VARCHAR(64) NULL,
+        gb_resource_id VARCHAR(32) NULL,
         extra JSON DEFAULT '{}',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -451,6 +461,9 @@ _AUDIT_AND_ACCESS_STMTS = [
     """,
     "CREATE INDEX IF NOT EXISTS idx_access_sources_tenant ON access_sources (tenant_id)",
     "CREATE INDEX IF NOT EXISTS idx_access_sources_protocol ON access_sources (protocol)",
+    "CREATE INDEX IF NOT EXISTS idx_access_sources_gb_enabled ON access_sources (gb_enabled)",
+    "CREATE INDEX IF NOT EXISTS idx_access_sources_gb_id ON access_sources (gb_id)",
+    "CREATE INDEX IF NOT EXISTS idx_access_sources_gb_resource_id ON access_sources (gb_resource_id)",
     """
     CREATE TABLE IF NOT EXISTS push_channels (
         id VARCHAR(32) PRIMARY KEY,
@@ -515,7 +528,7 @@ _MEDIA_NODES_AND_PLATFORMS_STMTS = [
         record_file_second INTEGER DEFAULT 0,
         record_sample_ms INTEGER DEFAULT 0,
         protocol_mp4_max_second INTEGER DEFAULT 0,
-        secret VARCHAR(64) NOT NULL,
+        secret VARCHAR(255) NOT NULL,
         zlm_ssl_merged_pem TEXT NULL,
         is_online BOOLEAN DEFAULT FALSE,
         load FLOAT DEFAULT 0,
@@ -1083,6 +1096,38 @@ async def ensure_business_schema():
     # 统一兜底创建所有在 model_registry 注册但尚未存在的表
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # FIX: [2026-07-16] 扩展 stream_sessions.protocol 列长度 String(10) → String(16)，
+    # 以支持完整存储 "TCP-PASSIVE"（11 字符）。SQLite 不强制 VARCHAR 长度无需迁移，
+    # MySQL/PostgreSQL 需要 ALTER COLUMN/MODIFY COLUMN。单独执行并 try/except 保护。
+    try:
+        async with engine.begin() as conn:
+            _d = str(getattr(getattr(getattr(conn, "dialect", None), "name", "") or "", "")).lower()
+            if _d == "postgresql":
+                await conn.execute(text("ALTER TABLE stream_sessions ALTER COLUMN protocol TYPE VARCHAR(16)"))
+                logger.info("Migrated stream_sessions.protocol to VARCHAR(16) on PostgreSQL")
+            elif _d == "mysql":
+                await conn.execute(text("ALTER TABLE stream_sessions MODIFY COLUMN protocol VARCHAR(16)"))
+                logger.info("Migrated stream_sessions.protocol to VARCHAR(16) on MySQL")
+            # SQLite: 不强制 VARCHAR 长度，无需迁移
+    except Exception as _proto_err:
+        logger.warning(f"stream_sessions.protocol column migration skipped: {_proto_err}")
+
+    # FIX: [2026-07-16] 扩展 media_nodes.secret 列长度 VARCHAR(64) → VARCHAR(255)，
+    # 以匹配模型 String(255)。AES-256-GCM 密文 base64 编码后约 88 字符，
+    # VARCHAR(64) 会截断密文导致解密失败。SQLite 不强制 VARCHAR 长度无需迁移。
+    try:
+        async with engine.begin() as conn:
+            _d = str(getattr(getattr(getattr(conn, "dialect", None), "name", "") or "", "")).lower()
+            if _d == "postgresql":
+                await conn.execute(text("ALTER TABLE media_nodes ALTER COLUMN secret TYPE VARCHAR(255)"))
+                logger.info("Migrated media_nodes.secret to VARCHAR(255) on PostgreSQL")
+            elif _d == "mysql":
+                await conn.execute(text("ALTER TABLE media_nodes MODIFY COLUMN secret VARCHAR(255) NOT NULL"))
+                logger.info("Migrated media_nodes.secret to VARCHAR(255) on MySQL")
+            # SQLite: 不强制 VARCHAR 长度，无需迁移
+    except Exception as _secret_err:
+        logger.warning(f"media_nodes.secret column migration skipped: {_secret_err}")
 
     # 选2：resources.asset_id 允许为 NULL
     try:

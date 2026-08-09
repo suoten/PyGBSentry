@@ -110,8 +110,11 @@ CIRCUIT_BREAKER_FAILURES = Counter(
 )
 
 # --- HTTP Request Metrics ---
+# FIX: [2026-07-16 P1] 重命名为 pygbsentry_ 前缀，与其他指标命名规范一致，
+# 避免与 starlette-exporter 等库的 http_requests_total 冲突。
+# 注意：alert_rules.yml 中的表达式需同步更新。
 http_requests_total = Counter(
-    "http_requests_total",
+    "pygbsentry_http_requests_total",
     "Total HTTP requests",
     ["method", "endpoint", "status_code"],
     registry=registry,

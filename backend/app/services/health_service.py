@@ -35,6 +35,10 @@ from app.core.timezone import now_in_app_timezone
 # FIXED-P0: 删除 logger = logging.getLogger(__name__)，该行覆盖了第2行 from loguru import logger，
 # 且 logging 未在模块级导入，导致 NameError: name 'logging' is not defined，应用无法启动
 
+# FIX: [2026-07-16] 解密失败日志限速 — 节点级 5 分钟内只输出一次 WARNING，避免 health_service
+# 探测循环（默认 30s 一次）持续刷屏。
+_decrypt_fail_log_ts: dict[str, float] = {}
+
 def _ensure_aware(dt: datetime.datetime) -> datetime.datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=datetime.timezone.utc)
@@ -45,6 +49,12 @@ class HealthService:
         self.running = False
         self.check_interval = 30
         self._task = None
+        self._started_at: datetime.datetime | None = None
+        # FIX [2026-07-29 P0]: ZLM 启动宽限期 — 启动后 1800 秒（30分钟）内跳过 ZLM 健康检查，
+        # 给 ZLM 部署（下载/编译）足够时间。ZLM 从源码编译通常需要 10-25 分钟，
+        # 60 秒宽限期不够，导致健康检查在编译期间反复标记 zlm_down 并触发告警。
+        # 1800 秒（30分钟）覆盖绝大多数服务器的编译时间。
+        self._zlm_grace_period_seconds = 1800
         self._last_media_nodes_probe_at: datetime.datetime | None = None
         self._high_risk_since: datetime.datetime | None = None
         self._alert_cooldown_until: datetime.datetime | None = None
@@ -66,6 +76,14 @@ class HealthService:
     @property
     def is_ready(self) -> bool:
         """Whether the service is ready to serve traffic (no critical degraded conditions)."""
+        # FIX [2026-07-22 P0]: ZLM 故障默认不阻塞 readiness，避免崩溃重启死循环。
+        # ZLM 是媒体转发层，SIP 信令/设备管理/通道同步不依赖 ZLM。
+        # 原行为导致：ZLM 二进制缺失 → readiness 503 → 外部健康检查重启 → 死循环，
+        # 服务每次只活 1-4 分钟，REGISTER/CATALOG_SYNC 永远来不及完成。
+        if not settings.READINESS_FAIL_ON_ZLM_DOWN:
+            # 忽略 zlm_down，只检查其他降级原因是否为空
+            _other = [r for r in self._degraded_reasons if r != "zlm_down"]
+            return len(_other) == 0
         return len(self._degraded_reasons) == 0
 
     @property
@@ -89,6 +107,7 @@ class HealthService:
         if self.running:
             return
         self.running = True
+        self._started_at = datetime.datetime.now(datetime.timezone.utc)
         self._task = asyncio.create_task(self._run_loop())
         logger.info("Health Service started")
 
@@ -108,13 +127,37 @@ class HealthService:
             try:
                 # FIX: [2026-07-03] DB 连接健康检查，断开时指数退避重连 [可靠性工程师]
                 from app.db.session import _db_health_check_failed
+                _db_ok = not _db_health_check_failed
                 if _db_health_check_failed:
                     from app.db.session import ensure_db_connection_with_retry
                     reconnected = await ensure_db_connection_with_retry()
                     if reconnected:
                         self.clear_degraded("db_disconnected")
+                        _db_ok = True
                     else:
                         self.mark_degraded("db_disconnected")
+                        _db_ok = False
+                # FIX: [2026-07-16 P0] 设置 Prometheus health_check 指标，
+                # 原 metrics.py 定义了但从未调用 .set()，导致 DB 故障告警永不触发
+                try:
+                    from app.core.metrics import health_check as _health_gauge
+                    _health_gauge.labels(check="db").set(1 if _db_ok else 0)
+                except Exception as _metric_err:
+                    # FIX [2026-07-17 P3-21]: 描述性日志替代静默吞异常，便于发现指标注册问题
+                    logger.debug(f"health_service: failed to update db health metric: {_metric_err}")
+                # FIX: [2026-07-16 P0] Redis 连接健康检查指标
+                try:
+                    from app.core.redis import get_redis
+                    _redis = await get_redis()
+                    _redis_ok = _redis is not None and await _redis.ping()
+                    _health_gauge.labels(check="redis").set(1 if _redis_ok else 0)
+                except Exception as _redis_err:
+                    try:
+                        _health_gauge.labels(check="redis").set(0)
+                    except Exception as _metric_err2:
+                        # FIX [2026-07-17 P3-21]: 描述性日志替代静默吞异常
+                        logger.debug(f"health_service: failed to update redis health metric: {_metric_err2}")
+                    logger.debug(f"health_service: redis ping failed during health check: {_redis_err}")
                 await self._check_device_expiration()
                 await self._check_parent_platform_expiration()
                 await self._check_zlm_health()
@@ -187,11 +230,11 @@ class HealthService:
             logger.error(f"Error auto-cleaning media port leases: {e}")
 
     async def _cleanup_zombie_stream_sessions(self):
-        if not bool(getattr(settings, "STREAM_SESSION_CLEANUP_ENABLED", True)):
+        if not settings.STREAM_SESSION_CLEANUP_ENABLED:
             return
         # Reduce interval and zombie age to clean up stuck sessions faster
-        interval = int(getattr(settings, "STREAM_SESSION_CLEANUP_INTERVAL_SECONDS", 15) or 15)
-        zombie_age = int(getattr(settings, "STREAM_SESSION_ZOMBIE_AGE_SECONDS", 30) or 30)
+        interval = settings.STREAM_SESSION_CLEANUP_INTERVAL_SECONDS
+        zombie_age = settings.STREAM_SESSION_ZOMBIE_AGE_SECONDS
         now = datetime.datetime.now(datetime.timezone.utc)
         if interval > 0 and self._last_stream_session_cleanup_at:
             elapsed = (now - self._last_stream_session_cleanup_at).total_seconds()
@@ -258,9 +301,9 @@ class HealthService:
         主动探测 DB media_nodes 的 ZLM HTTP API，刷新 last_seen_at/is_online。
         目的：即使 Hook 链路异常，也能“自动监测节点状态”。
         """
-        if not bool(getattr(settings, "MEDIA_NODES_ACTIVE_PROBE_ENABLED", True)):
+        if not settings.MEDIA_NODES_ACTIVE_PROBE_ENABLED:
             return
-        interval = int(getattr(settings, "MEDIA_NODES_ACTIVE_PROBE_INTERVAL_SECONDS", 30) or 30)
+        interval = settings.MEDIA_NODES_ACTIVE_PROBE_INTERVAL_SECONDS
         now = datetime.datetime.now(datetime.timezone.utc)
         if interval > 0 and self._last_media_nodes_probe_at:
             elapsed = (now - self._last_media_nodes_probe_at).total_seconds()
@@ -277,11 +320,53 @@ class HealthService:
             for n in nodes:
                 host = (getattr(n, "ip", None) or "").strip()
                 if getattr(n, "is_embedded", False):
-                    host = str(getattr(settings, "MEDIA_SERVER_HOST", "") or "").strip()  # I3 回退值不再硬编码127.0.0.1，避免配置缺失时静默使用错误地址
+                    host = str(settings.MEDIA_SERVER_HOST or "").strip()  # I3 回退值不再硬编码127.0.0.1，避免配置缺失时静默使用错误地址
                 port = int(getattr(n, "http_port", 0) or 0)
                 # P0-02: n 是 ORM MediaNode，secret 列存储密文，须用 decrypted_secret 取明文
                 secret = getattr(n, "decrypted_secret", None)
-                if not host or port <= 0 or not secret:
+                if not host or port <= 0:
+                    # FIX: [2026-07-16] 配置缺失时不要静默 continue，否则节点状态卡在历史值
+                    _probe_err = f"invalid config: host={host!r}, port={port}"
+                    if (getattr(n, "last_probe_error", None) or "") != _probe_err:
+                        n.last_probe_error = _probe_err
+                        changed += 1
+                    if bool(getattr(n, "is_online", False)):
+                        n.is_online = False
+                        changed += 1
+                    continue
+                if not secret:
+                    # FIX: [2026-07-16] 区分"secret 为空"和"secret 解密失败"两种情况。
+                    # 原代码统一报 "Field decryption failed - check FIELD_ENCRYPTION_KEY"，
+                    # 但 secret 列为空时真正原因是 MEDIA_SERVER_SECRET 未配置或节点创建失败，
+                    # 与 FIELD_ENCRYPTION_KEY 无关，误导用户排查方向。
+                    _raw_secret = getattr(n, "secret", None) or ""
+                    if not _raw_secret:
+                        _probe_err = "ZLM secret not configured - set MEDIA_SERVER_SECRET in .env"
+                    else:
+                        _probe_err = "Field decryption failed - check FIELD_ENCRYPTION_KEY"
+                    if (getattr(n, "last_probe_error", None) or "") != _probe_err:
+                        n.last_probe_error = _probe_err
+                        changed += 1
+                    if bool(getattr(n, "is_online", False)):
+                        n.is_online = False
+                        changed += 1
+                    # 解密失败只在首次输出 WARNING，避免日志刷屏
+                    _node_key = f"decrypt_fail::{n.id}"
+                    _now_ts = time.time()
+                    if _now_ts - _decrypt_fail_log_ts.get(_node_key, 0.0) > 300.0:
+                        if not _raw_secret:
+                            logger.warning(
+                                f"Media node {n.id} (host={host}, port={port}) has empty secret - "
+                                f"MEDIA_SERVER_SECRET not configured. Marking node offline. "
+                                f"To fix: set MEDIA_SERVER_SECRET in .env and restart."
+                            )
+                        else:
+                            logger.warning(
+                                f"Media node {n.id} (host={host}, port={port}) secret decryption failed - "
+                                f"check FIELD_ENCRYPTION_KEY. Marking node offline. "
+                                f"To fix: restore original FIELD_ENCRYPTION_KEY in .env or re-encrypt secret."
+                            )
+                        _decrypt_fail_log_ts[_node_key] = _now_ts
                     continue
                 ok = False
                 probe_error = None
@@ -428,7 +513,7 @@ class HealthService:
             from app.sip.server import sip_server
             from app.sip.message import SipMessage
             from app.sip.send import send_sip_bytes
-            from app.core.config import settings, sip_host_for_contact
+            from app.core.config import settings, sip_host_for_contact, sip_via_host
             import secrets as _secrets
 
             addr = (str(device.ip_addr or ""), int(device.port or 5060))
@@ -438,7 +523,7 @@ class HealthService:
                 logger.debug(f"Transport unavailable for probe to {device.gb_id}, skipping probe")
                 return True
 
-            domain = str(getattr(settings, "SIP_DOMAIN", sip_host_for_contact()))
+            domain = str(settings.SIP_DOMAIN)
             device_id = str(device.gb_id or "")
             sn = int(time.time() * 1000) % 100000 # __import__ 反模式改为标准 import
 
@@ -451,13 +536,18 @@ class HealthService:
 """
             req = SipMessage()
             req.method = "MESSAGE"
-            req.uri = f"sip:{device_id}@{domain}"
+            req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
             req.version = "SIP/2.0"
-            branch = f"z9hG4bK{_secrets.token_hex(6)}"
-            req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-            req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={_secrets.token_hex(4)}"
+            # FIX [2026-07-19 P1]: branch/tag/Call-ID 全部使用 token_hex(8)（64 位随机），
+            # 符合 RFC 3261 §8.1.1.7/§19.3 及项目硬约束。原 token_hex(6)/token_hex(4) 随机性不足。
+            # FIX [2026-07-29 P0]: Request-URI 必须使用设备 IP:port（原用 SIP_DOMAIN 导致路由失败）；
+            # Via host 改为 sip_via_host()（IP 地址，非域名）；Call-ID host 改为 IP 地址，
+            # 去除 _probe 后缀（EasyGBS 对语义后缀敏感返回 400）。
+            branch = f"z9hG4bK{_secrets.token_hex(8)}"
+            req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+            req.headers["From"] = f"<sip:{settings.SIP_ID}@{domain}>;tag={_secrets.token_hex(8)}"
             req.headers["To"] = f"<sip:{device_id}@{domain}>"
-            req.headers["Call-ID"] = f"probe_{sn}@{sip_host_for_contact()}"
+            req.headers["Call-ID"] = f"{_secrets.token_hex(8)}@{sip_via_host()}"
             req.headers["CSeq"] = "1 MESSAGE"
             req.headers["Content-Type"] = "Application/MANSCDP+xml"
             req.headers["Max-Forwards"] = "70"
@@ -480,12 +570,23 @@ class HealthService:
             return False
 
     async def _check_zlm_health(self):
+        # FIX [2026-07-29 P0]: 启动宽限期 — 启动后 N 秒内跳过 ZLM 健康检查，
+        # 给 ZLM 部署（下载/编译/启动）足够时间。原代码在启动后立即检查 ZLM 状态，
+        # 此时 ZLM 尚在后台部署中，必然返回 not running，导致 mark_degraded("zlm_down")
+        # 被频繁触发，外部进程管理器可能误判并重启后端形成死循环。
+        if self._started_at:
+            _elapsed = (datetime.datetime.now(datetime.timezone.utc) - self._started_at).total_seconds()
+            if _elapsed < self._zlm_grace_period_seconds:
+                logger.debug(
+                    f"ZLM health check skipped (startup grace period: {_elapsed:.0f}s < {self._zlm_grace_period_seconds}s)"
+                )
+                return
         # 生产体验：若用户选择外置/禁用内置 ZLM，则不应反复尝试拉起内置进程
         try:
-            if not bool(getattr(settings, "EMBEDDED_ZLM_ENABLED", True)):
+            if not settings.EMBEDDED_ZLM_ENABLED:
                 self.clear_degraded("zlm_down")
                 return
-            if bool(getattr(settings, "ZLM_PREFER_EXTERNAL_NODES", True)):
+            if settings.ZLM_PREFER_EXTERNAL_NODES:
                 try:
                     hit = await media_manager._detect_external_media_nodes_configured()
                     if bool(hit.get("has_external")):
@@ -834,7 +935,7 @@ class HealthService:
         if not settings.SUBSCRIPTION_REMINDER_WEBHOOK_URL and not settings.REPORT_DAILY_EMAIL_TO:
             return
         now = datetime.datetime.now(datetime.timezone.utc)
-        days = int(getattr(settings, "SUBSCRIPTION_REMINDER_DAYS", None) or settings.TRIAL_REMINDER_DAYS or 7)
+        days = settings.SUBSCRIPTION_REMINDER_DAYS or settings.TRIAL_REMINDER_DAYS or 7
         async with AsyncSessionLocal() as session:
             stmt = select(TenantSubscription).where(TenantSubscription.status == "active")
             result = await session.execute(stmt)
@@ -864,11 +965,11 @@ class HealthService:
     # 定时自动备份 + 备份加密 + 旧备份清理
     async def _auto_backup_check(self):
         """每日自动备份：凌晨2点(本地时区)执行一次，加密存储，保留最近30天"""
-        auto_backup_enabled = bool(getattr(settings, "AUTO_BACKUP_ENABLED", False))
+        auto_backup_enabled = settings.AUTO_BACKUP_ENABLED
         if not auto_backup_enabled:
             return
         now = now_in_app_timezone()
-        target_hour = int(getattr(settings, "AUTO_BACKUP_HOUR", 2))
+        target_hour = settings.AUTO_BACKUP_HOUR
         if now.hour != target_hour:
             return
         today = now.date()
@@ -928,21 +1029,26 @@ class HealthService:
             raw_json = _json.dumps(backup_data, ensure_ascii=False, indent=2, default=str)
 
             # 备份加密 — 使用AES-256-GCM加密备份文件
-            encrypt_backups = bool(getattr(settings, "BACKUP_ENCRYPTION_ENABLED", True))
+            encrypt_backups = settings.BACKUP_ENCRYPTION_ENABLED
             if encrypt_backups:
                 encrypted = encrypt_field(raw_json, purpose="backup")
-                with open(backup_path, "w", encoding="utf-8") as f:
-                    f.write(encrypted)
+                # FIX: [2026-07-17 P1] 同步文件 I/O 通过 asyncio.to_thread 包装，避免阻塞事件循环
+                def _write_encrypted():
+                    with open(backup_path, "w", encoding="utf-8") as f:
+                        f.write(encrypted)
+                await asyncio.to_thread(_write_encrypted)
                 logger.info(f"Auto backup created (encrypted): {backup_filename}")
             else:
-                with open(backup_path, "w", encoding="utf-8") as f:
-                    f.write(raw_json)
+                def _write_plaintext():
+                    with open(backup_path, "w", encoding="utf-8") as f:
+                        f.write(raw_json)
+                await asyncio.to_thread(_write_plaintext)
                 logger.info(f"Auto backup created (plaintext): {backup_filename}")
 
     async def _cleanup_old_backups(self):
         """清理超过保留天数的自动备份文件"""
         import os as _os
-        retention_days = int(getattr(settings, "AUTO_BACKUP_RETENTION_DAYS", 30))
+        retention_days = settings.AUTO_BACKUP_RETENTION_DAYS
         backup_dir = _os.path.join(_os.getcwd(), "data", "backups")
         if not _os.path.isdir(backup_dir):
             return
@@ -956,8 +1062,9 @@ class HealthService:
                 if _os.path.getmtime(fp) < cutoff:
                     _os.remove(fp)
                     removed += 1
-            except OSError:
-                logger.debug("swallowed_exception", exc_info=True)
+            except OSError as _rm_err:
+                # FIX [2026-07-17 P3-15]: 描述性日志替代 "swallowed_exception"，记录删除失败的文件
+                logger.debug(f"health_service: failed to remove old backup '{f}': {_rm_err}")
         if removed > 0:
             logger.info(f"Cleaned up {removed} old auto backup(s)")
 
@@ -987,7 +1094,7 @@ class HealthService:
             self._memory_check_history = self._memory_check_history[-120:]
 
         # 检查内存增长阈值
-        growth_threshold_mb = int(getattr(settings, "MEMORY_GROWTH_ALERT_THRESHOLD_MB", 500) or 500)
+        growth_threshold_mb = settings.MEMORY_GROWTH_ALERT_THRESHOLD_MB
         growth = mem_mb - self._memory_baseline_mb
         if growth > growth_threshold_mb:
             logger.warning(
@@ -1016,7 +1123,7 @@ class HealthService:
             self._memory_baseline_mb = mem_mb
 
         # 内存绝对阈值告警
-        absolute_threshold_mb = int(getattr(settings, "MEMORY_ABSOLUTE_ALERT_THRESHOLD_MB", 2048) or 2048)
+        absolute_threshold_mb = settings.MEMORY_ABSOLUTE_ALERT_THRESHOLD_MB
         if mem_mb > absolute_threshold_mb:
             self.mark_degraded("memory_high")
         else:
@@ -1032,7 +1139,7 @@ class HealthService:
         3. 超过 DISK_SPACE_WARNING_THRESHOLD（默认 85%）时发出告警
         4. 恢复到 DISK_SPACE_RECOVERY_THRESHOLD（默认 80%）以下时恢复录像
         """
-        disk_check_enabled = bool(getattr(settings, "DISK_SPACE_MONITOR_ENABLED", True))
+        disk_check_enabled = settings.DISK_SPACE_MONITOR_ENABLED
         if not disk_check_enabled:
             return
 
@@ -1052,15 +1159,16 @@ class HealthService:
             record_path = os.path.join(os.getcwd(), "data", "record")
 
         try:
-            disk_usage = shutil.disk_usage(record_path)
+            # FIX: [2026-07-17 P1] shutil.disk_usage 在大磁盘/网络挂载上可能阻塞事件循环
+            disk_usage = await asyncio.to_thread(shutil.disk_usage, record_path)
             used_percent = (disk_usage.used / disk_usage.total) * 100
         except Exception as e:
             logger.debug(f"Disk space check failed for path {record_path}: {e}")
             return
 
-        critical_threshold = int(getattr(settings, "DISK_SPACE_CRITICAL_THRESHOLD", 95) or 95)
-        warning_threshold = int(getattr(settings, "DISK_SPACE_WARNING_THRESHOLD", 85) or 85)
-        recovery_threshold = int(getattr(settings, "DISK_SPACE_RECOVERY_THRESHOLD", 80) or 80)
+        critical_threshold = settings.DISK_SPACE_CRITICAL_THRESHOLD
+        warning_threshold = settings.DISK_SPACE_WARNING_THRESHOLD
+        recovery_threshold = settings.DISK_SPACE_RECOVERY_THRESHOLD
 
         now = datetime.datetime.now(datetime.timezone.utc)
 

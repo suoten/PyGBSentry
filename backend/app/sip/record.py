@@ -1,7 +1,7 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.sip.send import send_sip_bytes
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from loguru import logger  # 统一使用 loguru 替代 logging
 import datetime
@@ -48,11 +48,11 @@ class SipRecord:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(5)}"  # P4 安全随机数 — random→secrets
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}"  # P4 安全随机数 — random→secrets
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{secrets.token_hex(8)}_rec@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去_rec后缀+SIP_DOMAIN，兼容非标准客户端
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -90,11 +90,11 @@ class SipRecord:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(5)}rc"  # P4 安全随机数 — random→secrets
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(4)}rc"  # P4 安全随机数 — random→secrets
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{secrets.token_hex(8)}_rc@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去_rc后缀+SIP_DOMAIN，兼容非标准客户端
+        req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME

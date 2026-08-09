@@ -18,6 +18,11 @@ from app.services.zlm_stream_control import _get_zlm_client
 
 DEFAULT_NODE_ID = "default"
 
+# FIX: [2026-07-14] ENV 节点探测失败日志限速：同一节点 60 秒内只输出一次 WARNING，
+# 与 media_nodes_db.py 保持一致，避免 ZLM 宕机时 getMediaList 失败日志刷屏。
+_ENV_NODE_FAIL_LOG_COOLDOWN: dict[str, float] = {}
+_ENV_NODE_FAIL_LOG_COOLDOWN_SECONDS = 60.0
+
 
 class MediaNode(TypedDict):
     """单个媒体节点配置信息（TypedDict，纯类型标注，不影响运行时 dict 行为）。
@@ -42,14 +47,14 @@ def _single_node() -> MediaNode:
         "host": settings.MEDIA_SERVER_HOST,
         "http_port": settings.MEDIA_SERVER_HTTP_PORT,
         "rtp_port": settings.MEDIA_SERVER_RTP_PROXY_PORT,
-        "public_host": getattr(settings, "STREAM_PUBLIC_HOST", settings.MEDIA_SERVER_HOST),
-        "public_http_port": getattr(settings, "STREAM_PUBLIC_HTTP_PORT", settings.MEDIA_SERVER_HTTP_PORT),
+        "public_host": settings.STREAM_PUBLIC_HOST or settings.MEDIA_SERVER_HOST,
+        "public_http_port": settings.STREAM_PUBLIC_HTTP_PORT or settings.MEDIA_SERVER_HTTP_PORT,
         "secret": settings.MEDIA_SERVER_SECRET,
     }
 
 
 def get_media_nodes() -> List[MediaNode]:
-    raw = getattr(settings, "MEDIA_NODES", None)
+    raw = settings.MEDIA_NODES
     if not raw or not str(raw).strip():
         return [_single_node()]
 
@@ -98,7 +103,7 @@ def get_node_by_id(node_id: Optional[str]) -> Optional[MediaNode]:
 
 
 def _zlm_secret(node: MediaNode) -> str:
-    return str(node.get("secret") or "").strip() or str(getattr(settings, "MEDIA_SERVER_SECRET", "") or "").strip()
+    return str(node.get("secret") or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip()
 
 
 async def _async_get_stream_count_for_node(node: MediaNode) -> int:
@@ -115,7 +120,12 @@ async def _async_get_stream_count_for_node(node: MediaNode) -> int:
         media_list = data.get("data")
         return len(media_list) if isinstance(media_list, list) else 0
     except Exception as e:
-        logger.warning(f"节点 {node.get('id')} getMediaList 失败: {e}")
+        # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING
+        _nid = str(node.get('id') or node.get('host') or '?')
+        _now = time.time()
+        if _now - _ENV_NODE_FAIL_LOG_COOLDOWN.get(_nid, 0) >= _ENV_NODE_FAIL_LOG_COOLDOWN_SECONDS:
+            logger.warning(f"节点 {_nid} getMediaList 失败: {e}")
+            _ENV_NODE_FAIL_LOG_COOLDOWN[_nid] = _now
         return 999999
 
 
@@ -148,11 +158,20 @@ async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
             for item in media_list:
                 items.append({**item, "node_id": node["id"]})
         except Exception as e:
-            logger.warning(f"节点 {node.get('id')} getMediaList 失败: {e}")
+            # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING
+            _nid2 = str(node.get('id') or node.get('host') or '?')
+            _now2 = time.time()
+            if _now2 - _ENV_NODE_FAIL_LOG_COOLDOWN.get(_nid2, 0) >= _ENV_NODE_FAIL_LOG_COOLDOWN_SECONDS:
+                logger.warning(f"节点 {_nid2} getMediaList 失败: {e}")
+                _ENV_NODE_FAIL_LOG_COOLDOWN[_nid2] = _now2
         return items
 
-    results = await asyncio.gather(*[_fetch_node(n) for n in nodes])
+    # P1-fix: 添加 return_exceptions=True，单节点异常不会取消其他节点的并发查询
+    results = await asyncio.gather(*[_fetch_node(n) for n in nodes], return_exceptions=True)
     for batch in results:
+        if isinstance(batch, Exception):
+            logger.warning(f"get_all_media_list _fetch_node unexpected error: {batch}")
+            continue
         out.extend(batch)
     return out
 
@@ -193,7 +212,9 @@ def get_all_media_from_nodes() -> List[Dict[str, Any]]:
 #   - 添加 in-flight 计数跟踪：选中节点后追加 timestamp，下次排序时加入 in-flight 计数
 #     30s TTL 自动过期，无需调用方显式释放
 _node_inflight: Dict[str, List[float]] = {}
-_INFLIGHT_TTL = 30.0
+# FIX [2026-07-17 P1-E4]: TTL 必须为 60 秒，与 media_nodes_db.py 一致，
+# 匹配 INVITE 超时 + ZLM 探测时间，避免 in-flight 计数过早过期导致节点过载。
+_INFLIGHT_TTL = 60.0
 
 
 def _prune_inflight(node_id: str, now: float) -> int:
@@ -242,11 +263,16 @@ async def select_best_node() -> MediaNode | None:
         return nodes[0]
 
     # FIX R22-SEVERE: 移除全局锁和缓存，允许并发查询；加入 in-flight 计数到排序
-    counts = await asyncio.gather(*[_async_get_stream_count_for_node(n) for n in nodes])
+    # FIX [2026-07-17 P1-E1]: 启用 return_exceptions=True，单个节点查询失败不取消其他并发任务
+    counts = await asyncio.gather(*[_async_get_stream_count_for_node(n) for n in nodes], return_exceptions=True)
     now = time.time()
     best_idx = -1
     best_score = float('inf')
     for i, count in enumerate(counts):
+        # P1-E1: 跳过异常结果（Exception 实例），避免 TypeError 中断节点选择
+        if isinstance(count, Exception):
+            logger.warning(f"Node {nodes[i].get('id', f'node{i}')} stream count query failed: {count}")
+            continue
         if count >= 999999:
             continue
         node_id = nodes[i].get("id") or f"node{i}"

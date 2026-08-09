@@ -30,8 +30,8 @@
         <div class="info-item">
           <div class="info-label">IP</div>
           <div class="info-value-wrapper">
-            <span class="info-value">{{ maskSipIp(accessInfo.sipIp) || '-' }}</span>
-            <el-button v-if="accessInfo.sipIp" size="small" type="primary" link @click="copy(maskSipIp(accessInfo.sipIp))">
+            <span class="info-value">{{ accessInfo.sipIp || '-' }}</span>
+            <el-button v-if="accessInfo.sipIp" size="small" type="primary" link @click="copy(accessInfo.sipIp)">
               <el-icon><DocumentCopy /></el-icon>
             </el-button>
           </div>
@@ -86,7 +86,6 @@ import { ElMessage } from 'element-plus'
 import { Loading, DocumentCopy } from '@element-plus/icons-vue'
 import AppDialog from '../common/AppDialog.vue'
 import { showError } from '@/utils/feedback'
-import { maskSipIp } from '@/utils/sipMask' // FIX H-10: SIP IP 脱敏
 
 const { t } = useI18n()
 
@@ -166,7 +165,7 @@ const copyAll = () => {
   const lines = [
     `${t('device.accessInfo.copyLineCode')}: ${accessInfo.value.sipId || '-'}`,
     `${t('device.accessInfo.copyLineDomain')}: ${accessInfo.value.domain || '-'}`,
-    `IP: ${maskSipIp(accessInfo.value.sipIp) || '-'}`,
+    `IP: ${accessInfo.value.sipIp || '-'}`,
     `${t('device.accessInfo.copyLinePort')}: ${accessInfo.value.port || '-'}`,
     `${t('device.accessInfo.copyLinePassword')}: ${accessInfo.value.password || t('device.accessInfo.notSet')}`
   ]

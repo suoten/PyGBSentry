@@ -3,6 +3,7 @@ from loguru import logger
 
 import asyncio
 import re
+import secrets
 import time
 from dataclasses import dataclass
 
@@ -92,7 +93,7 @@ class SipServerTransactionManager:
         self._tx: dict[str, SipServerTransaction] = {}
         self._lock = asyncio.Lock()
         self._default_ttl = 32.0
-        self._invite_ttl = float(getattr(settings, "SIP_INVITE_SERVER_TX_TTL_SECONDS", 120.0) or 120.0)
+        self._invite_ttl = settings.SIP_INVITE_SERVER_TX_TTL_SECONDS
 
     async def get_or_create(self, request: SipMessage) -> tuple[SipServerTransaction, bool]:
         async with self._lock:
@@ -138,7 +139,7 @@ class SipServerTransactionManager:
     def _start_timer_j_locked(self, key: str, timeout: float | None = None):
         """Start Timer J — caller must hold self._lock."""
         if timeout is None:
-            t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", 0.5) or 0.5)
+            t1 = settings.SIP_TRANSACTION_T1_SECONDS
             timeout = 64 * t1  # RFC 3261 default: 64*T1 = 64*0.5 = 32s
         tx = self._tx.get(key)
         if not tx:
@@ -236,7 +237,7 @@ class SipServerTransactionManager:
                 tx.state = "Confirmed"
                 # GB7 收到ACK后启动Timer I（UDP下等待ACK重传超时后删除事务）
                 # Timer G/H 由 invite_server_state 管理，收到ACK时其 mark_acked 会取消重传
-                self._start_timer_i_locked(key, timeout=float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", 1.0) or 1.0) * 5.0)
+                self._start_timer_i_locked(key, timeout=settings.SIP_TRANSACTION_T1_SECONDS * 5.0)
 
     # INVITE事务状态机不完整 — Completed/Terminated 转换
     async def terminate_transaction(self, key: str):
@@ -305,13 +306,13 @@ class SipClientTransactionManager:
         # T1: 初始重传间隔，默认 1.0 秒（原 0.5 秒），适合城域/企业网络
         #      如果在高延迟网络（如 4G/卫星链路）仍有问题，可通过配置项覆盖
         # T2: 最大重传间隔，默认 8.0 秒（原 4.0 秒），给予设备更多响应时间
-        self._t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", 1.0) or 1.0)
-        self._t2 = float(getattr(settings, "SIP_TRANSACTION_T2_SECONDS", 8.0) or 8.0)
+        self._t1 = settings.SIP_TRANSACTION_T1_SECONDS
+        self._t2 = settings.SIP_TRANSACTION_T2_SECONDS
         # 确保 T1 <= T2
         self._t1 = max(0.1, min(self._t1, 5.0))
         self._t2 = max(self._t1, min(self._t2, 16.0))
         self._default_ttl = 32.0
-        self._invite_ttl = float(getattr(settings, "SIP_INVITE_SERVER_TX_TTL_SECONDS", 120.0) or 120.0)
+        self._invite_ttl = settings.SIP_INVITE_SERVER_TX_TTL_SECONDS
 
     async def send_and_wait(
         self,
@@ -326,8 +327,8 @@ class SipClientTransactionManager:
             timeout_seconds = 2.0
 
         # 从实例属性读取 T1/T2，允许通过配置覆盖
-        t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", self._t1) or self._t1)
-        t2 = float(getattr(settings, "SIP_TRANSACTION_T2_SECONDS", self._t2) or self._t2)
+        t1 = settings.SIP_TRANSACTION_T1_SECONDS
+        t2 = settings.SIP_TRANSACTION_T2_SECONDS
         t1 = max(0.1, min(t1, 5.0))
         t2 = max(t1, min(t2, 16.0))
 
@@ -338,7 +339,7 @@ class SipClientTransactionManager:
         last_error: str = ""
         for cycle in range(0, max(0, int(retries)) + 1):
             if cycle > 0 and base_via:
-                new_branch = f"{_extract_via_branch(base_via) or 'z9hG4bK'}r{cycle}{int(time.monotonic() * 1000)}"
+                new_branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 重试时生成全新 branch，无前缀，兼容非标准客户端
                 request.headers["Via"] = _replace_via_branch(base_via, new_branch)
 
             key = tx_key_from_request(request)
@@ -502,8 +503,8 @@ class SipClientTransactionManager:
         is_udp = proto.upper() == "UDP"
 
         # 从实例属性读取 T1/T2，允许通过配置覆盖
-        t1 = float(getattr(settings, "SIP_TRANSACTION_T1_SECONDS", self._t1) or self._t1)
-        t2 = float(getattr(settings, "SIP_TRANSACTION_T2_SECONDS", self._t2) or self._t2)
+        t1 = settings.SIP_TRANSACTION_T1_SECONDS
+        t2 = settings.SIP_TRANSACTION_T2_SECONDS
         t1 = max(0.1, min(t1, 5.0))
         t2 = max(t1, min(t2, 16.0))
 
@@ -527,7 +528,7 @@ class SipClientTransactionManager:
             # GB28181 标准中建议 INVITE 超时时间长一些（例如 64*T1 = 64秒），非 INVITE 较短（例如 10秒）
             # 但实际应用中，设备通常在 5-10 秒内响应，故设置 20-30 秒
             is_invite = request.method == "INVITE"
-            timeout = float(getattr(settings, "SIP_TRANSACTION_TIMEOUT_SECONDS", 30.0 if is_invite else 15.0))
+            timeout = settings.SIP_TRANSACTION_TIMEOUT_SECONDS
 
             delay = t1
             elapsed = 0.0

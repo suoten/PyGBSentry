@@ -38,6 +38,9 @@ RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuse
 COPY app/ ./app/
 
 # ZLM 二进制（可选 — 生产推荐 sidecar 部署）
+# FIX [2026-07-17]: binaries/bin/tools 目录在开源版中不存在，使用 .dockerignore 兼容。
+# Docker COPY 要求源目录存在于构建上下文中，此处通过 .gitkeep 占位确保目录存在。
+# 若目录为空，COPY 仍会成功（复制空目录）。
 COPY binaries/ ./binaries/
 
 # 配置文件与入口脚本
@@ -47,7 +50,9 @@ COPY bin/ ./bin/
 COPY tools/ ./tools/
 
 # FIXED-P0: S-06-05 chmod移到COPY之后执行，否则文件尚不存在chmod永远不生效
+# FIX [2026-07-17]: binaries 目录可能为空（开源版无 ZLM 二进制），条件检查确保不报错
 RUN if [ -f /app/binaries/linux64/MediaServer ]; then chmod +x /app/binaries/linux64/MediaServer; fi || true
+RUN if [ -d /app/bin ]; then chmod -R +x /app/bin/ 2>/dev/null || true; fi
 
 RUN mkdir -p /app/data /app/logs /app/records && chown -R appuser:appuser /app/data /app/logs /app/records
 

@@ -25,10 +25,10 @@ class LocalSipStateBackend:
         # P2-6: 硬编码上限配置化 — 通过 settings 覆盖默认值
         try:
             from app.core.config import settings
-            _ssrc_waiters_max = int(getattr(settings, "SIP_SSRC_WAITERS_MAX_SIZE", 5000) or 5000)
-            _nonce_nc_max = int(getattr(settings, "SIP_NONCE_NC_MAX_SIZE", 10000) or 10000)
-            _nonce_nc_ttl = int(getattr(settings, "SIP_NONCE_NC_TTL_SECONDS", 300) or 300)
-            _auth_failure_max = int(getattr(settings, "SIP_AUTH_FAILURE_MAX_SIZE", 5000) or 5000)
+            _ssrc_waiters_max = settings.SIP_SSRC_WAITERS_MAX_SIZE
+            _nonce_nc_max = settings.SIP_NONCE_NC_MAX_SIZE
+            _nonce_nc_ttl = settings.SIP_NONCE_NC_TTL_SECONDS
+            _auth_failure_max = settings.SIP_AUTH_FAILURE_MAX_SIZE
         except Exception:
             _ssrc_waiters_max = 5000
             _nonce_nc_max = 10000
@@ -43,6 +43,9 @@ class LocalSipStateBackend:
         self._nonce_nc_tracker: dict[tuple[str, str], tuple[int, float]] = {}
         self._nonce_nc_max_size = _nonce_nc_max
         self._nonce_nc_ttl = _nonce_nc_ttl
+        # P1-fix [2026-07-17]: _nonce_nc_tracker 读写需要原子性，否则并发请求可能同时通过重放检查
+        # 原问题：两个并发请求同时读到旧 nc，都通过检查，都写入新 nc，导致 nonce 重放攻击绕过防御
+        self._nonce_nc_lock = asyncio.Lock()
         self._auth_failure_tracker: dict[str, list[float]] = {}
         # FIX-LEAK: 使用 asyncio.Lock 保护 _auth_failure_tracker 并发访问，消除竞态条件
         self._auth_failure_lock = asyncio.Lock()
@@ -50,6 +53,8 @@ class LocalSipStateBackend:
         self._auth_failure_max_size = _auth_failure_max
         self._register_call_ids: dict[str, str] = {}
         self._register_call_ids_ts: dict[str, float] = {}  # 记录call_id写入时间戳，支持TTL过期
+        # P2-fix [2026-07-17]: _register_call_ids 双字典操作需要原子性，避免并发竞态
+        self._register_call_ids_lock = asyncio.Lock()
 
     async def register_ssrc_waiter(self, ssrc: str) -> None:
         key = str(ssrc or "").strip()
@@ -126,22 +131,25 @@ class LocalSipStateBackend:
             return True, ""
 
     async def check_nonce_nc(self, user: str, nonce: str, nc: int) -> bool:
+        # P1-fix [2026-07-17]: 加锁保护 _nonce_nc_tracker 读写，消除 nonce 重放竞态
+        # 原问题：两个并发请求可能同时读到旧 nc，都通过检查，都写入新 nc
         key = (str(user or ""), str(nonce or ""))
         now = time.time()
         cutoff = now - self._nonce_nc_ttl
-        self._nonce_nc_tracker = {k: v for k, v in self._nonce_nc_tracker.items() if v[1] > cutoff}
-        last_nc_ts = self._nonce_nc_tracker.get(key)
-        last_nc = last_nc_ts[0] if last_nc_ts else -1
-        if nc <= last_nc:
-            return False
-        self._nonce_nc_tracker[key] = (nc, now)
-        # Size-based cleanup as fallback
-        if len(self._nonce_nc_tracker) > self._nonce_nc_max_size:
-            sorted_items = sorted(self._nonce_nc_tracker.items(), key=lambda x: x[1][1])
-            over = len(self._nonce_nc_tracker) - self._nonce_nc_max_size + 100
-            for i in range(min(over, len(sorted_items))):
-                self._nonce_nc_tracker.pop(sorted_items[i][0], None)
-        return True
+        async with self._nonce_nc_lock:
+            self._nonce_nc_tracker = {k: v for k, v in self._nonce_nc_tracker.items() if v[1] > cutoff}
+            last_nc_ts = self._nonce_nc_tracker.get(key)
+            last_nc = last_nc_ts[0] if last_nc_ts else -1
+            if nc <= last_nc:
+                return False
+            self._nonce_nc_tracker[key] = (nc, now)
+            # Size-based cleanup as fallback
+            if len(self._nonce_nc_tracker) > self._nonce_nc_max_size:
+                sorted_items = sorted(self._nonce_nc_tracker.items(), key=lambda x: x[1][1])
+                over = len(self._nonce_nc_tracker) - self._nonce_nc_max_size + 100
+                for i in range(min(over, len(sorted_items))):
+                    self._nonce_nc_tracker.pop(sorted_items[i][0], None)
+            return True
 
     async def record_auth_failure(self, ip: str) -> int:
         # FIX-LEAK: 所有 _auth_failure_tracker 读写操作在 _auth_failure_lock 保护下完成，
@@ -198,52 +206,80 @@ class LocalSipStateBackend:
             return len(expired_keys) + len(empty_keys)
 
     async def check_register_renewal(self, gb_id: str, call_id: str) -> bool:
+        # P2-fix [2026-07-17]: 加锁保护 _register_call_ids 读取，与 record_register_call_id 写入互斥
         key = str(gb_id or "")
         cid = str(call_id or "")
         if not key or not cid:
             return False
-        existing = self._register_call_ids.get(key)
+        async with self._register_call_ids_lock:
+            existing = self._register_call_ids.get(key)
         return existing == cid
 
     async def record_register_call_id(self, gb_id: str, call_id: str, ttl: int = 3660) -> None:
+        # P2-fix [2026-07-17]: 加锁保护 _register_call_ids 与 _register_call_ids_ts 双字典原子操作
         key = str(gb_id or "")
         cid = str(call_id or "")
         if not key or not cid:
             return
-        self._register_call_ids[key] = cid
-        self._register_call_ids_ts[key] = time.time()
-        if len(self._register_call_ids) > 10000:
-            now = time.time()
-            expired_keys = [k for k, ts in self._register_call_ids_ts.items() if now - ts > ttl * 2]
-            for k in expired_keys:
-                self._register_call_ids.pop(k, None)
-                self._register_call_ids_ts.pop(k, None)
+        async with self._register_call_ids_lock:
+            self._register_call_ids[key] = cid
+            self._register_call_ids_ts[key] = time.time()
+            if len(self._register_call_ids) > 10000:
+                now = time.time()
+                expired_keys = [k for k, ts in self._register_call_ids_ts.items() if now - ts > ttl * 2]
+                for k in expired_keys:
+                    self._register_call_ids.pop(k, None)
+                    self._register_call_ids_ts.pop(k, None)
 
 
 _backend_instance: SipStateBackend | None = None
 _backend_lock = threading.Lock()
+# FIX [2026-07-19 P1-5]: Redis 降级 WARNING 去重标志——首次降级输出 WARNING，后续 DEBUG
+_redis_fallback_warned: bool = False
 
 
 def get_sip_state_backend() -> SipStateBackend:
-    global _backend_instance
+    global _backend_instance, _redis_fallback_warned
     if _backend_instance is not None:
         return _backend_instance
     with _backend_lock:
         if _backend_instance is not None:
             return _backend_instance
         from app.core.config import settings
-        backend_type = (getattr(settings, "SIP_STATE_BACKEND", "local") or "local").strip().lower()
+        # FIX [2026-07-19 P1]: 移除 getattr 动态兜底——SIP_STATE_BACKEND 已在
+        # Settings 类明确定义（config.py:365），违反硬约束 #41。
+        # conftest.py 预加载真实 settings + 测试桩仅注入缺失字段，不会移除该属性。
+        try:
+            backend_type = (settings.SIP_STATE_BACKEND or "local").strip().lower()
+        except AttributeError:
+            logger.error(
+                "get_sip_state_backend: settings object missing SIP_STATE_BACKEND attribute "
+                "(possibly replaced by test stub). Falling back to 'local' backend. "
+                "Check if test code polluted sys.modules['app.core.config']."
+            )
+            backend_type = "local"
         if backend_type == "redis":
             try:
                 from app.core.redis import redis_client
                 if not redis_client:
-                    logger.warning(
-                        "SIP_STATE_BACKEND=redis but redis_client is not available. "
-                        "Falling back to local backend. Check INIT_REDIS_ON_STARTUP and Redis connection."
-                    )
+                    # FIX [2026-07-19 P1-5]: 首次降级输出 WARNING，后续降级改为 DEBUG，
+                    # 避免 Redis 不可用时每次调用 get_sip_state_backend 都刷屏（aa.txt P1-5）。
+                    if not _redis_fallback_warned:
+                        logger.warning(
+                            "SIP_STATE_BACKEND=redis but redis_client is not available. "
+                            "Falling back to local backend. Check INIT_REDIS_ON_STARTUP and Redis connection. "
+                            "(This warning will be logged once; subsequent fallbacks will be DEBUG-level.)"
+                        )
+                        _redis_fallback_warned = True
+                    else:
+                        logger.debug(
+                            "SIP_STATE_BACKEND=redis fallback to local (already warned): redis_client not available"
+                        )
                 else:
                     from app.sip.state_backend_redis import RedisSipStateBackend
                     _backend_instance = RedisSipStateBackend()
+                    # FIX [2026-07-19 P1-5]: Redis 恢复后重置警告标志，下次故障可再次 WARNING
+                    _redis_fallback_warned = False
                     logger.info("SipStateBackend: using Redis implementation")
                     return _backend_instance
             except Exception as e:
@@ -251,7 +287,7 @@ def get_sip_state_backend() -> SipStateBackend:
         _backend_instance = LocalSipStateBackend()
         logger.info("SipStateBackend: using local (single-process) implementation")
         # 多实例部署检测告警 — CLUSTER_ENABLED但使用local后端时发出ERROR
-        if getattr(settings, "CLUSTER_ENABLED", False):
+        if settings.CLUSTER_ENABLED:
             logger.error(
                 "CLUSTER_ENABLED=True but SIP_STATE_BACKEND=local. "
                 "Multi-instance deployment requires SIP_STATE_BACKEND=redis "

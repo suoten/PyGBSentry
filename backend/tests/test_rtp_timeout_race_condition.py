@@ -115,6 +115,19 @@ class TestUpdateRtpServerSsrcRecovery:
     """Test that when updateRtpServerSSRC fails with 'session not found',
     the system attempts to recreate the RTP server session."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_ssrc_recovery_inflight(self):
+        """FIX [2026-07-19]: 清理 _ssrc_recovery_inflight 全局状态，防止测试间污染。
+
+        原问题：_try_reopen_rtp_server_on_ssrc_mismatch 使用模块级
+        _ssrc_recovery_inflight dict 做 60 秒去重，前一个测试写入的 key
+        会使后一个测试的恢复被跳过（返回 True 而非调用 mock）。
+        """
+        from app.sip import response_handler as rh
+        rh._ssrc_recovery_inflight.clear()
+        yield
+        rh._ssrc_recovery_inflight.clear()
+
     @pytest.mark.asyncio
     async def test_response_handler_recovers_from_ssrc_not_found(self):
         """

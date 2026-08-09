@@ -383,7 +383,7 @@
                   </div>
                   <div class="p-3 rounded" style="background:var(--el-fill-color-light)">
                     <div class="text-xs mb-1" style="color:var(--el-text-color-secondary)">{{ t('ops.sipServerAddress') }}</div>
-                    <code class="text-sm font-semibold">{{ maskSipIp(cascadeSipConfig.sip_ip) || '—' }}:{{ cascadeSipConfig.sip_port || '—' }}</code>
+                    <code class="text-sm font-semibold">{{ cascadeSipConfig.sip_ip || '—' }}:{{ cascadeSipConfig.sip_port || '—' }}</code>
                   </div>
                   <div class="p-3 rounded" style="background:var(--el-fill-color-light)">
                     <div class="text-xs mb-1" style="color:var(--el-text-color-secondary)">{{ t('ops.transportMode') }}</div>
@@ -933,7 +933,6 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { getFriendlyError, getApiErrorMessage } from '../utils/errorMessage'
-import { maskSipIp } from '../utils/sipMask' // FIX H-10: SIP IP 脱敏
 import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -1332,7 +1331,9 @@ const openMediaDialog = (row?: Record<string, unknown>) => {
     ip: String(row.ip || ''),
     public_ip: String(row.public_ip || ''),
     stream_ip: String(row.stream_ip || ''),
-    hook_base_url: String(row.hook_base_url || ''),
+    // FIX: [2026-07-16] 优先使用 DB 原始值，而非计算后的 hook_base_url。
+    // 计算后的值可能因 loopback 回退逻辑显示为公网域名，导致用户误以为保存失败。
+    hook_base_url: String(row.hook_base_url_raw || row.hook_base_url || ''),
     hook_ip: String(row.hook_ip || ''),
     sdp_ip: String(row.sdp_ip || ''),
     http_port: Number(row.http_port || 8880),

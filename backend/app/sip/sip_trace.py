@@ -32,10 +32,10 @@ def sip_trace_should_log() -> bool:
 
     返回 True 表示调用方应继续记录追踪。
     """
-    if not bool(getattr(settings, "SIP_DEBUG_TRACE_ENABLED", False)):
+    if not settings.SIP_DEBUG_TRACE_ENABLED:
         return False
     try:
-        rate = float(getattr(settings, "SIP_TRACE_SAMPLE_RATE", 1.0) or 1.0)
+        rate = settings.SIP_TRACE_SAMPLE_RATE
     except Exception:
         logger.warning("SIP_TRACE_SAMPLE_RATE config parse failed")  # 国际化
         rate = 1.0

@@ -27,6 +27,7 @@ from app.core.account_lockout import (
 from app.core.totp import verify_totp
 from app.services.auth_audit import safe_auth_audit
 from app.api import deps  # P0-6: ws-ticket 端点需要 get_current_active_user
+from app.core.i18n import t  # FIX: [2026-07-13] 后端 i18n — 替换硬编码英文错误消息 [全栈工程师]
 from loguru import logger
 
 router = APIRouter()
@@ -43,17 +44,17 @@ async def verify_token(
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]
     if not token:
-        raise HTTPException(status_code=401, detail="Authentication token not provided")  # i18n
+        raise HTTPException(status_code=401, detail=t("auth.token_not_provided"))
     try:
         payload = await security.verify_token_async(token)
         user_id = payload.get("sub")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")  # i18n
+            raise HTTPException(status_code=401, detail=t("auth.invalid_or_expired_token"))
         stmt = select(User).where(User.id == str(user_id).strip())
         result = await db.execute(stmt)
         user = result.scalars().first()
         if not user or not user.is_active:
-            raise HTTPException(status_code=401, detail="User account is disabled")  # i18n
+            raise HTTPException(status_code=401, detail=t("auth.account_disabled"))
         return {
             "valid": True,
             "username": user.username or "",
@@ -62,7 +63,7 @@ async def verify_token(
             "tenant_id": user.tenant_id or "default",
         }
     except InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Token verification failed")  # i18n
+        raise HTTPException(status_code=401, detail=t("auth.token_verification_failed"))
 
 
 class RefreshTokenRequest(BaseModel):
@@ -75,17 +76,20 @@ async def refresh_token(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     try:
-        decoded = security.verify_token(payload.refresh_token, audience="pygbsentry:refresh")
+        # FIX: [2026-07-16 P1-F] 原使用 verify_token（同步，不检查吊销），
+        # 导致用户修改密码后旧 refresh token 仍可换取新 access token，绕过吊销机制。
+        # 改为 verify_token_async 以检查 Redis 中的 user_token_revoked:{user_id}。
+        decoded = await security.verify_token_async(payload.refresh_token, audience="pygbsentry:refresh")
         if decoded.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Not a refresh token")  # i18n
+            raise HTTPException(status_code=401, detail=t("auth.not_refresh_token"))
         user_id = decoded.get("sub")
         if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid refresh token")  # i18n
+            raise HTTPException(status_code=401, detail=t("auth.invalid_refresh_token"))
         stmt = select(User).where(User.id == str(user_id).strip())
         result = await db.execute(stmt)
         user = result.scalars().first()
         if not user or not user.is_active:
-            raise HTTPException(status_code=401, detail="User account is disabled")  # i18n
+            raise HTTPException(status_code=401, detail=t("auth.account_disabled"))
         new_access_token = security.create_access_token(
             subject=user.id,
             extra_payload={
@@ -96,7 +100,7 @@ async def refresh_token(
         )
         # P1-4: HttpOnly Cookie 双轨 — refresh 时同步轮转 cookie
         response = JSONResponse(content={"access_token": new_access_token, "token_type": "bearer"})
-        _is_prod = (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}
+        _is_prod = (settings.APP_ENV or "dev").lower() in {"prod", "production"}
         response.set_cookie(
             key="access_token",
             value=new_access_token,
@@ -108,13 +112,40 @@ async def refresh_token(
         )
         return response
     except InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Refresh token expired or invalid")  # i18n
+        raise HTTPException(status_code=401, detail=t("auth.refresh_token_expired"))
 
 
 @router.post("/login/logout")
 async def logout(request: Request, response: Response) -> Any:
+    # FIX: [2026-07-16 P1] 原 logout 仅删除 cookie，未吊销 JWT，
+    # 导致用户登出后 token 仍有效至过期（30分钟），被截获的 token 可继续使用。
+    # 现将 JWT 加入 Redis 吊销列表，TTL 设为 token 剩余有效期。
+    try:
+        token = request.cookies.get("access_token") or ""
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:]
+        if token:
+            decoded = await security.verify_token_async(token)
+            user_id = decoded.get("sub")
+            iat = decoded.get("iat")
+            exp = decoded.get("exp")
+            if user_id and exp:
+                from app.core.redis import get_redis
+                import time as _time
+                redis = await get_redis()
+                if redis is not None:
+                    ttl = max(1, int(exp) - int(_time.time()))
+                    revoke_key = f"user_token_revoked:{user_id}"
+                    # 记录吊销的 iat 集合，TTL 与 token 过期对齐
+                    await redis.sadd(revoke_key, str(iat or 0))
+                    await redis.expire(revoke_key, ttl)
+    except Exception as _logout_err:
+        # 吊销失败不应阻断登出流程，仅记录日志
+        logger.warning(f"Logout token revocation failed: {_logout_err}")
     response.delete_cookie(key="access_token", path="/")
-    return {"detail": "Logged out"}  # i18n
+    return {"detail": t("auth.logged_out")}
 
 
 @router.post("/auth/ws-ticket")
@@ -147,15 +178,15 @@ def _validate_password_strength(password: str) -> tuple[bool, str]:
     """
     # i18n+ErrorCode，支持国际化
     if len(password) < 8:
-        return False, "Password must be at least 8 characters"
+        return False, t("auth.password_too_short")
     if not re.search(r"[A-Z]", password):
-        return False, "Password must contain at least one uppercase letter"
+        return False, t("auth.password_no_uppercase")
     if not re.search(r"[a-z]", password):
-        return False, "Password must contain at least one lowercase letter"
+        return False, t("auth.password_no_lowercase")
     if not re.search(r"\d", password):
-        return False, "Password must contain at least one digit"
+        return False, t("auth.password_no_digit")
     if not re.search(r"[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]", password):
-        return False, "Password must contain at least one special character"
+        return False, t("auth.password_no_special")
     return True, ""
 
 
@@ -174,7 +205,7 @@ async def register_user(
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     attempted = (payload.username or "").strip() or "unknown"
-    if not bool(getattr(settings, "ALLOW_PUBLIC_REGISTRATION", False)):
+    if not settings.ALLOW_PUBLIC_REGISTRATION:
         await safe_auth_audit(
             db,
             module="auth",  # FIX: [2026-07-03] 缺少必填 module 关键字参数导致 TypeError [全栈工程师]
@@ -186,7 +217,7 @@ async def register_user(
             status_code=403,
             detail="registration_disabled",
         )
-        raise HTTPException(status_code=403, detail="Registration is closed")  # i18n
+        raise HTTPException(status_code=403, detail=t("auth.registration_closed"))
     if not payload.username or len(payload.username.strip()) < 3:
         await safe_auth_audit(
             db,
@@ -199,7 +230,7 @@ async def register_user(
             status_code=400,
             detail="username_too_short",
         )
-        raise HTTPException(status_code=400, detail="Username must be at least 3 characters")  # i18n
+        raise HTTPException(status_code=400, detail=t("auth.username_too_short"))
     if not payload.password or len(payload.password) < 8:
         await safe_auth_audit(
             db,
@@ -212,7 +243,7 @@ async def register_user(
             status_code=400,
             detail="password_too_short",
         )
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")  # i18n
+        raise HTTPException(status_code=400, detail=t("auth.password_too_short"))  # i18n
     # 密码强度校验
     valid, msg = _validate_password_strength(payload.password)
     if not valid:
@@ -242,7 +273,7 @@ async def register_user(
             status_code=400,
             detail="username_taken",
         )
-        raise HTTPException(status_code=400, detail="Username already exists")  # i18n
+        raise HTTPException(status_code=400, detail=t("auth.username_exists"))
     tenant_id = payload.username.strip() or "default"
     user = User(
         username=payload.username,
@@ -260,7 +291,7 @@ async def register_user(
         await db.refresh(user)
     except Exception as e:
         await db.rollback()
-        raise HTTPException(status_code=400, detail=f"Registration failed: {str(e)}") from e  # db.commit异常保护+rollback
+        raise HTTPException(status_code=400, detail=f"{t('auth.registration_failed')}: {str(e)}") from e  # db.commit异常保护+rollback  # i18n
     await safe_auth_audit(
         db,
         module="auth",  # FIX: [2026-07-03] 缺少必填 module 关键字参数导致 TypeError [全栈工程师]
@@ -313,7 +344,7 @@ async def login_access_token(
             )
             raise HTTPException(
                 status_code=423,
-                detail="Account locked, please try again later or contact admin",  # i18n
+                detail=t("auth.account_locked_contact_admin"),
                 headers={"Retry-After": str(max(1, remaining_lock_seconds(user)))},
             )
         if was_auto_unlocked:
@@ -368,10 +399,10 @@ async def login_access_token(
                     await db.rollback()  # db.commit异常保护+rollback
                 raise HTTPException(
                     status_code=423,
-                    detail="Too many failed login attempts, account locked for 30 minutes",  # i18n
+                    detail=t("auth.account_locked_30min"),
                     headers={"Retry-After": _retry_after},
                 )
-        raise HTTPException(status_code=400, detail="Incorrect username or password")  # i18n
+        raise HTTPException(status_code=400, detail=t("auth.invalid_credentials"))  # i18n
 
     if not user.is_active:
         await safe_auth_audit(
@@ -386,7 +417,7 @@ async def login_access_token(
             detail="inactive",
         )
         # SECURITY: 统一错误消息防止用户枚举 — 不暴露账户是否存在或被禁用
-        raise HTTPException(status_code=400, detail="Incorrect username or password")  # i18n
+        raise HTTPException(status_code=400, detail=t("auth.invalid_credentials"))  # i18n
 
     if getattr(user, "totp_enabled", False):
         if not otp_code:
@@ -491,7 +522,7 @@ async def login_access_token(
     }  # 登录响应补充role/is_superuser/tenant_id顶层字段
     response = JSONResponse(content=response_content)
     # P1-4: HttpOnly Cookie 双轨 — 登录时下发 HttpOnly Cookie，配合前端 Bearer token 双轨认证
-    _is_prod = (getattr(settings, "APP_ENV", "dev") or "dev").lower() in {"prod", "production"}
+    _is_prod = (settings.APP_ENV or "dev").lower() in {"prod", "production"}
     response.set_cookie(
         key="access_token",
         value=access_token,

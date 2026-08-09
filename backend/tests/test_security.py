@@ -250,7 +250,9 @@ class TestSecurityPenetration(unittest.IsolatedAsyncioTestCase):
         ct = field_crypto.encrypt_field("secret", purpose="sip_password")
         # Flip a character in the middle of the base64 payload
         tampered = ct[:8] + ("A" if ct[8] != "A" else "B") + ct[9:]
-        result = field_crypto.decrypt_field(tampered, purpose="sip_password")
+        # FIX [2026-07-19]: 使用 allow_plaintext=False 严格模式——
+        # 默认 True 时篡改的密文（仍像 base64 密文）会返回原值而非 None，掩盖篡改。
+        result = field_crypto.decrypt_field(tampered, purpose="sip_password", allow_plaintext=False)
         self.assertIsNone(result, "tampered ciphertext must decrypt to None")
 
     # 4. API version negotiation ------------------------------------------

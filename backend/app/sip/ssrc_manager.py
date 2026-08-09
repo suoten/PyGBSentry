@@ -16,6 +16,11 @@ GB28181 协议规定 SSRC（同步源标识）为 10 位十进制数字，编码
 
 线程安全：所有公开方法均为 ``async``，内部用 :class:`asyncio.Lock` 保护。
 模块导入绝不抛异常 —— DB 模型在方法内延迟导入。
+
+多节点部署：FIX [2026-07-16 P0] 新增 Redis 跨节点 SSRC 集合协调。
+``allocate`` / ``allocate_specific_ssrc`` 会尝试 ``SADD`` 到 Redis 集合
+``pygbsentry:ssrc:allocated``，若已存在则重试下一个序号；``release`` 同步 ``SREM``。
+Redis 不可用时 fail-open 到本地 ``asyncio.Lock``（与单节点行为一致）。
 """
 from __future__ import annotations
 
@@ -30,6 +35,8 @@ from app.core.config import settings
 _SSRC_LEN = 10
 _SERIAL_MAX = 10000  # 4 位序号上限（0000-9999）
 _DOMAIN_PREFIX_LEN = 5
+# FIX: [2026-07-16 P0] Redis 中存储已分配 SSRC 的集合 key
+_REDIS_ALLOCATED_KEY = "pygbsentry:ssrc:allocated"
 
 
 def _domain_prefix(domain: str | None) -> str:
@@ -85,19 +92,80 @@ class SsrcManager:
         # cleanup_loop 控制位
         self._cleanup_running: bool = False
         # 默认清理周期与过期阈值（秒）
-        self._cleanup_interval = float(getattr(settings, "SSRC_CLEANUP_INTERVAL_SECONDS", 300.0) or 300.0)
-        self._stale_threshold = float(getattr(settings, "SSRC_STALE_THRESHOLD_SECONDS", 3600.0) or 3600.0)
+        self._cleanup_interval = settings.SSRC_CLEANUP_INTERVAL_SECONDS
+        self._stale_threshold = settings.SSRC_STALE_THRESHOLD_SECONDS
 
     # ------------------------------------------------------------------
     # 内部辅助
     # ------------------------------------------------------------------
 
+    async def _redis_sadd(self, ssrc: str) -> bool:
+        """FIX: [2026-07-16 P0] 尝试将 SSRC 加入 Redis 集合，返回是否新增成功。
+
+        Redis 不可用时返回 True（fail-open，等同于单节点模式）。
+        """
+        try:
+            from app.core.redis import redis_client
+            if redis_client is None:
+                return True
+            # SADD 返回新增元素数：1=成功新增，0=已存在
+            added = await redis_client.sadd(_REDIS_ALLOCATED_KEY, ssrc)
+            return added == 1
+        except Exception as e:
+            # Redis 故障时 fail-open，避免阻断主流程
+            logger.debug(f"[SSRC] Redis SADD failed (fail-open): {e}")
+            return True
+
+    async def _redis_srem(self, ssrc: str) -> None:
+        """FIX: [2026-07-16 P0] 从 Redis 集合中移除 SSRC。"""
+        try:
+            from app.core.redis import redis_client
+            if redis_client is None:
+                return
+            await redis_client.srem(_REDIS_ALLOCATED_KEY, ssrc)
+        except Exception as e:
+            logger.debug(f"[SSRC] Redis SREM failed (non-critical): {e}")
+
     def _bucket(self, is_playback: bool) -> set[str]:
         """Internal helper:  bucket."""
         return self._playback_allocated if is_playback else self._live_allocated
 
+    async def _next_serial_redis_aware(self, is_playback: bool) -> int:
+        """FIX: [2026-07-16 P0] 取下一个 4 位序号，结合 Redis 集合检查跨节点冲突。
+
+        本地序号空间耗尽返回 -1。
+
+        P1-fix [2026-07-17]: 限制 Redis SADD 次数，避免序号空间耗尽时循环 10000 次。
+        原代码最多尝试 10000 次（覆盖全部序号空间），每次都发起 Redis SADD 往返，
+        高并发或 Redis 高延迟场景下，单次 SSRC 分配可能耗时数十秒，阻塞 INVITE 流程。
+        现在限制最多尝试 200 次（默认 _SERIAL_MAX=10000 中取 200 个采样），
+        超过则返回 -1 由调用方回退到单节点模式或返回 503。
+        """
+        bucket = self._bucket(is_playback)
+        counter_attr = "_playback_counter" if is_playback else "_live_counter"
+        # P1-fix: 限制 Redis SADD 次数，避免极端情况下阻塞 INVITE 流程
+        _MAX_REDIS_PROBES = min(200, _SERIAL_MAX)
+        for _ in range(_MAX_REDIS_PROBES):
+            serial = getattr(self, counter_attr) % _SERIAL_MAX
+            setattr(self, counter_attr, getattr(self, counter_attr) + 1)
+            candidate = self._assemble(serial, is_playback)
+            if candidate in bucket:
+                continue
+            # FIX: [2026-07-16 P0] 检查 Redis 集合，避免多节点 SSRC 冲突
+            if not await self._redis_sadd(candidate):
+                # 已被其他节点占用，继续尝试下一个
+                logger.debug(f"[SSRC] Cross-node conflict on {candidate}, trying next")
+                continue
+            return serial
+        # 序号空间耗尽（采样 200 次仍未找到可用 SSRC）
+        logger.error(
+            f"[SSRC] Failed to allocate serial after {_MAX_REDIS_PROBES} probes "
+            f"(is_playback={is_playback}); consider expanding _SERIAL_MAX or check Redis state"
+        )
+        return -1
+
     def _next_serial(self, is_playback: bool) -> int:
-        """取下一个 4 位序号（0-9999），并在 10000 范围内去重。"""
+        """[deprecated] 旧版同步接口，保留以兼容外部调用，但内部不检查 Redis。"""
         bucket = self._bucket(is_playback)
         counter_attr = "_playback_counter" if is_playback else "_live_counter"
         # 最多尝试 10000 次（覆盖全部序号空间）
@@ -113,7 +181,7 @@ class SsrcManager:
     def _assemble(self, serial: int, is_playback: bool) -> str:
         """Internal helper:  assemble."""
         type_digit = "1" if is_playback else "0"
-        prefix = _domain_prefix(getattr(settings, "SIP_DOMAIN", "") or "")
+        prefix = _domain_prefix(settings.SIP_DOMAIN or "")
         return f"{type_digit}{prefix}{serial:04d}"
 
     # ------------------------------------------------------------------
@@ -128,7 +196,7 @@ class SsrcManager:
         """
         import time as _time
         async with self._lock:
-            serial = self._next_serial(is_playback)
+            serial = await self._next_serial_redis_aware(is_playback)
             if serial < 0:
                 logger.error(
                     f"SSRC allocation exhausted: is_playback={is_playback}, "
@@ -156,7 +224,11 @@ class SsrcManager:
             bucket = self._bucket(inferred)
             other = self._bucket(not inferred)
             if ssrc in bucket or ssrc in other:
-                logger.warning(f"allocate_specific_ssrc: SSRC {ssrc} already allocated")
+                logger.warning(f"allocate_specific_ssrc: SSRC {ssrc} already allocated locally")
+                return False
+            # FIX: [2026-07-16 P0] 检查 Redis 集合，确保跨节点未占用
+            if not await self._redis_sadd(ssrc):
+                logger.warning(f"allocate_specific_ssrc: SSRC {ssrc} already allocated by another node")
                 return False
             bucket.add(ssrc)
             self._alloc_time[ssrc] = _time.monotonic()
@@ -177,6 +249,8 @@ class SsrcManager:
             stream_id = self._ssrc_to_stream.pop(ssrc, None)
             if stream_id:
                 self._stream_to_ssrc.pop(stream_id, None)
+            # FIX: [2026-07-16 P0] 同步释放 Redis 集合中的 SSRC
+            await self._redis_srem(ssrc)
 
     async def release_ssrc(self, ssrc: str) -> None:
         """``release`` 的别名，保持与现有调用方命名一致。"""
@@ -246,6 +320,7 @@ class SsrcManager:
         async with self._lock:
             import time as _time
             now = _time.monotonic()
+            redis_ssrcs: list[str] = []
             for row in rows:
                 stream_session_id, stream_name, ssrc = row
                 if not _is_valid_ssrc(ssrc):
@@ -259,9 +334,21 @@ class SsrcManager:
                 if sid:
                     self._stream_to_ssrc[sid] = ssrc
                     self._ssrc_to_stream[ssrc] = sid
+                redis_ssrcs.append(ssrc)
                 restored += 1
             # 推进计数器，避免新分配的序号与已恢复的 SSRC 冲突
             self._bump_counters_above_restored()
+
+        # FIX: [2026-07-16 P0] 将恢复的 SSRC 同步到 Redis 集合，保证多节点可见
+        if redis_ssrcs:
+            try:
+                from app.core.redis import redis_client
+                if redis_client is not None:
+                    # SADD 一次性写入所有 SSRC
+                    await redis_client.sadd(_REDIS_ALLOCATED_KEY, *redis_ssrcs)
+                    logger.info(f"[SSRC] Synced {len(redis_ssrcs)} restored SSRCs to Redis")
+            except Exception as e:
+                logger.debug(f"[SSRC] Redis sync on restore failed (non-critical): {e}")
 
         if restored:
             logger.info(f"SSRC manager restored {restored} in-use SSRCs from DB")
@@ -272,7 +359,7 @@ class SsrcManager:
         for is_playback, counter_attr in ((False, "_live_counter"), (True, "_playback_counter")):
             bucket = self._bucket(is_playback)
             max_serial = -1
-            prefix = _domain_prefix(getattr(settings, "SIP_DOMAIN", "") or "")
+            prefix = _domain_prefix(settings.SIP_DOMAIN or "")
             type_digit = "1" if is_playback else "0"
             for ssrc in bucket:
                 # 仅统计与本进程域前缀一致的 SSRC
@@ -281,8 +368,9 @@ class SsrcManager:
                         serial = int(ssrc[6:10])
                         if serial > max_serial:
                             max_serial = serial
-                    except ValueError:
-                        logger.debug("swallowed_exception", exc_info=True)
+                    except ValueError as _serial_err:
+                        # FIX [2026-07-17 P3-8]: 描述性日志替代 "swallowed_exception"，记录非法 SSRC 序号
+                        logger.debug(f"ssrc_manager: invalid serial portion in SSRC '{ssrc}': {_serial_err}")
             if max_serial >= 0:
                 cur = getattr(self, counter_attr)
                 if cur <= max_serial:

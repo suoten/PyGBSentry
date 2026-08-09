@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -44,7 +44,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -67,7 +67,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install bandit
         run: pip install bandit
@@ -142,7 +142,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -207,7 +207,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -262,7 +262,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -479,7 +479,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install dependencies
         run: |
@@ -589,7 +589,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Install pip-audit
         run: pip install pip-audit
@@ -636,7 +636,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.12"  # FIX [2026-07-17]: 与 Dockerfile python:3.12-slim 对齐
 
       - name: Run scan_config_security --strict
         run: |

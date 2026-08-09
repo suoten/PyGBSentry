@@ -103,7 +103,8 @@ groups:
           description: "The PyGBSentry process has restarted in the last 5 minutes, possible crash."
 
       - alert: PyGBSentryHighErrorRate
-        expr: rate(http_requests_total{job="pygbsentry",status_code=~"5.."}[5m]) / (rate(http_requests_total{job="pygbsentry"}[5m]) > 0) > 0.1
+        # FIX: [2026-07-16 P1] 同步指标重命名 http_requests_total → pygbsentry_http_requests_total
+        expr: rate(pygbsentry_http_requests_total{job="pygbsentry",status_code=~"5.."}[5m]) / (rate(pygbsentry_http_requests_total{job="pygbsentry"}[5m]) > 0) > 0.1
         for: 2m
         labels:
           severity: critical

@@ -741,8 +741,9 @@ async def start_device_record_download(
             logger.warning(f"[start_device_record_download] db.commit failed, releasing ZLM resources: {_commit_err}")
             try:
                 await task_db.rollback()
-            except Exception:
-                logger.warning("silently_swallowed_exception", exc_info=True)
+            except Exception as _rb_err:
+                # FIX [2026-07-17 P3-13]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"[start_device_record_download] db.rollback also failed: {_rb_err}")
             _ss_id = str(invite_ret.get("stream_session_id") or "") or None
             if _ss_id:
                 try:

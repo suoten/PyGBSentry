@@ -5,6 +5,10 @@ from loguru import logger
 from enum import Enum
 from dataclasses import dataclass, field
 
+# P1-fix [2026-07-17]: Session Timer 后台任务必须使用项目统一的 fire_and_forget
+# （带异常回调和任务名），禁止裸 asyncio.create_task
+from app.core.async_utils import fire_and_forget
+
 
 class DialogState(str, Enum):
     EARLY = "early"
@@ -45,9 +49,9 @@ class DialogManager:
         try:
             from app.core.config import settings
             if max_dialogs is None:
-                max_dialogs = int(getattr(settings, "SIP_DIALOG_MAX_COUNT", 50000) or 50000)
+                max_dialogs = settings.SIP_DIALOG_MAX_COUNT
             if ttl_seconds is None:
-                ttl_seconds = int(getattr(settings, "SIP_DIALOG_TTL_SECONDS", 86400) or 86400)
+                ttl_seconds = settings.SIP_DIALOG_TTL_SECONDS
         except Exception:
             if max_dialogs is None:
                 max_dialogs = 50000
@@ -62,11 +66,16 @@ class DialogManager:
         self._redis_persist: bool = False
         try:
             from app.core.config import settings
-            self._redis_persist = (getattr(settings, "SIP_STATE_BACKEND", "local") or "local").strip().lower() == "redis"
+            self._redis_persist = (settings.SIP_STATE_BACKEND or "local").strip().lower() == "redis"
         except Exception:
             self._redis_persist = False
         # FIX R24-SEVERE: fire-and-forget persist task tracking to prevent GC
         self._pending_persist_tasks: set[asyncio.Task] = set()
+        # SIP Session Timer (RFC 4028) 回调 — 由 main.py 启动时注册
+        # _on_session_refresh: async (call_id, from_tag, dialog) -> bool
+        # _on_session_timeout: async (call_id, from_tag, dialog) -> None
+        self._on_session_refresh = None
+        self._on_session_timeout = None
 
     def _key(self, call_id: str, from_tag: str) -> str:
         """Internal helper:  key."""
@@ -78,8 +87,9 @@ class DialogManager:
             from app.core.redis import redis_client
             if redis_client:
                 return redis_client
-        except Exception:
-            logger.warning("silently_swallowed_exception", exc_info=True)
+        except Exception as _redis_err:
+            # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+            logger.warning(f"dialog_manager: failed to import redis_client: {_redis_err}")
         return None
 
     def _snapshot_dialog(self, dialog: Dialog) -> dict | None:
@@ -129,9 +139,26 @@ class DialogManager:
         if not snapshot:
             return
         try:
-            task = asyncio.create_task(self._persist_snapshot(snapshot))
+            # P0-16 [2026-07-17]: 带异常回调和任务名的安全任务创建，
+            # 避免异常静默吞没；任务存入 _pending_persist_tasks 防止 GC 回收
+            task = asyncio.create_task(
+                self._persist_snapshot(snapshot),
+                name=f"dialog_persist:{snapshot.get('call_id', '?')}",
+            )
             self._pending_persist_tasks.add(task)
-            task.add_done_callback(self._pending_persist_tasks.discard)
+
+            def _on_persist_done(t: asyncio.Task) -> None:
+                self._pending_persist_tasks.discard(t)
+                if t.cancelled():
+                    return
+                exc = t.exception()
+                if exc is not None:
+                    logger.error(
+                        f"dialog persist task raised: {exc!r}",
+                        exc_info=exc,
+                    )
+
+            task.add_done_callback(_on_persist_done)
         except RuntimeError:
             # No running event loop (e.g., during sync init), fall back to sync ignore
             pass
@@ -312,6 +339,15 @@ class DialogManager:
                     return dialog
                 dialog.state = DialogState.TERMINATED
                 dialog.updated_at = time.time()
+                # FIX [2026-07-17 P1]: 终止对话时取消 Session Timer 后台任务，
+                # 避免僵尸任务继续触发刷新/超时回调（RFC 4028 §9）
+                timer_task = dialog.session_data.pop("_session_timer_task", None)
+                if timer_task is not None and not timer_task.done():
+                    try:
+                        timer_task.cancel()
+                    except Exception as _timer_cancel_err:
+                        # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+                        logger.warning(f"terminate_dialog: failed to cancel session_timer task for {call_id}: {_timer_cancel_err}")
                 # FIX R24-SEVERE: 锁内捕获快照，锁外 fire-and-forget 持久化
                 self._schedule_persist(self._snapshot_dialog(dialog))
                 return dialog
@@ -356,6 +392,38 @@ class DialogManager:
                 self._schedule_persist(self._snapshot_dialog(dialog))
                 return dialog.cseq
 
+    async def update_remote_seq(self, call_id: str, from_tag: str, remote_cseq: int) -> bool:
+        """更新远端 CSeq 并校验单调递增（RFC 3261 §12.2.2）。
+
+        P1-fix [2026-07-17]: 原代码 remote_seq 从不更新，导致：
+        1. 无法检测乱序/重放攻击（CSeq 回退）
+        2. 对话状态不完整，影响后续 in-dialog 请求的 CSeq 协商
+
+        Returns:
+            True — CSeq 合法（首次或递增），已更新 remote_seq
+            False — CSeq 非法（回退或重复），调用方应回 500/400 拒绝
+        """
+        if remote_cseq < 0:
+            return False
+        key = self._key(call_id, from_tag)
+        async with self._global_lock:
+            dialog = self._dialogs.get(key)
+            if not dialog:
+                return True  # 对话不存在不阻断（由调用方决定是否拒绝）
+            async with dialog._lock:
+                # 首次（remote_seq==0）直接接受；后续必须严格递增
+                if dialog.remote_seq > 0 and remote_cseq <= dialog.remote_seq:
+                    logger.warning(
+                        f"dialog CSeq monotonic violation: call_id={call_id} "
+                        f"remote_seq={dialog.remote_seq} received={remote_cseq}"
+                    )
+                    return False
+                if remote_cseq > dialog.remote_seq:
+                    dialog.remote_seq = remote_cseq
+                    dialog.updated_at = time.time()
+                    self._schedule_persist(self._snapshot_dialog(dialog))
+                return True
+
     async def update_session_data(self, call_id: str, from_tag: str, data: dict) -> None:
         """Update session data."""
         # 持有_global_lock的同时获取dialog._lock，消除竞态窗口
@@ -369,6 +437,213 @@ class DialogManager:
                 dialog.updated_at = time.time()
                 # FIX R24-SEVERE: 锁内捕获快照，锁外 fire-and-forget 持久化
                 self._schedule_persist(self._snapshot_dialog(dialog))
+
+    # ------------------------------------------------------------------
+    # SIP Session Timer (RFC 4028)
+    # ------------------------------------------------------------------
+    # PyGBSentry 同时可作为 UAC（点播设备）和 UAS（级联被点播）。Session Timer
+    # 状态全部存入 dialog.session_data，便于 Redis 持久化与回放：
+    #   - "session_expires":   int   — 协商后的过期秒数（0 表示无 Session Timer）
+    #   - "session_refresher": str   — "uac" / "uas" / ""
+    #   - "local_role":        str   — "uac" / "uas"（PyGBSentry 在该对话中的角色）
+    #   - "last_refresh_at":   float — monotonic 时钟时间戳，避免壁钟漂移
+    #   - "_session_timer_task": asyncio.Task — 进程内任务引用（不持久化）
+    #
+    # refresher 判定：当 session_refresher == local_role 时，本端为刷新方，
+    # 在 expires/2 时发送会话内 re-INVITE 保活；否则为看门狗，在 expires 超时
+    # 未收到刷新时主动发送 BYE 释放会话并联动释放 SSRC/RTP 端口。
+
+    def set_session_timer_callbacks(self, on_refresh, on_timeout) -> None:
+        """注册 Session Timer 刷新/超时回调。
+
+        Args:
+            on_refresh: ``async (call_id, from_tag, dialog) -> bool``
+                refresher 方在 expires/2 时调用，返回 True 表示 re-INVITE 成功
+                并更新 last_refresh_at；False 表示刷新失败，触发超时回调。
+            on_timeout: ``async (call_id, from_tag, dialog) -> None``
+                非刷新方超时或刷新失败时调用，应发送 BYE 并联动释放 SSRC/RTP 端口。
+        """
+        self._on_session_refresh = on_refresh
+        self._on_session_timeout = on_timeout
+
+    async def set_session_timer(
+        self,
+        call_id: str,
+        from_tag: str,
+        expires: int,
+        refresher: str,
+        local_role: str = "uac",
+    ) -> bool:
+        """为已存在的 dialog 设置 Session Timer 参数。
+
+        Args:
+            call_id: SIP Call-ID。
+            from_tag: 本端 From tag。
+            expires: 协商后的 Session-Expires 秒数。``0`` 表示无 Session Timer
+                （GB28181 设备不支持时降级），仍会记录 ``session_expires=0`` 状态
+                以便上层区分"已协商但禁用"与"未协商"，但返回 False 不启动定时器。
+            refresher: ``"uac"`` / ``"uas"`` / ``""``。
+            local_role: PyGBSentry 在该对话中的角色，``"uac"`` 或 ``"uas"``。
+                默认 ``"uac"``（点播设备的常见场景）。
+
+        Returns:
+            True — 已写入状态且 expires>0（应启动定时器）；
+            False — dialog 不存在或 expires<=0（不启动定时器，GB28181 降级）。
+        """
+        key = self._key(call_id, from_tag)
+        async with self._global_lock:
+            dialog = self._dialogs.get(key)
+            if not dialog:
+                return False
+            async with dialog._lock:
+                # 即使 expires=0 也写入状态，以便上层识别"已协商但禁用"
+                dialog.session_data["session_expires"] = int(expires)
+                dialog.session_data["session_refresher"] = str(refresher or "").lower()
+                dialog.session_data["local_role"] = str(local_role or "uac").lower()
+                # FIX [memory-lesson]: TTL 判断必须使用 monotonic 时钟，
+                # 避免壁钟与进程秒数混用导致刷新判断失效
+                dialog.session_data["last_refresh_at"] = time.monotonic()
+                dialog.updated_at = time.time()
+                self._schedule_persist(self._snapshot_dialog(dialog))
+                return expires > 0
+
+    async def update_session_refresh(self, call_id: str, from_tag: str) -> None:
+        """更新 last_refresh_at 时间戳（收到对端 re-INVITE/UPDATE 或本端刷新成功时调用）。"""
+        key = self._key(call_id, from_tag)
+        async with self._global_lock:
+            dialog = self._dialogs.get(key)
+            if not dialog:
+                return
+            async with dialog._lock:
+                dialog.session_data["last_refresh_at"] = time.monotonic()
+                dialog.updated_at = time.time()
+                self._schedule_persist(self._snapshot_dialog(dialog))
+
+    def start_session_timer(self, call_id: str, from_tag: str) -> None:
+        """为 dialog 启动 Session Timer 后台任务（refresher 刷新或 watchdog 超时）。
+
+        必须先调用 :meth:`set_session_timer` 写入参数。任务通过项目统一的
+        :func:`app.core.async_utils.fire_and_forget` 调度（带异常回调和任务名），
+        引用存入 ``session_data["_session_timer_task"]`` 以便 :meth:`terminate_dialog`
+        取消。expires<=0 时为 no-op（GB28181 降级路径）。
+        """
+        key = self._key(call_id, from_tag)
+        # 同步读取 session_expires 与角色（不持锁，仅判断是否需要启动）
+        dialog = self._dialogs.get(key)
+        if not dialog:
+            return
+        expires = int(dialog.session_data.get("session_expires", 0) or 0)
+        if expires <= 0:
+            return
+        # 取消已存在的旧任务
+        old_task = dialog.session_data.get("_session_timer_task")
+        if old_task is not None and not old_task.done():
+            try:
+                old_task.cancel()
+            except Exception as _cancel_old_err:
+                # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"start_session_timer: failed to cancel old task for {call_id}: {_cancel_old_err}")
+        # 通过 fire_and_forget 调度（带异常回调和任务名）
+        task = fire_and_forget(
+            self._session_timer_task_loop(call_id, from_tag),
+            name=f"session_timer:{call_id}",
+        )
+        if task is not None:
+            dialog.session_data["_session_timer_task"] = task
+
+    async def _session_timer_task_loop(self, call_id: str, from_tag: str) -> None:
+        """Session Timer 单 dialog 守护协程。
+
+        - refresher 方：在 expires/2 时调用 ``on_refresh`` 发送会话内 re-INVITE，
+          成功后更新 last_refresh_at 并循环；失败则调用 ``on_timeout`` 终止。
+        - 非刷新方（watchdog）：在 expires 超时后检查 last_refresh_at 是否更新，
+          未更新则调用 ``on_timeout`` 发送 BYE 释放会话。
+        """
+        key = self._key(call_id, from_tag)
+        # 读取参数（一次性快照；若对端 re-INVITE 协商新值会通过 set_session_timer 重置任务）
+        dialog = self._dialogs.get(key)
+        if not dialog:
+            return
+        expires = int(dialog.session_data.get("session_expires", 0) or 0)
+        refresher = str(dialog.session_data.get("session_refresher", "") or "").lower()
+        local_role = str(dialog.session_data.get("local_role", "uac") or "uac").lower()
+        if expires <= 0:
+            return
+        local_is_refresher = (refresher == local_role) and refresher in ("uac", "uas")
+        # 未指定 refresher 时按 RFC 4028 默认 UAC 刷新
+        if not refresher:
+            local_is_refresher = (local_role == "uac")
+
+        try:
+            if local_is_refresher:
+                await self._refresher_loop(call_id, from_tag, expires)
+            else:
+                await self._watchdog_loop(call_id, from_tag, expires)
+        except asyncio.CancelledError:
+            logger.debug(f"session_timer cancelled for call_id={call_id}")
+            raise
+        except Exception as e:
+            # fire_and_forget 已有 done_callback 兜底记录 ERROR，此处仅 debug
+            logger.warning(f"session_timer loop error for call_id={call_id}: {e}")
+
+    async def _refresher_loop(self, call_id: str, from_tag: str, expires: int) -> None:
+        """刷新方循环：expires/2 间隔发送 re-INVITE 保活。"""
+        # 防御性上限：单 dialog 最多刷新 100000 次（约 1800s/2 * 100000 ≈ 5 年）
+        max_iterations = 100000
+        for _ in range(max_iterations):
+            # expires/2 触发刷新（RFC 4028 §7）
+            await asyncio.sleep(max(float(expires) / 2.0, 1.0))
+            # 重新读取最新状态（dialog 可能已被 terminate）
+            dialog = await self.get_dialog(call_id, from_tag)
+            if dialog is None or dialog.is_terminated():
+                return
+            # 调用刷新回调（发送会话内 re-INVITE）
+            if self._on_session_refresh is None:
+                logger.debug(f"session_timer: no refresh callback registered for {call_id}")
+                return
+            try:
+                ok = await self._on_session_refresh(call_id, from_tag, dialog)
+            except Exception as refresh_err:
+                logger.warning(f"session_timer refresh callback error for {call_id}: {refresh_err}")
+                ok = False
+            if ok:
+                await self.update_session_refresh(call_id, from_tag)
+                logger.debug(f"session_timer refresh ok for {call_id}")
+            else:
+                # 刷新失败 → 触发超时（发 BYE）
+                logger.warning(f"session_timer refresh failed for {call_id}, triggering timeout BYE")
+                if self._on_session_timeout is not None:
+                    try:
+                        await self._on_session_timeout(call_id, from_tag, dialog)
+                    except Exception as timeout_err:
+                        logger.warning(f"session_timer timeout callback error after refresh-fail for {call_id}: {timeout_err}")
+                await self.terminate_dialog(call_id, from_tag)
+                return
+        logger.warning(f"session_timer refresher_loop hit max_iterations for {call_id}")
+
+    async def _watchdog_loop(self, call_id: str, from_tag: str, expires: int) -> None:
+        """看门狗循环：expires 超时未收到刷新则发 BYE。"""
+        # 最多 100000 次超时检查（实际 1 次超时即终止）
+        for _ in range(100000):
+            await asyncio.sleep(max(float(expires), 1.0))
+            dialog = await self.get_dialog(call_id, from_tag)
+            if dialog is None or dialog.is_terminated():
+                return
+            last_refresh = float(dialog.session_data.get("last_refresh_at", 0.0) or 0.0)
+            now = time.monotonic()
+            # 若距离上次刷新已超过 expires → 视为对端静默掉线
+            if (now - last_refresh) >= float(expires):
+                logger.warning(
+                    f"session_timer watchdog timeout for call_id={call_id} "
+                    f"(no refresh for {now - last_refresh:.0f}s, expires={expires}s), sending BYE"
+                )
+                if self._on_session_timeout is not None:
+                    try:
+                        await self._on_session_timeout(call_id, from_tag, dialog)
+                    except Exception as timeout_err:
+                        logger.warning(f"session_timer timeout callback error for {call_id}: {timeout_err}")
+                await self.terminate_dialog(call_id, from_tag)
+                return
 
     async def terminate_dialogs_by_device(self, gb_id: str) -> list[Dialog]:
         """Terminate all dialogs associated with the given device GB ID.

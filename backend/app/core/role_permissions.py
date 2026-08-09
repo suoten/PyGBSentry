@@ -87,6 +87,18 @@ def parse_permission_codes(raw: str | None, role_code: str | None = None) -> set
     return codes
 
 
+def serialize_permission_codes(codes: Iterable[str] | None) -> str:
+    """Serialize permission codes to a JSON array string.
+
+    FIX: [2026-07-13] 从 2ad636a 恢复 — roles 端点需要此函数将权限码列表
+    序列化为 JSON 字符串存储到 Role.permission_codes 列。[全栈工程师]
+    """
+    if codes is None:
+        return "[]"
+    normalized = sorted({_normalize(c) for c in codes if _normalize(c)})
+    return json.dumps(normalized, ensure_ascii=False)
+
+
 def has_permission(granted: Iterable[str], required: str) -> bool:
     """Return ``True`` if ``required`` is granted (or wildcard is present)."""
     granted_set = set(granted)

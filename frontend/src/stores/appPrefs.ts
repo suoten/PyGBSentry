@@ -19,13 +19,48 @@ export const useAppPrefsStore = defineStore('appPrefs', () => {
   watch(themeMode, (val) => safeLSSet(THEME_KEY, val))
   watch(sidebarCollapsed, (val) => safeLSSet(SIDEBAR_KEY, String(val)))
 
+  // FIXED: [2026-07-13] 恢复 applyTheme 逻辑（2ad636a）。
+  // ConvergeLoop 删除了此函数导致深色模式切换完全失效——themeMode ref 存在但永不应用到 DOM。
+  function applyTheme() {
+    let isDark = false
+    if (themeMode.value === 'dark') {
+      isDark = true
+    } else if (themeMode.value === 'auto') {
+      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+    }
+
+    if (isDark) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+  }
+
   function setThemeMode(mode: 'light' | 'dark' | 'auto') {
     themeMode.value = mode
+    applyTheme()
   }
 
   function toggleSidebar() {
     sidebarCollapsed.value = !sidebarCollapsed.value
   }
 
-  return { themeMode, sidebarCollapsed, setThemeMode, toggleSidebar }
+  // FIXED: [2026-07-13] 恢复系统深色模式监听器（2ad636a）。
+  // auto 模式下跟随操作系统切换深/浅色主题。
+  const _mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  const _onMediaChange = (e: MediaQueryListEvent) => {
+    if (themeMode.value === 'auto') {
+      if (e.matches) {
+        document.documentElement.classList.add('dark')
+      } else {
+        document.documentElement.classList.remove('dark')
+      }
+    }
+  }
+  _mediaQuery.addEventListener('change', _onMediaChange)
+
+  // 初始应用主题
+  applyTheme()
+
+  return { themeMode, sidebarCollapsed, setThemeMode, toggleSidebar, applyTheme }
 })

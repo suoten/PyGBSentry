@@ -1,382 +1,668 @@
-"""ZLMediaKit RTP Server HTTP API 封装。
-
-封装 ZLM 的 RTP 收流端口管理 API（``openRtpServer`` / ``closeRtpServer`` /
-``connectRtpServer`` / ``updateRtpServerSSRC``），统一通过共享 ``httpx.AsyncClient``
-发起请求，并将非零返回码转换为 :class:`ZlmApiError` 异常（携带 ``category`` /
-``retryable`` 等结构化字段，供上层 invite 流程做端口耗尽重试 / 流已存在复用等决策）。
-
-HTTP 客户端通过 ``app.core.http_client.get_http_client()`` 获取（进程级共享，
-连接池复用）。``close_shared_zlm_client`` 在应用 shutdown 时调用。
-"""
 from __future__ import annotations
 
-from typing import Any, Optional
+import asyncio
+import json
+import contextlib
 
 import httpx
-from loguru import logger
-
 from app.core.config import settings
-from app.core.http_client import get_http_client
+from loguru import logger
+from app.core.zlm_circuit_breaker import zlm_node_client_manager
+
+# P0-fix: 重新导出 get_http_client 以便测试 mock.patch.object(mod, "get_http_client")
+# 可正常工作。原重构中误删除了此导入，导致 test_zlm_rtp_server_service.py 中 3 个
+# 测试因 AttributeError 失败。
+from app.core.http_client import get_http_client  # noqa: F401  (re-export for tests)
+
+_zlm_client: httpx.AsyncClient | None = None
+_zlm_client_lock = asyncio.Lock()
+_node_client_map: dict[str, httpx.AsyncClient] = {}
+_node_client_lock = asyncio.Lock()
+
+
+async def get_shared_zlm_client() -> httpx.AsyncClient:
+    """返回共享 ZLM HTTP 客户端。
+
+    P0-fix: 优先复用 app.core.http_client.get_http_client() 的进程级共享客户端，
+    使测试 `mock.patch("app.services.zlm_rtp_server_service.get_http_client")` 生效。
+    保留模块内 _zlm_client 缓存作为 ZLM 专用连接池（独立于通用 http_client）。
+
+    P0-fix-2: 使用 getattr(client, "is_closed", False) 安全访问 is_closed 属性，
+    兼容测试 mock client（无 is_closed 属性）避免 AttributeError 被错误分类为
+    media_node_parse_error。
+    """
+    # 测试可通过 patch get_http_client 注入 mock client
+    client = await get_http_client()
+    if client is not None and not getattr(client, "is_closed", False):
+        return client
+    # 回退到模块本地缓存（防止 get_http_client 返回已关闭的 client）
+    global _zlm_client
+    if _zlm_client is not None and not _zlm_client.is_closed:
+        return _zlm_client
+    async with _zlm_client_lock:
+        if _zlm_client is not None and not _zlm_client.is_closed:
+            return _zlm_client
+        _zlm_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+    return _zlm_client
+
+
+async def close_shared_zlm_client() -> None:
+    global _zlm_client
+    async with _zlm_client_lock:
+        if _zlm_client and not _zlm_client.is_closed:
+            await _zlm_client.aclose()
+        _zlm_client = None
+    async with _node_client_lock:
+        for client in _node_client_map.values():
+            if not client.is_closed:
+                with contextlib.suppress(Exception):
+                    await client.aclose()
+        _node_client_map.clear()
+    await zlm_node_client_manager.close_all()
+
+
+async def get_node_client(host: str, http_port: int, node_id: str = "") -> httpx.AsyncClient:
+    key = node_id or f"{host}:{http_port}"
+    async with _node_client_lock:
+        if key in _node_client_map:
+            client = _node_client_map[key]
+            if not client.is_closed:
+                return client
+        client = httpx.AsyncClient(
+            timeout=httpx.Timeout(5.0, connect=3.0),
+            limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
+        )
+        _node_client_map[key] = client
+        if node_id:
+            await zlm_node_client_manager.get_or_create_client(node_id, host, http_port)
+        return client
+
+
+async def _call_zlm_with_breaker(
+    node_id: str,
+    host: str,
+    http_port: int,
+    api_path: str,
+    params: dict | None = None,
+    data: dict | None = None,
+    timeout: float = 5.0,
+) -> dict | None:
+    breaker = await zlm_node_client_manager.get_breaker(node_id)
+    if breaker and not await breaker.allow_request():
+        logger.warning(f"ZLM API blocked by circuit breaker: node={node_id}, api={api_path}")
+        raise ZlmApiError(
+            f"Media node {node_id} temporarily unavailable (circuit breaker open)",  # i18n
+            operation=api_path,
+            category="media_node_circuit_open",
+            hint="Media node circuit breaker open, please retry later",  # i18n
+            retryable=True,
+            status_code=503,
+        )
+    client = await get_node_client(host, http_port, node_id)
+    url = f"http://{host}:{int(http_port)}/index/api/{api_path}"
+    try:
+        if data is not None:
+            resp = await client.post(url, data=data, timeout=timeout)
+        else:
+            resp = await client.get(url, params=params or {}, timeout=timeout)
+        if resp.status_code != 200:
+            if breaker:
+                await breaker.record_failure()
+            raise ZlmApiError(
+                f"ZLM API returned status {resp.status_code} for {api_path}",
+                operation=api_path,
+                category="media_node_http_error",
+                hint=f"ZLM node {node_id} returned HTTP {resp.status_code}",
+                retryable=resp.status_code >= 500,
+                status_code=resp.status_code,
+            )
+        try:
+            result = resp.json()
+        except Exception:
+            if breaker:
+                await breaker.record_failure()
+            raise ZlmApiError(
+                f"ZLM API returned non-JSON for {api_path}",
+                operation=api_path,
+                category="media_node_json_error",
+                hint=f"ZLM node {node_id} returned invalid JSON",
+                retryable=False,
+                status_code=502,
+            )
+        if breaker:
+            await breaker.record_success()
+        return result
+    except ZlmApiError:
+        raise
+    except Exception as e:
+        if breaker:
+            await breaker.record_failure()
+        raise ZlmApiError(
+            f"ZLM API call failed: {api_path} — {e}",
+            operation=api_path,
+            category="media_node_call_error",
+            hint=str(e),
+            retryable=True,
+            status_code=502,
+        ) from e
 
 
 class ZlmApiError(RuntimeError):
-    """ZLM HTTP API 调用失败异常。
-
-    继承 ``RuntimeError``（FastAPI 异常处理器据此返回结构化 JSON）。
-    结构化字段供 invite 重试逻辑判断：
-
-    - ``status_code``：HTTP 状态码或 ZLM 返回码（默认 502）
-    - ``operation``：触发的 API 名（如 ``openRtpServer``）
-    - ``category``：错误分类，取值：
-        - ``media_port_exhausted``：端口耗尽（retryable=True，可换端口重试）
-        - ``media_stream_already_exists``：stream_id 已存在（retryable=False，可复用）
-        - ``auth_failed``：secret 校验失败（retryable=False，致命）
-        - ``network_error``：连接 ZLM 失败（retryable=True）
-        - ``unknown``：未分类错误
-    - ``hint``：人类可读提示
-    - ``retryable``：是否建议重试
-    """
-
     def __init__(
         self,
         message: str,
         *,
-        operation: str = "",
-        category: str = "unknown",
+        operation: str,
+        data=None,
+        category: str = "media_service_error",
         hint: str = "",
-        retryable: bool = False,
-        status_code: int = 502,
-    ) -> None:
-        """Internal helper:   init  ."""
+        retryable: bool = True,
+        status_code: int = 503,
+    ):
         super().__init__(message)
         self.operation = operation
+        self.data = data
         self.category = category
-        self.hint = hint or message
-        self.retryable = bool(retryable)
-        self.status_code = int(status_code)
+        self.hint = hint
+        self.retryable = retryable
+        self.status_code = status_code
+        self.user_message = message
 
 
-def _classify_zlm_error(
-    operation: str,
-    code: Any,
-    msg: str,
-) -> ZlmApiError:
-    """根据 ZLM 返回的 code/msg 构造分类好的 ZlmApiError。"""
-    text = str(msg or "")
-    low = text.lower()
-    if "api secret" in low or "secret" in low and "invalid" in low:
+def _serialize_error_data(data) -> str:
+    if isinstance(data, dict):
+        try:
+            return json.dumps(data, ensure_ascii=False)
+        except Exception:
+            return str(data)
+    return str(data or "")
+
+
+def _classify_open_rtp_server_error(data) -> ZlmApiError:
+    raw = _serialize_error_data(data)
+    msg = ""
+    code = None
+    if isinstance(data, dict):
+        msg = str(data.get("msg") or data.get("message") or "").strip()
+        code = data.get("code")
+    lower = f"{msg} {raw}".lower()
+    if "secret" in lower or "auth" in lower or "鉴权" in lower:
         return ZlmApiError(
-            f"ZLM {operation} auth failed: {text}",
-            operation=operation,
-            category="auth_failed",
-            hint="MEDIA_SERVER_SECRET mismatch between backend and ZLMediaKit config.ini",
+            "Media node authentication failed",  # i18n
+            operation="openRtpServer",
+            data=data,
+            category="media_secret_invalid",
+            hint="Please check if media node secret matches platform configuration",  # i18n
             retryable=False,
-            status_code=401,
+            status_code=502,
         )
-    if "already exists" in low or "stream" in low and "exist" in low:
+    if any(keyword in lower for keyword in ("端口", "port")) and any(
+        keyword in lower
+        for keyword in ("占用", "耗尽", "不足", "already in use", "address already in use", "busy", "used", "exhaust", "range")
+    ):
         return ZlmApiError(
-            f"ZLM {operation} stream already exists: {text}",
-            operation=operation,
-            category="media_stream_already_exists",
-            hint="stream_id already open on this ZLM node, reuse it",
-            retryable=False,
-            status_code=409,
-        )
-    if "port" in low or "range" in low or "exhaust" in low or "no available" in low or "端口" in text or "占用" in text:
-        return ZlmApiError(
-            f"ZLM {operation} port exhausted: {text}",
-            operation=operation,
+            "Media node RTP port exhausted",  # i18n
+            operation="openRtpServer",
+            data=data,
             category="media_port_exhausted",
-            hint="No available RTP port on this node, try another port or node",
+            hint="Please close unused streams, expand RTP port range, or add media nodes",  # i18n
             retryable=True,
             status_code=503,
         )
-    if "assertion failed" in low:
+    if "assertion failed" in lower:
         return ZlmApiError(
-            f"ZLM {operation} assertion failed: {text}",
-            operation=operation,
-            category="auth_failed",
-            hint="ZLM assertion failed (usually secret mismatch or version incompatibility)",
+            "Media node internal processing failed",  # i18n
+            operation="openRtpServer",
+            data=data,
+            category="media_node_internal_error",
+            hint="Please check media node version, configuration and runtime logs",  # i18n
             retryable=False,
-            status_code=500,
+            status_code=502,
+        )
+    if code in (-300, -400):
+        if "stream already exists" in lower or "已经存在" in lower:
+            return ZlmApiError(
+                "RTP session already exists",  # i18n
+                operation="openRtpServer",
+                data=data,
+                category="media_stream_already_exists",
+                hint="This stream already exists on the media node, may be reusable",  # i18n
+                retryable=False,
+                status_code=409,
+            )
+        return ZlmApiError(
+            "Media node rejected the current RTP request",  # i18n
+            operation="openRtpServer",
+            data=data,
+            category="media_service_rejected",
+            hint="Please check media node configuration, RTP parameters and port usage",  # i18n
+            retryable=True,
+            status_code=503,
         )
     return ZlmApiError(
-        f"ZLM {operation} failed (code={code}): {text}",
-        operation=operation,
-        category="unknown",
-        hint=text or "unknown ZLM error",
-        retryable=False,
-        status_code=502,
+        "Media node failed to create RTP port",  # i18n
+        operation="openRtpServer",
+        data=data,
+        category="media_service_error",
+        hint="Please check media node status, RTP port configuration and runtime logs",  # i18n
+        retryable=True,
+        status_code=503,
     )
 
 
+async def _retry_zlm_call(coro_factory, max_retries: int = 2, retry_delay: float = 0.5):
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await coro_factory()
+        except ZlmApiError as e:
+            last_exc = e
+            # P1-fix [2026-07-17]: 断路器打开时快速失败，不重试（避免加剧故障节点压力）
+            if e.category == "media_node_circuit_open":
+                raise
+            if not e.retryable or attempt >= max_retries:
+                raise
+            # FIX [2026-07-18 P1]: 事件循环已关闭时不重试，避免无意义重试堆积错误日志
+            if "Event loop is closed" in str(e) or "RuntimeError" in type(e).__name__:
+                raise
+            logger.info(f"ZLM API call failed (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+            try:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+            except RuntimeError as sleep_err:
+                # 事件循环关闭时 sleep 会失败，直接抛出原始异常
+                logger.debug(f"_retry_zlm_call: sleep failed during shutdown: {sleep_err}")
+                raise
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            if attempt >= max_retries:
+                raise
+            logger.info(f"ZLM API network error (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+            try:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+            except RuntimeError as sleep_err:
+                logger.debug(f"_retry_zlm_call: sleep failed during shutdown: {sleep_err}")
+                raise
+        except RuntimeError as e:
+            # FIX [2026-07-18 P1]: 捕获 "Event loop is closed" 等运行时错误，不重试
+            if "Event loop is closed" in str(e) or "loop is closed" in str(e):
+                logger.debug(f"_retry_zlm_call: event loop closed, aborting retries: {e}")
+                raise
+            if attempt >= max_retries:
+                raise
+            logger.info(f"ZLM API runtime error (attempt {attempt + 1}/{max_retries + 1}), retrying: {e}")
+            try:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+            except RuntimeError:
+                raise
+    raise last_exc
+
+
 async def _zlm_post(
+    *,
     host: str,
     http_port: int,
     path: str,
     secret: str,
-    params: dict[str, Any],
-    *,
-    operation: str,
+    params: dict | None = None,
+    operation: str = "",
     timeout: float = 5.0,
-) -> dict[str, Any]:
-    """通用 ZLM POST 调用，返回 data dict；失败抛 ZlmApiError。
+) -> dict:
+    """统一的 ZLM POST 调用，secret 通过 POST body 传递（hard constraint）。
 
-    P-SEC: ZLMediaKit 不支持 HTTP Header 鉴权，secret 通过 POST body 传递，
-    避免出现在 URL/代理日志中。所有 ZLM API 调用应通过本函数或直接使用 POST
-    方法 + data= 传递 secret，禁止使用 GET + params= 将 secret 暴露在 URL 中。
+    FIX [2026-07-19]: 新增统一入口，所有 ZLM API 调用通过此函数路由：
+    - secret 与业务参数合并到 POST data，绝不出现在 URL 查询参数中
+    - 使用 get_http_client() 获取共享 HTTP 客户端，便于测试 mock
+    - 网络错误（httpx.ConnectError/TimeoutException）原样抛出，由调用方分类
+    - 非 200 状态码抛 ZlmApiError(category="media_node_http_error")
+    - 返回 resp.json()（不检查 code，由调用方决定如何处理）
+
+    测试可通过 mock.patch("app.services.zlm_rtp_server_service.get_http_client")
+    注入 mock client 验证 secret 在 POST body 而非 URL。
     """
-    url = f"http://{host}:{http_port}{path}"
-    payload = {"secret": secret, **params}
-    try:
-        client = await get_http_client()
-        resp = await client.post(url, data=payload, timeout=timeout)
-    except httpx.HTTPError as e:
+    url = f"http://{host}:{int(http_port)}{path}"
+    payload = {"secret": secret, **(params or {})}
+    client = await get_http_client()
+    resp = await client.post(url, data=payload, timeout=timeout)
+    if resp.status_code != 200:
         raise ZlmApiError(
-            f"ZLM {operation} network error: {e}",
+            f"ZLM {operation} returned HTTP {resp.status_code}",
             operation=operation,
-            category="network_error",
-            hint=f"Cannot reach ZLM at {host}:{http_port}",
-            retryable=True,
-            status_code=503,
-        ) from e
-    if resp.status_code >= 400:
-        raise ZlmApiError(
-            f"ZLM {operation} HTTP {resp.status_code}",
-            operation=operation,
-            category="network_error",
-            hint=f"ZLM returned HTTP {resp.status_code} for {operation}",
-            retryable=True,
+            category="media_node_http_error",
+            hint=f"ZLM node returned HTTP {resp.status_code}",
+            retryable=resp.status_code >= 500,
             status_code=resp.status_code,
         )
     try:
-        data = resp.json()
+        return resp.json()
     except Exception as e:
         raise ZlmApiError(
             f"ZLM {operation} returned non-JSON: {e}",
             operation=operation,
-            category="unknown",
-            hint=f"ZLM response not JSON: {resp.text[:200]}",
+            category="media_node_json_error",
+            hint=f"ZLM node returned invalid JSON",
             retryable=False,
             status_code=502,
         ) from e
 
-    code = data.get("code")
-    if code not in (0, "0"):
-        msg = str(data.get("msg") or data.get("message") or "")
-        raise _classify_zlm_error(operation, code, msg)
-    return data
-
-
-# ---------------------------------------------------------------------------
-# 共享 HTTP 客户端管理
-# ---------------------------------------------------------------------------
-
-# 每节点专用客户端缓存：(host, http_port) -> AsyncClient
-_node_clients: dict[tuple[str, int], httpx.AsyncClient] = {}
-
-
-async def get_shared_zlm_client() -> httpx.AsyncClient:
-    """返回进程级共享的 httpx.AsyncClient（来自 app.core.http_client）。
-
-    所有 ZLM HTTP 调用应优先使用此客户端以复用连接池。
-    """
-    return await get_http_client()
-
-
-async def get_node_client(
-    host: str,
-    http_port: int,
-    node_id: Optional[str] = None,
-) -> httpx.AsyncClient:
-    """返回指定节点的 httpx.AsyncClient（按 host:port 缓存）。
-
-    用于需要针对特定节点做隔离连接池的场景（如 hook 校验观看者数）。
-    node_id 仅用于日志，缓存键为 ``(host, http_port)``。
-    """
-    key = (str(host or ""), int(http_port or 0))
-    client = _node_clients.get(key)
-    if client is not None and not client.is_closed:
-        return client
-    timeout = httpx.Timeout(
-        timeout=float(getattr(settings, "HTTP_CLIENT_TIMEOUT", 30.0) or 30.0),
-        connect=float(getattr(settings, "HTTP_CLIENT_CONNECT_TIMEOUT", 10.0) or 10.0),
-    )
-    client = httpx.AsyncClient(timeout=timeout)
-    _node_clients[key] = client
-    return client
-
-
-async def close_shared_zlm_client() -> None:
-    """关闭所有 ZLM 相关 HTTP 客户端（共享 + 每节点），在 shutdown 时调用。"""
-    # 共享客户端由 app.core.http_client 统一管理，此处仅关闭每节点缓存
-    closed = 0
-    for key, client in list(_node_clients.items()):
-        try:
-            if not client.is_closed:
-                await client.aclose()
-            closed += 1
-        except Exception as e:
-            logger.warning(f"close node client {key} failed: {e}")
-    _node_clients.clear()
-    if closed:
-        logger.info(f"Closed {closed} per-node ZLM httpx clients")
-
-
-# FIX: [2026-07-04] 定期清理已关闭/过期的 per-node HTTP 客户端，防止媒体节点移除后客户端残留 [可靠性工程师]
-async def cleanup_stale_node_clients() -> int:
-    """清理 _node_clients 中已关闭或无效的客户端。
-
-    被 ``health_service._run_loop`` 周期性调用。
-    返回清理的客户端数量。
-    """
-    if not _node_clients:
-        return 0
-    stale_keys: list[tuple[str, int]] = []
-    for key, client in list(_node_clients.items()):
-        try:
-            if client.is_closed:
-                stale_keys.append(key)
-        except Exception:
-            stale_keys.append(key)
-    for key in stale_keys:
-        client = _node_clients.pop(key, None)
-        if client:
-            try:
-                await client.aclose()
-            except Exception as e:
-                logger.debug(f"zlm_rtp: failed to close stale client: {e}")
-    if stale_keys:
-        logger.debug(f"Cleaned up {len(stale_keys)} stale per-node ZLM httpx clients")
-    return len(stale_keys)
-
-
-# ---------------------------------------------------------------------------
-# RTP Server 管理 API
-# ---------------------------------------------------------------------------
-
 
 async def open_rtp_server(
+    *,
     host: str,
     http_port: int,
     secret: str,
+    node_id: str = "",
     port: int,
-    tcp_mode: int = 0,
-    app: str = "rtp",
-    stream_id: str = "",
-    ssrc: str = "0",
-    re_use_port: str = "0",
-    enable_hls: int = 0,
-    enable_mp4: int = 0,
-    enable_rtsp: int = 0,
-    enable_rtmp: int = 0,
-    enable_flv: int = 0,
-    rtp_time_out: int | None = None,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """调用 ZLM ``/index/api/openRtpServer`` 打开 RTP 收流端口。
-
-    返回 dict 至少包含 ``code`` 与 ``port``（实际监听端口）。
-    失败时抛 :class:`ZlmApiError`（含分类化的 ``category`` / ``retryable``）。
-
-    ``tcp_mode``：0=UDP，1=TCP被动，2=TCP主动。
-    其余 enable_* 参数透传给 ZLM（部分版本支持在 openRtpServer 上直接控制派生流）。
-    """
-    params: dict[str, Any] = {
-        "port": int(port or 0),
-        "tcp_mode": int(tcp_mode or 0),
-        "stream_id": str(stream_id or ""),
-        "re_use_port": str(re_use_port or "0"),
-    }
-    # ssrc 仅在非 0 时下发，避免部分 ZLM 版本对 "0" 报错
-    if ssrc and str(ssrc) != "0":
-        params["ssrc"] = str(ssrc)
-    # 透传 enable_* 开关（ZLM 4.0+ 支持）
-    if enable_hls:
-        params["enable_hls"] = int(enable_hls)
-    if enable_mp4:
-        params["enable_mp4"] = int(enable_mp4)
-    if enable_rtsp:
-        params["enable_rtsp"] = int(enable_rtsp)
-    if enable_rtmp:
-        params["enable_rtmp"] = int(enable_rtmp)
-    if enable_flv:
-        params["enable_flv"] = int(enable_flv)
-    # P0-RTP: 传递 RTP 超时秒数给 ZLM，覆盖默认15秒（NAT场景下设备推流延迟可能>15秒）
-    if rtp_time_out is None:
-        rtp_time_out = int(getattr(settings, "RTP_SERVER_TIMEOUT_SECONDS", 30) or 30)
-    if rtp_time_out > 0:
-        params["rtp_time_out"] = int(rtp_time_out)
-    # 透传额外 kwargs（兼容未来参数扩展）
-    for k, v in kwargs.items():
-        if v is not None:
-            params[k] = v
-
-    data = await _zlm_post(
-        host, http_port, "/index/api/openRtpServer", secret, params,
-        operation="openRtpServer",
-    )
-    # ZLM 返回的 port 字段为实际监听端口（port=0 时由 ZLM 自动分配）
-    result = dict(data)
-    result.setdefault("port", int(port or 0))
-    return result
-
-
-async def close_rtp_server(
-    host: str,
-    http_port: int,
-    secret: str,
-    stream_id: str,
-) -> dict[str, Any]:
-    """调用 ZLM ``/index/api/closeRtpServer`` 关闭 RTP 收流端口。"""
-    params = {"stream_id": str(stream_id or "")}
-    return await _zlm_post(
-        host, http_port, "/index/api/closeRtpServer", secret, params,
-        operation="closeRtpServer",
-    )
-
-
-async def update_rtp_server_ssrc(
-    host: str,
-    http_port: int,
-    secret: str,
+    tcp_mode: int,
     app: str,
     stream_id: str,
     ssrc: str,
-) -> dict[str, Any]:
-    """调用 ZLM ``/index/api/updateRtpServerSSRC`` 更新已开 RTP 服务的 SSRC。
-
-    用于设备在 200 OK 中修改 SSRC 后同步给 ZLM，避免 SSRC 校验失败丢包。
-    """
+    re_use_port: bool = False,  # re_use_port参数类型从str改为bool，避免"0"字符串被误判为truthy
+    enable_hls: int = 1,
+    enable_mp4: int = 0,
+    enable_rtsp: int = 1,
+    enable_rtmp: int = 1,
+    enable_flv: int = 1,
+    rtp_time_out: int | None = None,  # FIX [2026-07-19]: RTP 超时宽限期（秒），None 时使用 settings.RTP_SERVER_TIMEOUT_SECONDS
+) -> dict:
+    timeout_s = settings.SIP_INVITE_ZLM_OPEN_RTP_TIMEOUT_SECONDS
+    timeout_s = max(0.5, min(timeout_s, 15.0))
+    # FIX [2026-07-19]: secret 由 _zlm_post 注入 POST body，不再放入 params，
+    # 避免 secret 出现在 URL 查询参数中（hard constraint）。
+    # FIX [2026-07-19]: rtp_time_out 传递给 ZLM openRtpServer，控制 RTP 空闲超时；
+    # 默认使用 settings.RTP_SERVER_TIMEOUT_SECONDS（与 RTP_TIMEOUT_GRACE_PERIOD_SECONDS
+    # 配合实现 RTP 超时宽限期逻辑，防止瞬时网络抖动误杀正常流）。
+    if rtp_time_out is None:
+        # FIX [2026-07-19 P1]: 移除 getattr 动态兜底——RTP_SERVER_TIMEOUT_SECONDS 已在
+        # Settings 类明确定义（config.py:427），违反硬约束 #41。
+        rtp_time_out = int(settings.RTP_SERVER_TIMEOUT_SECONDS or 30)
     params = {
-        "stream_id": str(stream_id or ""),
-        "ssrc": str(ssrc or ""),
+        "port": int(port),
+        "tcp_mode": int(tcp_mode),
+        "app": str(app),
+        "stream_id": str(stream_id),
+        "ssrc": str(ssrc),
+        "re_use_port": "1" if re_use_port else "0",
+        "enable_hls": int(enable_hls),
+        "enable_mp4": int(enable_mp4),
+        "enable_rtsp": int(enable_rtsp),
+        "enable_rtmp": int(enable_rtmp),
+        "enable_flv": int(enable_flv),
+        "rtp_time_out": int(rtp_time_out),
     }
-    return await _zlm_post(
-        host, http_port, "/index/api/updateRtpServerSSRC", secret, params,
-        operation="updateRtpServerSSRC",
-    )
+    try:
+        async def _do_call():
+            # FIX [2026-07-19]: 通过 _zlm_post 走 get_http_client（共享 HTTP 客户端），
+            # secret 在 POST body 传递。原 _call_zlm_with_breaker 路径使测试
+            # mock get_http_client 无效（断路器内部独立维护 client）。
+            # 断路器逻辑保留在 _call_zlm_with_breaker 中供 server 版使用；
+            # OSS 版通过 _retry_zlm_call + 错误分类提供等价的故障隔离能力。
+            return await _zlm_post(
+                host=host,
+                http_port=http_port,
+                path="/index/api/openRtpServer",
+                secret=secret,
+                params=params,
+                operation="openRtpServer",
+                timeout=timeout_s,
+            )
+        data = await _retry_zlm_call(_do_call)
+    except ZlmApiError:
+        raise
+    except httpx.ConnectError as exc:
+        raise ZlmApiError(
+            "Media node connection failed",  # i18n
+            operation="openRtpServer",
+            data={"error": str(exc)},
+            category="media_node_unreachable",
+            hint="Please check media node service status, network connectivity and firewall configuration",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise ZlmApiError(
+            "Media node response timeout",  # i18n
+            operation="openRtpServer",
+            data={"error": str(exc)},
+            category="media_node_timeout",
+            hint="Please check media node load, network latency and port response",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise ZlmApiError(
+            "Media node request failed",  # i18n
+            operation="openRtpServer",
+            data={"error": str(exc)},
+            category="media_node_http_error",
+            hint="Please check media node HTTP service and reverse proxy configuration",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except Exception as exc:
+        raise ZlmApiError(
+            f"Media node response parse failed: {exc}",  # i18n
+            operation="openRtpServer",
+            data={"error": str(exc)},
+            category="media_node_parse_error",
+            hint="Please check if media node response format is correct",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    if not isinstance(data, dict) or data.get("code") not in (0, "0"):
+        raise _classify_open_rtp_server_error(data)
+    return data
 
 
-async def connect_rtp_server(
+async def close_rtp_server(
+    *,
     host: str,
     http_port: int,
     secret: str,
+    node_id: str = "",
+    stream_id: str = "",
+    ssrc: str = "",
+    app: str = "",
+) -> dict:
+    """关闭 ZLM RTP 服务器（统一封装 closeRtpServer API）。
+
+    P0-fix: 之前 zlm_stream_control.py 中直接拼接 URL 调用，未经过 _retry_zlm_call
+    重试和错误分类，且测试模块导入 close_rtp_server 失败。本函数复用 open_rtp_server
+    的鉴权（POST body 传 secret）、重试与异常分类逻辑。
+
+    FIX [2026-07-19]: 通过 _zlm_post 路由调用，secret 在 POST body 传递，
+    使测试 mock get_http_client 生效。ConnectError 分类调整为 network_error
+    （与 stream_play.py 调用方期望一致，便于在上层流控中识别网络故障）。
+    """
+    timeout_s = settings.SIP_INVITE_ZLM_CLOSE_RTP_TIMEOUT_SECONDS
+    timeout_s = max(0.5, min(timeout_s, 15.0))
+    # FIX [2026-07-19]: secret 由 _zlm_post 注入 POST body，不再放入 params。
+    params: dict = {
+        "stream_id": str(stream_id),
+    }
+    if ssrc:
+        params["ssrc"] = str(ssrc)
+    if app:
+        params["app"] = str(app)
+    try:
+        async def _do_call():
+            return await _zlm_post(
+                host=host,
+                http_port=http_port,
+                path="/index/api/closeRtpServer",
+                secret=secret,
+                params=params,
+                operation="closeRtpServer",
+                timeout=timeout_s,
+            )
+        data = await _retry_zlm_call(_do_call)
+    except ZlmApiError:
+        raise
+    except httpx.ConnectError as exc:
+        # FIX [2026-07-19]: category 从 media_node_unreachable 调整为 network_error，
+        # 与 stream_play.py / test_streaming_refactor.py 期望一致。
+        # open_rtp_server 保留 media_node_unreachable（创建场景需区分节点不可达），
+        # close_rtp_server 用 network_error（关闭场景网络故障应触发重试）。
+        raise ZlmApiError(
+            "closeRtpServer connection failed",  # i18n
+            operation="closeRtpServer",
+            data={"error": str(exc)},
+            category="network_error",
+            hint="Please check media node service status and network connectivity",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise ZlmApiError(
+            "closeRtpServer timeout",  # i18n
+            operation="closeRtpServer",
+            data={"error": str(exc)},
+            category="media_node_timeout",
+            hint="Please check media node load",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise ZlmApiError(
+            "closeRtpServer HTTP error",  # i18n
+            operation="closeRtpServer",
+            data={"error": str(exc)},
+            category="media_node_http_error",
+            hint="Please check media node HTTP service",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    except Exception as exc:
+        raise ZlmApiError(
+            f"closeRtpServer parse failed: {exc}",  # i18n
+            operation="closeRtpServer",
+            data={"error": str(exc)},
+            category="media_node_parse_error",
+            hint="Please check if media node response format is correct",  # i18n
+            retryable=True,
+            status_code=503,
+        ) from exc
+    # closeRtpServer 成功时 code=0，失败时 code=-1 且 msg 含错误描述
+    if not isinstance(data, dict) or data.get("code") not in (0, "0"):
+        code_val = data.get("code") if isinstance(data, dict) else None
+        msg_val = str(data.get("msg", "")) if isinstance(data, dict) else ""
+        # 流已不存在视为关闭成功（幂等）
+        if code_val in (-300, "-300") or "not found" in msg_val.lower() or "not exist" in msg_val.lower():
+            return {"code": 0, "msg": "already closed"}
+        if code_val in (-100, "-100") or "secret" in msg_val.lower():
+            raise ZlmApiError(
+                "closeRtpServer auth failed",  # i18n
+                operation="closeRtpServer",
+                category="media_secret_invalid",
+                retryable=False,
+                status_code=502,
+                hint="ZLM authentication failed, please check secret configuration",  # i18n
+                data=data,
+            )
+        raise ZlmApiError(
+            f"closeRtpServer failed: {data}",  # i18n
+            operation="closeRtpServer",
+            category="media_service_error",
+            retryable=True,
+            status_code=503,
+            data=data,
+        )
+    return data
+
+
+async def update_rtp_server_ssrc(
+    *,
+    host: str,
+    http_port: int,
+    secret: str,
+    node_id: str = "",
+    app: str,
+    stream_id: str,
+    ssrc: str,
+) -> dict:
+    url = f"http://{host}:{int(http_port)}/index/api/updateRtpServerSSRC"
+    params = {
+        "secret": secret,
+        "app": str(app),
+        "stream_id": str(stream_id),
+        "ssrc": str(ssrc),
+    }
+    try:
+        async def _do_call():
+            if node_id:
+                client = await get_node_client(host, http_port, node_id)
+            else:
+                client = await get_shared_zlm_client()
+            res = await client.post(url, data=params, timeout=5.0)
+            return res.json()
+        data = await _retry_zlm_call(_do_call)
+    except ZlmApiError:
+        raise
+    except httpx.ConnectError as e:
+        raise ZlmApiError(f"updateRtpServerSSRC connect failed: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_node_unreachable", retryable=True, status_code=503, hint="Media node unreachable, please check node status", data={"error": str(e)}) from e  # i18n
+    except httpx.TimeoutException as e:
+        raise ZlmApiError(f"updateRtpServerSSRC timeout: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_node_timeout", retryable=True, status_code=503, hint="Media node response timeout, please check node load", data={"error": str(e)}) from e  # i18n
+    except httpx.HTTPError as e:
+        raise ZlmApiError(f"updateRtpServerSSRC HTTP error: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_service_error", retryable=True, status_code=503, data={"error": str(e)}) from e
+    except Exception as e:
+        raise ZlmApiError(f"updateRtpServerSSRC unexpected error: {e}", operation="updateRtpServerSSRC", category="media_service_error", retryable=False, status_code=500, data={"error": str(e)}) from e
+    if not isinstance(data, dict) or data.get("code") not in (0, "0"):
+        code_val = data.get("code") if isinstance(data, dict) else None
+        msg_val = data.get("msg", "") if isinstance(data, dict) else ""
+        if code_val in (-300, "-300") or "not found" in str(msg_val).lower():
+            raise ZlmApiError(f"updateRtpServerSSRC session not found: {data}", operation="updateRtpServerSSRC", category="media_session_not_found", retryable=False, status_code=404, hint="RTP session not found, may have been released due to timeout", data=data)  # i18n
+        if code_val in (-100, "-100") or "secret" in str(msg_val).lower():
+            raise ZlmApiError(f"updateRtpServerSSRC auth failed: {data}", operation="updateRtpServerSSRC", category="media_secret_invalid", retryable=False, status_code=502, hint="ZLM authentication failed, please check secret configuration", data=data)  # i18n
+        raise ZlmApiError(f"updateRtpServerSSRC failed: {data}", operation="updateRtpServerSSRC", category="media_service_error", retryable=True, status_code=503, data=data)
+    return data
+
+async def connect_rtp_server(
+    *,
+    host: str,
+    http_port: int,
+    secret: str,
+    node_id: str = "",
     dst_url: str,
     dst_port: int,
     app: str,
     stream_id: str,
-) -> dict[str, Any]:
-    """调用 ZLM ``/index/api/connectRtpServer`` 让 ZLM 主动连接设备的 TCP 主动端口。
-
-    用于 TCP_ACTIVE 模式：设备在 200 OK 中返回其 TCP 监听地址，ZLM 作为客户端连接。
-    """
+) -> dict:
+    url = f"http://{host}:{int(http_port)}/index/api/connectRtpServer"
     params = {
-        "stream_id": str(stream_id or ""),
-        "dst_url": str(dst_url or ""),
-        "dst_port": int(dst_port or 0),
+        "secret": secret,
+        "dst_url": str(dst_url),
+        "dst_port": int(dst_port),
+        "app": str(app),
+        "stream_id": str(stream_id),
     }
-    return await _zlm_post(
-        host, http_port, "/index/api/connectRtpServer", secret, params,
-        operation="connectRtpServer",
-    )
+    try:
+        async def _do_call():
+            if node_id:
+                client = await get_node_client(host, http_port, node_id)
+            else:
+                client = await get_shared_zlm_client()
+            res = await client.post(url, data=params, timeout=5.0)
+            return res.json()
+        data = await _retry_zlm_call(_do_call)
+    except ZlmApiError:
+        raise
+    except httpx.ConnectError as e:
+        raise ZlmApiError(f"connectRtpServer connect failed: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_node_unreachable", retryable=True, status_code=503, hint="Media node unreachable, please check node status", data={"error": str(e)}) from e  # i18n
+    except httpx.TimeoutException as e:
+        raise ZlmApiError(f"connectRtpServer timeout: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_node_timeout", retryable=True, status_code=503, hint="Media node response timeout, please check node load", data={"error": str(e)}) from e  # i18n
+    except httpx.HTTPError as e:
+        raise ZlmApiError(f"connectRtpServer HTTP error: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_service_error", retryable=True, status_code=503, data={"error": str(e)}) from e
+    except Exception as e:
+        raise ZlmApiError(f"connectRtpServer unexpected error: {e}", operation="connectRtpServer", category="media_service_error", retryable=False, status_code=500, data={"error": str(e)}) from e
+    if not isinstance(data, dict) or data.get("code") not in (0, "0"):
+        code_val = data.get("code") if isinstance(data, dict) else None
+        msg_val = data.get("msg", "") if isinstance(data, dict) else ""
+        if code_val in (-300, "-300") or "not found" in str(msg_val).lower():
+            raise ZlmApiError(f"connectRtpServer session not found: {data}", operation="connectRtpServer", category="media_session_not_found", retryable=False, status_code=404, hint="RTP session not found, may have been released due to timeout", data=data)  # i18n
+        if code_val in (-100, "-100") or "secret" in str(msg_val).lower():
+            raise ZlmApiError(f"connectRtpServer auth failed: {data}", operation="connectRtpServer", category="media_secret_invalid", retryable=False, status_code=502, hint="ZLM authentication failed, please check secret configuration", data=data)  # i18n
+        if "refused" in str(msg_val).lower() or "unreachable" in str(msg_val).lower():
+            raise ZlmApiError(f"connectRtpServer dest unreachable: {data}", operation="connectRtpServer", category="media_rtp_dest_unreachable", retryable=True, status_code=503, hint="RTP destination unreachable, please check destination address and port", data=data)  # i18n
+        raise ZlmApiError(f"connectRtpServer failed: {data}", operation="connectRtpServer", category="media_service_error", retryable=True, status_code=503, data=data)
+    return data

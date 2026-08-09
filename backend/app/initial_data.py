@@ -72,11 +72,39 @@ async def init_db():
             session.add(user)
             await session.commit()
             logger.info("Default admin user created.")
-            logger.warning("=" * 60)
-            logger.warning("IMPORTANT: Admin password has been set.")
-            logger.warning("Retrieve the password from ADMIN_INITIAL_PASSWORD env.")
-            logger.warning("Please change it immediately after first login!")
-            logger.warning("=" * 60)
+            # FIX: [2026-07-16 P0] 原仅提示"Retrieve from ADMIN_INITIAL_PASSWORD env"
+            # 但自动生成的密码从未输出，用户无法登录。现将密码写入安全文件。
+            # 仅当密码是自动生成（非 ADMIN_INITIAL_PASSWORD 环境变量提供）时写入。
+            _admin_pwd_from_env = os.environ.get("ADMIN_INITIAL_PASSWORD", "").strip()
+            if not _admin_pwd_from_env:
+                try:
+                    import os as _os
+                    _data_dir = _os.path.join(_os.getcwd(), "data")
+                    _os.makedirs(_data_dir, exist_ok=True)
+                    _pwd_file = _os.path.join(_data_dir, ".admin_initial_password")
+                    with open(_pwd_file, "w", encoding="utf-8") as f:
+                        f.write(_admin_password)
+                    _os.chmod(_pwd_file, 0o600)
+                    logger.warning("=" * 60)
+                    logger.warning("IMPORTANT: Admin password has been auto-generated.")
+                    logger.warning(f"Password written to: {_pwd_file}")
+                    logger.warning("Read it with: cat data/.admin_initial_password")
+                    logger.warning("Please change it immediately after first login!")
+                    logger.warning("For production, set ADMIN_INITIAL_PASSWORD env var.")
+                    logger.warning("=" * 60)
+                except Exception as _pwd_write_err:
+                    # 文件写入失败时回退到日志输出（开发环境可见）
+                    logger.warning("=" * 60)
+                    logger.warning("IMPORTANT: Admin password has been auto-generated.")
+                    logger.warning(f"Failed to write password file: {_pwd_write_err}")
+                    logger.warning(f"Admin password (save now, this won't be shown again): {_admin_password}")
+                    logger.warning("Please change it immediately after first login!")
+                    logger.warning("=" * 60)
+            else:
+                logger.warning("=" * 60)
+                logger.warning("IMPORTANT: Admin password has been set from ADMIN_INITIAL_PASSWORD env.")
+                logger.warning("Please change it immediately after first login!")
+                logger.warning("=" * 60)
         else:
             if _admin_password and _force_reset:
                 user.hashed_password = security.get_password_hash(_admin_password)
@@ -114,7 +142,7 @@ async def init_db():
             try:
                 import httpx
                 base_url = (settings.PLUGIN_MARKETPLACE_BASE_URL or "").rstrip("/")
-                record_url = (getattr(settings, "PLUGIN_SERVER_RECORD_URL", None) or "").strip()
+                record_url = (settings.PLUGIN_SERVER_RECORD_URL or "").strip()
                 if record_url:
                     from urllib.parse import urlparse
                     parsed = urlparse(record_url)
@@ -130,7 +158,7 @@ async def init_db():
             except Exception as e:
                 logger.warning(f"Error: {e}")
             if not enable_trial:
-                trial_days = max(0, int(getattr(settings, "TRIAL_DAYS", 7) or 0))
+                trial_days = max(0, int(settings.TRIAL_DAYS or 0))
                 enable_trial = trial_days > 0
             trial_ends_at = datetime.now(timezone.utc) + timedelta(days=trial_days) if enable_trial and trial_days > 0 else None
             default_sub = TenantSubscription(
@@ -152,24 +180,24 @@ async def init_db():
             any_mn = mn_result.scalars().first()
             if not any_mn:
                 hook_base = (
-                    getattr(settings, "MEDIA_SERVER_HOOK_BASE_URL", None)
+                    settings.MEDIA_SERVER_HOOK_BASE_URL
                     or f"http://{settings.BACKEND_PUBLIC_HOST}:{settings.BACKEND_PUBLIC_PORT}{settings.API_V1_STR}/hook"
                 )
                 embedded = MediaNode(
-                    ip=str(getattr(settings, "MEDIA_SERVER_HOST", "") or ""),
+                    ip=str(settings.MEDIA_SERVER_HOST or ""),
                     public_ip=None,
-                    stream_ip=str(getattr(settings, "STREAM_PUBLIC_HOST", "") or "") or None,
-                    http_port=int(getattr(settings, "MEDIA_SERVER_HTTP_PORT", 80) or 80),
+                    stream_ip=str(settings.STREAM_PUBLIC_HOST or "") or None,
+                    http_port=int(settings.MEDIA_SERVER_HTTP_PORT or 80),
                     https_port=0,
-                    rtsp_port=int(getattr(settings, "MEDIA_SERVER_RTSP_PORT", 554) or 554),
+                    rtsp_port=int(settings.MEDIA_SERVER_RTSP_PORT or 554),
                     rtsps_port=0,
-                    rtmp_port=int(getattr(settings, "MEDIA_SERVER_RTMP_PORT", 1935) or 1935),
+                    rtmp_port=int(settings.MEDIA_SERVER_RTMP_PORT or 1935),
                     rtmps_port=0,
-                    rtp_proxy_port=int(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT", 10000) or 10000),
-                    rtp_port_mode="range" if "-" in str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "") or "") else "single",
-                    rtp_port_range_start=int(str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "0-0")).split("-")[0] or 0),
-                    rtp_port_range_end=int(str(getattr(settings, "MEDIA_SERVER_RTP_PROXY_PORT_RANGE", "0-0")).split("-")[-1] or 0),
-                    decrypted_secret=str(getattr(settings, "MEDIA_SERVER_SECRET", "") or ""),  # P0-02: setter 自动加密
+                    rtp_proxy_port=int(settings.MEDIA_SERVER_RTP_PROXY_PORT or 10000),
+                    rtp_port_mode="range" if "-" in str(settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE or "") else "single",
+                    rtp_port_range_start=int(str(settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE or "0-0").split("-")[0] or 0),
+                    rtp_port_range_end=int(str(settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE or "0-0").split("-")[-1] or 0),
+                    decrypted_secret=str(settings.MEDIA_SERVER_SECRET or ""),  # P0-02: setter 自动加密
                     hook_base_url=hook_base,
                     is_online=False,
                     load=0.0,

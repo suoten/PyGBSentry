@@ -42,11 +42,37 @@ _ENDPOINT_MODULES = [
 
 
 def _load(name: str):
-    """Import ``app.api.v1.endpoints.<name>``; return the module or ``None``."""
+    """Import ``app.api.v1.endpoints.<name>``; return the module or ``None``.
+
+    FIX: [2026-07-13] Distinguish between "module doesn't exist" (expected for
+    OSS edition — enterprise-only modules are absent) and "module exists but
+    failed to import" (bug, missing dependency). The former is logged at DEBUG
+    (expected). The latter is now logged at WARNING with full traceback so
+    operators can diagnose why routes are silently missing in production.
+
+    Previously ALL failures were logged at DEBUG, which is hidden when
+    APP_ENV=prod (stderr level=WARNING). This caused modules like ``plugins``
+    to silently fail import (e.g., missing ``aiohttp`` dep) with all their
+    routes returning 404 and no visible error in the logs. [全栈工程师]
+    """
+    import importlib.util
+    try:
+        spec = importlib.util.find_spec(f"app.api.v1.endpoints.{name}")
+    except Exception:
+        spec = None
+    if spec is None:
+        # Module file doesn't exist — expected for OSS edition (enterprise-only)
+        logger.debug(f"api router: endpoint module '{name}' not found (expected for OSS edition)")
+        return None
     try:
         return importlib.import_module(f"app.api.v1.endpoints.{name}")
     except Exception as e:
-        logger.debug(f"api router: endpoint module '{name}' unavailable, skipping ({e})")
+        # Module EXISTS but failed to import — this is a bug, log at WARNING
+        # so it's visible in production (DEBUG is hidden when APP_ENV=prod)
+        logger.warning(
+            f"api router: endpoint module '{name}' exists but FAILED to import: {e}",
+            exc_info=True,
+        )
         return None
 
 
@@ -55,22 +81,24 @@ for _name in _ENDPOINT_MODULES:
     globals()[_name] = _load(_name)
 
 # Sub-package routers that live in their own package (stream) or common layer.
+# FIX: [2026-07-13] Log import failures at WARNING (visible in production) —
+# if these modules exist but fail to import, all their routes silently 404.
 try:
     from app.api.v1.endpoints.stream import router as stream_router  # type: ignore
 except Exception as _e:
-    logger.debug(f"api router: stream package unavailable, skipping ({_e})")
+    logger.warning(f"api router: stream package failed to import, skipping ({_e})", exc_info=True)
     stream_router = None  # type: ignore[assignment]
 
 try:
     from app.api.common import channel  # type: ignore
 except Exception as _e:
-    logger.debug(f"api router: app.api.common.channel unavailable, skipping ({_e})")
+    logger.warning(f"api router: app.api.common.channel failed to import, skipping ({_e})", exc_info=True)
     channel = None  # type: ignore[assignment]
 
 try:
     from app.api.common import play_start  # type: ignore
 except Exception as _e:
-    logger.debug(f"api router: app.api.common.play_start unavailable, skipping ({_e})")
+    logger.warning(f"api router: app.api.common.play_start failed to import, skipping ({_e})", exc_info=True)
     play_start = None  # type: ignore[assignment]
 
 
@@ -170,8 +198,8 @@ def health_check():
     return {
         "status": "ok",
         "edition": edition_label(),
-        "version": getattr(settings, "PROJECT_VERSION", "1.0.0"),
-        "project": getattr(settings, "PROJECT_NAME", "PyGBSentry"),
+        "version": settings.PROJECT_VERSION,
+        "project": settings.PROJECT_NAME,
     }
 
 

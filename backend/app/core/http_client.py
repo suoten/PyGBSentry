@@ -20,15 +20,17 @@ async def get_http_client() -> httpx.AsyncClient:
     global _client
     if _client is not None and not _client.is_closed:
         return _client
+    # FIX: [2026-07-16 P0] 移除 getattr 动态获取，直接使用 Settings 中定义的字段，
+    # 确保 .env 配置生效，且 mypy/pyright 可在编译期发现未定义字段。
     timeout = httpx.Timeout(
-        timeout=float(getattr(settings, "HTTP_CLIENT_TIMEOUT", 30.0) or 30.0),
-        connect=float(getattr(settings, "HTTP_CLIENT_CONNECT_TIMEOUT", 10.0) or 10.0),
+        timeout=settings.HTTP_CLIENT_TIMEOUT,
+        connect=settings.HTTP_CLIENT_CONNECT_TIMEOUT,
     )
     limits = httpx.Limits(
-        max_connections=int(getattr(settings, "HTTP_CLIENT_MAX_CONNECTIONS", 100) or 100),
-        max_keepalive_connections=int(getattr(settings, "HTTP_CLIENT_MAX_KEEPALIVE", 20) or 20),
+        max_connections=settings.HTTP_CLIENT_MAX_CONNECTIONS,
+        max_keepalive_connections=settings.HTTP_CLIENT_MAX_KEEPALIVE,
     )
-    verify = bool(getattr(settings, "HTTP_CLIENT_VERIFY_SSL", True))
+    verify = settings.HTTP_CLIENT_VERIFY_SSL
     _client = httpx.AsyncClient(timeout=timeout, limits=limits, verify=verify)
     logger.debug("http_client: created shared AsyncClient")
     return _client

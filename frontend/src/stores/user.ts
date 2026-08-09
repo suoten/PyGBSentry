@@ -82,6 +82,27 @@ export const useUserStore = defineStore('user', () => {
     const { useNotificationStore } = await import('@/stores/notification')
     useNotificationStore().disconnectWebSocket()
     clearAuth()
+    // FIX: [2026-07-17 P1] 重置业务 store，防止跨账号数据残留
+    // 公共终端场景下 A 账号登出后 B 账号登录会看到 A 的残留数据
+    try {
+      const { useDeviceStore } = await import('@/stores/device')
+      useDeviceStore().$reset()
+    } catch { /* store 可能未加载 */ }
+    try {
+      const { useAlarmStore } = await import('@/stores/alarm')
+      useAlarmStore().$reset()
+    } catch { /* store 可能未加载 */ }
+    try {
+      const { usePlayerStore } = await import('@/stores/player')
+      usePlayerStore().$reset()
+    } catch { /* store 可能未加载 */ }
+    try {
+      const { usePluginStore } = await import('@/stores/plugin')
+      usePluginStore().$reset()
+    } catch { /* store 可能未加载 */ }
+    // FIX: [2026-07-17 P1] 取消所有进行中的请求，防止旧请求响应覆盖新账号状态
+    const { clearStalePendingRequests } = await import('@/utils/httpDedupe')
+    clearStalePendingRequests()
   }
 
   return { token, username, role, isSuperuser, tenantId, isLoggedIn, setAuth, clearAuth, logout, refreshRoleFromBackend, fetchUserInfo }

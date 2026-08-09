@@ -1,12 +1,13 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
 from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
 from app.sip.send import send_sip_bytes
 from loguru import logger
 import random
+import secrets
 import itertools
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
@@ -22,10 +23,83 @@ def _next_sn() -> int:
     return next(_sn_counter)
 
 
-def _attach_trace_header(req: SipMessage) -> None:
-    call_id = (req.get_header("Call-ID") or "").strip()
-    if call_id:
-        req.headers["X-Trace-ID"] = call_id
+# P1-fix [2026-07-17]: 统一封装 Via branch 和 Call-ID 生成器
+# 原代码 branch=z9hG4bK{sn} 无随机性，进程重启后 SN 归零会导致 branch 重复，
+# 违反 RFC 3261 §8.1.1.7（branch 必须全局唯一）。Call-ID 同理。
+def _make_branch(prefix: str = "") -> str:
+    """生成符合 RFC 3261 §8.1.1.7 的 Via branch 参数。
+
+    z9hG4bK 前缀（magic cookie）+ 可选语义前缀 + 64 位密码学随机性。
+    """
+    rand = secrets.token_hex(8)  # 64 bits 随机性
+    return f"z9hG4bK{prefix}{rand}" if prefix else f"z9hG4bK{rand}"
+
+
+def _make_call_id(prefix: str = "") -> str:
+    """生成全局唯一 Call-ID（RFC 3261 §20.8）。
+
+    使用 64 位密码学随机值 @IP地址。
+    FIX: [2026-07-22 P1] 忽略 prefix 参数（保留签名兼容现有调用点）。
+    FIX: [2026-07-29 P0] Call-ID host 从 SIP_DOMAIN 改为 sip_via_host()（IP地址）。
+    真实 GB28181 抓包显示 Call-ID host 均使用 IP 地址（如 @44.198.62.2），
+    而非行政区划码。EasyGBS 对 @3402000000 的 Call-ID 可能返回 400。
+    响应关联走 Via branch + XML SN，不依赖 Call-ID host 内容。
+    """
+    return f"{secrets.token_hex(8)}@{sip_via_host()}"
+
+
+def _make_tag() -> str:
+    """生成 From/To tag（RFC 3261 §19.3）。
+
+    FIX: [2026-07-21 P0] 移除所有语义前缀（如 ptz/rec/di 等），仅使用 64 位密码学随机性。
+    实测发现 EasyGBS 等非标准 SIP 客户端对带前缀的 tag 敏感，会返回 400 Bad Request。
+    RFC 3261 §19.3 仅要求 tag 至少 32 位随机性，不要求语义前缀。
+    """
+    return secrets.token_hex(8)
+
+
+def _attach_trace_header(req: SipMessage) -> str:
+    """返回 Call-ID 作为 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 请求添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request，
+    导致 catalog query / time sync 等所有 MESSAGE 请求失败、通道列表无法同步。
+    RFC 3261 §20 允许扩展头域，但非标准头可能被严格实现拒绝。此处保留日志关联能力
+    （通过返回 call_id 给调用方），但不再向 SIP 消息写入非标准头。
+
+    FIX [2026-07-29 P0]: 添加 X-GB-Ver 头（GB28181 版本标识）。
+    X-GB-Ver 是 GB/T 28181 标准扩展头（非自定义头），EasyGBS 自己的 REGISTER 包含此头。
+    之前因担心 X- 头敏感而移除了所有 X- 头，但 X-GB-Ver 是 GB28181 标准头，应保留。
+    """
+    if not req.get_header("X-GB-Ver"):
+        req.headers["X-GB-Ver"] = "3.0"
+    return (req.get_header("Call-ID") or "").strip()
+
+
+# GB28181 互操作性：UAC 应在请求中声明支持的方法集
+_SIP_ALLOW_HEADER = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, SUBSCRIBE, NOTIFY, MESSAGE, UPDATE"
+
+
+def _attach_common_headers(req: SipMessage, device_id: str = "") -> None:
+    """为 out-of-dialog SIP 请求补全 Contact 和 Allow 头（RFC 3261 §20.5/§20.10）。
+
+    P0-fix: SUBSCRIBE 请求缺少 Contact 头会导致设备无法回送 NOTIFY；
+    P1-fix: MESSAGE 请求缺少 Allow 头会影响互操作性判断。
+
+    FIX: [2026-07-21 P0] 兼容非标准 SIP 客户端（如 EasyGBS 级联平台）：
+    实测发现 EasyGBS 对 MESSAGE 请求中的 Contact/Allow 头域敏感，会返回 400 Bad Request，
+    导致 catalog query 失败、通道列表无法同步。RFC 3261 §20.10 仅强制 INVITE 必须带 Contact，
+    MESSAGE/OPTIONS/INFO 等方法不要求 Contact 和 Allow 头。此处对 MESSAGE 请求完全跳过
+    Contact/Allow 头的补全，恢复 P1-fix 之前的行为，确保与各种非标准 SIP 客户端兼容。
+    """
+    _method = (getattr(req, "method", "") or "").strip().upper()
+    # FIX: [2026-07-21 P0] MESSAGE 请求完全跳过 Contact/Allow 头，兼容 EasyGBS 等非标准客户端
+    if _method == "MESSAGE":
+        return
+    if not req.get_header("Contact"):
+        req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
+    if not req.get_header("Allow"):
+        req.headers["Allow"] = _SIP_ALLOW_HEADER
 
 class SipCommander:
     def __init__(self, sip_server):
@@ -52,23 +126,47 @@ class SipCommander:
         # Create Request
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        # FIX [2026-07-29 P0]: Request URI 使用 SIP_DOMAIN（GB28181 §9.2.1 标准），
+        # 不用 IP:port。EasyGBS 自己的 REGISTER 也用 SIP_DOMAIN 作 request URI host。
+        # 传输层使用 addr 参数发送，request URI 仅作逻辑地址。
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKcat{sn}{random.randint(100,999)}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=cat{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        # FIX [2026-07-29 P0]: From 用 IP（兼容 EasyGBS），To 用 SIP_DOMAIN（GB28181 标准）。
+        # 之前 From 和 To 都用 sip_from_to_host()（PyGBSentry IP），导致 To 头的 host 是
+        # 发送方 IP 而非 SIP_DOMAIN，EasyGBS 看到 To 头中自己的 ID 配了别人的 IP → 400。
+        _from_host = sip_from_to_host()  # From 用 IP（EasyGBS 兼容）
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{_from_host}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id()
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
 
         # Send
         data = req.to_bytes()
+        # FIX: [2026-07-21 P0] 诊断 catalog query 完整请求内容
+        # FIX [2026-07-29 P0]: 增加 hex dump 验证 CRLF 编码和 Content-Length 一致性
+        try:
+            _req_dump = data.decode("utf-8", errors="replace")
+            _body_start = data.find(b"\r\n\r\n")
+            _body_bytes = data[_body_start + 4:] if _body_start >= 0 else b""
+            _cl_header = req.get_header("Content-Length") or "?"
+            _hex_preview = _body_bytes[:60].hex(" ")
+            logger.info(
+                f"[CATALOG_DIAG] Sending Catalog Query to {device_id} via {addr} "
+                f"(From host={_from_host}, To host={settings.SIP_DOMAIN}, CL={_cl_header}, body_len={len(_body_bytes)}, "
+                f"body_hex={_hex_preview}):\n{_req_dump}"
+            )
+        except Exception:
+            pass
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
@@ -90,6 +188,18 @@ class SipCommander:
                 rtt_ms=_rtt_ms,
                 attempts=_attempts,
             )
+            # FIX: [2026-07-21 P0] 记录 catalog query 响应（含非 200 的完整响应）
+            if _status_code != 0 and _status_code != 200:
+                try:
+                    _resp_headers_dump = "; ".join(f"{k}: {v}" for k, v in resp.headers.raw_items()) if resp else ""
+                    _resp_body_dump = ((resp.body or "")[:1000]) if resp else ""
+                    logger.warning(
+                        f"[CATALOG_DIAG] Non-200 response for Catalog Query to {device_id}: "
+                        f"status={_status_code} rtt_ms={_rtt_ms} attempts={_attempts} "
+                        f"headers=[{_resp_headers_dump}] body=[{_resp_body_dump}]"
+                    )
+                except Exception:
+                    pass
         else:
             # SIP发送裸调用无异常保护
             try:
@@ -125,21 +235,33 @@ class SipCommander:
 
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{platform_gb_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{platform_gb_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKplat{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=plat{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        _from_to_host = sip_from_to_host()
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{_from_to_host}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{platform_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_platform_catalog@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('plat_cat')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
         req.body = xml_body
 
         data = req.to_bytes()
+        # FIX: [2026-07-21 P0] 诊断 platform catalog query 完整请求内容
+        try:
+            _req_dump = data.decode("utf-8", errors="replace")
+            logger.info(
+                f"[CATALOG_DIAG] Sending Platform Catalog Query to {platform_gb_id} via {addr} "
+                f"(From host={_from_to_host}, To host={settings.SIP_DOMAIN}):\n{_req_dump}"
+            )
+        except Exception:
+            pass
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:
@@ -173,13 +295,14 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "SUBSCRIBE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKmp{sn}{random.randint(100,999)}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=mp{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}sub@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('sub')
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "MobilePosition"
         req.headers["Expires"] = str(expires)
@@ -187,6 +310,7 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -233,11 +357,12 @@ class SipCommander:
     async def send_time_sync(self, device_id: str, transport_info: tuple):
         """
         """
-        from datetime import datetime, timezone, timedelta
+        from app.core.timezone import now_in_app_timezone
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
-        # 北京时间 UTC+8
-        now = datetime.now(timezone(timedelta(hours=8)))
+        # FIX: [2026-07-17 P1] 统一使用应用时区，与 send_platform_time_sync 保持一致
+        # GB28181-2016 §A.4.2 规定 TimeSync 的 Time 字段应使用本地时间
+        now = now_in_app_timezone()
         time_str = now.strftime("%Y-%m-%dT%H:%M:%S")
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Notify>
@@ -249,17 +374,19 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bK{sn}ts"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sn}ts"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}ts@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('ts')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
         req.body = xml_body
         data = req.to_bytes()
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
@@ -332,18 +459,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKptz{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ptz{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}ptz@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('ptz')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -394,18 +523,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKabsptz{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=absptz{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}absptz@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('absptz')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -448,18 +579,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKptz{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ptz{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}ptz@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('ptz')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -494,18 +627,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKrec{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=rec{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}rec@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id("rec")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -576,18 +711,25 @@ class SipCommander:
 
         req = SipMessage()
         req.method = "INFO"
-        req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{channel_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bKinfo{cseq}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
+        # P0-fix [2026-07-17]: branch 必须使用 64 位密码学随机值（RFC 3261 §8.1.1.7）
+        # FIX: [2026-07-21 P0] branch 不带 prefix，统一规范（RFC 3261 + GB28181 §9.2.1）
+        branch = _make_branch()
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
 
         # Use existing dialog tags
         from_tag = stream_session.get("from_tag", "")
         to_tag = stream_session.get("to_tag", "")
         call_id = stream_session.get("call_id", "")
 
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}"
+        # FIX: [2026-07-21 P0] From URI host 使用 sip_from_to_host() (IP)
+        # FIX [2026-07-29 P0]: To URI host 使用 SIP_DOMAIN（GB28181 标准），
+        # 之前 To 也用 sip_from_to_host()（发送方 IP），EasyGBS 会 400。
+        # in-dialog 请求的 from_tag/to_tag/call_id 必须保留原值（RFC 3261 §12.2）
+        _ft_host = sip_from_to_host()  # From 用 IP（EasyGBS 兼容）
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{_ft_host}>;tag={from_tag}"
         if to_tag:
             req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>;tag={to_tag}"
         else:
@@ -600,6 +742,7 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = content
         data = req.to_bytes()
@@ -630,18 +773,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKbc{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=bc{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}bc@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('bc')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -670,13 +815,14 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "SUBSCRIBE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKsub{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=sub{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}sub@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('sub')
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "catalog"
         req.headers["Expires"] = str(expires)
@@ -684,6 +830,7 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -728,14 +875,18 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "SUBSCRIBE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        branch = f"z9hG4bKalarm{sn}{random.randint(100,999)}"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{sip_id}@{sip_domain}>;tag=alarm{sn}"
-        req.headers["To"] = f"<sip:{device_id}@{sip_domain}>"
-        req.headers["Call-ID"] = f"{sn}alarm@{sip_host_for_contact()}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        # From URI host: settings.SIP_DOMAIN（行政区划码，GB28181 §9.2.1 要求）
+        # To URI host: settings.SIP_DOMAIN（保持一致）
+        # sip_id 参数保留用于 From URI 的 user 部分
+        branch = _make_branch()
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{sip_id}@{sip_from_to_host()}>;tag={_make_tag()}"
+        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Call-ID"] = _make_call_id('alarm')
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "Alarm"
         req.headers["Expires"] = str(expires)
@@ -743,6 +894,7 @@ class SipCommander:
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -820,18 +972,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKdi{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=di{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}di@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('di')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -877,18 +1031,20 @@ class SipCommander:
 
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKdir{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=dir{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}dir@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('dir')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -929,18 +1085,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKac{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ac{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}ac@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id("ac")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -976,18 +1134,20 @@ class SipCommander:
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKds{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=ds{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}ds@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id('ds')
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
 
         req.body = xml_body
         data = req.to_bytes()
@@ -1011,32 +1171,36 @@ class SipCommander:
     async def send_platform_time_sync(self, device_id: str, transport_info: tuple) -> bool:
         """GB28181 TimeSync — 向设备发送时间同步请求"""
         # GB28181协议 — 实现平台间时间同步
+        from app.core.timezone import now_in_app_timezone
         addr, proto, transport = transport_info
-        import datetime
-        now = datetime.datetime.now(datetime.timezone.utc)
+        # FIX: [2026-07-17 P1] 统一使用应用时区，与 send_time_sync 保持一致
+        now = now_in_app_timezone()
         time_str = now.strftime("%Y-%m-%dT%H:%M:%S")
         sn = _next_sn()
+        # P1-fix: GB/T 28181-2022 §A.4.2 规定 TimeSync 命令应使用 <Notify> 根元素，与 send_time_sync 保持一致
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
-<Control>
+<Notify>
 <CmdType>TimeSync</CmdType>
 <SN>{sn}</SN>
 <DeviceID>{_xml_escape(device_id)}</DeviceID>
 <Time>{time_str}</Time>
-</Control>
+</Notify>
 """
         req = SipMessage()
         req.method = "MESSAGE"
-        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.uri = f"sip:{device_id}@{settings.SIP_DOMAIN}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch=z9hG4bKpts{sn}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag=pts{sn}"
+        # FIX: [2026-07-21 P0] 根据 RFC 3261 + GB28181 §9.2.1 规范统一头域格式
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}pts@{sip_host_for_contact()}"
+        req.headers["Call-ID"] = _make_call_id("pts")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
+        _attach_common_headers(req)  # P0/P1-fix: 补全 Contact + Allow 头
         req.body = xml_body
         data = req.to_bytes()
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志

@@ -163,7 +163,9 @@ class TestSecretEncryptionRoundTrip(unittest.IsolatedAsyncioTestCase):
         node.decrypted_secret = "media-secret-value"
 
         # Decrypting with wrong purpose must fail (return None)
-        wrong = field_crypto.decrypt_field(node.secret, purpose="sip_password")
+        # FIX [2026-07-19]: 必须使用 allow_plaintext=False 严格模式——
+        # 默认 True 时解密失败会返回原值（密文），无法验证 purpose 隔离。
+        wrong = field_crypto.decrypt_field(node.secret, purpose="sip_password", allow_plaintext=False)
         self.assertIsNone(wrong, "media_secret ciphertext must not decrypt with sip_password purpose")
 
         # Correct purpose works
@@ -201,7 +203,9 @@ class TestMigrationIdempotency(unittest.TestCase):
             sa.text("SELECT id, secret FROM media_nodes WHERE secret IS NOT NULL AND secret <> ''")
         ).fetchall()
         for rid, sec in rows:
-            if decrypt_field(sec, purpose=purpose) is not None:
+            # FIX [2026-07-19]: 必须使用 allow_plaintext=False 严格模式，
+            # 与 alembic 迁移 d1e2f3a4b5c6 行为保持一致。
+            if decrypt_field(sec, purpose=purpose, allow_plaintext=False) is not None:
                 skipped += 1
                 continue
             encrypted = encrypt_field(sec, purpose=purpose)

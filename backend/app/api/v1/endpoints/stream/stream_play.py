@@ -247,7 +247,9 @@ async def _async_invite_wait_with_retry(
             db_node = await get_db_media_node_by_id(db, node_id) if node_id else None
             node = None if db_node else get_node_by_id(node_id)
             if db_node:
-                host, http_port, secret = db_node.host, int(db_node.http_port or 0), str(db_node.secret or "")
+                # P0-fix: db_node 是 ORM MediaNode，.secret 列存 AES-256-GCM 密文，必须用 decrypted_secret 取明文
+                _secret_plain = getattr(db_node, "decrypted_secret", None) or db_node.secret or ""
+                host, http_port, secret = db_node.host, int(db_node.http_port or 0), str(_secret_plain)
             elif node:
                 host, http_port, secret = node.get("host") or "", int(node.get("http_port") or 0), str(node.get("secret") or "")
             else:
@@ -413,9 +415,9 @@ async def post_play_status(
 
 async def _play_status_inner(session_id: str, db: AsyncSession, current_user: User):
     _record_play_trace(session_id, "status_polled")
-    default_interval = float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25) or 0.25)
-    default_attempts = int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40) or 40)
-    chain_len = 2 if bool(getattr(settings, "GB28181_SSRC_RETRY_ON_NOT_READY", True)) else 1
+    default_interval = settings.STREAM_WAIT_READY_INTERVAL
+    default_attempts = settings.STREAM_WAIT_READY_MAX_ATTEMPTS
+    chain_len = 2 if settings.GB28181_SSRC_RETRY_ON_NOT_READY else 1
     next_poll_ms = max(400, min(1200, int(max(default_interval, 0.2) * 1000)))
     timeout_recommend_ms = max(20000, int(default_attempts * max(default_interval, 0.2) * 1000 * chain_len + 6000))
     session_record = (await db.execute(select(StreamSession).where(StreamSession.id == session_id, StreamSession.tenant_id == (current_user.tenant_id or "default")))).scalars().first()  # M-08 统一租户隔离模式
@@ -814,8 +816,8 @@ async def play_stream(
         result = {}
 
         if async_mode:
-            default_interval = float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25) or 0.25)
-            default_attempts = int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40) or 40)
+            default_interval = settings.STREAM_WAIT_READY_INTERVAL
+            default_attempts = settings.STREAM_WAIT_READY_MAX_ATTEMPTS
             chain_len = len(policy_chain) if policy_chain else 1
             next_poll_ms = max(400, min(1200, int(max(default_interval, 0.2) * 1000)))
             timeout_recommend_ms = max(20000, int(default_attempts * max(default_interval, 0.2) * 1000 * chain_len + 6000))
@@ -880,8 +882,8 @@ async def play_stream(
                 _async_invite_wait_with_retry,
                 stream_session_id=stream_session_id,
                 stream_type=stream_type,
-                max_attempts=int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40)),
-                interval_seconds=float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25)),
+                max_attempts=settings.STREAM_WAIT_READY_MAX_ATTEMPTS,
+                interval_seconds=settings.STREAM_WAIT_READY_INTERVAL,
             )
             return JSONResponse(
                 status_code=status.HTTP_202_ACCEPTED,
@@ -1062,8 +1064,8 @@ async def play_stream(
                     str(db_node.secret or ""),
                     app_name,
                     stream_id,
-                    max_attempts=int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40)),
-                    interval_seconds=float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25)),
+                    max_attempts=settings.STREAM_WAIT_READY_MAX_ATTEMPTS,
+                    interval_seconds=settings.STREAM_WAIT_READY_INTERVAL,
                     stream_hints=stream_hints,
                     extra_apps=["rtp"],
                     ssrc=str((result or {}).get("ssrc") or ""),
@@ -1079,8 +1081,8 @@ async def play_stream(
                     str(node.get("secret") or ""),
                     app_name,
                     stream_id,
-                    max_attempts=int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40)),
-                    interval_seconds=float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25)),
+                    max_attempts=settings.STREAM_WAIT_READY_MAX_ATTEMPTS,
+                    interval_seconds=settings.STREAM_WAIT_READY_INTERVAL,
                     stream_hints=stream_hints,
                     extra_apps=["rtp"],
                     ssrc=str((result or {}).get("ssrc") or ""),
@@ -1189,7 +1191,7 @@ async def play_stream(
                 url_stream = str(probe_detail.get("matched_stream") or stream_id or "")
 
                 sla_metrics = {}
-                if bool(getattr(settings, "STREAM_SLA_ENABLED", True)):
+                if settings.STREAM_SLA_ENABLED:
                     total_ms = round((time.perf_counter() - req_t0) * 1000, 2)
                     sla_metrics = {
                         "mode": "sync_live",
@@ -1434,8 +1436,8 @@ async def playback_stream(
     stream_hints = _build_stream_match_hints(stream_id, ssrc)
     zlm_probe_ok, zlm_stream_ready, media_item, probe_detail = await _wait_zlm_stream_ready(
         host, http_port, secret, app_name, stream_id,
-        max_attempts=int(getattr(settings, "STREAM_WAIT_READY_MAX_ATTEMPTS", 40)),
-        interval_seconds=float(getattr(settings, "STREAM_WAIT_READY_INTERVAL", 0.25)),
+        max_attempts=settings.STREAM_WAIT_READY_MAX_ATTEMPTS,
+        interval_seconds=settings.STREAM_WAIT_READY_INTERVAL,
         stream_hints=stream_hints,
         extra_apps=["rtp", "playback"],
         ssrc=ssrc,

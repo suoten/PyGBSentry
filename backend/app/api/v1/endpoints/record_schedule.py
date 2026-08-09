@@ -382,7 +382,7 @@ class ForceActionPayload(BaseModel):
 
 async def _select_media_node(db: AsyncSession) -> tuple[str, int, str]:
     proxy_host = settings.MEDIA_SERVER_HOST
-    proxy_http_port = int(getattr(settings, "MEDIA_SERVER_HTTP_PORT", 0) or 0)
+    proxy_http_port = settings.MEDIA_SERVER_HTTP_PORT
     proxy_secret = settings.MEDIA_SERVER_SECRET
     try:
         active_id = await get_active_media_node_id(db)

@@ -23,6 +23,21 @@ from typing import Iterator, Union
 
 from loguru import logger
 
+# FIX: [2026-07-17 P1] 检测 XML prolog 中的 encoding 声明
+_XML_ENCODING_RE = re.compile(r'<\?xml[^>]+encoding=["\']([\w-]+)["\']', re.IGNORECASE)
+
+
+def _detect_xml_encoding(body: str) -> str | None:
+    """从 XML body 的 prolog 中提取 encoding 声明。
+
+    用于 to_bytes() 按声明编码输出，避免 GB28181 设备收到声明 GB2312 但
+    实际 UTF-8 编码的 XML 导致中文乱码。
+    """
+    if not body or not body.lstrip().startswith("<?xml"):
+        return None
+    m = _XML_ENCODING_RE.search(body[:200])
+    return m.group(1) if m else None
+
 
 # ---------------------------------------------------------------------------
 # 头部容器
@@ -308,6 +323,24 @@ class SipMessage:
         """Contact."""
         return self.get_header("Contact")
 
+    @property
+    def routes(self) -> list:
+        """Route 头列表（多值，RFC 3261 §20.34）。
+
+        P1-fix: 之前缺少 Route 专属便捷访问，调用方需手动 get_headers。
+        级联和对话路由依赖该头域。
+        """
+        return self.get_headers("Route")
+
+    @property
+    def record_routes(self) -> list:
+        """Record-Route 头列表（多值，RFC 3261 §20.30）。
+
+        P1-fix: 之前缺少 Record-Route 专属便捷访问。
+        响应应复制请求的 Record-Route 用于 dialog 路由。
+        """
+        return self.get_headers("Record-Route")
+
     # ----------------------- 头部访问（大小写不敏感） -----------------------
 
     def get_header(self, name: str, default: str = "") -> str:
@@ -357,7 +390,31 @@ class SipMessage:
         elif isinstance(self.body, bytes):
             body_bytes = self.body
         else:
-            body_bytes = str(self.body).encode("utf-8", errors="replace")
+            body_str = str(self.body)
+            # FIX: [2026-07-22 P0] GB28181 MANSCDP XML 正文统一使用 CRLF 行尾。
+            # GB28181-2016 附录报文示例、wvp、EasyGBS 上级平台实现的 MANSCDP 正文
+            # 均使用 \r\n；原代码 Python 三引号字符串产出 LF-only 正文，EasyGBS 等
+            # 非标准实现按 \r\n 切分解析失败，对 MESSAGE（Catalog 查询等）一律返回
+            # 400 Bad Request —— From/To host/端口四种组合全部试过仍 400，LF 正文是
+            # 全程未变的字节级差异。XML 1.0 规范要求解析器将 CRLF 归一为 LF，
+            # 故本转换对所有合规设备无副作用。仅处理 MANSCDP（<?xml 开头）正文，
+            # 不影响 SDP 等其他 body。
+            if body_str.startswith("<?xml"):
+                body_str = body_str.replace("\r\n", "\n").replace("\n", "\r\n")
+            # FIX: [2026-07-17 P1] 检测 XML prolog 的 encoding 声明并按声明编码
+            # GB28181 MANSCDP XML 通常声明 encoding="GB2312"，但原代码统一用 UTF-8 编码，
+            # 导致中文字符在严格按 GB2312 解析的设备上乱码或解析失败。
+            # 现检测 XML prolog 中的 encoding 声明，按声明编码输出。
+            _declared_encoding = _detect_xml_encoding(body_str)
+            if _declared_encoding:
+                try:
+                    # GB2312 的超集是 GBK，能处理更多中文字符
+                    _enc = "gbk" if _declared_encoding.lower() in ("gb2312", "gbk") else _declared_encoding
+                    body_bytes = body_str.encode(_enc, errors="replace")
+                except (LookupError, UnicodeEncodeError):
+                    body_bytes = body_str.encode("utf-8", errors="replace")
+            else:
+                body_bytes = body_str.encode("utf-8", errors="replace")
 
         # 自动补全 Content-Length（若未设置则添加，避免对端等待）
         has_cl = False
@@ -370,7 +427,21 @@ class SipMessage:
 
         # 拼接头区
         parts: list[bytes] = [start_line.encode("utf-8", errors="replace")]
-        for k, v in self.headers.raw_items():
+        _raw_items = list(self.headers.raw_items())
+        # FIX: [2026-07-22 P1] MESSAGE 请求头域按 RFC 3261 推荐顺序输出 ——
+        # Content-Type/Content-Length 必须位于头区末尾。原构造顺序把 Content-Type
+        # 插在 Max-Forwards/User-Agent 之前，wvp/EasyGBS 等实现均把 Content-Type
+        # 放在末尾，按位置扫描的非标准 SIP 栈兼容性差。仅对 MESSAGE 请求重排，
+        # 不影响已验证可用的 INVITE/注册响应链路。
+        if (self.method or "").upper() == "MESSAGE" and not self.status_code:
+            _ct_items = [kv for kv in _raw_items if _norm_name(kv[0]) == "content-type"]
+            _cl_items = [kv for kv in _raw_items if _norm_name(kv[0]) == "content-length"]
+            _other_items = [
+                kv for kv in _raw_items
+                if _norm_name(kv[0]) not in ("content-type", "content-length")
+            ]
+            _raw_items = _other_items + _ct_items + _cl_items
+        for k, v in _raw_items:
             parts.append(f"{k}: {v}".encode("utf-8", errors="replace"))
         # 头区结束空行 + body
         parts.append(b"")
@@ -458,8 +529,10 @@ class SipMessage:
                 cl = int(cl_str.strip())
                 if cl >= 0 and cl <= len(body_text):
                     body_text = body_text[:cl]
-            except ValueError:
-                logger.debug("swallowed_exception", exc_info=True)
+            except ValueError as _cl_err:
+                # FIX [2026-07-17 P2-3]: 原日志消息为 "swallowed_exception" 无法定位问题，
+                # 改为描述性消息记录 Content-Length 解析失败的具体值。
+                logger.warning(f"SipMessage.parse: invalid Content-Length '{cl_str}': {_cl_err}")
         msg.body = body_text
         return msg
 

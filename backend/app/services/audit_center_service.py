@@ -24,8 +24,8 @@ class AuditCenterService:
         读取配置并推送日志
         """
         from app.core.config import settings
-        webhook_url = getattr(settings, "AUDIT_WEBHOOK_URL", None)
-        webhook_timeout = getattr(settings, "AUDIT_WEBHOOK_TIMEOUT", 5)
+        webhook_url = settings.AUDIT_WEBHOOK_URL
+        webhook_timeout = settings.AUDIT_WEBHOOK_TIMEOUT
         if webhook_url:
             try:
                 # FIX: [2026-07-04] 使用进程级共享 HTTP 客户端，避免每次调用创建/销毁 AsyncClient 导致连接池泄漏 [可靠性工程师]
@@ -321,7 +321,9 @@ class AuditCenterService:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> dict:
-        stmt = self._build_filtered_stmt(
+        # FIX: [2026-07-16 P0-C] 原实现加载所有审计日志到内存后 Python 聚合，
+        # 180天保留期 + 百万级记录 = OOM。改用 SQL 聚合 + 有限行扫描。
+        base_stmt = self._build_filtered_stmt(
             module=module,
             action=action,
             action_prefix=action_prefix,
@@ -334,18 +336,41 @@ class AuditCenterService:
             status_family=status_family,
             start_at=start_at,
             end_at=end_at,
-        ).order_by(desc(OperationAudit.created_at))
-        result_set = await db.execute(stmt)
-        rows = result_set.scalars().all()
-        action_count: dict[str, int] = {}
+        )
+        # 移除 order_by 以优化聚合查询
+        base_stmt_no_order = base_stmt.order_by(None)
+
+        # 1. 总数（SQL COUNT）
+        total_stmt = base_stmt_no_order.with_only_columns(func.count())
+        total = int((await db.execute(total_stmt)).scalar() or 0)
+
+        # 2. 失败数（SQL COUNT WHERE result='failed'）
+        failed_stmt = base_stmt_no_order.where(
+            OperationAudit.result == "failed"
+        ).with_only_columns(func.count())
+        failed = int((await db.execute(failed_stmt)).scalar() or 0)
+
+        # 3. Top 5 动作（SQL GROUP BY）
+        actions_stmt = base_stmt_no_order.with_only_columns(
+            OperationAudit.action, func.count().label("cnt")
+        ).group_by(OperationAudit.action).order_by(desc("cnt")).limit(5)
+        actions_result = await db.execute(actions_stmt)
+        top_actions = [
+            {"name": row[0] or "-", "count": row[1]}
+            for row in actions_result.all()
+        ]
+
+        # 4. 状态码统计：status_code 存储在 summary 文本中，无法用 SQL 高效聚合。
+        # 仅扫描最近 N 条记录进行解析，避免全表加载导致 OOM。
+        _status_scan_limit = 10000
+        status_stmt = base_stmt.order_by(
+            desc(OperationAudit.created_at)
+        ).limit(_status_scan_limit)
+        status_result = await db.execute(status_stmt)
+        status_rows = status_result.scalars().all()
         status_count: dict[str, int] = {}
         status_buckets: dict[str, int] = {"401": 0, "402": 0, "403": 0, "409": 0, "5xx": 0}
-        failed = 0
-        for row in rows:
-            action_name = str(row.action or "-")
-            action_count[action_name] = action_count.get(action_name, 0) + 1
-            if str(row.result or "").lower() == "failed":
-                failed += 1
+        for row in status_rows:
             summary = str(row.summary or "")
             for token in [x.strip() for x in summary.split(";") if x.strip()]:
                 if token.startswith("status_code="):
@@ -358,15 +383,15 @@ class AuditCenterService:
                             code_num = int(code)
                             if 500 <= code_num <= 599:
                                 status_buckets["5xx"] += 1
-                        except Exception as e:
-                            logger.warning(f"Error: {e}")
+                        except Exception as _code_err:
+                            # FIX [2026-07-17 P3-30]: 描述性日志替代静默吞异常
+                            logger.debug(f"audit_center: failed to parse status code '{code}' for 5xx bucketing: {_code_err}")
                     break
-        top_actions = sorted(action_count.items(), key=lambda x: x[1], reverse=True)[:5]
         top_status_codes = sorted(status_count.items(), key=lambda x: x[1], reverse=True)[:5]
         return {
-            "total": len(rows),
+            "total": total,
             "failed": failed,
-            "top_actions": [{"name": k, "count": v} for k, v in top_actions],
+            "top_actions": top_actions,
             "top_status_codes": [{"code": k, "count": v} for k, v in top_status_codes],
             "status_buckets": status_buckets,
         }

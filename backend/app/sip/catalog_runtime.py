@@ -1,6 +1,10 @@
 import asyncio
 import datetime
 from copy import deepcopy
+from loguru import logger
+
+# P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
+from app.core.async_utils import fire_and_forget
 
 
 _RUNTIME_STATE: dict[str, dict] = {}
@@ -65,7 +69,11 @@ def start_catalog_runtime_cleanup():
     """启动周期性清理 _RUNTIME_STATE 的后台任务。"""
     global _cleanup_loop_task
     if _cleanup_loop_task is None or _cleanup_loop_task.done():
-        _cleanup_loop_task = asyncio.create_task(_cleanup_stale_runtime_loop())
+        # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+        _cleanup_loop_task = fire_and_forget(
+            _cleanup_stale_runtime_loop(),
+            name="catalog_runtime_cleanup_loop",
+        )
 
 
 def stop_catalog_runtime_cleanup():

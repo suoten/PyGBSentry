@@ -136,8 +136,9 @@ def parse_sdp(sdp_text: str, fallback_ip: str = "") -> dict:
         if prefix == "v":
             try:
                 result["version"] = int(value.strip())
-            except ValueError:
-                logger.debug("swallowed_exception", exc_info=True)
+            except ValueError as _v_err:
+                # FIX [2026-07-17 P2-4]: 描述性日志替代 "swallowed_exception"
+                logger.warning(f"parse_sdp: invalid v= line '{line}': {_v_err}")
         elif prefix == "o":
             m = _O_LINE_RE.match(line)
             if m:
@@ -181,8 +182,9 @@ def parse_sdp(sdp_text: str, fallback_ip: str = "") -> dict:
                     current_media["media_type"] = parts[0].lower()
                     try:
                         current_media["port"] = int(parts[1])
-                    except ValueError:
-                        logger.debug("swallowed_exception", exc_info=True)
+                    except ValueError as _port_err:
+                        # FIX [2026-07-17 P2-4]: 描述性日志替代 "swallowed_exception"
+                        logger.warning(f"parse_sdp: invalid m= port '{parts[1]}': {_port_err}")
                     current_media["proto"] = parts[2]
                     current_media["formats"] = parts[3:]
         elif prefix == "a":
@@ -334,6 +336,7 @@ def build_sdp(
     f_line: Optional[str] = None,
     extended_rtpmap: bool = True,
     track: Optional[str] = None,
+    sess_version: int = 0,
 ) -> str:
     """按 GB28181 约定构造 SDP 字符串。
 
@@ -348,6 +351,8 @@ def build_sdp(
         * ``f_line`` —— GB28181 ``f=`` 行。
         * ``extended_rtpmap`` —— 是否追加 ``a=rtpmap:96 PS/90000`` 等映射（视频默认 True）。
         * ``track`` —— 通道/码流标识（部分设备放 ``a=track:<id>``）。
+        * ``sess_version`` —— ``o=`` 行的 sess-version（FIX [2026-07-17 P1-C2]），
+          Re-INVITE 时必须递增以信号 SDP 变更（RFC 4566 §5.2），初始 INVITE 用 0。
 
     缺省 ``time_range`` 为 ``"0 0"``（实时流）。``media_port`` 为 0 时仍写入，
     由调用方保证端口正确。
@@ -359,8 +364,10 @@ def build_sdp(
     # v=0
     lines.append("v=0")
     # o=<username> <sess-id> <sess-version> IN IP4 <addr>
-    # GB28181: sess-id/sess-version 通常用 0，username 放通道ID
-    lines.append(f"o={origin_id or '0'} 0 0 IN IP4 {connection_ip}")
+    # GB28181: sess-id 通常用 0，username 放通道ID
+    # FIX [2026-07-17 P1-C2]: sess-version 必须在 Re-INVITE 时递增（RFC 4566 §5.2），
+    # 否则设备无法检测 SDP 变更，可能忽略 Re-INVITE 导致流切换失败。
+    lines.append(f"o={origin_id or '0'} 0 {int(sess_version or 0)} IN IP4 {connection_ip}")
     # s=<session>
     lines.append(f"s={session_name or 'Play'}")
     if u_line:
@@ -390,8 +397,12 @@ def build_sdp(
 
     # a=setup / a=connection:new (TCP)
     if is_tcp_profile(media_profile or ""):
-        if setup:
-            lines.append(f"a=setup:{setup}")
+        # P1-fix: RFC 4145 §5 规定 TCP 连接的 SDP 必须包含 a=setup 属性以确定连接角色
+        # 当 setup 为空时默认使用 passive（GB28181 平台默认作为 TCP 被动端）
+        _effective_setup = (setup or "").strip() or "passive"
+        if not setup:
+            logger.warning("build_sdp: TCP profile 但 setup 为空，默认使用 passive；调用方应显式传入 setup")
+        lines.append(f"a=setup:{_effective_setup}")
         # GB28181 TCP 模式通常携带 a=connection:new
         lines.append("a=connection:new")
 
@@ -399,8 +410,9 @@ def build_sdp(
     if download_speed is not None:
         try:
             lines.append(f"a=downloadspeed:{int(download_speed)}")
-        except (ValueError, TypeError):
-            logger.debug("swallowed_exception", exc_info=True)
+        except (ValueError, TypeError) as _ds_err:
+            # FIX [2026-07-17 P3-1]: 描述性日志替代 "swallowed_exception"，记录非法 download_speed 值
+            logger.warning(f"build_sdp: invalid downloadspeed value '{download_speed}': {_ds_err}")
 
     # a=track
     if track:

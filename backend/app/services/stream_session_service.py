@@ -40,6 +40,7 @@ async def _stop_cascade_push_session_no_db(stream_session: StreamSession, reason
             if node:
                 node_host = node.host
                 node_http_port = node.http_port
+                # node 为 RuntimeMediaNode，.secret 已是解密后的明文
                 node_secret = node.secret
     except Exception as e:
         logger.warning(f"[stop_cascade_push] Failed to query node for app={stream_session.app} stream={stream_session.stream}: {e}")
@@ -107,15 +108,23 @@ async def stop_cascade_push_session(db: AsyncSession, stream_session: StreamSess
         if node:
             node_host = node.host
             node_http_port = node.http_port
+            # node 为 RuntimeMediaNode，.secret 已是解密后的明文
             node_secret = node.secret
     except Exception as e:
         logger.warning(f"[stop_cascade_push] Failed to query node: {e}")
 
-    # FIX R24-SEVERE: 提交传入的 db（刷新待写），但不关闭（保持向后兼容）
+    # FIX: [2026-07-17 P1] 不再强制 commit 调用方 session，避免破坏原子性。
+    # 改用 flush 将待写操作刷新到 DB，由调用方决定 commit 时机。
+    # 原 commit() 会把调用方在同一事务中累计的写操作提前落地，破坏事务原子性。
     try:
-        await db.commit()
+        await db.flush()
     except Exception as e:
-        logger.warning(f"[stop_cascade_push] commit failed: {e}")
+        logger.warning(f"[stop_cascade_push] flush failed: {e}")
+        try:
+            await db.rollback()
+        except Exception as _rb_err:
+            # FIX [2026-07-17 P3-24]: 描述性日志替代静默吞异常
+            logger.warning(f"[stop_cascade_push] rollback also failed: {_rb_err}")
 
     # Phase2: ZLM HTTP stopSendRtp（无 DB session 持有）
     if node_host:
@@ -142,10 +151,14 @@ async def stop_cascade_push_session(db: AsyncSession, stream_session: StreamSess
     ss_id = stream_session.id
     try:
         async with AsyncSessionLocal() as session:
-            with contextlib.suppress(Exception):
-                if lease_id:
+            # FIX: [2026-07-17 P1] contextlib.suppress 吞掉所有异常导致资源泄漏，
+            # 改为 try/except + logger.exception，确保 release_lease 失败时有日志可查
+            if lease_id:
+                try:
                     await release_lease(session, lease_id)
-            with contextlib.suppress(Exception):
+                except Exception as e:
+                    logger.exception(f"[stop_cascade_push] release_lease failed for lease_id={lease_id}: {e}")
+            try:
                 await audit_center_service.log(
                     db=session,
                     module="media_nodes",
@@ -154,6 +167,8 @@ async def stop_cascade_push_session(db: AsyncSession, stream_session: StreamSess
                     result="success",
                     summary=f"app={stream_session.app}; stream={stream_session.stream}; reason={reason}",
                 )
+            except Exception as e:
+                logger.warning(f"[stop_cascade_push] audit log failed: {e}")
             if ss_id:
                 await session.execute(sql_delete(StreamSession).where(StreamSession.id == ss_id))
             await session.commit()
@@ -217,8 +232,16 @@ async def _release_stream_session_no_db(
             bye_sent = False
 
             # Phase2-B: close_stream（ZLM HTTP 2s 超时）- 无 DB session 持有
-            with contextlib.suppress(Exception):
+            # P2-fix [2026-07-17]: close_stream 失败时记录日志，原 contextlib.suppress 静默吞没
+            # 导致 ZLM RTP server 关闭失败时无告警，端口可能泄漏且无日志可查。
+            # 对比同文件 line 282-285 的 release_lease 失败有 logger.error，此处保持一致。
+            try:
                 await close_stream(app_name, stream_name, media_server_id)
+            except Exception as _close_stream_err:
+                logger.error(
+                    f"[ReleaseStreamSession] close_stream failed for app={app_name} "
+                    f"stream={stream_name} node_id={media_server_id}: {_close_stream_err}"
+                )
 
             # Phase2-C: 发送 SIP BYE（设备侧清理，5s 超时）- 无 DB session 持有
             if asset and sip_invite_module.sip_invite:

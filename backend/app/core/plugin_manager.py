@@ -24,8 +24,13 @@ from types import SimpleNamespace
 _PLUGIN_SANDBOX_BLOCKED_MODULES: frozenset[str] = frozenset({
     "subprocess", "ctypes", "cffi", "multiprocessing",
     "winreg", "pickle", "shelve", "marshal",
-    "socket", "ssl", "http.client", "urllib", "urllib3", "requests", "httpx",
+    "socket", "ssl", "http.client", "urllib", "httpx",
     "paramiko", "signal", "importlib", "pty",
+    # FIX [2026-07-19]: 加回 "requests" 和 "urllib3"。
+    # 项目硬约束：第三方恶意插件如需发 HTTP 请求，应通过插件 SDK 的受控 HTTP 客户端，
+    # 而非直接 import requests。官方内置告警插件应迁移到 SafeAPIGateway 或
+    # 通过 plugin_globals 注入受控的 HTTP 客户端实例，避免直接 import requests。
+    "requests", "urllib3",
 })
 
 _PLUGIN_SANDBOX_BLOCKED_ATTRS: dict[str, frozenset[str]] = {
@@ -36,7 +41,14 @@ _PLUGIN_SANDBOX_BLOCKED_ATTRS: dict[str, frozenset[str]] = {
 
 _PLUGIN_SANDBOX_BLOCKED_BUILTINS: frozenset[str] = frozenset({
     "eval", "exec", "compile", "__import__",
-    "open", "globals", "locals", "vars", "dir",
+    "open",
+    # FIX [2026-07-13]: 移除 "globals", "locals", "vars", "dir"
+    # 这些内置函数依赖调用者的栈帧（frame）来返回正确结果。
+    # guard 包装后 _orig_*() 会在 guard 函数自身的作用域中执行，
+    # 返回 guard 的局部变量而非原始调用者的，导致第三方库
+    # （如 _distutils_hack.find_spec 中的 'spec_for_{fullname}'.format(**locals())）
+    # 抛出 KeyError('fullname')，进而导致所有插件加载失败。
+    # 这些函数本身只查看作用域，不执行代码，安全风险极低，无需 guard。
 })
 
 _PLUGIN_SANDBOX_BLOCKED_OS_ATTRS: frozenset[str] = frozenset({
@@ -49,12 +61,49 @@ _PLUGIN_SANDBOX_BLOCKED_OS_ATTRS: frozenset[str] = frozenset({
 _APP_PKG_ROOT = str(Path(__file__).resolve().parents[1])  # .../backend/app
 
 
+class _BlockedModuleLoader:
+    """PEP 451 loader that raises ImportError when a blocked module is loaded.
+
+    Used by _PluginSandboxImportHook.find_spec() to prevent plugins from
+    importing dangerous modules (subprocess, ctypes, socket, etc.).
+    """
+    def __init__(self, plugin_id: str, fullname: str):
+        self.plugin_id = plugin_id
+        self.fullname = fullname
+
+    def create_module(self, spec):
+        return None  # 使用默认模块创建
+
+    def exec_module(self, module):
+        raise ImportError(
+            f"[Sandbox] Plugin '{self.plugin_id}' attempted to import blocked module '{self.fullname}', "
+            f"which is in the dangerous API blacklist and has been blocked by runtime sandbox"  # i18n
+        )
+
+
 class _PluginSandboxImportHook:
+    """元路径查找器（MetaPathFinder），阻止插件导入危险模块。
+
+    FIX [2026-07-13]: Python 3.12 移除了 find_module/load_module 协议
+    （importlib.abc.MetaPathFinder 不再定义这两个方法，_bootstrap._find_spec
+    不再 fallback 到 find_module）。旧代码只实现了 find_module/load_module，
+    在 Python 3.12 下沙箱形同虚设，且在某些边界场景下触发内部 KeyError('fullname')。
+    现迁移到 find_spec 协议（PEP 451），同时保留 find_module 用于 Python<3.4 兼容。
+    """
     def __init__(self, plugin_id: str):
         self.plugin_id = plugin_id
 
+    def find_spec(self, fullname, path, target=None):
+        if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
+            return None
+        if fullname in _PLUGIN_SANDBOX_BLOCKED_MODULES:
+            from importlib.machinery import ModuleSpec
+            return ModuleSpec(fullname, _BlockedModuleLoader(self.plugin_id, fullname))
+        return None
+
+    # 保留旧协议方法用于 Python < 3.4 兼容（3.4+ 优先调用 find_spec）
     def find_module(self, fullname, path=None):
-        if not bool(getattr(settings, "PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED", True)):
+        if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
             return None
         if fullname in _PLUGIN_SANDBOX_BLOCKED_MODULES:
             return self
@@ -68,7 +117,7 @@ class _PluginSandboxImportHook:
 
 
 def _install_plugin_sandbox_hook(plugin_id: str) -> _PluginSandboxImportHook | None:
-    if not bool(getattr(settings, "PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED", True)):
+    if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return None
     hook = _PluginSandboxImportHook(plugin_id)
     sys.meta_path.insert(0, hook)
@@ -113,8 +162,9 @@ def _is_internal_caller(caller: str, frame) -> bool:
             try:
                 mod_path = str(Path(mod_file).resolve())
                 return mod_path.startswith(_APP_PKG_ROOT)
-            except Exception:
-                logger.warning("silently_swallowed_exception", exc_info=True)
+            except Exception as _path_err:
+                # FIX [2026-07-17 P3-4]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"_is_app_internal_caller: failed to resolve module path '{mod_file}': {_path_err}")
         # 无 __file__ 信息时保守视为内部（如 frozen 模块）
         return True
     return False
@@ -158,7 +208,7 @@ _sandbox_reentrancy_depth: int = 0
 
 
 def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
-    if not bool(getattr(settings, "PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED", True)):
+    if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return {}
     import builtins as _builtins
     saved = {}
@@ -244,7 +294,7 @@ def _uninstall_plugin_sandbox_builtin_guard(saved: dict) -> None:
 
 
 def _install_plugin_sandbox_os_attr_guard(plugin_id: str) -> dict:
-    if not bool(getattr(settings, "PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED", True)):
+    if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return {}
     import os as _os
     saved = {}
@@ -388,6 +438,10 @@ class PluginManager:
         # G-02/G-08: 插件健康监控 {plugin_id: {"errors": int, "restarts": int, "disabled": bool}}
         self._plugin_health: Dict[str, Dict[str, Any]] = {}
         self._health_check_task: asyncio.Task | None = None
+        # FIX: [2026-07-16 P1] license 刷新订阅的 task / redis / pubsub 引用，shutdown 时优雅释放
+        self._license_refresh_task: asyncio.Task | None = None
+        self._license_refresh_redis = None
+        self._license_refresh_pubsub = None
 
     def _try_load_plugin_json_for_single_file(self, module_name: str) -> dict | None:
         """
@@ -430,10 +484,14 @@ class PluginManager:
                 for cb in list(shutdown_hooks):
                     try:
                         if asyncio.iscoroutinefunction(cb):
-                            # R-05 使用get_running_loop()替代get_event_loop()，非异步上下文安全
+                            # P0-fix [2026-07-17]: 改用 fire_and_forget，提供 task name + done_callback + GC 保护
+                            # 原 loop.create_task(cb()) 无引用无异常回调，异常被静默吞没
                             try:
-                                loop = asyncio.get_running_loop()
-                                loop.create_task(cb())
+                                from app.core.async_utils import fire_and_forget
+                                fire_and_forget(
+                                    cb(),
+                                    name=f"plugin_shutdown:{getattr(cb, '__name__', 'anon')}",
+                                )
                             except RuntimeError:
                                 logger.warning("No running event loop, skipping async shutdown hook")
                         else:
@@ -530,8 +588,8 @@ class PluginManager:
                 module = importlib.reload(sys.modules[module_name])
             else:
                 # G-15: venv 隔离模式（可选增强）
-                venv_enabled = bool(getattr(settings, "PLUGIN_VENV_ISOLATION_ENABLED", False))
-                venv_dir_name = str(getattr(settings, "PLUGIN_VENV_DIR_NAME", ".venv") or ".venv")
+                venv_enabled = settings.PLUGIN_VENV_ISOLATION_ENABLED
+                venv_dir_name = str(settings.PLUGIN_VENV_DIR_NAME or ".venv")
                 venv_dir = os.path.join(self.plugin_dir, str(module_name), venv_dir_name)
                 if venv_enabled and os.path.isdir(venv_dir):
                     site_packages = self._find_venv_site_packages(venv_dir)
@@ -544,7 +602,7 @@ class PluginManager:
                     inserted_venv = False
                 # Allow plugin to vendor dependencies under:
                 #   plugins/{plugin_id}/.vendor
-                vendor_dir_name = getattr(settings, "PLUGIN_DEPENDENCY_VENDOR_DIR_NAME", ".vendor")
+                vendor_dir_name = settings.PLUGIN_DEPENDENCY_VENDOR_DIR_NAME
                 vendor_dir = os.path.join(self.plugin_dir, str(module_name), str(vendor_dir_name))
                 inserted = False
                 if vendor_dir and os.path.isdir(vendor_dir):
@@ -589,9 +647,10 @@ class PluginManager:
             if not _was_in_modules and module_name in sys.modules:
                 try:
                     del sys.modules[module_name]
-                except Exception:
-                    logger.warning("silently_swallowed_exception", exc_info=True)
-            logger.error(f"Failed to load plugin {module_name}: {e}")
+                except Exception as _del_err:
+                    # FIX [2026-07-17 P3-4]: 描述性日志替代 "silently_swallowed_exception"
+                    logger.warning(f"Failed to remove failed plugin module '{module_name}' from sys.modules: {_del_err}")
+            logger.error(f"Failed to load plugin {module_name}: {e}", exc_info=True)
 
     def _find_venv_site_packages(self, venv_dir: str) -> str | None:
         """G-15: 查找 venv 目录中的 site-packages 路径。"""
@@ -612,7 +671,7 @@ class PluginManager:
         import subprocess
         import venv as _venv_mod
 
-        venv_dir_name = str(getattr(settings, "PLUGIN_VENV_DIR_NAME", ".venv") or ".venv")
+        venv_dir_name = str(settings.PLUGIN_VENV_DIR_NAME or ".venv")
         venv_dir = os.path.join(self.plugin_dir, str(plugin_id), venv_dir_name)
 
         try:
@@ -622,7 +681,7 @@ class PluginManager:
                 pip_path = os.path.join(venv_dir, "Scripts", "pip.exe") if os.name == "nt" else os.path.join(venv_dir, "bin", "pip3")
 
             if requirements_file and os.path.isfile(requirements_file):
-                timeout = int(getattr(settings, "PLUGIN_DEPENDENCY_INSTALL_TIMEOUT_SECONDS", 300) or 300)
+                timeout = settings.PLUGIN_DEPENDENCY_INSTALL_TIMEOUT_SECONDS
                 result = subprocess.run(
                     [pip_path, "install", "-r", requirements_file, "--quiet"],
                     capture_output=True, text=True, timeout=timeout,
@@ -700,7 +759,9 @@ class PluginManager:
                 logger.error(f"Failed to read license.json for {plugin_id}: {e}")
                 return False
         if not license_data:
-            logger.error(f"Missing license for paid plugin {plugin_id}")
+            # FIX [2026-07-19 P2-1]: 缺少 license 是插件级配置问题，不是系统错误，
+            # 系统继续运行。降级为 WARNING，避免测试桩（如 tampered_plugin）污染生产日志（aa.txt P2-1）。
+            logger.warning(f"Missing license for paid plugin {plugin_id}")
             return False
         valid, reason = verify_license_payload(
             license_data=license_data,
@@ -709,11 +770,12 @@ class PluginManager:
             feature_code=feature_code,
         )
         if not valid:
-            logger.error(f"Invalid license for paid plugin {plugin_id}: {reason}")
+            # FIX [2026-07-19 P2-1]: license 校验失败同样是插件级问题，降级为 WARNING
+            logger.warning(f"Invalid license for paid plugin {plugin_id}: {reason}")
         return valid
 
     def _paid_plugin_license_currently_valid(self, plugin_id: str, meta: dict) -> bool:
-        interval = int(getattr(settings, "PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS", 60) or 0)
+        interval = settings.PLUGIN_PAID_HOOK_LICENSE_RECHECK_SECONDS
         now = time.monotonic()
         pid = str(plugin_id or "").strip()
         if not pid:
@@ -781,9 +843,9 @@ class PluginManager:
         if not pid:
             return {"status": "unknown", "source": "no_plugin_id"}
 
-        base_url = getattr(settings, "PLUGIN_MARKETPLACE_SERVER_URL", None) or ""
+        base_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
         if not base_url:
-            base_url = getattr(settings, "PLUGIN_MARKETPLACE_BASE_URL", None) or ""
+            base_url = settings.PLUGIN_MARKETPLACE_BASE_URL or ""
         if not base_url or not base_url.startswith("http"):
             return {"status": "unknown", "source": "no_server_url"}
 
@@ -836,7 +898,7 @@ class PluginManager:
 
     def _paid_plugin_status_cache_get(self, plugin_id: str) -> dict[str, Any] | None:
         """读取缓存，若命中返回状态；过期则返回 None。"""
-        cache_ttl = int(getattr(settings, "PLUGIN_PAID_RUNTIME_ONLINE_CHECK_CACHE_SECONDS", 15) or 15)
+        cache_ttl = settings.PLUGIN_PAID_RUNTIME_ONLINE_CHECK_CACHE_SECONDS
         entry = self._paid_plugin_status_cache.get(str(plugin_id))
         if not entry:
             return None
@@ -1020,8 +1082,8 @@ class PluginManager:
             callbacks = filtered
         report["total"] = len(callbacks)
 
-        timeout_seconds = float(getattr(settings, "PLUGIN_HOOK_EXEC_TIMEOUT_SECONDS", 0) or 0)
-        mem_mb = float(getattr(settings, "PLUGIN_SANDBOX_MEMORY_LIMIT_MB", 0) or 0)
+        timeout_seconds = settings.PLUGIN_HOOK_EXEC_TIMEOUT_SECONDS
+        mem_mb = settings.PLUGIN_SANDBOX_MEMORY_LIMIT_MB
         mem_limit_bytes: int | None = None
         if mem_mb and mem_mb > 0:
             mem_limit_bytes = int(mem_mb * 1024 * 1024)
@@ -1031,7 +1093,7 @@ class PluginManager:
             inserted = False
             try:
                 pid = getattr(callback, "_plugin_id", None) or (getattr(callback, "__module__", "") or "").split(".", 1)[0]
-                vendor_dir_name = getattr(settings, "PLUGIN_DEPENDENCY_VENDOR_DIR_NAME", ".vendor")
+                vendor_dir_name = settings.PLUGIN_DEPENDENCY_VENDOR_DIR_NAME
                 if pid:
                     candidate = os.path.join(self.plugin_dir, str(pid), str(vendor_dir_name))
                     if candidate and os.path.isdir(candidate):
@@ -1053,7 +1115,7 @@ class PluginManager:
                         if inspect.iscoroutinefunction(callback):
                             await asyncio.wait_for(callback(*args, **kwargs), timeout=timeout_seconds)
                         else:
-                            hook_mode = str(getattr(settings, "PLUGIN_HOOK_EXEC_TIMEOUT_MODE", "thread") or "thread").lower()
+                            hook_mode = str(settings.PLUGIN_HOOK_EXEC_TIMEOUT_MODE or "thread").lower()
                             if hook_mode == "process":
                                 module_name = getattr(callback, "__module__", None)
                                 func_name = getattr(callback, "__name__", None)
@@ -1219,8 +1281,9 @@ class PluginManager:
                 try:
                     if not t.done():
                         t.cancel()
-                except Exception:
-                    logger.warning("silently_swallowed_exception", exc_info=True)
+                except Exception as _cancel_err:
+                    # FIX [2026-07-17 P3-4]: 描述性日志替代 "silently_swallowed_exception"
+                    logger.warning(f"Failed to cancel plugin startup task during unload: {_cancel_err}")
             self._plugin_startup_tasks.clear()
         return report
 
@@ -1255,13 +1318,13 @@ class PluginManager:
         向服务器注册 OSS 实例，获取 instance_id 和 instance_secret。
         仅在 PLUGIN_MARKETPLACE_ENABLED=True 时执行，否则静默返回。
         """
-        if not bool(getattr(settings, "PLUGIN_MARKETPLACE_ENABLED", False)):
+        if not settings.PLUGIN_MARKETPLACE_ENABLED:
             logger.debug("[OSS-Register] PLUGIN_MARKETPLACE_ENABLED=False, skipping OSS instance registration")
             return {"ok": False, "error": "plugin marketplace disabled"}
         import json as _json
-        server_url = getattr(settings, "PLUGIN_MARKETPLACE_SERVER_URL", None) or ""
+        server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
         if not server_url:
-            server_url = getattr(settings, "PLUGIN_MARKETPLACE_BASE_URL", None) or ""
+            server_url = settings.PLUGIN_MARKETPLACE_BASE_URL or ""
         if not server_url:
             logger.warning("[OSS-Register] PLUGIN_MARKETPLACE_SERVER_URL not configured, skipping instance registration")  # i18n
             return {"ok": False, "error": "server not configured"}
@@ -1297,9 +1360,9 @@ class PluginManager:
         import json as _json
         if not self._oss_instance_id:
             return {"ok": False, "error": "not registered"}
-        server_url = getattr(settings, "PLUGIN_MARKETPLACE_SERVER_URL", None) or ""
+        server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
         if not server_url:
-            server_url = getattr(settings, "PLUGIN_MARKETPLACE_BASE_URL", None) or ""
+            server_url = settings.PLUGIN_MARKETPLACE_BASE_URL or ""
         if not server_url:
             return {"ok": False, "error": "server not configured"}
 
@@ -1329,9 +1392,9 @@ class PluginManager:
         import json as _json
         if not self._oss_instance_id:
             return {"ok": False, "error": "not registered"}
-        server_url = getattr(settings, "PLUGIN_MARKETPLACE_SERVER_URL", None) or ""
+        server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
         if not server_url:
-            server_url = getattr(settings, "PLUGIN_MARKETPLACE_BASE_URL", None) or ""
+            server_url = settings.PLUGIN_MARKETPLACE_BASE_URL or ""
         if not server_url:
             return {"ok": False, "error": "server not configured"}
 
@@ -1360,7 +1423,7 @@ class PluginManager:
         优先加载主文件，失败时尝试 .bak 备份。
         """
         import json as _json
-        path = getattr(settings, "OSS_INSTANCE_INFO_FILE", None)
+        path = settings.OSS_INSTANCE_INFO_FILE
         if not path:
             return
         for candidate in [path, path + ".bak"]:
@@ -1387,7 +1450,7 @@ class PluginManager:
         from datetime import datetime, timezone
         if not self._oss_instance_id:
             return
-        path = getattr(settings, "OSS_INSTANCE_INFO_FILE", None)
+        path = settings.OSS_INSTANCE_INFO_FILE
         if not path:
             return
         data = {
@@ -1440,7 +1503,7 @@ class PluginManager:
             entry = self._plugin_health[plugin_id]
         entry["errors"] += 1
         entry["last_error"] = error
-        threshold = int(getattr(settings, "PLUGIN_HEALTH_ERROR_THRESHOLD", 0) or 0)
+        threshold = settings.PLUGIN_HEALTH_ERROR_THRESHOLD
         if threshold > 0 and entry["errors"] >= threshold:
             entry["disabled"] = True
             logger.warning(
@@ -1476,7 +1539,7 @@ class PluginManager:
 
     def check_plugin_disk_limit(self, plugin_id: str) -> bool:
         """检查插件磁盘占用是否超限。返回True表示OK，False表示超限。"""
-        limit_mb = int(getattr(settings, "PLUGIN_SANDBOX_DISK_LIMIT_MB", 0) or 0)
+        limit_mb = settings.PLUGIN_SANDBOX_DISK_LIMIT_MB
         if limit_mb <= 0:
             return True
         usage_mb = self.check_plugin_disk_usage(plugin_id)
@@ -1487,12 +1550,15 @@ class PluginManager:
 
     async def start_health_check_loop(self) -> None:
         """启动插件健康检查后台循环。"""
-        interval = int(getattr(settings, "PLUGIN_HEALTH_CHECK_INTERVAL_SECONDS", 0) or 0)
+        interval = settings.PLUGIN_HEALTH_CHECK_INTERVAL_SECONDS
         if interval <= 0:
             return
         if self._health_check_task and not self._health_check_task.done():
             return
-        self._health_check_task = asyncio.create_task(self._health_check_loop(interval))
+        self._health_check_task = fire_and_forget(
+            self._health_check_loop(interval),
+            name="plugin_health_check_loop",
+        )
 
     async def _health_check_loop(self, interval: int) -> None:
         """后台循环：定期检查插件健康状态。"""
@@ -1518,10 +1584,10 @@ class PluginManager:
         """订阅 Redis license:refresh:{tenant_id} 频道，收到续费推送后即时刷新本地授权缓存。
         仅在 PLUGIN_MARKETPLACE_ENABLED=True 时启动。
         """
-        if not bool(getattr(settings, "PLUGIN_MARKETPLACE_ENABLED", False)):
+        if not settings.PLUGIN_MARKETPLACE_ENABLED:
             logger.debug("[LicenseRefresh] PLUGIN_MARKETPLACE_ENABLED=False, subscriber not started")
             return
-        redis_url = getattr(settings, "REDIS_URL", None) or getattr(settings, "REDIS_HOST", "")  # I3 回退值不再硬编码localhost
+        redis_url = settings.REDIS_URL or settings.REDIS_HOST  # I3 回退值不再硬编码localhost
         if not redis_url:
             return
         try:
@@ -1532,15 +1598,18 @@ class PluginManager:
             except ImportError:
                 logger.debug("[LicenseRefresh] No async Redis client available, subscriber not started")
                 return
+        # FIX: [2026-07-16 P1] 保存 Redis 连接与 pubsub 引用，便于 shutdown 时优雅释放
         try:
             redis_client = aioredis.from_url(
-                redis_url if isinstance(redis_url, str) and redis_url.startswith("redis://") else f"redis://{redis_url}:{getattr(settings, 'REDIS_PORT', 6379)}",
+                redis_url if isinstance(redis_url, str) and redis_url.startswith("redis://") else f"redis://{redis_url}:{settings.REDIS_PORT}",
                 decode_responses=True,
             )
-            tenant_id = str(getattr(settings, "TENANT_ID", "") or "default").strip()
+            self._license_refresh_redis = redis_client
+            tenant_id = str(settings.TENANT_ID or "default").strip()
             channel = f"license:refresh:{tenant_id}"
             pubsub = redis_client.pubsub()
             await pubsub.subscribe(channel)
+            self._license_refresh_pubsub = pubsub
             logger.info(f"[LicenseRefresh] Subscribed to {channel}")
             while True:
                 msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30.0)
@@ -1563,6 +1632,28 @@ class PluginManager:
             pass  # intentional: asyncio cancellation
         except Exception as e:
             logger.warning(f"[LicenseRefresh] Subscriber error: {e}")
+        finally:
+            # 兜底：确保 pubsub 与 redis 连接关闭，避免连接泄漏
+            try:
+                if self._license_refresh_pubsub is not None:
+                    await self._license_refresh_pubsub.unsubscribe()
+                    await self._license_refresh_pubsub.close()
+            except Exception as _pubsub_err:
+                # FIX [2026-07-17 P3-26]: 描述性日志替代静默吞异常，便于发现连接泄漏
+                logger.warning(f"plugin_manager: failed to close license refresh pubsub: {_pubsub_err}")
+            try:
+                if self._license_refresh_redis is not None:
+                    await self._license_refresh_redis.close()
+            except Exception as _redis_err:
+                # FIX [2026-07-17 P3-26]: 描述性日志替代静默吞异常
+                logger.warning(f"plugin_manager: failed to close license refresh redis connection: {_redis_err}")
+
+    def stop_license_refresh_subscriber(self) -> None:
+        # FIX: [2026-07-16 P1] 优雅停止 license 刷新订阅，避免协程与 Redis 连接泄漏
+        task = getattr(self, "_license_refresh_task", None)
+        if task and not task.done():
+            task.cancel()
+        self._license_refresh_task = None
     # FIXED: [2026-07-10] P-02 新增插件安装/卸载方法 — 打通"官网购买→OSS 下载安装"链路 [全栈工程师]
     def install_plugin_from_zip(
         self,
@@ -1597,8 +1688,8 @@ class PluginManager:
             raise ValueError(f"插件包 SHA256 校验失败：期望 {expected_sha256}，实际 {actual_sha}")
         if expected_package_signature:
             from app.services.license_service import verify_ed25519_signature
-            pub = (getattr(settings, "PLUGIN_PACKAGE_ED25519_PUBLIC_KEY", None) or "").strip() or (
-                getattr(settings, "LICENSE_ED25519_PUBLIC_KEY", None) or ""
+            pub = (settings.PLUGIN_PACKAGE_ED25519_PUBLIC_KEY or "").strip() or (
+                settings.LICENSE_ED25519_PUBLIC_KEY or ""
             ).strip()
             if not pub:
                 raise ValueError("未配置插件包签名验签公钥：PLUGIN_PACKAGE_ED25519_PUBLIC_KEY / LICENSE_ED25519_PUBLIC_KEY")

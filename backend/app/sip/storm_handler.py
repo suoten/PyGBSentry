@@ -79,8 +79,55 @@ def enqueue_keepalive_update(gb_id: str, ip: str, port: int, proto: str):
     try:
         _db_update_queue.put_nowait(item)
     except asyncio.QueueFull:
-        _keepalive_cache[gb_id] = (time.time(), ip, port)  # 队列满时至少刷新内存缓存，防止设备误判离线
-        logger.warning(f"Storm handler queue full, cached keepalive for {gb_id} in memory only")
+        # P1-fix [2026-07-17]: 队列满时禁止仅写入内存缓存而放弃 DB 更新
+        # 原问题：队列满后心跳仅缓存于 _keepalive_cache，但 _check_device_offline
+        # 仅读取 DB Asset.last_keepalive，缓存不被消费，超过 180 秒阈值后在线设备
+        # 会被误判离线并触发 _cleanup_device_resources（清理流会话/订阅）。
+        # 修复：当距上次 DB 更新超过 0.5*KEEPALIVE_DB_INTERVAL 时，触发紧急同步
+        # DB 更新（绕过批量队列），确保 last_keepalive 不滞后超过阈值。
+        now = time.time()
+        cached = _keepalive_cache.get(gb_id)
+        needs_emergency_update = True
+        if cached:
+            last_time, _, _ = cached
+            if (now - last_time) < (KEEPALIVE_DB_INTERVAL * 0.5):
+                needs_emergency_update = False
+        _keepalive_cache[gb_id] = (now, ip, port)
+        if needs_emergency_update:
+            # fire-and-forget 紧急 DB 更新，避免阻塞 SIP 处理协程
+            try:
+                from app.core.async_utils import fire_and_forget
+                fire_and_forget(_emergency_keepalive_update(gb_id, item["time"]))
+            except Exception as e:
+                logger.warning(f"Failed to dispatch emergency keepalive update for {gb_id}: {e}")
+        logger.warning(
+            f"Storm handler queue full, dispatched emergency DB update for {gb_id} "
+            f"(emergency={needs_emergency_update})"
+        )
+
+
+async def _emergency_keepalive_update(gb_id: str, keepalive_time):
+    """紧急同步更新单个设备的 last_keepalive，绕过批量队列。
+
+    P1-fix [2026-07-17]: 风暴场景下批量队列满载时，为避免在线设备被误判离线，
+    直接执行单条 DB 更新。失败时仅记录警告，不抛出异常（已是降级路径）。
+    """
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = update(Asset).where(Asset.gb_id == gb_id).values(
+                last_keepalive=keepalive_time,
+                status=1,
+            )
+            await session.execute(stmt)
+            platform_stmt = update(ParentPlatform).where(
+                (ParentPlatform.server_gb_id == gb_id) | (ParentPlatform.client_gb_id == gb_id)
+            ).values(
+                last_keepalive=keepalive_time,
+            )
+            await session.execute(platform_stmt)
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Emergency keepalive update failed for {gb_id}: {e}")
 
 def enqueue_register_update(gb_id: str, ip: str, port: int, proto: str, expires: int):
     try:
@@ -204,7 +251,12 @@ _worker_task = None
 def start_storm_handler():
     global _worker_task
     if _worker_task is None:
-        _worker_task = asyncio.create_task(_db_updater_worker())
+        # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+        from app.core.async_utils import fire_and_forget
+        _worker_task = fire_and_forget(
+            _db_updater_worker(),
+            name="storm_handler_db_updater_worker",
+        )
 
 def stop_storm_handler():
     global _worker_task

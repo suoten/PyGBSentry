@@ -33,9 +33,16 @@ _GET_ZLM_API_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Pattern: secret interpolated into URL string (e.g., f"...?secret={...}")
+# Pattern: secret interpolated into an HTTP/HTTPS URL string literal
+# (e.g., f"http://host/api?secret={secret}").
+# FIX [2026-07-19]: 限制为 http:// 或 https:// URL 字面量，避免误报：
+# - ZLM hook 配置 URL（f"{webhook_base}/on_play?secret={_api_secret_q}"）：
+#   ZLM hook 机制要求 secret 在 URL 中（ZLM 发送 GET 请求到后端），属于 ZLM 设计约束，
+#   不是后端发起的 HTTP 请求，secret 不会出现在代理/访问日志中。
+# - otpauth URI（f"otpauth://totp/...?secret={secret}"）：TOTP 标准 URI，非 HTTP 请求。
+# - 配置文件生成（f"secret={secret}"）：写入 ZLM config.ini，非 URL。
 _SECRET_IN_URL_PATTERN = re.compile(
-    r"['\"].*secret=\{.*\}.*['\"]",
+    r"['\"]https?://[^'\"]*secret=\{[^}]+\}[^'\"]*['\"]",
     re.IGNORECASE,
 )
 

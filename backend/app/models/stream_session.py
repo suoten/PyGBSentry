@@ -51,4 +51,7 @@ class StreamSession(Base):
     media_port_lease_id = Column(String(32), nullable=True)
 
     start_time = Column(DateTime, default=func.now())
-    protocol = Column(String(10), default="UDP")
+    # FIX: [2026-07-16] String(10) 无法完整存储 "TCP-PASSIVE"（11 字符），会被截断为
+    # "TCP-PASSIV"，导致 response_handler.py 中 protocol == "TCP-PASSIVE" 判断永远为 False，
+    # SSRC 恢复时 RTP 服务器以错误模式（UDP）重开。提升到 String(16)。
+    protocol = Column(String(16), default="UDP")

@@ -44,7 +44,7 @@
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item command="zh-CN" :class="{ 'is-active': locale === 'zh-CN' }">{{ t('topbar.chinese') }}</el-dropdown-item>
-            <el-dropdown-item command="en-US" :class="{ 'is-active': locale === 'en-US' }">English</el-dropdown-item>
+            <el-dropdown-item command="en-US" :class="{ 'is-active': locale === 'en-US' }">{{ t('topbar.english') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -117,10 +117,23 @@ const initials = computed(() => username.value.slice(0, 1).toUpperCase())
 
 const crumbs = computed(() => {
   const matched = route.matched || []
+  // FIX: [2026-07-13] 路由配置已改用 `meta.titleKey`（i18n 翻译键）而非硬编码 `meta.title`。
+  // 旧代码仅过滤 `meta.title`，导致所有面包屑项都被过滤掉，回退到默认 "首页"。
+  // 现在优先使用 titleKey + i18n 翻译，其次回退到 meta.title（向后兼容）。
   const list = matched
-    .filter(r => r.meta && r.meta.title && !r.meta.hidden)
-    .map(r => ({ path: r.path, title: String(r.meta.title) }))
-  return list.length ? list : [{ path: route.path, title: String(route.meta?.title || t('topbar.home')) }]
+    .filter(r => r.meta && (r.meta.titleKey || r.meta.title) && !r.meta.hidden)
+    .map(r => ({
+      path: r.path,
+      title: r.meta.titleKey
+        ? t(String(r.meta.titleKey))
+        : String(r.meta.title || '')
+    }))
+  return list.length ? list : [{
+    path: route.path,
+    title: route.meta?.titleKey
+      ? t(String(route.meta.titleKey))
+      : String(route.meta?.title || t('topbar.home'))
+  }]
 })
 
 async function handleCommand(command: string) {

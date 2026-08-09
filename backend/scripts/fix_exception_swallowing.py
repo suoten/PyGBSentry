@@ -38,7 +38,8 @@ def fix_file(filepath: Path) -> int:
         if re.match(r'^(\s*)except\s+Exception\s*:\s*pass\s*$', stripped):
             indent = re.match(r'^(\s*)', stripped).group(1)
             new_lines.append(f"{indent}except Exception as _exc:\n")
-            new_lines.append(f'{indent}    logger.warning(f"silently_swallowed: {{_exc}}", exc_info=True)\n')
+            # FIX [2026-07-17 P3-18]: 生成描述性日志，包含异常对象，便于定位
+            new_lines.append(f'{indent}    logger.warning(f"swallowed exception: {{_exc}}", exc_info=True)\n')
             changes += 1
             i += 1
             continue
@@ -47,7 +48,7 @@ def fix_file(filepath: Path) -> int:
         if re.match(r'^(\s*)except\s*:\s*pass\s*$', stripped):
             indent = re.match(r'^(\s*)', stripped).group(1)
             new_lines.append(f"{indent}except Exception as _exc:\n")
-            new_lines.append(f'{indent}    logger.warning(f"silently_swallowed_bare: {{_exc}}", exc_info=True)\n')
+            new_lines.append(f'{indent}    logger.warning(f"swallowed bare exception: {{_exc}}", exc_info=True)\n')
             changes += 1
             i += 1
             continue
@@ -60,10 +61,10 @@ def fix_file(filepath: Path) -> int:
             # 如果包含 CancelledError，用 debug 级别
             if "CancelledError" in exc_types:
                 new_lines.append(f"{indent}except ({exc_types}) as _exc:\n")
-                new_lines.append(f'{indent}    logger.debug(f"cancelled_or_timeout: {{_exc}}")\n')
+                new_lines.append(f'{indent}    logger.debug(f"cancelled or timeout: {{_exc}}")\n')
             else:
                 new_lines.append(f"{indent}except ({exc_types}) as _exc:\n")
-                new_lines.append(f'{indent}    logger.debug(f"swallowed_specific: {{_exc}}")\n')
+                new_lines.append(f'{indent}    logger.debug(f"swallowed ({exc_types}): {{_exc}}")\n')
             changes += 1
             i += 1
             continue
@@ -78,10 +79,10 @@ def fix_file(filepath: Path) -> int:
                 new_lines.append(f'{indent}    logger.debug(f"cancelled: {{_exc}}")\n')
             elif exc_type in ("ImportError", "ModuleNotFoundError"):
                 new_lines.append(f"{indent}except {exc_type} as _exc:\n")
-                new_lines.append(f'{indent}    logger.debug(f"import_skipped: {{_exc}}")\n')
+                new_lines.append(f'{indent}    logger.debug(f"optional import skipped: {{_exc}}")\n')
             else:
                 new_lines.append(f"{indent}except {exc_type} as _exc:\n")
-                new_lines.append(f'{indent}    logger.debug(f"swallowed_{exc_type.lower()}: {{_exc}}")\n')
+                new_lines.append(f'{indent}    logger.debug(f"swallowed {exc_type}: {{_exc}}")\n')
             changes += 1
             i += 1
             continue
@@ -115,18 +116,24 @@ def fix_file(filepath: Path) -> int:
                 # 这是 except ...: \n pass 模式
                 # 检查 except 类型
                 except_content = stripped_no_space
+                # FIX [2026-07-17 P3-18]: 若 except 行未捕获异常变量，添加 "as _exc"
+                # 以便在日志中引用异常对象，生成描述性日志替代无意义的 "swallowed_exception"
+                _has_as = re.search(r'\bas\s+\w+', stripped)
+                _except_line_out = line
+                if not _has_as:
+                    _except_line_out = stripped.rstrip() + " as _exc:\n"
                 if "CancelledError" in except_content:
-                    new_lines.append(line)  # 保持 except 行
-                    new_lines.append(f'{indent}    logger.debug("task_cancelled")\n')
+                    new_lines.append(_except_line_out)
+                    new_lines.append(f'{indent}    logger.debug(f"task cancelled: {{_exc}}")\n')
                 elif "ImportError" in except_content or "ModuleNotFoundError" in except_content:
-                    new_lines.append(line)
-                    new_lines.append(f'{indent}    logger.debug("optional_import_skipped")\n')
+                    new_lines.append(_except_line_out)
+                    new_lines.append(f'{indent}    logger.debug(f"optional import skipped: {{_exc}}")\n')
                 elif "Exception" in except_content:
-                    new_lines.append(line)
-                    new_lines.append(f'{indent}    logger.warning("silently_swallowed_exception", exc_info=True)\n')
+                    new_lines.append(_except_line_out)
+                    new_lines.append(f'{indent}    logger.warning(f"swallowed exception: {{_exc}}", exc_info=True)\n')
                 else:
-                    new_lines.append(line)
-                    new_lines.append(f'{indent}    logger.debug("swallowed_exception", exc_info=True)\n')
+                    new_lines.append(_except_line_out)
+                    new_lines.append(f'{indent}    logger.debug(f"swallowed exception: {{_exc}}", exc_info=True)\n')
                 changes += 1
                 i += 2
                 continue

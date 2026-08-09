@@ -19,6 +19,17 @@ env/
 !.env.dev.example
 !.env.prod.example
 
+# FIX: [2026-07-16 P0] SSL 私钥/证书文件 — 防止构建到镜像层
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*_private_key*
+*_signing_key*
+
 # Data & Logs
 data/
 logs/

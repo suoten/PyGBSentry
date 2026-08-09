@@ -188,7 +188,7 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
                 _pusher_ok = await start_rtp_pusher(
                     host=zlm_host,
                     http_port=zlm_http_port,
-                    secret=getattr(settings, 'MEDIA_SERVER_SECRET', '') or '',
+                    secret=settings.MEDIA_SERVER_SECRET or '',
                     app=_broadcast_app,
                     stream=_broadcast_stream,
                     dst_ip=target_ip,
@@ -235,7 +235,7 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
         if _rtp_pusher_started:
             try:
                 from app.services.zlm_stream_control import stop_rtp_pusher
-                await stop_rtp_pusher(zlm_host, zlm_http_port, getattr(settings, 'MEDIA_SERVER_SECRET', '') or '', "broadcast", f"broadcast_{call_id}")
+                await stop_rtp_pusher(zlm_host, zlm_http_port, settings.MEDIA_SERVER_SECRET or '', "broadcast", f"broadcast_{call_id}")
             except Exception as _stop_err:
                 logger.warning(f"Broadcast stop_rtp_pusher error: {_stop_err}")
         if call_id:
@@ -366,7 +366,7 @@ async def websocket_bidirectional_talk(
                 _pusher_ok = await start_rtp_pusher(
                     host=zlm_host,
                     http_port=zlm_http_port,
-                    secret=getattr(settings, 'MEDIA_SERVER_SECRET', '') or '',
+                    secret=settings.MEDIA_SERVER_SECRET or '',
                     app="talk",
                     stream=zlm_stream_id,
                     dst_ip=target_ip,
@@ -432,7 +432,7 @@ async def websocket_bidirectional_talk(
                 if _zlm_stream_id:
                     await stop_rtp_pusher(
                         _zlm_host, _zlm_http_port,
-                        getattr(settings, 'MEDIA_SERVER_SECRET', '') or '',
+                        settings.MEDIA_SERVER_SECRET or '',
                         "talk", _zlm_stream_id
                     )
             except Exception as _stop_err:
@@ -451,5 +451,6 @@ async def websocket_bidirectional_talk(
         if 'sock' in locals():
             try:
                 sock.close()
-            except Exception:
-                logger.warning("silently_swallowed_exception", exc_info=True)
+            except Exception as _sock_err:
+                # FIX [2026-07-17 P3-12]: 描述性日志替代 "silently_swallowed_exception"
+                logger.warning(f"talk endpoint: failed to close talk socket: {_sock_err}")

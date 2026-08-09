@@ -3,7 +3,7 @@ GB28181 设备目录查询模块
 """
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact
+from app.core.config import settings, sip_host_for_contact, sip_via_host
 from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from app.core.xml_utils import parse_xml, get_xml_text, find_child, find_children
 from app.db.session import AsyncSessionLocal
@@ -50,13 +50,32 @@ async def _catalog_agg_prune_loop():
 def start_catalog_agg_prune():
     global _catalog_agg_prune_task
     if _catalog_agg_prune_task is None or _catalog_agg_prune_task.done():
-        _catalog_agg_prune_task = asyncio.create_task(_catalog_agg_prune_loop())
+        # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
+        _catalog_agg_prune_task = fire_and_forget(
+            _catalog_agg_prune_loop(),
+            name="catalog_agg_prune_loop",
+        )
 
 
-def _attach_trace_header(req: SipMessage) -> None:
-    call_id = (req.get_header("Call-ID") or "").strip()
-    if call_id:
-        req.headers["X-Trace-ID"] = call_id
+def stop_catalog_agg_prune():
+    # FIX: [2026-07-16 P1] 提供优雅停止接口，避免后台任务在 shutdown 时协程泄漏
+    global _catalog_agg_prune_task
+    if _catalog_agg_prune_task and not _catalog_agg_prune_task.done():
+        _catalog_agg_prune_task.cancel()
+        # FIX [2026-07-17 P3-19]: 移除无意义的 try: pass except: pass 死代码，
+        # cancel() 已触发 CancelledError 由任务自身处理，无需在此 try/except。
+    _catalog_agg_prune_task = None
+
+
+def _attach_trace_header(req: SipMessage) -> str:
+    """返回 Call-ID 作为 trace_id 用于日志关联。
+
+    FIX: [2026-07-21 P0] 不再向 SIP 请求添加 X-Trace-ID 头域。
+    实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request，
+    导致所有 MESSAGE 请求失败、通道列表无法同步。
+    RFC 3261 §20 允许扩展头域，但非标准头可能被严格实现拒绝。
+    """
+    return (req.get_header("Call-ID") or "").strip()
 
 
 from app.sip.sip_trace import sip_trace_log as _sip_trace_log
@@ -93,11 +112,17 @@ class Catalog:
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_catalog@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        # FIX [2026-07-22 P0]: Call-ID 去除 "_catalog" 语义后缀与域名 host。
+        # EasyGBS 等非标准客户端对带前缀/后缀的 token 敏感（2026-07-21 已在 branch/tag 实测证实
+        # 并修复 14 处），Call-ID 漏修。统一为 64 位密码学随机值 @sip_via_host()（IP地址，
+        # 非域名/SIP_DOMAIN）。响应按 XML SN 与 Via branch 匹配，不依赖 Call-ID 内容。
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        # FIX [2026-07-17 P1-A3]: CSeq 必须单调递增（RFC 3261 §22.2），不能硬编码 "1 MESSAGE"，
+        # 否则部分设备（如海康/大华）会因 CSeq 重复而拒绝后续查询。使用统一 SN 作为 CSeq。
+        req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -155,11 +180,13 @@ class Catalog:
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_deviceinfo@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        # FIX [2026-07-22 P0]: Call-ID 去除 "_deviceinfo" 语义后缀与域名 host，同 send_catalog_query。
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        # FIX [2026-07-17 P1-A3]: CSeq 必须单调递增（RFC 3261 §22.2），使用统一 SN 作为 CSeq。
+        req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -216,11 +243,13 @@ class Catalog:
         branch = f"z9hG4bK{secrets.token_hex(10)}"
         tag = secrets.token_hex(8)
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_host_for_contact()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}"
-        req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = f"{sn}_devicestatus@{sip_host_for_contact()}"
-        req.headers["CSeq"] = "1 MESSAGE"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        # FIX [2026-07-22 P0]: Call-ID 去除 "_devicestatus" 语义后缀与域名 host，同 send_catalog_query。
+        req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
+        # FIX [2026-07-17 P1-A3]: CSeq 必须单调递增（RFC 3261 §22.2），使用统一 SN 作为 CSeq。
+        req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -253,11 +282,24 @@ async def handle_catalog_response(xml_body: str, device_id: str):
     """
     root = parse_xml(xml_body)
     if root is None:
+        # FIX [2026-07-22 P0]: 解析失败时记录原始 XML 内容（截断到 2000 字符）
+        # 便于排查设备返回的非法 XML（如 BOM 头、未转义特殊字符、不完整标签等）
+        _orig_snippet = ""
+        try:
+            if isinstance(xml_body, bytes):
+                _orig_snippet = xml_body.decode("utf-8", errors="replace")[:2000]
+            else:
+                _orig_snippet = str(xml_body or "")[:2000]
+        except Exception:
+            _orig_snippet = "(failed to extract original XML)"
+        logger.error(
+            f"[CATALOG_PARSE_FAIL] device={device_id} original_xml_snippet=[{_orig_snippet}]"
+        )
         await patch_device_catalog_runtime(
             device_id,
             {
                 "catalog.last_response_at": utc_now_iso(),
-                "catalog.last_error": "invalid_catalog_xml",
+                "catalog.last_error": f"invalid_catalog_xml: {_orig_snippet[:200]}",
                 "catalog.sync_state": "response_parse_failed",
             },
         )
@@ -333,12 +375,42 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             "latitude": get_xml_text(item, "Latitude"),
             "has_video": has_video,
             "video_opt_mask": video_opt_mask_str,
+            # P1-fix: GB28181 §A.1 要求 Catalog Item 应包含以下字段，原实现遗漏
+            "safety_way": (get_xml_text(item, "SafetyWay") or "").strip(),  # 安全方式 0=不涉及/1=IP/2=证书
+            "register_way": (get_xml_text(item, "RegisterWay") or "").strip(),  # 注册方式 1=主动/2=被动
+            "ip": (get_xml_text(item, "IP") or "").strip(),  # 设备 IP 地址
         })
 
     received_total = item_count
     total_sum = sum_num
-    # SumNum解析异常时total_sum为None，使用极大值确保收集所有分片
-    _total_sum_effective = total_sum if total_sum is not None else 0x7FFFFFFF
+    # P1-fix [2026-07-17]: SumNum 解析失败时禁止使用 0x7FFFFFFF 占位
+    # 原代码使用极大值（0x7FFFFFFF）会导致 Redis Lua 脚本判断 LLEN < 0x7FFFFFFF
+    # 永远为真，返回 nil，分片聚合永不完成，所有分片滞留 Redis 直到 600 秒 TTL 过期。
+    # 现在改用单批次回退模式：SumNum 不可用时假定本次响应是完整的，直接处理本批次。
+    # 同时解析 DeviceList 的 Num 属性作为辅助校验。
+    device_list_num_attr = ""
+    if device_list is not None:
+        device_list_num_attr = (device_list.get("Num") or "").strip() if hasattr(device_list, "get") else ""
+    if total_sum is None:
+        # SumNum 解析失败：尝试从 DeviceList Num 属性推断，否则使用本批次 Item 数
+        try:
+            if device_list_num_attr and str(device_list_num_attr).isdigit():
+                _inferred_total = int(device_list_num_attr)
+                # 若 Num 属性等于本批次 Item 数，则假定单批次完整响应
+                if _inferred_total == item_count:
+                    total_sum = item_count
+                else:
+                    # Num 属性与本批次 Item 数不一致，仍使用本批次作为完整响应
+                    total_sum = item_count
+            else:
+                total_sum = item_count
+        except Exception:
+            total_sum = item_count
+        logger.info(
+            f"Catalog {device_id}: SumNum missing, fell back to single-batch mode "
+            f"(item_count={item_count}, device_list_num={device_list_num_attr or 'N/A'})"
+        )
+    _total_sum_effective = total_sum
     all_items = items_data
 
     # Redis 分片聚合逻辑

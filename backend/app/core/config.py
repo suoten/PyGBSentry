@@ -30,10 +30,23 @@ class Settings(BaseSettings):
     APP_ENV: str = "dev"  # 默认开发模式；生产部署必须在 .env 中显式设置 APP_ENV=prod
     APP_LANGUAGE: str = "zh"  # 错误消息语言 (zh/en)，影响后端 i18n 模块输出
     APP_TIMEZONE: str = "Asia/Shanghai"
+    # P1-fix [2026-07-17]: APP_TIMEZONE_OFFSET_HOURS — 数值型时区偏移（小时），用于 datetime.timezone 构造。
+    # 原 platform_service.py 使用 getattr(settings, "APP_TIMEZONE_OFFSET_HOURS", 8) 动态获取违反硬约束 #41。
+    # 默认 8（UTC+8 北京时间，与历史 getattr 默认值一致）。优先使用 APP_TIMEZONE（IANA 名称）做 tzinfo；
+    # 此项仅用于无法用 IANA 名称的场合。
+    APP_TIMEZONE_OFFSET_HOURS: float = 8.0
     LOG_DIR: str = "logs"
     LOG_FORMAT: str = "text"
     # P3-05: stderr 日志级别覆盖（空字符串=自动按 APP_ENV 推导：prod→WARNING, dev→INFO, debug→DEBUG）
     LOG_LEVEL_STDERR: str = ""
+
+    # FIX [2026-07-22 P0]: ZLMediaKit 故障不应导致 readiness 探针失败。
+    # 原行为：ZLM 二进制缺失 → mark_degraded("zlm_down") → /health/ready 返回 503 →
+    # 外部进程管理器（宝塔/systemd）健康检查失败 → 强制重启 → ZLM 仍缺失 → 崩溃重启死循环。
+    # ZLM 是媒体转发层，SIP 信令/设备管理/通道同步不依赖 ZLM，不应因 ZLM 故障重启整个服务。
+    # 默认 False：ZLM 故障只影响视频播放，readiness 仍返回 200，SIP 业务可正常运行。
+    # K8s 部署如需原行为（ZLM 故障时不导流量），显式设为 true。
+    READINESS_FAIL_ON_ZLM_DOWN: bool = False
 
     # Security — 密钥分离，不同用途使用独立密钥
     SECRET_KEY: str = ""
@@ -68,6 +81,9 @@ class Settings(BaseSettings):
     # True 时 require_roles 拒绝（403）写入审计中心；默认 False 避免普通浏览产生大量记录
     AUDIT_RBAC_ROLE_DENIALS: bool = False
     AUDIT_WEBHOOK_TIMEOUT: int = 5
+    # P1-fix [2026-07-17]: 审计 Webhook URL，原 audit_center_service.py 使用
+    # getattr(settings, "AUDIT_WEBHOOK_URL", None) 动态获取违反硬约束 #41。默认空（不推送）
+    AUDIT_WEBHOOK_URL: Union[str, None] = None
     # P0-11#3: dev/test 环境显式跳过 market_builtin 占位符/完整性校验（生产环境忽略此 flag）
     _DEV_SKIP_VERIFY: bool = False
 
@@ -81,6 +97,10 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[AnyHttpUrl] = []  # 移除硬编码CORS，强制env配置
     BACKEND_PUBLIC_HOST: str = "localhost"
     BACKEND_PUBLIC_PORT: int = 8000
+    # P1-fix [2026-07-17]: uvicorn 启动绑定地址 — 原 run_server.py 使用 getattr(settings, "HOST", "0.0.0.0")
+    # 和 getattr(settings, "PORT", 8000) 动态获取违反硬约束 #41
+    HOST: str = "0.0.0.0"  # uvicorn 绑定地址（0.0.0.0=所有网卡，127.0.0.1=仅本机）
+    PORT: int = 8000  # uvicorn 监听端口
 
     # Database
     POSTGRES_SERVER: str = "localhost"
@@ -108,11 +128,17 @@ class Settings(BaseSettings):
     SQLALCHEMY_DATABASE_URI: Union[str, None] = None
 
     # DB Optimization
-    DB_POOL_SIZE: int = 100
-    DB_MAX_OVERFLOW: int = 50
+    # FIX: [2026-07-16 P0] 原 DB_POOL_SIZE=100 + DB_MAX_OVERFLOW=50 默认值过高，
+    # 多实例部署时连接数爆炸（100+50=150/实例），PostgreSQL 默认 max_connections=100
+    # 会被耗尽。降为 20+10=30/实例，可通过 .env 调整。
+    DB_POOL_SIZE: int = 20
+    DB_MAX_OVERFLOW: int = 10
     DB_POOL_RECYCLE: int = 1800
     # P2-03: 慢查询监控阈值（秒），超过此值的查询将记录 WARNING 日志
     SLOW_QUERY_THRESHOLD_SECONDS: float = 1.0
+    # P1-fix [2026-07-17]: SQLAlchemy 语句缓存大小（0=禁用，生产环境可设为100启用）
+    # 原 db/session.py 使用 getattr(settings, "DB_STATEMENT_CACHE_SIZE", 0) 动态获取违反硬约束 #41
+    DB_STATEMENT_CACHE_SIZE: int = 0
     # DB 启动是否强依赖。true: DB 连接失败直接中止启动（生产推荐）；false: 记录告警并降级继续（开发/无 DB 环境用）
     DB_STARTUP_REQUIRED: bool = True
 
@@ -171,6 +197,9 @@ class Settings(BaseSettings):
     REDIS_SOCKET_TIMEOUT: float = 3.0
     # Redis max_connections now configurable via env (default 50)
     REDIS_MAX_CONNECTIONS: int = 50
+    # P1-fix [2026-07-17]: 完整 Redis URL（可选，留空时由 REDIS_HOST/PORT/PASSWORD 拼接）。
+    # 原 plugin_manager.py 使用 getattr(settings, "REDIS_URL", None) 动态获取违反硬约束 #41
+    REDIS_URL: Union[str, None] = None
     # 启动时是否连接 Redis。默认 False：无 Redis 时部分环境会长时间卡在 TCP，导致 8000 不监听；需要限流/会话时再设 true 并保证 redis-server 可用
     INIT_REDIS_ON_STARTUP: bool = False
 
@@ -183,11 +212,17 @@ class Settings(BaseSettings):
     # 高可用 (HA) 与集群配置
     CLUSTER_ENABLED: bool = False
     CLUSTER_NODE_ID: str = "" # 如果为空，启动时自动生成 UUID
+    # P1-fix [2026-07-17]: 多租户标识（用于 license:refresh 频道隔离等场景）。
+    # 原 plugin_manager.py 使用 getattr(settings, "TENANT_ID", "") 动态获取违反硬约束 #41
+    TENANT_ID: str = ""
 
     # SIP — 以下默认值仅供开发使用，生产环境必须在 .env 中显式配置
     SIP_IP: str = "0.0.0.0"
     SIP_TALK_DEFAULT_PORT: int = 6000
     SIP_PORT: int = 5060  # PRODUCTION: 必须在 .env 中设置，避免与其他 SIP 服务端口冲突
+    # P1-fix [2026-07-17]: SIP 传输层协议 — 原 platforms.py 使用 getattr(settings, "SIP_TRANSPORT", "UDP")
+    # 动态获取违反硬约束 #41。默认 UDP（与历史 getattr 默认值一致）
+    SIP_TRANSPORT: str = "UDP"
     SIP_WS_PORT: int = 0  # SIP over WebSocket端口(0=禁用)
     # 移除重复的GB28181_VERSION定义（L162），保留L198的完整注释版本
     # SIPS (TLS) Support
@@ -201,6 +236,8 @@ class Settings(BaseSettings):
     SIP_DOMAIN: str = "3402000000"  # PRODUCTION: 必须在 .env 中设置为实际行政区划编码（10位数字）
     # 设备注册默认鉴权密码（当 Asset.password 为空/未创建时使用）
     SIP_DEFAULT_PASSWORD: str = ""  # MUST be set via .env or environment variable
+    # FIX [2026-07-17 P1]: 补全弱密码列表文件路径配置项，原 main.py 使用 getattr 动态获取违反硬约束
+    WEAK_PASSWORD_LIST_FILE: str = ""
     # 管理员初始/重置密码（首次创建admin用户或重置密码时使用）
     # 留空则首次启动自动生成随机密码并打印到日志；设置后每次启动都会重置admin密码
     ADMIN_INITIAL_PASSWORD: str = ""
@@ -219,6 +256,9 @@ class Settings(BaseSettings):
     SIP_INVITE_2XX_RETRANS_MAX_SECONDS: float = 32.0
     SIP_INVITE_ZLM_MAX_NODE_RETRIES: int = 3
     SIP_INVITE_ZLM_OPEN_RTP_TIMEOUT_SECONDS: float = 3.0
+    # P1-fix [2026-07-17]: ZLM 关闭 RTP 端口超时（秒），原 zlm_rtp_server_service.py 使用
+    # getattr(settings, "SIP_INVITE_ZLM_CLOSE_RTP_TIMEOUT_SECONDS", 3.0) 动态获取违反硬约束 #41
+    SIP_INVITE_ZLM_CLOSE_RTP_TIMEOUT_SECONDS: float = 3.0
     SIP_RESPONSE_CACHE_TTL_SECONDS: int = 32
     SIP_RESPONSE_CACHE_MAX_SIZE: int = 50000
     SIP_MAX_INFLIGHT: int = 5000
@@ -231,8 +271,76 @@ class Settings(BaseSettings):
     SIP_AUTH_FAILURE_MAX_SIZE: int = 5000  # 鉴权失败追踪字典最大条目数，超限触发清理
     SIP_CLEANUP_LOCKS_CLEANUP_INTERVAL_SECONDS: int = 300  # 设备清理锁回收间隔（秒）
     SIP_INVITE_TIMEOUT_SECONDS: int = 20
+    # FIX: [2026-07-16] 以下配置项之前仅通过 getattr 使用，未在 Settings 中定义，
+    # 导致无法通过 .env 覆盖。现在统一定义，支持 .env 配置。
+    SIP_CASCADE_INVITE_TIMEOUT_SECONDS: int = 30  # 级联 INVITE 超时（秒），链路较长时需 >20s
+    # P1-fix [2026-07-17]: 级联注册超时（秒），原 platform_service.py 使用 getattr(settings, "SIP_CASCADE_REGISTER_TIMEOUT_SECONDS", 5.0)
+    # 动态获取违反硬约束 #41。默认 5 秒（与历史 getattr 默认值一致）
+    SIP_CASCADE_REGISTER_TIMEOUT_SECONDS: float = 5.0
+    SIP_PLATFORM_KEEPALIVE_TIMEOUT_SECONDS: float = 5.0  # 平台 keepalive 超时（秒）
+    SIP_PLATFORM_KEEPALIVE_RETRIES: int = 1  # 平台 keepalive 重试次数
+    SIP_IP_BLACKLIST_CACHE_TTL_SECONDS: float = 60.0  # IP 黑名单内存缓存 TTL（秒）
 
     ZLM_NONE_READER_DELAY_SECONDS: float = 0
+    ZLM_TCP_ACTIVE_CONNECT_RETRIES: int = 6  # TCP-ACTIVE 设备连接重试次数（覆盖设备端口准备时间）
+    ZLM_TCP_ACTIVE_CONNECT_DELAY: float = 0.5  # TCP-ACTIVE 重试间隔基数（秒，线性退避）
+
+    # P1-fix [2026-07-17]: SIP 认证相关配置项必须在 Settings 类明确定义
+    # 原代码通过 getattr(settings, "XXX", default) 动态获取，违反项目硬约束 #41
+    SIP_AUTH_RELAXED: bool = False  # true 时放宽 stale nonce / nc 重放检查（兼容旧设备）
+    SIP_DIGEST_NONCE_TTL_SECONDS: int = 300  # nonce 有效期（秒）
+    SIP_DIGEST_FAIL_WINDOW_SECONDS: int = 300  # 认证失败滑动窗口（秒）
+    SIP_DIGEST_FAIL_MAX_ATTEMPTS: int = 10  # 窗口内最大失败次数
+    SIP_DIGEST_FAIL_LOCK_DURATION: int = 300  # 锁定时长（秒）
+    SIP_DIGEST_FAIL_TRACKER_MAX_SIZE: int = 50000  # 失败追踪字典硬上限（防内存耗尽）
+
+    # FIX [2026-07-29 P0]: EasyGBS 等非标准平台对 From/To URI host 使用 SIP_DOMAIN
+    # (行政区划码) 的 MESSAGE 请求返回 400 Bad Request。实测 EasyGBS 自己发送的
+    # REGISTER/MESSAGE 均使用 IP:port 作为 From URI host。设为 true 时，outgoing
+    # SIP 请求的 From/To URI host 将使用 sip_via_host() (IP) 而非 SIP_DOMAIN。
+    # 默认 true，因为绝大多数下级平台/设备均接受 IP host，而 EasyGBS 明确拒绝 SIP_DOMAIN host。
+    SIP_FROM_TO_USE_IP: bool = True
+
+    # P1-fix [2026-07-17]: SIP 模块补全配置项 — 原 getattr(settings, "XXX", default) 动态获取违反硬约束 #41
+    SIP_REALM: str = ""  # SIP Digest realm（空则回退 SIP_DOMAIN/PROJECT_NAME）
+    SIP_KEEPALIVE_SN_CACHE_MAX: int = 100000  # keepalive 序号去重缓存最大条目数
+    SIP_NONCE_NC_MAX_SIZE: int = 10000  # nonce/nc 追踪字典最大条目数
+    SIP_NONCE_NC_TTL_SECONDS: int = 300  # nonce/nc 追踪条目 TTL（秒）
+    SIP_SSRC_WAITERS_MAX_SIZE: int = 5000  # SSRC 等待者字典最大条目数
+    SIP_DIALOG_MAX_COUNT: int = 50000  # dialog 字典最大条目数
+    SIP_DIALOG_TTL_SECONDS: int = 86400  # dialog 条目 TTL（秒）
+    # SIP Session Timer (RFC 4028) — 长会话保活配置
+    # P1-fix [2026-07-17]: 原 PyGBSentry 全库未实现 Session Timer，导致
+    # 长时间点播/对讲/级联会话一方静默掉线后另一方永久持有僵尸会话。
+    # 默认 1800 秒（30 分钟）与 RFC 4028 推荐值一致；Min-SE 90 秒防止恶意小值。
+    SIP_SESSION_EXPIRES_SECONDS: int = 1800  # 默认 Session-Expires（秒）
+    SIP_SESSION_MIN_SE_SECONDS: int = 90  # Min-SE 下限（秒），拒绝过小值
+    SIP_SUBSCRIBE_MIN_EXPIRES: int = 60  # 订阅最小过期时间（秒）
+    SIP_STRICT_BYE_TAG_MATCH: bool = False  # BYE 严格 tag 匹配
+    SIP_IP_RATE_LIMIT: int = 100  # 单 IP 速率限制
+    SIP_MAX_TCP_CLIENTS: int = 1000  # TCP 客户端最大连接数
+    SIP_TCP_KEEPALIVE_INTERVAL_SECONDS: float = 30.0  # TCP keepalive 间隔（秒）
+    SIP_TCP_KEEPALIVE_MAX_MISS: int = 3  # TCP keepalive 最大丢失次数
+    SIP_INVITE_SERVER_TX_TTL_SECONDS: float = 120.0  # INVITE 服务端事务 TTL（秒）
+    SIP_TRANSACTION_TIMEOUT_SECONDS: float = 30.0  # 事务超时（秒）
+    SIP_INVITE_ZLM_MAX_PORT_RETRIES: int = 10  # INVITE ZLM 端口重试次数
+    CASCADE_INVITE_TIMEOUT_SECONDS: int = 30  # 级联 INVITE 超时（秒）
+    ALLOW_CASCADE_RELAY: bool = False  # 是否允许级联转发
+    CASCADE_RTP_MEDIA_BYPASS: bool = True  # 级联 RTP 媒体旁路
+    SIPS_PORT: int = 5061  # SIPS(TLS) 端口
+    SIPS_CA_CERT_FILE: Union[str, None] = None  # SIPS CA 证书文件
+    SSRC_CLEANUP_INTERVAL_SECONDS: float = 300.0  # SSRC 清理间隔（秒）
+    SSRC_STALE_THRESHOLD_SECONDS: float = 3600.0  # SSRC 过期阈值（秒）
+    PTZ_EMERGENCY_WHITELIST: str = ""  # PTZ 紧急控制白名单（逗号分隔）
+    PTZ_MIN_INTERVAL_SECONDS: float = 0.1  # PTZ 最小指令间隔（秒）
+    GB28181_PLAYBACK_SEEK_RAW: bool = False  # 回放拖动使用裸 NPT 数值
+    MEDIA_SERVER_RTP_PROXY_PORT: int = 0  # 媒体服务器 RTP 代理端口（0=自动）
+    CATALOG_MONITOR_INTERVAL_SECONDS: float = 60.0  # 目录响应清理周期（秒）
+    CATALOG_ENTRY_TTL_SECONDS: float = 300.0  # 目录响应条目 TTL（秒）
+
+    # 播放启动时 ZLM 流就绪探测参数
+    PLAY_START_STREAM_READY_MAX_ATTEMPTS: int = 20  # 最大探测次数
+    PLAY_START_STREAM_READY_INTERVAL: float = 0.25  # 探测间隔（秒）
 
     GB28181_SSRC_POLICY: str = "adaptive"
     GB28181_SSRC_RETRY_ON_NOT_READY: bool = True
@@ -279,6 +387,13 @@ class Settings(BaseSettings):
     MEDIA_SERVER_RTSP_PORT: int = 554
     MEDIA_SERVER_RTMP_PORT: int = 1935
     MEDIA_SERVER_RTP_PROXY_PORT: int = 30000
+    # P1-fix [2026-07-17]: 媒体服务器 IP 与广播端口 — 原 stream_proxy.py 使用 getattr(settings, "MEDIA_SERVER_IP", settings.SIP_IP)
+    # 和 getattr(settings, "MEDIA_SERVER_BROADCAST_PORT", 20000) 动态获取违反硬约束 #41
+    MEDIA_SERVER_IP: str = ""  # 空则回退到 SIP_IP
+    MEDIA_SERVER_BROADCAST_PORT: int = 20000
+    # P1-fix [2026-07-17]: 流媒体公网 RTMP 端口 — 原 stream_proxy.py 使用 getattr(settings, "STREAM_PUBLIC_RTMP_PORT", 1935)
+    # 动态获取违反硬约束 #41。默认 1935（与历史 getattr 默认值一致）
+    STREAM_PUBLIC_RTMP_PORT: int = 1935
     # RTP端口范围扩展为1000个(30000-30999)，满足256路+并发流目标
     MEDIA_SERVER_RTP_PROXY_PORT_RANGE: str = "30000-30999"
     MEDIA_SERVER_RTP_STREAM_MODE: str = "UDP"
@@ -297,16 +412,29 @@ class Settings(BaseSettings):
     ZLM_POOL_MAX_CONNECTIONS: int = 50
     ZLM_POOL_KEEPALIVE_SECONDS: int = 30
     ZLM_POOL_TIMEOUT_SECONDS: float = 10.0
+    # FIX: [2026-07-16 P0] Shared HTTP client (httpx) 配置项，原通过 getattr
+    # 动态获取导致 .env 配置不生效。现在显式定义在 Settings 中。
+    HTTP_CLIENT_TIMEOUT: float = 30.0
+    HTTP_CLIENT_CONNECT_TIMEOUT: float = 10.0
+    HTTP_CLIENT_MAX_CONNECTIONS: int = 100
+    HTTP_CLIENT_MAX_KEEPALIVE: int = 20
+    HTTP_CLIENT_VERIFY_SSL: bool = True
     # ZLM protocol defaults (0=disabled, 1=enabled)
     ZLM_DEFAULT_ENABLE_HLS: int = 0
     ZLM_DEFAULT_ENABLE_FLV: int = 1
+    # P1-fix [2026-07-17]: ZLM 默认是否启用 MP4 录制 — 原 hook.py 使用
+    # getattr(settings, "ZLM_DEFAULT_ENABLE_MP4", True) 动态获取违反硬约束 #41
+    ZLM_DEFAULT_ENABLE_MP4: bool = True
     # ZLM node scheduling weights (should sum to 1.0)
     ZLM_SCHEDULE_WEIGHT_STREAMS: float = 0.5
     ZLM_SCHEDULE_WEIGHT_CPU: float = 0.3
     ZLM_SCHEDULE_WEIGHT_MEM: float = 0.2
     # Stream session cache TTL
     STREAM_SESSION_CACHE_TTL_SECONDS: int = 300
-    STREAM_PUBLIC_HOST: str = "localhost"
+    # P1-fix [2026-07-17]: 默认值由 "localhost" 改为空字符串。
+    # "localhost" 会导致远程客户端拿到指向自身的播放 URL，播放失败。
+    # 空字符串时各调用方应回退到 MEDIA_SERVER_HOST 或 SIP_IP 并输出告警。
+    STREAM_PUBLIC_HOST: str = ""
     STREAM_PUBLIC_HTTP_PORT: int = 8880
     STREAM_PUBLIC_SCHEME: str = "http"
     # P0-RTP: ZLM RTP Server 超时秒数，NAT场景下设备推流延迟可能超过ZLM默认15秒
@@ -320,6 +448,11 @@ class Settings(BaseSettings):
     # P0-SIP: SIP 端口绑定重试配置（处理进程重启时旧端口未释放）
     SIP_BIND_MAX_RETRIES: int = int(os.getenv("SIP_BIND_MAX_RETRIES", "3") or "3")
     SIP_BIND_RETRY_DELAY: float = float(os.getenv("SIP_BIND_RETRY_DELAY", "1.0") or "1.0")
+    # P0-fix: SIP socket 缓冲区与端口复用配置（应对 REGISTER 风暴与多实例 HA 部署）
+    SIP_UDP_RCVBUF: int = int(os.getenv("SIP_UDP_RCVBUF", "4194304") or "4194304")  # 4MB
+    SIP_UDP_SNDBUF: int = int(os.getenv("SIP_UDP_SNDBUF", "1048576") or "1048576")  # 1MB
+    SIP_TCP_BACKLOG: int = int(os.getenv("SIP_TCP_BACKLOG", "1024") or "1024")
+    SIP_REUSE_PORT: bool = str(os.getenv("SIP_REUSE_PORT", "false")).lower() in {"1", "true", "yes", "on"}
 
     # 快照相关配置
     SNAPSHOT_CONCURRENCY_LIMIT: int = 3
@@ -357,6 +490,9 @@ class Settings(BaseSettings):
     STREAM_WAIT_READY_INTERVAL: float = 0.25
     MEDIA_SERVER_HOOK_BASE_URL: Union[str, None] = None
     HOOK_CALLBACK_TIMEOUT_SECONDS: int = 5
+    # P1-fix [2026-07-17]: ZLM Hook 超时秒数，原 media_manager.py 使用 getattr(settings, "ZLM_HOOK_TIMEOUT_SEC", 15)
+    # 动态获取违反硬约束 #41。默认 15 秒（与历史 getattr 默认值一致）
+    ZLM_HOOK_TIMEOUT_SEC: int = 15
     MEDIA_NODE_HEALTHCHECK_TIMEOUT: int = 3
     TASK_SHUTDOWN_TIMEOUT_SECONDS: int = 30
     # 自动探测内网/公网 IP（用于“内置 ZLM 节点”默认值补全）
@@ -382,12 +518,19 @@ class Settings(BaseSettings):
     ZLM_SOURCE_ZIP_URL: Union[str, None] = None
     # 可选兜底：提供预编译包下载地址（tar.gz 或 zip），用于源码无法下载/编译失败时回退
     ZLM_FALLBACK_BINARY_URL: Union[str, None] = None
+    # ZLM 相关包（源码 zip / 预编译包 / ZLToolKit zip）单次下载总时长上限（秒）。
+    # 超时即失败，防止低速网络下下载无限挂起阻塞部署；下载支持断点续传，下次重试会继续。
+    ZLM_DOWNLOAD_MAX_SECONDS: int = 300
     # 若源码 zip 不包含 git submodules，可单独提供子模块压缩包下载地址（并解压到 3rdpart/ 下）
     ZLM_ZLTOOLKIT_ZIP_URL: Union[str, None] = None
     # 也可直接从 git 拉取源码（推荐：可包含 submodules），例如：https://github.com/ZLMediaKit/ZLMediaKit.git
     ZLM_GIT_URL: Union[str, None] = None
     # 可选：git 分支/Tag/Commit，默认 master
     ZLM_GIT_REF: Union[str, None] = None
+    # ZLM 下载镜像自动选路：未显式配置 ZLM_GIT_URL / ZLM_SOURCE_ZIP_URL / ZLM_ZLTOOLKIT_ZIP_URL 时，
+    # 并发探测 Gitee/GitHub 镜像首字节延迟并自动选最快源（国内服务器通常 Gitee 更快）。
+    # 显式配置了上述 URL 时以用户配置为准，不做探测。设 false 关闭自动选路（固定使用 GitHub）。
+    ZLM_MIRROR_AUTO_SELECT: bool = True
     # 是否允许从源码编译内置 ZLM（生产建议关闭，改用外置 ZLM 或预编译包）
     ZLM_BUILD_FROM_SOURCE: bool = False
     # 编译并发度（避免打满 CPU/内存）
@@ -462,6 +605,13 @@ class Settings(BaseSettings):
     VOD_ENABLE_PRELOAD: bool = True  # 默认开启VOD预加载，提升回放体验，与wvp对齐
     VOD_BUFFER_SIZE: int = 5000
     VOD_CACHE_DURATION: int = 30
+
+    # P1-fix [2026-07-17]: S3 兼容存储配置 — 原 hook.py 使用 getattr(settings, "S3_XXX", "")
+    # 动态获取违反硬约束 #41。默认空（不启用 S3 上传）
+    S3_BUCKET: str = ""
+    S3_ENDPOINT: str = ""
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
 
     # 流媒体质量与容错配置
     STREAM_DEFAULT_PROTOCOL: str = "http_flv"
@@ -566,6 +716,9 @@ class Settings(BaseSettings):
     DEMO_MODE: bool = False
     COMMERCIAL_MODEL: str = "oss_open"
     COMMUNITY_PLAN_CODE: str = "community"
+    # P1-fix [2026-07-17]: 本地计费套餐配置 — 原 billing.py 使用 getattr(settings, "LOCAL_BILLING_PLANS", None)
+    # 动态获取违反硬约束 #41。默认 None（使用兜底 community 套餐）
+    LOCAL_BILLING_PLANS: Union[list, None] = None
     SUBSCRIPTION_REMINDER_DAYS: int = 7
     TRIAL_REMINDER_DAYS: int = 7
     TRIAL_DAYS: int = 7
@@ -616,6 +769,8 @@ class Settings(BaseSettings):
     PLUGIN_LICENSE_DAILY_CHECK_MODE: bool = False
     # T1-05: OSS 实例信息持久化文件路径（重启后恢复 instance_id / instance_secret）
     OSS_INSTANCE_INFO_FILE: str = "data/oss_instance.json"
+    # FIX [2026-07-17 P1]: 补全 OSS 实例心跳间隔配置项，原 main.py 使用 getattr 动态获取违反硬约束
+    OSS_INSTANCE_HEARTBEAT_INTERVAL_SECONDS: int = 300
     # 每轮 sleep 抖动（秒），避免多实例同秒请求服务器；0 表示关闭抖动
     PLUGIN_PAID_LICENSE_SYNC_JITTER_SECONDS: int = 5
     # 启动后是否立即执行一次重验（建议开启）
@@ -673,6 +828,9 @@ class Settings(BaseSettings):
     PLUGIN_SECURITY_SCAN_MAX_HITS: int = 20
     PAYMENT_CALLBACK_SECRET: Union[str, None] = None
     PAYMENT_SUCCESS_RETURN_URL: str = ""  # 移除硬编码域名，强制env配置
+    # P1-fix [2026-07-17]: 发布中心确认令牌 — 原 release_center.py 使用
+    # getattr(settings, "RELEASE_CONFIRM_TOKEN", "") 动态获取违反硬约束 #41。默认空（未配置时发布接口拒绝）
+    RELEASE_CONFIRM_TOKEN: str = ""
 
     ZLM_REQUEST_TIMEOUT_SHORT: int = 2
     ZLM_REQUEST_TIMEOUT_MEDIUM: int = 5
@@ -705,7 +863,7 @@ class Settings(BaseSettings):
 settings = Settings()
 
 if not settings.SECRET_KEY:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).error(
@@ -728,7 +886,7 @@ if not settings.SECRET_KEY:
 # 而非等到运行时 field_crypto.encrypt_field 才抛 ValueError（导致设备注册/编辑功能静默不可用）。
 # 与 SECRET_KEY 生产检查保持一致的语义。[全栈工程师]
 if not settings.FIELD_ENCRYPTION_KEY:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).error(
@@ -746,23 +904,61 @@ if not settings.FIELD_ENCRYPTION_KEY:
         )
 
 # FIXED-P2: 生产环境已知弱密钥检测，防止部署时仅改 APP_ENV 而忘记替换密钥
+# FIX: [2026-07-16 P0] 扩展黑名单，覆盖 .env.prod.example 中的占位符和常见弱密钥
 _KNOWN_WEAK_SECRETS = {
     "test-verification-secret-key-not-for-production",
     "changeme",
+    "change_me",
+    "change_me_generate_a_strong_password",
     "secret",
     "your-secret-key",
     "example-secret-key",
+    # .env.prod.example 占位符（用户照搬示例文件部署时会被检测到）
+    "CHANGE_ME_GENERATE_A_RANDOM_64_CHAR_HEX_STRING",
+    "CHANGE_ME_GENERATE_A_RANDOM_SECRET",
+    "CHANGE_ME_GENERATE_A_STRONG_SIP_PASSWORD",
+    "CHANGE_ME_GENERATE_A_STRONG_PASSWORD",
+    "CHANGE_ME_REQUIRED",
+    "CHANGE_ME",
+    # 常见项目名+弱密码组合
+    "pygbsentry-secret-key",
+    "***REMOVED***",
+    "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
 }
-_app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+import re as _re_weak_secret
+# FIX: [2026-07-16 P0] 正则检测 CHANGE_ME / replace-with 前缀的密钥
+_WEAK_SECRET_PATTERNS = [
+    _re_weak_secret.compile(r"^CHANGE_ME", _re_weak_secret.IGNORECASE),
+    _re_weak_secret.compile(r"^replace-with", _re_weak_secret.IGNORECASE),
+    _re_weak_secret.compile(r"^YOUR_", _re_weak_secret.IGNORECASE),
+    # 形如 "a1b2c3d4..." 的交替字母数字模式
+    _re_weak_secret.compile(r"^([a-z][0-9])+$", _re_weak_secret.IGNORECASE),
+    # 形如 "key-2024" / "secret-2026" 等项目名+年份模式
+    _re_weak_secret.compile(r"^[a-z]+-?(secret|key|password)-?\d{2,4}$", _re_weak_secret.IGNORECASE),
+]
+_app_env = (settings.APP_ENV or "dev").lower()
+
+
+def _is_weak_secret(key_value: str) -> bool:
+    """FIX: [2026-07-16 P0] 统一弱密钥检测：黑名单 + 正则模式。"""
+    if not key_value or key_value in _KNOWN_WEAK_SECRETS:
+        return True
+    for pattern in _WEAK_SECRET_PATTERNS:
+        if pattern.match(key_value):
+            return True
+    return False
+
+
 if _app_env in {"prod", "production"}:
-    if settings.SECRET_KEY in _KNOWN_WEAK_SECRETS:
+    # FIX: [2026-07-16 P0] 使用统一的 _is_weak_secret 检测，覆盖黑名单和正则模式
+    if _is_weak_secret(settings.SECRET_KEY):
         import logging as _logging
         _logging.getLogger(__name__).error(
             f"SECURITY: SECRET_KEY is set to a known weak value '{settings.SECRET_KEY[:8]}...'. "
             f"This is insecure in production. Please set a unique, strong SECRET_KEY in your .env file."
         )
         raise SystemExit(1)
-    if settings.MEDIA_SERVER_SECRET in _KNOWN_WEAK_SECRETS:
+    if _is_weak_secret(settings.MEDIA_SERVER_SECRET):
         import logging as _logging
         _logging.getLogger(__name__).error(
             f"SECURITY: MEDIA_SERVER_SECRET is set to a known weak value '{settings.MEDIA_SERVER_SECRET[:8]}...'. "
@@ -773,11 +969,11 @@ if _app_env in {"prod", "production"}:
 # FIXED: [2026-07-10] 插件签名验签公钥配置一致性检查
 # 商业化链路：用户从官网下载的签名插件包在 OSS 安装时需验签。
 # 若签名要求开启但公钥未配置，所有签名插件安装都会失败。
-_pkg_sig_req = bool(getattr(settings, "PLUGIN_PACKAGE_SIGNATURE_REQUIRED", False))
-_man_sig_req = bool(getattr(settings, "PLUGIN_MANIFEST_SIGNATURE_REQUIRED", False))
-_pkg_pub = (getattr(settings, "PLUGIN_PACKAGE_ED25519_PUBLIC_KEY", None) or "").strip()
-_man_pub = (getattr(settings, "PLUGIN_MANIFEST_ED25519_PUBLIC_KEY", None) or "").strip()
-_license_pub = (getattr(settings, "LICENSE_ED25519_PUBLIC_KEY", None) or "").strip()
+_pkg_sig_req = settings.PLUGIN_PACKAGE_SIGNATURE_REQUIRED
+_man_sig_req = settings.PLUGIN_MANIFEST_SIGNATURE_REQUIRED
+_pkg_pub = (settings.PLUGIN_PACKAGE_ED25519_PUBLIC_KEY or "").strip()
+_man_pub = (settings.PLUGIN_MANIFEST_ED25519_PUBLIC_KEY or "").strip()
+_license_pub = (settings.LICENSE_ED25519_PUBLIC_KEY or "").strip()
 if (_pkg_sig_req or _man_sig_req or _app_env in {"prod", "production"}) and not (_pkg_pub or _man_pub or _license_pub):
     import warnings as _warnings
     _warnings.warn(
@@ -788,7 +984,7 @@ if (_pkg_sig_req or _man_sig_req or _app_env in {"prod", "production"}) and not 
     )
 
 # 数据库密码空值检查（仅对需要密码的数据库类型）
-_db_type = (getattr(settings, "DATABASE_TYPE", None) or "postgresql").lower()
+_db_type = (settings.DATABASE_TYPE or "postgresql").lower()
 if _db_type not in {"sqlite"}:
     db_password = settings.DATABASE_PASSWORD or settings.POSTGRES_PASSWORD
     if not db_password:
@@ -801,7 +997,7 @@ if _db_type not in {"sqlite"}:
 
 # SQLite not suitable for production - block startup in production environment
 if _db_type == "sqlite":
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).error(
@@ -819,7 +1015,7 @@ if _db_type == "sqlite":
 
 # MEDIA_SERVER_SECRET 空值自动生成（仅开发环境）
 if not settings.MEDIA_SERVER_SECRET:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env not in {"prod", "production"}:
         settings.MEDIA_SERVER_SECRET = _secrets.token_hex(32)
         import logging as _logging
@@ -830,7 +1026,7 @@ if not settings.MEDIA_SERVER_SECRET:
 
 # MEDIA_SERVER_SECRET 生产环境空值检查
 if not settings.MEDIA_SERVER_SECRET:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).error(
@@ -848,7 +1044,7 @@ if not settings.MEDIA_SERVER_SECRET:
 
 # SIP_DEFAULT_PASSWORD 生产环境空值阻断  # was warning-only, now blocks startup in production
 if not settings.SIP_DEFAULT_PASSWORD:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).critical(
@@ -860,7 +1056,7 @@ if not settings.SIP_DEFAULT_PASSWORD:
 
 # SIP_STATE_BACKEND=local in production: error + mark readiness as degraded
 if (settings.SIP_STATE_BACKEND or "local").strip().lower() == "local":
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).error(
@@ -872,7 +1068,7 @@ if (settings.SIP_STATE_BACKEND or "local").strip().lower() == "local":
 
 # PLUGIN_AUTO_INSTALL_DEPENDENCIES in production warns about supply chain risks
 if settings.PLUGIN_AUTO_INSTALL_DEPENDENCIES:
-    _app_env = (getattr(settings, "APP_ENV", "dev") or "dev").lower()
+    _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
         _logging.getLogger(__name__).warning(
@@ -960,7 +1156,7 @@ for _fname, _pval in _port_fields.items():
 
 def sip_host_for_contact() -> str:
     """
-    返回用于 SIP Contact/Via/Call-ID 头部的"暴露给外部的主机地址"。
+    返回用于 SIP Contact 头部的"暴露给外部的主机地址"（可以是域名或IP）。
     优先级：
     1. BACKEND_PUBLIC_HOST（显式配置）
     2. STREAM_PUBLIC_HOST（流媒体公网配置）
@@ -977,3 +1173,93 @@ def sip_host_for_contact() -> str:
 
     # 回退：使用 SIP 监听 IP（通常对内可达）
     return settings.SIP_IP or "127.0.0.1"
+
+
+# 缓存 Via/Call-ID 用的 IP 地址，避免每次发包都做 DNS 解析
+_sip_via_ip_cache: str | None = None
+
+
+def sip_via_host() -> str:
+    """
+    返回用于 SIP Via/Call-ID 头部的 IP 地址（非域名）。
+
+    FIX [2026-07-29 P0]: 实测发现 EasyGBS 等非标准 SIP 客户端对 Via 头中的
+    域名（如 pygbsentry.jjtt.net）无法正确解析，会直接返回 400 Bad Request。
+    真实 GB28181 抓包（LiveGBS / 海康 / 大华）均使用 IP 地址作为 Via host
+    和 Call-ID host，From/To host 仍使用 SIP_DOMAIN（行政区划码）。
+
+    本函数将 BACKEND_PUBLIC_HOST 域名解析为 IP 地址，解析失败时回退到
+    自动检测的本地 IP。结果全局缓存，避免重复 DNS 查询。
+
+    优先级：
+    1. 如果 BACKEND_PUBLIC_HOST 是合法 IP 直接返回
+    2. DNS 解析 BACKEND_PUBLIC_HOST 为 IP
+    3. DNS 解析 STREAM_PUBLIC_HOST 为 IP
+    4. 自动检测本机出口 IP
+    5. 回退到 SIP_IP（排除 0.0.0.0）
+    """
+    global _sip_via_ip_cache
+    if _sip_via_ip_cache:
+        return _sip_via_ip_cache
+
+    import socket as _socket
+
+    def _is_ip(addr: str) -> bool:
+        try:
+            _socket.inet_aton(addr)
+            return True
+        except OSError:
+            return False
+
+    def _resolve(host: str) -> str | None:
+        if not host or host == "localhost":
+            return None
+        if _is_ip(host):
+            return host
+        try:
+            return _socket.gethostbyname(host)
+        except Exception:
+            return None
+
+    # 依次尝试解析配置的域名
+    for candidate in (settings.BACKEND_PUBLIC_HOST, settings.STREAM_PUBLIC_HOST):
+        ip = _resolve(candidate or "")
+        if ip:
+            _sip_via_ip_cache = ip
+            return ip
+
+    # 回退：SIP_IP（排除 0.0.0.0）
+    sip_ip = settings.SIP_IP or ""
+    if sip_ip and sip_ip != "0.0.0.0" and _is_ip(sip_ip):
+        _sip_via_ip_cache = sip_ip
+        return sip_ip
+
+    # 最后回退：自动检测本机出口 IP
+    try:
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        detected = s.getsockname()[0]
+        s.close()
+        if detected:
+            _sip_via_ip_cache = detected
+            return detected
+    except Exception:
+        pass
+
+    _sip_via_ip_cache = "127.0.0.1"
+    return "127.0.0.1"
+
+
+def sip_from_to_host() -> str:
+    """返回用于 SIP From/To URI 的 host 部分。
+
+    FIX [2026-07-29 P0]: EasyGBS 等非标准平台对 From/To URI host 使用 SIP_DOMAIN
+    (行政区划码) 的 MESSAGE 请求返回 400 Bad Request。实测 EasyGBS 自己发送的
+    REGISTER/MESSAGE 均使用 IP:port 作为 From URI host。
+
+    当 SIP_FROM_TO_USE_IP=true (默认) 时，返回 sip_via_host() (IP 地址)。
+    当 SIP_FROM_TO_USE_IP=false 时，返回 settings.SIP_DOMAIN (行政区划码，GB28181 标准)。
+    """
+    if settings.SIP_FROM_TO_USE_IP:
+        return sip_via_host()
+    return settings.SIP_DOMAIN

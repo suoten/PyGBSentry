@@ -373,13 +373,13 @@
           <div class="info-item">
             <div class="info-label">IP</div>
             <div class="info-value-wrapper">
-              <span class="info-value">{{ maskSipIp(systemInfo.sip_ip) || '-' }}</span>
+              <span class="info-value">{{ systemInfo.sip_ip || '-' }}</span>
               <el-button
                 v-if="systemInfo.sip_ip"
                 size="small"
                 type="primary"
                 link
-                @click="copyToClipboard(maskSipIp(systemInfo.sip_ip))"
+                @click="copyToClipboard(systemInfo.sip_ip)"
               >
                 <el-icon><DocumentCopy /></el-icon>
               </el-button>
@@ -461,7 +461,6 @@ import {
   Warning, Right, Clock, InfoFilled, DocumentCopy 
 } from '@element-plus/icons-vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import { maskSipIp } from '../utils/sipMask' // FIX H-10: SIP IP 脱敏
 import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
@@ -930,7 +929,12 @@ const initWebSocket = async () => {
           pendingNotifyCount = 0
           lastPendingAlarm = null
 
-          const message = last ? t('dashboard.alarmDeviceMsg', { deviceId: String(last.device_id), description: String(last.description || t('dashboard.alarmFallback')) }) : t('dashboard.receivedNewAlarm')
+          const message = last ? (() => {
+            const deviceId = last.device_id ? String(last.device_id) : ''
+            const description = String(last.description || t('dashboard.alarmFallback'))
+            // FIX [2026-07-18 P0]: device_id 缺失时不再显示 "undefined: 告警"，改为仅显示描述
+            return deviceId ? t('dashboard.alarmDeviceMsg', { deviceId, description }) : description
+          })() : t('dashboard.receivedNewAlarm')
           ElNotification({
             title: count > 1 ? t('dashboard.newAlarmsCount', { count }) : t('dashboard.newAlarm'),
             message,
@@ -1073,7 +1077,7 @@ const copyAllSystemInfo = () => {
   const text = t('dashboard.copyAllText', {
     id: info.sip_id,
     domain: info.sip_domain,
-    ip: maskSipIp(info.sip_ip),
+    ip: info.sip_ip,
     port: info.sip_port,
     password: info.sip_password || t('dashboard.notSet')
   })

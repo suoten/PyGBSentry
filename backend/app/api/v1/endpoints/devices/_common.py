@@ -67,7 +67,7 @@ def _civil_code_from_sip_id(sip_id: str) -> str:
 
 def _business_root_gb_id(tenant_id: str) -> str:
     """业务根资源组的 GB ID（基于 SIP_ID 生成）。"""
-    sip_id = getattr(settings, "SIP_ID", "34020000002000000001") or "34020000002000000001"
+    sip_id = settings.SIP_ID or "34020000002000000001"
     # 根资源组 ID = SIP_ID 前 10 位 + "0000000000"（共 20 位）
     base = sip_id[:10] if len(sip_id) >= 10 else sip_id.ljust(10, "0")
     return f"{base}0000000000"[:20]
@@ -86,7 +86,7 @@ async def _get_effective_sip_id(db: AsyncSession) -> str:
             return str(val).strip()
     except Exception as e:
         logger.debug(f"_common: failed to load sip_id from DB: {e}")
-    return getattr(settings, "SIP_ID", "34020000002000000001") or "34020000002000000001"
+    return settings.SIP_ID or "34020000002000000001"
 
 
 async def _ensure_business_root_resource(db: AsyncSession, current_user: User) -> None:
@@ -113,8 +113,14 @@ async def _ensure_business_root_resource(db: AsyncSession, current_user: User) -
     await db.commit()
 
 
-def _resource_to_node(r: Resource) -> dict[str, Any]:
-    """将 Resource ORM 对象转为前端树节点 dict。"""
+def _resource_to_node(r: Resource, device_id: str = "") -> dict[str, Any]:
+    """将 Resource ORM 对象转为前端树节点 dict。
+
+    FIX: [2026-07-13] 添加可选 ``device_id`` 参数 — 5 处调用点均传入 device_id
+    但函数签名只接受 1 个参数，导致 ``TypeError: _resource_to_node() takes 1
+    positional argument but 2 were given``，``/api/v1/devices/tree/business``
+    等端点返回 500。 [全栈工程师]
+    """
     return {
         "id": r.gb_id,
         "label": r.name or r.gb_id,
@@ -131,8 +137,13 @@ def _resource_to_node(r: Resource) -> dict[str, Any]:
         "longitude": r.longitude,
         "latitude": r.latitude,
         "address": r.address,
-        "manufacturer": r.manufacturer,
-        "model": r.model,
+        # FIX: [2026-07-13] Resource 模型本身没有 manufacturer/model 字段（这些在 Asset 父设备上），
+        # 直接访问会触发 AttributeError: 'Resource' object has no attribute 'manufacturer'，
+        # 导致 /api/v1/devices/tree/business 等端点 500。使用 getattr 安全访问，未关联设备时返回 None。
+        # 服务器日志确认：app/api/v1/endpoints/devices/_common.py:140 AttributeError。
+        "manufacturer": getattr(r, "manufacturer", None),
+        "model": getattr(r, "model", None),
+        "device_id": device_id,
     }
 
 
@@ -261,6 +272,16 @@ class DeviceExportPayload(BaseModel):
     format: str = "csv"
     include_channels: bool = False
     gb_ids: list[str] | None = None
+
+
+class BatchChannelSnapPayload(BaseModel):
+    """批量通道截图请求体。
+
+    FIX: [2026-07-13] 从 2ad636a 恢复 — devices_control.py 的 /channels/snap-batch
+    端点需要此模型，ConvergeLoop Round 0 删除了它。[全栈工程师]
+    """
+    model_config = ConfigDict(extra="forbid")
+    channel_ids: list[str]
 
 
 class ChannelUpdatePayload(BaseModel):
