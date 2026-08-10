@@ -348,14 +348,14 @@ class MediaManager:
         system = platform.system()
         base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         bin_dir = os.path.join(base_dir, "binaries")
-        
+
         if system == "Linux":
             return os.path.join(bin_dir, "linux64", "MediaServer")
-            
+
         # Windows/macOS 不做内置二进制包分发
         logger.info(f"ℹ️  内置 ZLMediaKit (MediaServer) 自动部署不包含 {system} 版本。")
         logger.info("   如果你在 Windows/macOS 开发，请手动下载 ZLMediaKit 并在后台运行，流媒体依然可正常接入。")
-        
+
         # 返回空字符串，不抛出崩溃异常，让平台继续启动（以外置节点模式运行）
         return ""
 
@@ -1208,7 +1208,7 @@ class MediaManager:
         try:
             await self._download_package(url, temp_file)
             logger.info(f"Downloaded package to {temp_file}. Extracting...")
-            
+
             if is_zip:
                 with zipfile.ZipFile(temp_file, "r") as zip_ref:
                     try:
@@ -1221,13 +1221,13 @@ class MediaManager:
                         safe_extract_tar(tar_ref, bin_dir)
                     except UnsafeArchiveError as e:
                         raise RuntimeError(f"Unsafe ZLM tar archive: {e}")
-            
+
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             except Exception as e:
                 logger.warning(f"Failed to remove temp tar file: {e}")
-            
+
             if not os.path.exists(self.zlm_path):
                 for root, _, files in os.walk(bin_dir):
                     binary_name = "MediaServer"
@@ -1478,7 +1478,7 @@ class MediaManager:
                 config.set("rtmp", "sslport", "0")
         except Exception as e:
             logger.warning(f"Failed to set RTMP SSL port config: {e}")
-        
+
         # API Secret
         api_secret = (node or {}).get("secret") or settings.MEDIA_SERVER_SECRET
         config.set("api", "secret", str(api_secret))
@@ -1779,7 +1779,7 @@ class MediaManager:
         # 不再需要 run_in_executor 包装，直接 await 即可。
         await self._generate_config(node_cfg)
         await self._sync_embedded_node_ports_in_db()
-        
+
         # Ensure execution permission on Linux
         if platform.system() == "Linux":
             os.chmod(self.zlm_path, 0o755)
@@ -1847,7 +1847,7 @@ class MediaManager:
                 self._probe_webrtc_after_start(),
                 name="zlm_webrtc_probe",
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to start ZLMediaKit: {e}")
 

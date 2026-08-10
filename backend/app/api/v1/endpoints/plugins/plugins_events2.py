@@ -13,8 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path as FSPath
 
-from fastapi import Query, APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel
+from fastapi import Query, APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api import deps
@@ -22,7 +21,6 @@ from app.models.user import User
 from app.db.session import get_db
 from app.core.plugin_manager import plugin_manager, HOOK_ON_ALARM
 from app.core.config import settings
-from app.services.audit_center_service import audit_center_service
 from app.services.auth_audit import safe_auth_audit
 
 from loguru import logger

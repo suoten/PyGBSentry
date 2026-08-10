@@ -157,7 +157,7 @@ async def _run_loop():
             continue
         now = datetime.datetime.now(datetime.timezone.utc)
         now_naive = now.replace(tzinfo=None)
-        now_iso = now.isoformat()
+        now.isoformat()
         try:
             media_list = await asyncio.to_thread(get_all_media_from_nodes)
             running = {}

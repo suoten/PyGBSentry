@@ -25,11 +25,10 @@ _SIP_ALLOW_HEADER = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, SUBSCRIBE, NOTIFY,
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
-from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log, sip_trace_log as _sip_trace_log
+from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.sip.send import send_sip_bytes
 from loguru import logger
 import secrets  # P4 安全随机数 — random→secrets
-import string
 
 
 def _attach_trace_header(req: SipMessage) -> str:
@@ -67,7 +66,7 @@ class DeviceControl:
     async def send_guard(self, asset, channel_id: str, transport_info: tuple, guard_cmd: str):
         """
         发送布?撤防命令
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID
@@ -76,7 +75,7 @@ class DeviceControl:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         # Build XML body
         sn = _next_sn()  # P0-fix: 单调递增 SN，避免窄范围随机碰撞
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -90,15 +89,15 @@ class DeviceControl:
 </Info>
 </Control>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §8.1.1.7）
         tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §19.3）
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
@@ -109,13 +108,13 @@ class DeviceControl:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         _attach_common_headers(req, device_id)  # P1-fix: 补全 Contact + Allow 头
-        
+
         req.body = xml_body
-        
+
         # Send
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent GUARD {guard_cmd} to {channel_id}")
         _sip_trace_log(
@@ -131,7 +130,7 @@ class DeviceControl:
     async def send_alarm_reset(self, asset, channel_id: str, transport_info: tuple, alarm_method: str = "", alarm_type: str = ""):
         """
         发送报警复位命?
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID
@@ -141,7 +140,7 @@ class DeviceControl:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         sn = _next_sn()  # P0-fix: 单调递增 SN，避免窄范围随机碰撞
         # P1-fix: GB/T 28181-2022 §A.2.4 规定 DeviceControl 命令应包含 <Info><ControlPriority> 节点
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
@@ -157,15 +156,15 @@ class DeviceControl:
 </Info>
 </Control>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §8.1.1.7）
         tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §19.3）
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
@@ -176,12 +175,12 @@ class DeviceControl:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         _attach_common_headers(req, device_id)  # P1-fix: 补全 Contact + Allow 头
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent ALARM RESET to {channel_id}")
         _sip_trace_log(
@@ -196,14 +195,14 @@ class DeviceControl:
     async def send_teleboot(self, asset, transport_info: tuple):
         """
         发送远程重启命?
-        
+
         Args:
             asset: 设备资产对象
             transport_info: (addr, proto, transport) 传输信息
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         sn = _next_sn()  # P0-fix: 单调递增 SN，避免窄范围随机碰撞
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
@@ -213,15 +212,15 @@ class DeviceControl:
 <TeleBoot>Boot</TeleBoot>
 </Control>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §8.1.1.7）
         tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §19.3）
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
@@ -232,12 +231,12 @@ class DeviceControl:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         _attach_common_headers(req, device_id)  # P1-fix: 补全 Contact + Allow 头
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent TELEBOOT to {device_id}")
         _sip_trace_log(
@@ -251,7 +250,7 @@ class DeviceControl:
     async def send_record_control(self, asset, channel_id: str, transport_info: tuple, record_cmd: str):
         """
         发送录像控制命?
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID
@@ -260,7 +259,7 @@ class DeviceControl:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         sn = _next_sn()  # P0-fix: 单调递增 SN，避免窄范围随机碰撞
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
@@ -273,15 +272,15 @@ class DeviceControl:
 </Info>
 </Control>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §8.1.1.7）
         tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §19.3）
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
@@ -292,12 +291,12 @@ class DeviceControl:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         _attach_common_headers(req, device_id)  # P1-fix: 补全 Contact + Allow 头
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent RECORD {record_cmd} to {channel_id}")
         _sip_trace_log(
@@ -313,7 +312,7 @@ class DeviceControl:
     async def send_iframe_request(self, asset, channel_id: str, transport_info: tuple):
         """
         发送强制关键帧命令
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID
@@ -321,7 +320,7 @@ class DeviceControl:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        
+
         sn = _next_sn()  # P0-fix: 单调递增 SN，避免窄范围随机碰撞
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Control>
@@ -334,15 +333,15 @@ class DeviceControl:
 </Info>
 </Control>
 """
-        
+
         req = SipMessage()
         req.method = "MESSAGE"
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        
+
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §8.1.1.7）
         tag = secrets.token_hex(8)  # FIX [2026-07-17 P1]: 64位随机性（RFC 3261 §19.3）
-        
+
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={tag}"
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
@@ -353,12 +352,12 @@ class DeviceControl:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         _attach_trace_header(req)
         _attach_common_headers(req, device_id)  # P1-fix: 补全 Contact + Allow 头
-        
+
         req.body = xml_body
-        
+
         data = req.to_bytes()
         await send_sip_bytes(proto, transport, addr, data)
-        
+
         trace_id = req.headers.get("Call-ID", "")
         logger.info(f"[trace_id={trace_id}] Sent IFRAME REQUEST to {channel_id}")
         _sip_trace_log(

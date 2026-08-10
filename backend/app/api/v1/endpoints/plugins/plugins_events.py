@@ -7,14 +7,11 @@ pull_proxy_monitor, mqtt_bridge, feishu_alert, wecom_alert, sms_alert）
 """
 
 import re
-import asyncio
 import json
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path as FSPath
 
-from fastapi import Query, APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel
+from fastapi import Query, APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,18 +19,12 @@ from app.api import deps
 from app.models.user import User
 from app.models.system_setting import SystemSetting
 from app.db.session import get_db
-from app.core.plugin_manager import plugin_manager, HOOK_ON_ALARM
-from app.core.config import settings
-from app.services.audit_center_service import audit_center_service
-from app.services.auth_audit import safe_auth_audit
+from app.core.plugin_manager import plugin_manager
 
 from loguru import logger
 
 from .plugins_common import (
-    _audit_tid,
-    _uuid7_hex,
     require_oss_paid_runtime_from_path,
-    HOOK_ON_ALARM as HOOK_ON_ALARM_CONST,
 )
 
 router = APIRouter()

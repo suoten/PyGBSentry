@@ -232,7 +232,7 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
                     _decrypted = _decrypt_check(_current_secret, purpose="media_secret")
                     if _decrypted is None:
                         _need_refill = True
-                        logger.info(f"ensure_embedded_media_node: existing secret cannot be decrypted (likely plaintext from legacy version or key changed), will refill")
+                        logger.info("ensure_embedded_media_node: existing secret cannot be decrypted (likely plaintext from legacy version or key changed), will refill")
                 except Exception:
                     _need_refill = True
 

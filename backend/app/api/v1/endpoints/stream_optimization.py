@@ -70,7 +70,7 @@ async def optimized_stream_play(
 ):
     """
     优化的实时预览播放
-    
+
     特性：
     - 智能协议选择（FLV > HLS > WebRTC）
     - 画质模式选择（高清/均衡/稳定）
@@ -170,7 +170,7 @@ async def get_stream_health(
 ):
     """
     获取流健康状态
-    
+
     返回：
     - 健康评分 (0-100)
     - 健康等级 (excellent/healthy/degraded/poor/critical)
@@ -194,7 +194,7 @@ async def get_stream_lines(
 ):
     """
     获取设备可用的播放线路列表
-    
+
     返回：
     - 线路列表（主码流、子码流）
     - 各线路的预估质量
@@ -244,12 +244,12 @@ async def get_stream_lines(
     if hasattr(asset, 'stream_mode'):
         mode = str(asset.stream_mode or '').lower()
         if mode == 'main':
-            lines = [l for l in lines if l['id'] == 'main']
+            lines = [line for line in lines if line['id'] == 'main']
         elif mode == 'sub':
-            lines = [l for l in lines if l['id'] == 'sub']
+            lines = [line for line in lines if line['id'] == 'sub']
 
     # 推荐线路
-    recommended = next((l for l in lines if l.get('recommended')), lines[0] if lines else None)
+    recommended = next((line for line in lines if line.get('recommended')), lines[0] if lines else None)
 
     return {
         "device_id": device_id,
@@ -296,7 +296,7 @@ async def get_stream_stats(
 ):
     """
     获取流媒体统计信息
-    
+
     需要管理员权限
     """
     stats = stream_quality_monitor.get_stats()
@@ -310,7 +310,7 @@ def _select_best_protocol(
 ) -> str:
     """
     选择最优协议
-    
+
     协议优先级（实时预览）：
     1. HTTP-FLV：延迟低，兼容性好，推荐
     2. HLS：兼容性最好，但延迟稍高

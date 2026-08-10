@@ -1,6 +1,5 @@
 from typing import Any, List
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from fastapi.encoders import jsonable_encoder
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

@@ -209,7 +209,7 @@ async def traceroute_diagnosis(
         raise HTTPException(status_code=500, detail="traceroute command not found on server")
 
     output = stdout.decode(errors="replace")
-    error = stderr.decode(errors="replace")
+    stderr.decode(errors="replace")
 
     hops = _parse_traceroute_output(output)
 
@@ -494,7 +494,7 @@ async def media_server_probe(
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=form_data, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
-                body = await resp.text()
+                await resp.text()
                 try:
                     data = await resp.json(content_type=None)
                 except Exception:

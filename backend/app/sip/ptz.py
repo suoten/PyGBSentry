@@ -1,6 +1,6 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+from app.core.config import settings, sip_via_host, sip_from_to_host
 from app.sip.trace_events import should_warn_unknown_event_once
 from app.services.sip_trace_store import schedule_store_sip_trace
 from app.sip.send import send_sip_bytes

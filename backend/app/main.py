@@ -391,8 +391,8 @@ async def lifespan(app: FastAPI):
         _proc_name = _mp.current_process().name
         if _proc_name not in ("MainProcess", "SpawnProcess-1"):
             logger.warning(f"[WORKER_WARN] Process name={_proc_name} — if using uvicorn --workers N>1, SIP port binding will fail and cause immediate shutdown. Use --workers 1.")
-    except Exception:
-        pass
+    except Exception as _proc_err:
+        logger.debug(f"[WORKER_WARN] process name check error: {_proc_err}")
 
     # CRITICAL: 数据库连接预检查 — DB 不可用时根据 DB_STARTUP_REQUIRED 决定是否中止启动
     logger.info("Startup step: DB connectivity pre-check...")
@@ -1528,8 +1528,8 @@ async def lifespan(app: FastAPI):
                         transport = None
                         try:
                             transport = sip_server.get_transport(ip, port, proto)
-                        except Exception:
-                            pass
+                        except Exception as _transport_err:
+                            logger.debug(f"[STARTUP_RESYNC] get_transport error for {gb_id}: {_transport_err}")
                         if not transport:
                             logger.info(f"[STARTUP_RESYNC] Device {gb_id} no SIP transport for {ip}:{port}/{proto}, skip (will retry on next register)")
                             continue

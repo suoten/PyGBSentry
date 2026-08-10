@@ -82,7 +82,7 @@ async def _run_loop():
                 result = await session.execute(
                     select(AccessSource).where(
                         AccessSource.protocol == "RTMP",
-                        AccessSource.enabled == True,
+                        AccessSource.enabled,
                     )
                 )
                 sources = result.scalars().all()
@@ -100,7 +100,7 @@ async def _run_loop():
                     await session.execute(
                         select(PushChannel).where(
                             PushChannel.id.in_(source_ids),
-                            PushChannel.gb_enabled == True,
+                            PushChannel.gb_enabled,
                         )
                     )
                 ).scalars().all()

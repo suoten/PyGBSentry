@@ -513,7 +513,7 @@ class HealthService:
             from app.sip.server import sip_server
             from app.sip.message import SipMessage
             from app.sip.send import send_sip_bytes
-            from app.core.config import settings, sip_host_for_contact, sip_via_host
+            from app.core.config import settings, sip_via_host
             import secrets as _secrets
 
             addr = (str(device.ip_addr or ""), int(device.port or 5060))

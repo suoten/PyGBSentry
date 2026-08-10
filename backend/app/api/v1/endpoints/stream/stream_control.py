@@ -44,10 +44,10 @@ router = APIRouter()
 
 @router.post("/playback/{device_id}/{channel_id}")
 async def playback_stream(
-    device_id: str, 
-    channel_id: str, 
-    start_time: int, 
-    end_time: int, 
+    device_id: str,
+    channel_id: str,
+    start_time: int,
+    end_time: int,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
@@ -57,13 +57,13 @@ async def playback_stream(
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     asset = result.scalars().first()
-    
+
     stmt = select(Resource).where(Resource.gb_id == channel_id)
     if not current_user.is_superuser:
         stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     resource = result.scalars().first()
-    
+
     if not asset or not resource:
         await _stream_audit(
             db,
@@ -110,17 +110,17 @@ async def playback_stream(
     from app.models.record import Record
     requested_start_dt = datetime.fromtimestamp(start_time, tz=timezone.utc).replace(tzinfo=None)
     requested_end_dt = datetime.fromtimestamp(end_time, tz=timezone.utc).replace(tzinfo=None)
-    
+
     cache_stmt = select(Record).where(
         Record.resource_id == resource.id,
         Record.start_time <= requested_start_dt,
         Record.end_time >= requested_end_dt,
-        Record.url_ok == True,
-        Record.file_path != None
+        Record.url_ok,
+        Record.file_path is not None
     )
     cache_result = await db.execute(cache_stmt)
     cached_record = cache_result.scalars().first()
-    
+
     if cached_record and cached_record.file_path:
         # VOD Cache hit! Bypass SIP INVITE and return cached MP4
         return {
@@ -250,7 +250,7 @@ async def playback_stream(
             stream_id=stream_id,
             tenant_id=current_user.tenant_id or "default"
         )
-        
+
     node_id = result.get("node_id")
     node = get_node_by_id(node_id)
     media_host = None
@@ -294,10 +294,10 @@ async def playback_stream(
 
 @router.post("/download/{device_id}/{channel_id}")
 async def download_stream(
-    device_id: str, 
-    channel_id: str, 
-    start_time: int, 
-    end_time: int, 
+    device_id: str,
+    channel_id: str,
+    start_time: int,
+    end_time: int,
     download_speed: int = Query(4, description="下载倍速(例如1, 2, 4)"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
@@ -307,13 +307,13 @@ async def download_stream(
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     asset = result.scalars().first()
-    
+
     stmt = select(Resource).where(Resource.gb_id == channel_id)
     if not current_user.is_superuser:
         stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     resource = result.scalars().first()
-    
+
     if not asset or not resource:
         await _stream_audit(
             db,
@@ -463,7 +463,7 @@ async def control_playback_stream(
     )
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
-        
+
     result = await db.execute(stmt)
     row = result.first()
     if not row:
@@ -491,7 +491,7 @@ async def control_playback_stream(
             extra_summary=f"stream_id={stream_id}; action={action}",
         )
         raise HTTPException(status_code=500, detail="SIP Commander not ready")
-        
+
     # Build transport info
     _transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport or "UDP")
     if _transport is None:
@@ -506,17 +506,17 @@ async def control_playback_stream(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
     transport_info = ((asset.ip_addr, asset.port), asset.transport or "UDP", _transport)
-    
+
     session_dict = {
         "call_id": session_obj.call_id,
         "from_tag": session_obj.from_tag,
         "to_tag": session_obj.to_tag
     }
-    
+
     # We need the resource gb_id
     stmt_res = select(Resource.gb_id).where(Resource.id == session_obj.resource_id)
     res_gb_id = (await db.execute(stmt_res)).scalar()
-    
+
     await sip_commander_module.sip_commander.send_stream_control(
         device_id=asset.gb_id,
         channel_id=res_gb_id or asset.gb_id,
@@ -622,21 +622,21 @@ async def playback_pause(
         raise HTTPException(status_code=500, detail="Device network information missing")
 
     # VOD Edge Cache: 检查 Seek 目标时间是否已存在于本地/云端 MP4 缓存中
-    from datetime import datetime, timezone, timedelta
+    from datetime import timedelta
     from app.models.record import Record
     if getattr(session, "start_time", None) and payload.seek_time is not None:
         seek_dt = session.start_time + timedelta(seconds=payload.seek_time)
-        
+
         cache_stmt = select(Record).where(
             Record.resource_id == resource.id,
             Record.start_time <= seek_dt,
             Record.end_time >= seek_dt,
-            Record.url_ok == True,
-            Record.file_path != None
+            Record.url_ok,
+            Record.file_path is not None
         )
         cache_result = await db.execute(cache_stmt)
         cached_record = cache_result.scalars().first()
-        
+
         if cached_record and cached_record.file_path:
             if not cached_record.start_time:  # W-08-01 start_time为None时跳过缓存Seek，避免TypeError
                 cached_record = None

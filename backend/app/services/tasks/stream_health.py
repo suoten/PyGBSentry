@@ -6,7 +6,6 @@ import time
 import json
 import urllib.parse
 
-import requests as _requests
 
 from app.core.zlm_target import resolve_zlm_api_target
 from app.db.session import AsyncSessionLocal
@@ -15,7 +14,7 @@ from app.models.network_metric import NetworkMetric
 from app.models.media_node import MediaNode
 from app.models.stream_session import StreamSession
 from sqlalchemy import select
-from app.core.media_nodes_db import _to_runtime, RuntimeMediaNode
+from app.core.media_nodes_db import _to_runtime
 
 
 
@@ -177,7 +176,7 @@ def _run_quality_diag(streams: list[dict], check_interval: int, signal_loss_thre
         del _stream_last_seen[gone_key]
 
     # 清理过老的 cooldown 缓存（每小时清理一次）
-    if int(now_ts) - _last_cooldown_cleanup_ts >= 3600:
+    if int(now_ts) - _last_cooldown_cleanup_ts >= 3600:  # noqa: F823
         expired = [k for k, ts in _diag_cooldown.items() if now_ts - ts > _DIAG_COOLDOWN_SEC * 2]
         for k in expired:
             del _diag_cooldown[k]

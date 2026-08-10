@@ -1,7 +1,7 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.sip.send import send_sip_bytes
-from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+from app.core.config import settings, sip_via_host, sip_from_to_host
 from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from loguru import logger  # 统一使用 loguru 替代 logging
 import datetime

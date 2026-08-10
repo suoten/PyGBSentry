@@ -6,10 +6,13 @@
 # -------------------------------------------------------------------------
 
 import os
+import logging
 from pathlib import Path
 from typing import List, Optional, Union
 import secrets as _secrets
 from urllib.parse import quote_plus
+
+logger = logging.getLogger(__name__)
 
 from dotenv import load_dotenv
 from pydantic import AnyHttpUrl, PostgresDsn, field_validator, ValidationInfo, model_validator
@@ -1243,8 +1246,8 @@ def sip_via_host() -> str:
         if detected:
             _sip_via_ip_cache = detected
             return detected
-    except Exception:
-        pass
+    except Exception as _detect_err:
+        logger.debug(f"SIP VIA IP auto-detect failed: {_detect_err}")
 
     _sip_via_ip_cache = "127.0.0.1"
     return "127.0.0.1"

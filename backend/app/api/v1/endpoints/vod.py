@@ -22,7 +22,6 @@ from app.api import deps
 from app.services.vod_source_selector import vod_source_selector
 from app.services.vod_quality_monitor import vod_quality_monitor
 from app.core.config import settings
-from loguru import logger  # FIX: [2026-07-13] 缺少 logger 导入导致 vod 端点导入失败 [全栈工程师]
 import time
 
 
@@ -70,7 +69,7 @@ async def vod_play(
 ):
     """
     云端录像点播播放
-    
+
     特性：
     - 智能多源选择
     - 协议自适应
@@ -135,7 +134,7 @@ async def vod_play(
         recommended_protocol=best_source.get("protocol", "mp4"),
         estimated_delay_ms=estimated_delay,
         quality_score=best_source.get("health_score", 100.0),
-        is_cached=record.url_ok == True if hasattr(record, "url_ok") else False
+        is_cached=record.url_ok if hasattr(record, "url_ok") else False
     )
 
 
@@ -147,7 +146,7 @@ async def vod_quality_report(
 ):
     """
     上报播放质量指标
-    
+
     用于：
     - 实时质量监控
     - 自适应码率调整
@@ -191,7 +190,7 @@ async def get_vod_sources(
 ):
     """
     获取录像的所有可用播放源
-    
+
     返回格式：
     - sources: 源列表
     - recommended: 推荐源
@@ -245,7 +244,7 @@ async def get_vod_stream_url(
 ):
     """
     获取直接可用的流地址
-    
+
     用于：
     - 第三方播放器
     - 嵌入播放
@@ -289,7 +288,7 @@ async def get_vod_stream_url(
 async def _build_vod_sources(db: AsyncSession, record: Record) -> list[dict]:
     """
     构建点播源列表
-    
+
     优先级顺序：
     1. 本地文件 (最快)
     2. 内网地址
@@ -421,7 +420,6 @@ async def _build_stream_urls(db: AsyncSession, record: Record, preferred_protoco
     # W-19 MEDIA_SERVER_HOST回退值改为空字符串，非本地部署时显式报错
     zlm_host = settings.MEDIA_SERVER_HOST or ""
     zlm_http_port = settings.MEDIA_SERVER_HTTP_PORT
-    zlm_api_secret = settings.MEDIA_SERVER_SECRET
 
     if record.id:
         # HTTP-FLV over WebSocket
@@ -480,7 +478,7 @@ async def get_optimized_vod_url(
 ):
     """
     获取优化后的点播 URL
-    
+
     根据网络状况和设备能力选择最优协议和地址。
     支持：MP4, HLS, HTTP-FLV, WebRTC
     """

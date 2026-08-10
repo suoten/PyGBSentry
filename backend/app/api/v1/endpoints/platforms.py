@@ -128,7 +128,7 @@ async def list_platform_shareable_channels_flat(
             select(Resource, PushChannel, AccessSource)
             .join(PushChannel, PushChannel.gb_resource_id == Resource.id)
             .join(AccessSource, AccessSource.id == PushChannel.id)
-            .where(PushChannel.gb_enabled == True)
+            .where(PushChannel.gb_enabled)
         )
         if kw:
             stmt = stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
@@ -140,7 +140,7 @@ async def list_platform_shareable_channels_flat(
             .select_from(Resource)
             .join(PushChannel, PushChannel.gb_resource_id == Resource.id)
             .join(AccessSource, AccessSource.id == PushChannel.id)
-            .where(PushChannel.gb_enabled == True)
+            .where(PushChannel.gb_enabled)
         )
         if kw:
             count_stmt = count_stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
@@ -168,7 +168,7 @@ async def list_platform_shareable_channels_flat(
         stmt = (
             select(Resource, AccessSource)
             .join(AccessSource, AccessSource.gb_resource_id == Resource.id)
-            .where(AccessSource.gb_enabled == True)
+            .where(AccessSource.gb_enabled)
             .where(AccessSource.protocol.in_(["RTSP", "ONVIF", "SDK"]))
         )
         if kw:
@@ -180,7 +180,7 @@ async def list_platform_shareable_channels_flat(
             select(func.count())
             .select_from(Resource)
             .join(AccessSource, AccessSource.gb_resource_id == Resource.id)
-            .where(AccessSource.gb_enabled == True)
+            .where(AccessSource.gb_enabled)
             .where(AccessSource.protocol.in_(["RTSP", "ONVIF", "SDK"]))
         )
         if kw:
@@ -1111,7 +1111,7 @@ async def get_platform_catalog_resources(
 ):
     """获取该上级平台的目录推送通道列表；空表示推全部通道。"""
     tenant_id = current_user.tenant_id or "default"
-    p = get_or_404(
+    get_or_404(
         await db.execute(
             select(ParentPlatform).where(
                 ParentPlatform.id == platform_id,
@@ -1183,7 +1183,8 @@ async def set_platform_catalog_resources(
     if payload.mappings is not None:
         for m in payload.mappings:
             rid = m.resource_id.strip()
-            if not rid or rid in inserted_ids: continue
+            if not rid or rid in inserted_ids:
+                continue
 
             existing = (
                 await db.execute(

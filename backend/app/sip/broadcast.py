@@ -7,15 +7,13 @@ from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
-from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log, sip_trace_log as _sip_trace_log
+from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.db.session import AsyncSessionLocal
 from app.models.stream_session import StreamSession
 from sqlalchemy import select
 from loguru import logger
 import secrets  # P4 安全随机数 — random→secrets
-import string
 import asyncio
-import time  # 缺少 import time 导致 time.time() NameError 崩溃
 
 
 
@@ -73,7 +71,7 @@ class Broadcast:
     async def send_broadcast_invite(self, asset, resource, transport_info: tuple, ssrc: str, media_server_ip: str, media_server_port: int) -> str:
         """
         发送语音广播 INVITE 请求
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID
@@ -81,7 +79,7 @@ class Broadcast:
             ssrc: 同步源标识
             media_server_ip: 媒体服务器IP
             media_server_port: 媒体服务器端口
-            
+
         Returns:
             call_id: SIP Call-ID
         """
@@ -142,7 +140,7 @@ class Broadcast:
 
         req.body = sdp_body
 
-        from app.sip.invite import register_ssrc_waiter, _register_invite_pending, invite_state
+        from app.sip.invite import _register_invite_pending, invite_state
         _event, _result = _register_invite_pending(call_id)
         _result["type"] = "broadcast"
         _result["ssrc"] = ssrc
@@ -212,7 +210,7 @@ class Broadcast:
     async def send_broadcast_bye(self, asset, stream_session: StreamSession, transport_info: tuple):
         """
         发送语音广播 BYE 请求（停止广播）
-        
+
         Args:
             asset: 设备资产对象
             channel_id: 通道ID

@@ -23,15 +23,11 @@ import os
 import time
 import asyncio
 import contextlib
-import logging  # FIX: [2026-07-13] 缺少 import logging 导致 NameError [全栈工程师]
 from app.core.http_client import get_http_client
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
-import httpx
 from loguru import logger
 
 from . _common import (
-    _normalize_default_stream_type,
-    _tenant_id_for_user,
     BatchChannelSnapPayload,
 )
 
@@ -224,18 +220,18 @@ async def get_channel_snapshot(
         existing_node = None
         actual_app = "live"
         actual_stream_id = snap_key
-        
+
         if ss and ss.media_server_id:
             node = get_node_by_id(ss.media_server_id)
             if node:
                 existing_node = node
                 actual_app = ss.app or "live"
                 actual_stream_id = ss.stream or snap_key
-        
+
         if not existing_node:
             # 2. 兜底，遍历 ZLM 查询
             existing_node, actual_app, actual_stream_id = await _find_existing_stream_node()  # 同步requests→异步httpx，避免阻塞事件循环
-            
+
         if existing_node and actual_stream_id:
             host = str(existing_node.get("host") or "").strip()
             http_port = int(existing_node.get("http_port") or 0)
@@ -335,7 +331,7 @@ async def get_channel_snapshot(
         media_http_port = int(node.get("http_port") or settings.MEDIA_SERVER_HTTP_PORT)
         media_sec = str(node.get("secret") or settings.MEDIA_SERVER_SECRET or "").strip()
 
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         ok = False
         try:
             stage = "invite_snap"
@@ -374,11 +370,11 @@ async def get_channel_snapshot(
                         except Exception as e:
                             logger.warning(f"Error: {e}")
                         return 0
-                        
+
                     # Give ZLM a tiny bit of time to update readerCount after OpenCV releases
                     await asyncio.sleep(0.5)
                     reader_count = await _get_reader_count()  # 同步requests→异步httpx，避免阻塞事件循环
-                    
+
                     if reader_count == 0:
                         ss_stmt = select(StreamSession).where(StreamSession.id == stream_session_id)
                         ss_res = await db.execute(ss_stmt)
@@ -730,34 +726,34 @@ async def query_device_info(
 ):
     """
     查询设备信息（发送DeviceInfo查询命令）
-    
+
     向设备发送信息查询命令，获取设备的详细信息（厂商、型号、固件版本等）。
     """
     from app.sip.catalog import catalog as catalog_singleton, Catalog
-    
+
     stmt = select(Asset).where(Asset.gb_id == device_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     asset = result.scalars().first()
-    
+
     if not asset:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not asset.ip_addr:
         raise HTTPException(status_code=500, detail="Device network information missing")
-    
+
     transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
     if transport is None:
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
-    
+
     # Send device info query
     catalog = catalog_singleton or Catalog(sip_server)
     sn = await catalog.send_device_info_query(
         asset,
         ((asset.ip_addr, asset.port), asset.transport, transport)
     )
-    
+
     return {
         "status": "ok",
         "message": "Device info query request sent",  # i18n
@@ -774,34 +770,34 @@ async def query_device_status(
 ):
     """
     查询设备状态（发送DeviceStatus查询命令）
-    
+
     向设备发送状态查询命令，获取设备的在线状态、报警状态等信息。
     """
     from app.sip.catalog import catalog as catalog_singleton, Catalog
-    
+
     stmt = select(Asset).where(Asset.gb_id == device_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     asset = result.scalars().first()
-    
+
     if not asset:
         raise HTTPException(status_code=404, detail="Device not found")
-    
+
     if not asset.ip_addr:
         raise HTTPException(status_code=500, detail="Device network information missing")
-    
+
     transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
     if transport is None:
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
-    
+
     # Send device status query
     catalog = catalog_singleton or Catalog(sip_server)
     sn = await catalog.send_device_status_query(
         asset,
         ((asset.ip_addr, asset.port), asset.transport, transport)
     )
-    
+
     return {
         "status": "ok",
         "message": "Device status query request sent",  # i18n

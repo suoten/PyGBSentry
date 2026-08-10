@@ -7,10 +7,8 @@ backward-compatible aliases so that existing import paths continue to work.
 """
 from __future__ import annotations
 
-import random
 import time  # N-01 _cleanup_stale_call_ids使用time.time()但未导入
 import secrets
-import string
 
 from loguru import logger
 from app.sip.message import SipMessage
@@ -90,14 +88,13 @@ class SipCascadeCommander:
         from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
         from app.sip.send import send_sip_bytes
         from app.sip.server import sip_server
-        from app.sip.auth import DigestAuth
 
         server_gb_id = platform_config.get("server_gb_id", "")
         server_domain = platform_config.get("server_domain", "") or settings.SIP_DOMAIN
         server_ip = platform_config.get("server_ip", "")
         server_port = int(platform_config.get("server_port", 5060))
         username = platform_config.get("username", "") or platform_config.get("client_gb_id", "")
-        password = platform_config.get("password", "")
+        platform_config.get("password", "")
         expires_val = int(platform_config.get("expires", 3600))
         proto = str(platform_config.get("transport", "UDP") or "UDP").upper()
 
@@ -151,7 +148,7 @@ class SipCascadeCommander:
 
     async def send_cascade_catalog_query(self, platform_config: dict, device_id: str = ""):
         """Query catalog from upstream platform. GB8 级联目录同步"""
-        from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+        from app.core.config import settings, sip_via_host, sip_from_to_host
         from app.sip.send import send_sip_bytes
         from app.sip.server import sip_server
 

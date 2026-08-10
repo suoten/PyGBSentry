@@ -111,7 +111,7 @@ class VodSession:
 class VodQualityMonitor:
     """
     点播质量监控器
-    
+
     核心功能：
     1. 实时质量采样
     2. 故障自动转移
@@ -225,13 +225,13 @@ class VodQualityMonitor:
     ) -> str:
         """
         创建点播会话
-        
+
         Args:
             record_id: 录像ID
             device_id: 设备ID
             channel_id: 通道ID
             sources: 源列表 [{url, protocol, bitrate, priority}, ...]
-        
+
         Returns:
             session_id
         """
@@ -283,7 +283,7 @@ class VodQualityMonitor:
     async def update_metrics(self, session_id: str, metrics: VodQualityMetrics):
         """
         更新质量指标
-        
+
         Args:
             session_id: 会话ID
             metrics: 质量指标

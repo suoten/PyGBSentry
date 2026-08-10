@@ -69,7 +69,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
                 return
         except Exception as e:
             logger.warning(f"Cascade record forward failed for SN={sn}: {e}")
-    
+
     record_list = find_child(root, "RecordList")
     if record_list is None:
         return
@@ -130,11 +130,11 @@ async def handle_record_info_response(xml_body: str, device_id: str):
                 continue
             seen.add(key)
             merged.append(r)
-            
+
         # VOD Record Gap Detection: Sort and stitch timelines
         try:
             from datetime import datetime
-            
+
             def parse_dt(s: str):
                 try:
                     return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
@@ -143,7 +143,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
 
             # Sort by start_time
             merged.sort(key=lambda x: parse_dt(str(x.get("start_time") or "")) or datetime.min)
-            
+
             # Detect gaps > 5 seconds
             for i in range(1, len(merged)):
                 prev = merged[i-1]
@@ -156,7 +156,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
                         curr["_gap_before_seconds"] = diff
         except Exception as e:
             logger.warning(f"Failed to detect record gaps: {e}")
-            
+
         st["seen"] = seen
         st["records"] = merged
         _record_agg[agg_key] = st
@@ -177,7 +177,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
             record_query_cache[str(sn)] = records
         except Exception as e:
             logger.error(f"Failed to store records in memory cache: {e}")
-        
+
     if records and redis_client is not None:  # 显式 None 守卫避免 pyright Never
         # Key: gb:records:{sn}
         # Value: List of JSON strings
@@ -204,7 +204,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
                     continue
                 all_records.append(r)
                 existing_seen.add(_record_key(r))
-                
+
             _RECORD_CACHE_TTL_SECONDS = 600  # 魔法数字→常量（录像查询缓存TTL）
             await redis_client.setex(key, _RECORD_CACHE_TTL_SECONDS, json.dumps(all_records))
             meta_key = f"gb:records_meta:{sn}"

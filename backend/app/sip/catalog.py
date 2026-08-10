@@ -3,7 +3,7 @@ GB28181 设备目录查询模块
 """
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
-from app.core.config import settings, sip_host_for_contact, sip_via_host
+from app.core.config import settings, sip_via_host, sip_from_to_host
 from app.sip.sn import next_sn  # P2-2: 统一 SN 生成策略
 from app.core.xml_utils import parse_xml, get_xml_text, find_child, find_children
 from app.db.session import AsyncSessionLocal

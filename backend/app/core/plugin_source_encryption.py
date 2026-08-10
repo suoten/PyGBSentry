@@ -9,12 +9,9 @@ PyArmor 源码加密检测框架（第5层防护 - 开源版）
 加密流程（完整链路）：
   开发者上传源码 → 服务器版 PyArmor 加密 → 分发加密后代码 → 开源版检测并加载
 """
-import logging
-import os
 import subprocess
 from pathlib import Path
 
-from app.core.config import settings
 
 
 def is_pyarmor_available() -> bool:

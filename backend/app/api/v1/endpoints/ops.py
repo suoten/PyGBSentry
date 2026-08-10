@@ -1,7 +1,6 @@
 import asyncio
 import psutil
 import datetime
-import logging
 import os
 import signal
 from fastapi import APIRouter, Depends, Request, BackgroundTasks, HTTPException
@@ -58,7 +57,7 @@ async def export_diagnostics(
             "uptime_seconds": int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds())
         }
         zf.writestr("env_info.json", json.dumps(env_info, indent=2, ensure_ascii=False))
-        
+
         # 2. 数据库状态
         db_status = "ok"
         try:
@@ -66,7 +65,7 @@ async def export_diagnostics(
         except Exception as e:
             db_status = str(e)
         zf.writestr("db_status.txt", f"DB Status: {db_status}")
-        
+
         # 3. 日志脱敏收集
         log_file = "app.log"
         if os.path.exists(log_file):
@@ -85,7 +84,7 @@ async def export_diagnostics(
                 zf.writestr("tail_app.log", f"Error reading log: {e}")
         else:
             zf.writestr("tail_app.log", "No app.log found in current working directory.")
-            
+
     zip_buffer.seek(0)
     filename = f"pygbsentry_diag_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')}.zip"
     return StreamingResponse(
@@ -103,7 +102,7 @@ async def get_system_status(current_user: User = Depends(deps.get_current_active
     # S-07 psutil.cpu_percent(interval=1)阻塞事件循环1秒，改为异步执行
     cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 1)
     memory = psutil.virtual_memory()
-    
+
     # ZLM Info（优先使用 DB 活动/自动节点；回退全局 MEDIA_SERVER_*）
     zlm_status = "Offline"
     zlm_streams = 0
@@ -168,7 +167,7 @@ async def get_help_docs(current_user: User = Depends(deps.get_current_active_use
                 return data
     except Exception as e:
         logger.debug(f"Non-critical operation failed: {e}")  # i18n
-    
+
     return [
         {
             "id": "1",
@@ -382,10 +381,8 @@ async def create_backup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查,
 ):
-    import tempfile
-    import shutil
 
-    db_type = normalize_db_type()
+    normalize_db_type()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = os.path.join(os.getcwd(), "data", "backups")
     os.makedirs(backup_dir, exist_ok=True)
@@ -576,7 +573,6 @@ async def stream_diagnose(
     """
     流媒体端到端诊断，按 5 个步骤逐一检测播放链路。
     """
-    import socket
 
     items = []
     zlm_host, zlm_port, zlm_secret, resolved_node_id, select_reason = await resolve_zlm_api_target(db, node_id=node_id)
@@ -681,7 +677,7 @@ async def stream_diagnose(
     try:
         from app.models.media_node import MediaNode
         from app.api.v1.endpoints.integrations import _build_hook_base_url
-        node_filter = [MediaNode.id == resolved_node_id] if resolved_node_id else [MediaNode.is_active == True]
+        node_filter = [MediaNode.id == resolved_node_id] if resolved_node_id else [MediaNode.is_active]
         result = await db.execute(select(MediaNode).where(*node_filter).limit(1))
         db_node = result.scalar_one_or_none()
         hook_url = _build_hook_base_url(db_node)
@@ -844,11 +840,11 @@ async def get_active_streams(
 
     # 批量查询通道名称（stream 即 gb_id）：直接用原始 SQL 查询 resources + assets
     gb_ids = [s.get("stream", "") for s in streams if s.get("app") == "rtp" and s.get("stream")]
-    
+
     # 优先使用 ZLM 实时流（仅 rtp）
     rtp_streams = []
     channel_names: dict[str, str] = {}
-    
+
     if gb_ids:
         try:
             placeholders = ", ".join([f":id_{i}" for i in range(len(gb_ids))])

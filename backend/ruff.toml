@@ -4,6 +4,17 @@
 
 target-version = "py311"
 line-length = 150
+extend-exclude = [
+    "tests",
+    "scripts",
+    "tools",
+    "bin",
+    "alembic",
+    "data",
+    "static",
+    "plugins",
+    "logs",
+]
 
 [lint]
 # 启用的规则集

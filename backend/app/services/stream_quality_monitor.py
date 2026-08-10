@@ -107,7 +107,7 @@ class StreamSession:
 class StreamQualityMonitor:
     """
     实时预览流质量监控器
-    
+
     核心功能：
     1. 实时质量采样与分析
     2. 抖动检测与平滑
@@ -216,7 +216,7 @@ class StreamQualityMonitor:
     ):
         """
         添加质量采样
-        
+
         这是实时预览质量监控的核心方法。
         """
         session = await self.get_session(session_id)
@@ -278,7 +278,7 @@ class StreamQualityMonitor:
     ) -> float:
         """
         计算综合健康评分 (0-100)
-        
+
         评分规则：
         - 基准分 100
         - FPS 损失：每下降 1fps 扣 2 分

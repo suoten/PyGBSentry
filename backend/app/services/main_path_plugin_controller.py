@@ -148,7 +148,7 @@ class MainPathPluginController:
         with contextlib.suppress(Exception):
             await task
         # If it was active route, clear active_route marker (conservative; next reg may reset)
-        if self._active_route_by_channel.get(channel_gb_id) and self._active_route_by_channel.get(channel_gb_id) != None:
+        if self._active_route_by_channel.get(channel_gb_id) and self._active_route_by_channel.get(channel_gb_id) is not None:
             # Don't aggressively clear; only clear when it matches availability ssrc
             pass
 
@@ -251,7 +251,6 @@ class MainPathPluginController:
             start_route: StreamType | None = None
             start_ssrc: str | None = None
             start_asset_gb_id: str | None = None
-            start_reason: str = "stream_reg"
 
             if unreg:
                 # Stop analysis for this ssrc
@@ -267,7 +266,6 @@ class MainPathPluginController:
                         start_route = "sub"
                         start_ssrc = sub_ssrc
                         start_asset_gb_id = sub_info.get("asset_gb_id")
-                        start_reason = "main_unreg_start_sub"
             else:
                 # reg event
                 if self.stream_policy == "both":

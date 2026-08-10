@@ -191,7 +191,7 @@ async def _run_loop():
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     select(AccessSource).where(
-                        AccessSource.enabled == True,
+                        AccessSource.enabled,
                         AccessSource.protocol.in_(["RTSP", "ONVIF", "SDK"]),
                     )
                 )

@@ -11,7 +11,6 @@ gracefully to no-ops.
 from __future__ import annotations
 
 import os
-from typing import Any, Callable
 
 from loguru import logger
 

@@ -1645,7 +1645,7 @@ async def get_rtmp_push_url(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     """RTMP 推流地址：接入源协议为 RTMP 时，返回推流 URL，供编码器/推流端使用。"""
-    stmt = select(AccessSource).where(AccessSource.id == source_id, AccessSource.enabled == True)
+    stmt = select(AccessSource).where(AccessSource.id == source_id, AccessSource.enabled)
     if not current_user.is_superuser:
         stmt = stmt.where(AccessSource.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
@@ -2081,7 +2081,7 @@ async def play_access_source(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user)
 ):
-    stmt = select(AccessSource).where(AccessSource.id == source_id, AccessSource.enabled == True)
+    stmt = select(AccessSource).where(AccessSource.id == source_id, AccessSource.enabled)
     if not current_user.is_superuser:
         stmt = stmt.where(AccessSource.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)

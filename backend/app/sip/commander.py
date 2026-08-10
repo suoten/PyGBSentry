@@ -6,7 +6,6 @@ from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
 from app.sip.send import send_sip_bytes
 from loguru import logger
-import random
 import secrets
 import itertools
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
@@ -165,8 +164,8 @@ class SipCommander:
                 f"(From host={_from_host}, To host={settings.SIP_DOMAIN}, CL={_cl_header}, body_len={len(_body_bytes)}, "
                 f"body_hex={_hex_preview}):\n{_req_dump}"
             )
-        except Exception:
-            pass
+        except Exception as _diag_err:
+            logger.debug(f"[CATALOG_DIAG] diagnostic log error: {_diag_err}")
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
@@ -198,8 +197,8 @@ class SipCommander:
                         f"status={_status_code} rtt_ms={_rtt_ms} attempts={_attempts} "
                         f"headers=[{_resp_headers_dump}] body=[{_resp_body_dump}]"
                     )
-                except Exception:
-                    pass
+                except Exception as _diag_err:
+                    logger.debug(f"[CATALOG_DIAG] diagnostic log error: {_diag_err}")
         else:
             # SIP发送裸调用无异常保护
             try:
@@ -260,8 +259,8 @@ class SipCommander:
                 f"[CATALOG_DIAG] Sending Platform Catalog Query to {platform_gb_id} via {addr} "
                 f"(From host={_from_to_host}, To host={settings.SIP_DOMAIN}):\n{_req_dump}"
             )
-        except Exception:
-            pass
+        except Exception as _diag_err:
+            logger.debug(f"[CATALOG_DIAG] diagnostic log error: {_diag_err}")
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         # SIP发送裸调用无异常保护
         try:

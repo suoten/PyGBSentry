@@ -30,14 +30,14 @@ def _decode_bytes_safely(data: bytes) -> str:
         # UTF-8 BOM
         try:
             return data[3:].decode("utf-8", errors="replace")
-        except Exception:
-            pass
+        except Exception as _enc_err:
+            logger.debug(f"UTF-8 BOM decode failed: {_enc_err}")
     if data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
         # UTF-16 BOM
         try:
             return data.decode("utf-16", errors="replace")
-        except Exception:
-            pass
+        except Exception as _enc_err:
+            logger.debug(f"UTF-16 BOM decode failed: {_enc_err}")
 
     # 2) 按 XML prolog 声明编码解码
     try:
@@ -49,10 +49,10 @@ def _decode_bytes_safely(data: bytes) -> str:
             enc = "gbk" if declared in ("gb2312", "gbk", "gb18030") else declared
             try:
                 return data.decode(enc, errors="replace")
-            except (LookupError, UnicodeDecodeError):
-                pass
-    except Exception:
-        pass
+            except (LookupError, UnicodeDecodeError) as _decl_err:
+                logger.debug(f"Declared encoding decode failed: {_decl_err}")
+    except Exception as _prolog_err:
+        logger.debug(f"XML prolog encoding detection failed: {_prolog_err}")
 
     # 3) 回退：先尝试 UTF-8，再尝试 GBK
     try:

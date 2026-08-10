@@ -17,6 +17,7 @@ from app.core.plugin_manager import (
     plugin_manager,
     HOOK_ON_SHUTDOWN,
     HOOK_ON_STARTUP,
+    HOOK_ON_UNINSTALL,
     HOOK_ON_UPGRADE,
 )
 from app.services.audit_center_service import audit_center_service

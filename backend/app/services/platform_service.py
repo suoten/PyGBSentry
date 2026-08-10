@@ -1118,7 +1118,7 @@ class PlatformService:
                 p = await get_or_404(session, ParentPlatform, platform_id)
                 if not p.is_online:
                     return
-                from app.core.config import settings, sip_host_for_contact, sip_via_host
+                from app.core.config import settings, sip_via_host
                 from app.sip.send import send_sip_bytes
                 from app.sip.server import sip_server
                 from datetime import datetime, timezone, timedelta

@@ -16,7 +16,6 @@ Resilient import strategy:
 # ruff: noqa: F821  — endpoint module names are dynamically injected via globals() in the loop below
 from __future__ import annotations
 
-import importlib
 from typing import Optional
 
 from fastapi import APIRouter

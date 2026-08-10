@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -277,7 +277,7 @@ async def list_plans(
     """
     is_server = (settings.APP_EDITION or "oss").lower() == "server"
     if is_server:
-        stmt = select(BillingPlan).where(BillingPlan.is_active == True)
+        stmt = select(BillingPlan).where(BillingPlan.is_active)
         if current_user.is_superuser:
             stmt = select(BillingPlan)
         result = await db.execute(stmt)
@@ -789,7 +789,7 @@ async def subscription_downgrade_preview(
     old_plan_result = await db.execute(old_plan_stmt)
     old_plan = old_plan_result.scalars().first()
 
-    new_plan_stmt = select(BillingPlan).where(BillingPlan.code == payload.plan_id, BillingPlan.is_active == True)
+    new_plan_stmt = select(BillingPlan).where(BillingPlan.code == payload.plan_id, BillingPlan.is_active)
     new_plan_result = await db.execute(new_plan_stmt)
     new_plan = get_or_404(new_plan_result, detail=f"BillingPlan '{payload.plan_id}' not found or inactive")  # ORM查询结果空值判断
 
@@ -895,7 +895,7 @@ async def subscription_self_downgrade(
         raise HTTPException(status_code=400, detail="Target plan is same as current")
 
     # 验证目标套餐
-    new_plan_stmt = select(BillingPlan).where(BillingPlan.code == payload.plan_id, BillingPlan.is_active == True)
+    new_plan_stmt = select(BillingPlan).where(BillingPlan.code == payload.plan_id, BillingPlan.is_active)
     new_plan_result = await db.execute(new_plan_stmt)
     new_plan = new_plan_result.scalars().first()
     if not new_plan:

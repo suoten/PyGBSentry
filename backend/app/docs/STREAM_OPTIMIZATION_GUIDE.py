@@ -80,11 +80,11 @@ const jessibuca = new Jessibuca({
     bufferTime: 1000,        // 1秒缓冲，平衡延迟与稳定性
     // bufferTime: 500,      // 低延迟模式
     // bufferTime: 2000,     // 超稳定模式
-    
+
     // 解码配置
     useWCS: false,           // 使用 MSE 解码
     decoder: 'gm',           // GPU 解码
-    
+
     // 性能
     workloadLevel: 1,         // 低负载模式
 })
@@ -96,15 +96,15 @@ HLS 配置：
 const hls = new Hls({
     // 关闭低延迟模式（点播/预览不需要低延迟）
     lowLatencyMode: false,
-    
+
     // 缓冲配置
     backBufferLength: 30,     // 回退缓冲30秒
     maxBufferLength: 30,      // 最大缓冲30秒
-    
+
     // 加载控制
     fragLoadingTimeOut: 20000,  // 分片加载超时
     fragLoadingMaxRetry: 3,     // 重试次数
-    
+
     // 错误恢复
     autoRecover: true,
 })
@@ -134,7 +134,7 @@ http {
     proxy_buffering on;
     proxy_buffer_size 128k;
     proxy_buffers 8 256k;
-    
+
     # 超时
     proxy_connect_timeout 60s;
     proxy_send_timeout 60s;
@@ -148,7 +148,7 @@ location / {
     add_header Access-Control-Allow-Origin *;
     add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS';
     add_header Access-Control-Allow-Headers 'Range, Content-Type';
-    
+
     # 预检请求
     if ($request_method = 'OPTIONS') {
         add_header Access-Control-Allow-Origin *;
@@ -193,7 +193,7 @@ location / {
 
 1. 优化的实时预览播放
    GET /api/v1/stream-opt/play/{device_id}/{channel_id}
-   
+
    参数：
    - protocol_preference: 协议偏好 (auto/flv/hls/webrtc)
    - quality_mode: 画质模式 (high/balance/stable)
@@ -201,7 +201,7 @@ location / {
 
 2. 质量上报
    POST /api/v1/stream-opt/quality-report
-   
+
    上报内容：
    - fps: 帧率
    - bitrate: 码率
@@ -211,7 +211,7 @@ location / {
 
 3. 获取流健康状态
    GET /api/v1/stream-opt/health/{session_id}
-   
+
    返回：
    - health_score: 健康评分 (0-100)
    - health_level: 健康等级
@@ -219,7 +219,7 @@ location / {
 
 4. 获取播放线路
    GET /api/v1/stream-opt/lines/{device_id}/{channel_id}
-   
+
    返回：
    - lines: 线路列表
    - recommended: 推荐线路

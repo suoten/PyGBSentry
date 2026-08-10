@@ -2735,7 +2735,7 @@ class SipInvite:
         from_tag = str(getattr(dialog, "from_tag", "") or "").strip()
         to_tag = str(getattr(dialog, "to_tag", "") or "").strip()
         if not call_id or not from_tag:
-            logger.warning(f"send_session_refresh_reinvite: missing call_id/from_tag for dialog")
+            logger.warning("send_session_refresh_reinvite: missing call_id/from_tag for dialog")
             return False
 
         remote_target = str(getattr(dialog, "remote_target", "") or "").strip()

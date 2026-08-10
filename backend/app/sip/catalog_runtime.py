@@ -49,7 +49,6 @@ _CLEANUP_INTERVAL_SECONDS = 300  # 5 分钟
 
 async def _cleanup_stale_runtime_loop():
     """后台循环：每 5 分钟调用 _cleanup_stale_runtime 清理过期条目。"""
-    from loguru import logger
     try:
         while True:
             await asyncio.sleep(_CLEANUP_INTERVAL_SECONDS)
@@ -124,7 +123,6 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
     修复前：将通道写入 Asset 表（错误，Asset 是设备表，且 Asset 无 parent_id 列）。
     修复后：将通道写入 Resource 表，与 handle_catalog_response 全量同步保持一致。
     """
-    from loguru import logger
     from app.db.session import AsyncSessionLocal
     from app.models.asset import Asset
     from app.models.resource import Resource

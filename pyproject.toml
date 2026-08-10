@@ -1,6 +1,15 @@
 # ============================================================================
 # PyGBSentry — Project-wide Python tooling configuration
 # ============================================================================
+
+[project]
+name = "pygbsentry"
+version = "1.1.0"
+description = "GB28181 video surveillance platform (open-source edition)"
+requires-python = ">=3.11"
+
+[project.scripts]
+pygbsentry = "run:main"
 # This file consolidates ruff (linting/formatting) and mypy (type checking)
 # configuration at the project root so that IDE integrations and CI/CD can
 # discover them without searching subdirectories.
@@ -22,8 +31,17 @@ extend-exclude = [
     "docs",
     "tools",
     "scripts",
+    "backend/tests",
+    "backend/scripts",
+    "backend/tools",
+    "backend/bin",
+    "backend/alembic",
     ".ruff_cache",
     ".pytest_cache",
+    "reset_admin.py",
+    "verify_p1c.py",
+    "tests",
+    ".convergeloop",
 ]
 
 [tool.ruff.lint]

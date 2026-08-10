@@ -4,7 +4,7 @@ GB28181 录像回放控制模块
 """
 from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
-from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+from app.core.config import settings, sip_via_host, sip_from_to_host
 from app.core.async_utils import fire_and_forget  # FIX [2026-07-17 P1]: 统一使用 fire_and_forget 创建后台任务
 from loguru import logger
 import asyncio

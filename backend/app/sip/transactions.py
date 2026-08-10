@@ -527,7 +527,6 @@ class SipClientTransactionManager:
         if is_udp:
             # GB28181 标准中建议 INVITE 超时时间长一些（例如 64*T1 = 64秒），非 INVITE 较短（例如 10秒）
             # 但实际应用中，设备通常在 5-10 秒内响应，故设置 20-30 秒
-            is_invite = request.method == "INVITE"
             timeout = settings.SIP_TRANSACTION_TIMEOUT_SECONDS
 
             delay = t1

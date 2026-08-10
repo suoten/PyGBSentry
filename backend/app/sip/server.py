@@ -718,8 +718,8 @@ class SipServer:
                 if _method in ("MESSAGE", "REGISTER") and addr[0] == "36.34.0.68":
                     _raw_dump = data.decode("utf-8", errors="replace")
                     logger.info(f"[RAW_IN_DIAG] Incoming {_method} from {addr}:\n{_raw_dump}")
-            except Exception:
-                pass
+            except Exception as _diag_err:
+                logger.debug(f"[RAW_IN_DIAG] diagnostic log error: {_diag_err}")
 
             # ==========================================
             # SIP L7 Firewall & Dynamic Blacklist

@@ -31,7 +31,7 @@ class Organization(Base):
     sort_order = Column(Integer, default=0)
 
     # FIX: [2026-07-17 P1] 建立 ORM 关系，便于 eager loading
-    children = relationship("Organization", backref="parent", remote_side=[id], lazy="selectin")
+    children = relationship("Organization", backref="parent", remote_side=[id], lazy="selectin")  # noqa: A003
 
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

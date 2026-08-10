@@ -116,17 +116,17 @@ http {
     gzip on;
     gzip_types video/mp4 video/webm video/ogg;
     gzip_min_length 1000;
-    
+
     # 缓存控制
     proxy_buffering on;
     proxy_buffer_size 128k;
     proxy_buffers 4 256k;
-    
+
     # 超时配置
     proxy_connect_timeout 60s;
     proxy_send_timeout 60s;
     proxy_read_timeout 60s;
-    
+
     # Range 请求支持（点播必须）
     proxy_force_ranges on;
 }
@@ -136,14 +136,14 @@ server {
     location /record/ {
         proxy_pass http://zlm_backend:8880;
         proxy_buffering on;
-        
+
         # 允许 Range 请求
         proxy_force_ranges on;
-        
+
         # 缓存配置
         proxy_cache_valid 200 60m;
         add_header X-Cache-Status $upstream_cache_status;
-        
+
         # CORS
         add_header Access-Control-Allow-Origin *;
         add_header Access-Control-Allow-Methods 'GET, OPTIONS';

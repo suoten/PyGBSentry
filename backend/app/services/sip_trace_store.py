@@ -91,7 +91,7 @@ def schedule_store_sip_trace(payload: dict) -> None:
     if not payload:
         return
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return
     # P0-fix [2026-07-17]: 改用 fire_and_forget，提供 task name + done_callback + GC 保护

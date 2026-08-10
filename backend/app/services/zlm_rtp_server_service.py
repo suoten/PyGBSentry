@@ -12,7 +12,7 @@ from app.core.zlm_circuit_breaker import zlm_node_client_manager
 # P0-fix: 重新导出 get_http_client 以便测试 mock.patch.object(mod, "get_http_client")
 # 可正常工作。原重构中误删除了此导入，导致 test_zlm_rtp_server_service.py 中 3 个
 # 测试因 AttributeError 失败。
-from app.core.http_client import get_http_client  # noqa: F401  (re-export for tests)
+from app.core.http_client import get_http_client
 
 _zlm_client: httpx.AsyncClient | None = None
 _zlm_client_lock = asyncio.Lock()
@@ -341,7 +341,7 @@ async def _zlm_post(
             f"ZLM {operation} returned non-JSON: {e}",
             operation=operation,
             category="media_node_json_error",
-            hint=f"ZLM node returned invalid JSON",
+            hint="ZLM node returned invalid JSON",
             retryable=False,
             status_code=502,
         ) from e

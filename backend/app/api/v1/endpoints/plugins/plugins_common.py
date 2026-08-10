@@ -13,7 +13,6 @@ import hashlib
 import time
 import zipfile
 import importlib
-import subprocess
 import sys
 from app.core.http_client import get_http_client
 import httpx
@@ -30,7 +29,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.plugin_manager import (
     plugin_manager,
     HOOK_ON_STARTUP,
-    HOOK_ON_ALARM,
 )
 from app.db.session import get_db, engine
 from app.core.config import settings

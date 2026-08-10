@@ -94,7 +94,6 @@ def _build_trap_pdu(cfg: dict, alarm) -> list:
     alarm_time = t.isoformat() if t and hasattr(t, "isoformat") else datetime.datetime.now(datetime.timezone.utc).isoformat()
 
     oid_base = str(cfg.get("oid_prefix") or _DEFAULT_CONFIG["oid_prefix"]).strip(".")
-    enterprise_oid = f"{oid_base}.1"
 
     varbinds: list[tuple] = []
     # sysUpTime
@@ -127,7 +126,7 @@ async def _send_trap(cfg: dict, alarm) -> bool:
     varbinds = _build_trap_pdu(cfg, alarm)
 
     try:
-        from pysnmp.hlapi import (
+        from pysnmp.hlapi import (  # noqa: F401
             SnmpEngine, UdpTransportTarget, CommunityData, ContextData,
             sendNotification, notificationType, ObjectIdentity, ObjectType,
         )
@@ -158,10 +157,10 @@ def _do_send_trap_sync(trap_host, trap_port, community, snmp_version, varbinds):
         sendNotification, notificationType, ObjectIdentity, ObjectType,
     )
     if snmp_version == "3":
-        auth = CommunityData(community, mpModel=3)
+        CommunityData(community, mpModel=3)
     else:
-        auth = CommunityData(community, mpModel=1 if snmp_version == "1" else 0)
-    transport = UdpTransportTarget((trap_host, trap_port), timeout=3, retries=1)
+        CommunityData(community, mpModel=1 if snmp_version == "1" else 0)
+    UdpTransportTarget((trap_host, trap_port), timeout=3, retries=1)
     iterator = sendNotification(
         SnmpEngine(),
         CommunityData(community, mpModel=1),

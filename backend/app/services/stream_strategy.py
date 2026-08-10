@@ -30,7 +30,7 @@ def recommend_stream_mode(
     mode = normalize_stream_mode(current_mode)
     last = normalize_stream_mode(last_mode)
     failure_rate = calculate_failure_rate(success_total, fail_total)
-    total = (success_total or 0) + (fail_total or 0)
+    (success_total or 0) + (fail_total or 0)
     if consecutive_failures >= 2:
         return "UDP", "High consecutive failures, recommend UDP for stability", "high"  # i18n
     if failure_rate >= 35:
@@ -136,9 +136,8 @@ async def _execute_stream_switch(session_id: str, target_mode: str, reason: str)
                 return False
 
             # 通过 Re-INVITE 切换传输模式
-            from app.core.config import settings
             old_mode = str(ss.protocol or "UDP")
-            logger.info(f"[AutoStreamSwitch] Switching session {session_id} from {old_mode} to {target_mode}: {reason}")
+            logger.info(f"[AutoStreamSwitch] Switching session {session_id} from {old_mode} to {target_mode}: {reason}")  # noqa: F823
 
             # 更新数据库中的协议模式
             ss.protocol = target_mode
@@ -170,8 +169,6 @@ class StreamStrategy:
         """
         from sqlalchemy import select
         from app.models.stream_session import StreamSession
-        from app.models.resource import Resource
-        from app.models.asset import Asset
 
         session = (await db.execute(select(StreamSession).where(StreamSession.id == stream_session_id))).scalars().first()
         if not session:

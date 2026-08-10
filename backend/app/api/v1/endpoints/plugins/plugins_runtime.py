@@ -11,6 +11,7 @@ import os
 import hashlib
 from datetime import datetime, timezone
 from pathlib import Path as FSPath
+from loguru import logger
 
 from app.core.http_client import get_http_client
 from fastapi import Query, APIRouter, UploadFile, File, HTTPException, Depends, Request, Form
@@ -28,6 +29,7 @@ from app.core.config import settings
 from app.services.audit_center_service import audit_center_service
 from app.services.auth_audit import safe_auth_audit
 from app.core.zlm_target import resolve_zlm_api_target
+from .plugins_market import list_purchased_plugins_proxy
 
 from .plugins_common import (
     _validate_plugin_asset_id,
@@ -84,7 +86,6 @@ async def plugin_assets(
         return (root_dir / ap2).resolve()
 
     # 对每个 root 都尝试匹配 asset_path
-    last_missing: str | None = None
     for r in roots:
         try:
             if r == PLUGIN_DIR_ABS:
@@ -95,7 +96,7 @@ async def plugin_assets(
                 target = _safe_join_generic(r, asset_path or "index.html")
             if target.exists() and target.is_file():
                 return FileResponse(str(target))
-            last_missing = str(target)
+            str(target)
         except HTTPException:
             # 参数非法直接抛
             raise
@@ -1032,7 +1033,7 @@ async def stream_health_health(
     now_ts = float(datetime.now(timezone.utc).timestamp())
     cache_ttl_sec = 5.0
     async with _STREAM_HEALTH_CACHE_LOCK:
-        if (now_ts - _STREAM_HEALTH_CACHE_TS) > cache_ttl_sec or not _STREAM_HEALTH_CACHE_RAW:
+        if (now_ts - _STREAM_HEALTH_CACHE_TS) > cache_ttl_sec or not _STREAM_HEALTH_CACHE_RAW:  # noqa: F823
             zlm_host, zlm_port, zlm_secret, zlm_node_id, select_reason = await resolve_zlm_api_target(db_session=db)
             url = f"http://{zlm_host}:{zlm_port}/index/api/getMediaList"
             try:
@@ -1151,7 +1152,6 @@ async def plugin_health_status(
         if "stream_health" in pid_lower or "health" in pid_lower:
             try:
                 from app.core.media_nodes_db import list_db_media_nodes
-                from loguru import logger
                 nodes = await list_db_media_nodes(db)
                 is_healthy = len(nodes) > 0
                 if not is_healthy:

@@ -62,7 +62,6 @@ async def broadcast_start(
 ):
     """开始语音广播（向设备喊话）"""
     from app.sip.broadcast import broadcast
-    import random
 
     # Get asset and resource
     stmt = select(Asset).where(Asset.gb_id == payload.device_id)

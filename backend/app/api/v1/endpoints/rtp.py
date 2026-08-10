@@ -47,7 +47,7 @@ async def open_rtp_receive(
             status_code=400,
             detail="stream_id_required",
         )
-        raise HTTPException(status_code=400, detail="stream_id required")
+        raise HTTPException(status_code=400, detail="stream_id required")  # noqa: F823
     app = (payload.app or "live").strip() or "live"
     tcp_mode = int(payload.tcp_mode or 0)
     if tcp_mode not in (0, 1, 2):

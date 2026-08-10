@@ -219,7 +219,7 @@ def _unregister_talk_pending(call_id: str) -> None:
                     logger.warning(f"Exception: {e}")
                 st.pop("socket", None)
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
         # P0-fix [2026-07-17]: 改用 fire_and_forget，提供 task name + done_callback + GC 保护
         # 原 loop.create_task(_do_unregister()) 无引用无异常回调，注销失败无任何日志
         from app.core.async_utils import fire_and_forget

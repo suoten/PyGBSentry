@@ -1,12 +1,12 @@
 """stream 子模块共享的工具函数、全局变量和常量。"""
 
+import logging
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.db.session import get_db, AsyncSessionLocal
 from app.core.config import settings
-from app.core.media_nodes import get_node_by_id, get_media_nodes, get_all_media_from_nodes
-from app.core.media_nodes_db import get_all_media_from_nodes as get_all_media_from_db_nodes, get_db_media_node_by_id, list_db_media_nodes, release_lease
+from app.core.media_nodes import get_media_nodes
+from app.core.media_nodes_db import list_db_media_nodes
 from app.models.asset import Asset
 from app.models.resource import Resource
 from app.models.stream_session import StreamSession
@@ -15,27 +15,17 @@ from app.models.asset_stream_policy import AssetStreamPolicy
 from app.models.platform import ParentPlatform
 from app.models.user import User
 from app.models.system_setting import SystemSetting
-from app.api import deps
-import app.sip.invite as sip_invite_module
-from app.sip.server import sip_server
 from app.core.plugin_manager import plugin_manager
-from app.services.audit_center_service import audit_center_service
 from app.services.auth_audit import safe_auth_audit
-from app.services.stream_session_service import close_stream, release_stream_session, finalize_stream_session
-from app.services.zlm_rtp_server_service import ZlmApiError
+from app.services.stream_session_service import release_stream_session
 from app.services.zlm_stream_control import close_zlm_stream, _get_zlm_client
 import contextlib
 import copy
 from loguru import logger
-from datetime import datetime, timezone
-import hmac
-import hashlib
-import base64
 import time
 import asyncio
 import json
 from typing import Any, Optional
-from types import SimpleNamespace
 
 # Bootstrap 运行时配置的 TTL 缓存，避免每次播放都查数据库
 _BOOTSTRAP_RUNTIME_CONFIG_CACHE_TTL_SECONDS = 60
@@ -82,7 +72,6 @@ class _PlayIdempotencyGuard:
             return True
 
     async def release(self):
-        import time as _time
         async with _PLAY_INFLIGHT_LOCK:
             current_ts = _PLAY_INFLIGHT.get(self.key)
             if current_ts is not None and abs(current_ts - self._registered_ts) < 0.001:
@@ -349,7 +338,7 @@ async def _do_warmup_flv(flv_url: str, logger, app: str, stream: str) -> bool:
     """发送 HEAD 请求触发 ZLM 创建 FLV 端点，增加重试和稳定性验证"""
     max_retries = 3
     retry_delay = 0.5  # 秒
-    
+
     for attempt in range(max_retries):
         try:
             client = await _get_zlm_client()
@@ -361,10 +350,10 @@ async def _do_warmup_flv(flv_url: str, logger, app: str, stream: str) -> bool:
                 logger.warning(f"[Warmup] FLV endpoint not found for {app}/{stream} on attempt {attempt + 1}")
         except Exception as exc:
             logger.warning(f"[Warmup] FLV warmup failed for {app}/{stream} on attempt {attempt + 1}: {exc}")
-        
+
         if attempt < max_retries - 1:
             await asyncio.sleep(retry_delay * (attempt + 1))  # 指数退避
-    
+
     logger.error(f"[Warmup] FLV warmup exhausted for {app}/{stream} after {max_retries} attempts")
     return False
 
@@ -919,7 +908,7 @@ async def _probe_zlm_stream(
 
         target_app = str(app or "")
         target_stream = str(stream or "")
-        target_stream_norm = _normalize_stream_key(target_stream)
+        _normalize_stream_key(target_stream)
         expected_streams = [target_stream] + [str(v or "").strip() for v in (stream_hints or [])]
         expected_streams = [v for v in expected_streams if v]
         if not expected_streams:
@@ -971,7 +960,6 @@ async def _probe_zlm_stream(
             )
 
         candidates_snapshot = _snapshot_candidates(lst)
-        app_mismatch_candidates: list[dict] = []
 
         for item in lst:
             if not isinstance(item, dict):
@@ -1127,13 +1115,13 @@ def _build_stream_match_hints(stream: str | None, ssrc: str | None) -> list[str]
             # Also push 8-digit versions without leading zeros
             _push(format(ssrc_num, "X").upper())
             _push(format(ssrc_num, "x").lower())
-    
+
     # Try to split stream to get channel_id if it's formatted like {channel}_{ssrc}
     if stream_text and "_" in stream_text:
         parts = stream_text.split("_")
         _push(parts[0]) # usually channel id
         _push(parts[-1]) # usually ssrc
-    
+
     return hints
 
 
@@ -1263,11 +1251,11 @@ async def _wait_zlm_stream_ready(
             playable_app = str(media_item.get("app") or app)
             playable_stream = str(media_item.get("stream") or stream)
             playable = _probe_zlm_playable(node_host, node_http_port, playable_app, playable_stream)
-            
+
             # 增强稳定性检测
             current_bytes_speed = int(media_item.get("bytesSpeed") or 0)
             _bytes_speed_samples.append(current_bytes_speed)
-            
+
             # 对于 RTP 流，检查流是否在持续产生数据
             if _is_rtp_stream and current_bytes_speed > 0:
                 _stability_count += 1
@@ -1277,11 +1265,11 @@ async def _wait_zlm_stream_ready(
                 # bytesSpeed 为 0 或流不稳定，重置计数
                 _stability_count = 0
                 _bytes_speed_samples = []
-            
+
             # 对于 RTP 流，需要稳定性窗口确认；对于其他流，直接可播放即可
             _needs_stability_check = _is_rtp_stream
             _stability_threshold = _stability_window if _needs_stability_check else 1
-            
+
             if playable and _stability_count >= _stability_threshold:
                 return (
                     probe_ok,
@@ -1478,7 +1466,6 @@ async def _probe_webrtc_capability(node_host: str, node_http_port: int, app: str
 
 
 from app.core.play_token import generate_play_token
-from loguru import logger
 
 
 def _stream_play_token(app: str, stream: str, expire_seconds: int = 300) -> str:

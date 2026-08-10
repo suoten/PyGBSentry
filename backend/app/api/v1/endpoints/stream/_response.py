@@ -3,6 +3,7 @@
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from loguru import logger
 from app.core.config import settings
 from app.models.asset import Asset
 from app.models.resource import Resource
@@ -50,14 +51,14 @@ def _build_play_urls(
         if _base_stream.endswith(_suf):
             _base_stream = _base_stream[:-len(_suf)]
             break
-    
+
     # 处理虚拟主机路径
     def _media_path(path: str) -> str:
         # __defaultVhost__ 不加路径前缀，ZLM 会自动处理
         if vhost and vhost != "__defaultVhost__":
             return f"/{vhost}{path}"
         return path
-    
+
     http_flv = _build_media_url("http", media_host, http_port, _media_path(f"/{app_name}/{_base_stream}{_stream_suffix}.flv"))
     https_flv = _build_media_url("https", media_host, https_port, _media_path(f"/{app_name}/{_base_stream}{_stream_suffix}.flv"))
     ws_flv = _build_media_url("ws", media_host, http_port, _media_path(f"/{app_name}/{_base_stream}{_stream_suffix}.flv"))
