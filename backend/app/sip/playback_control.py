@@ -575,8 +575,9 @@ class PlaybackControl:
         # 实现 GET_PARAMETER 响应解析，获取回放 NPT 进度
         try:
             # 轮询等待 _npt_results 中出现结果
-            deadline = asyncio.get_event_loop().time() + timeout
-            while asyncio.get_event_loop().time() < deadline:
+            _loop = asyncio.get_running_loop()
+            deadline = _loop.time() + timeout
+            while _loop.time() < deadline:
                 result = _npt_results.pop(call_id, None)
                 if result:
                     return result

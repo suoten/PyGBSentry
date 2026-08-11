@@ -168,7 +168,8 @@ async def _run_loop():
                     stream = str(item.get("stream") or "")
                     if stream:
                         running[stream] = item
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"record_schedule item parse failed: {e}")
                     continue
 
             async with AsyncSessionLocal() as session:

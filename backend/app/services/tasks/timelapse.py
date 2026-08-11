@@ -66,7 +66,8 @@ async def _get_runtime_cfg() -> dict:
                 merged["output_dir"] = str(parsed.get("output_dir") or "").strip()
             if not zlm_flv_base and parsed.get("zlm_flv_base"):
                 zlm_flv_base = str(parsed.get("zlm_flv_base") or "").strip()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"timelapse config parse failed: {e}")
             continue
 
     merged["enabled"] = any_enabled if any_enabled else bool(merged.get("enabled", True))
@@ -127,7 +128,7 @@ async def _snap(stream, output_dir: str, zlm_flv_base: str):
     if not os.path.exists(device_dir):
         os.makedirs(device_dir)
 
-    now = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d_%H%M%S")
     file_path = os.path.join(device_dir, f"{now}.jpg")
 
     # Use OpenCV to snap

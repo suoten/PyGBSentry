@@ -341,7 +341,8 @@ class RedisSipStateBackend:
                     remaining = await client.zcard(key)
                     if remaining == 0:
                         await client.delete(key)
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"cleanup_auth_failures: key {key} skipped: {e}")
                     continue
         except Exception as e:
             logger.warning(f"RedisSipStateBackend.cleanup_auth_failures error: {e}")

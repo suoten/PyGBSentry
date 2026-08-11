@@ -27,7 +27,8 @@ def _parse_range(text: str) -> tuple[int, int] | None:
         if start <= 0 or end <= 0 or end < start:
             return None
         return start, end
-    except Exception:
+    except Exception as e:
+        logger.debug(f"_parse_range: failed to parse '{raw}': {e}")
         return None
 
 

@@ -72,7 +72,8 @@ async def _get_runtime_cfg() -> dict:
                         check_interval_max = ci if check_interval_max is None else max(check_interval_max, ci)
                     except Exception as e:
                         logger.warning(f"Error: {e}")
-            except Exception:
+            except Exception as e:
+                logger.debug(f"stream_idle config parse failed: {e}")
                 continue
 
         merged["enabled"] = any_enabled if any_enabled else bool(merged.get("enabled", True))

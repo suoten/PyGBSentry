@@ -35,7 +35,8 @@ async def _cleanup_stale_runtime() -> int:
                 age = (now - last_dt.replace(tzinfo=datetime.timezone.utc)).total_seconds()
                 if age > _MAX_AGE_SECONDS:
                     expired_keys.append(key)
-            except Exception:
+            except Exception as e:
+                logger.debug(f"cleanup_expired: key {key} parse failed: {e}")
                 continue
         for k in expired_keys:
             _RUNTIME_STATE.pop(k, None)

@@ -2499,7 +2499,7 @@ class SipInvite:
                         media_ip=media_ip,
                         media_port=media_port,
                         media_port_lease_id=lease_id,
-                        start_time=datetime.datetime.now(),
+                        start_time=datetime.datetime.now(datetime.timezone.utc),
                         protocol=media_protocol,
                     )
                     session.add(stream_session)
@@ -2519,7 +2519,7 @@ class SipInvite:
                     stream_session.media_ip = media_ip
                     stream_session.media_port = media_port
                     stream_session.media_port_lease_id = lease_id
-                    stream_session.start_time = datetime.datetime.now()
+                    stream_session.start_time = datetime.datetime.now(datetime.timezone.utc)
                 if lease_id:
                     bound_lease_id = await attach_lease_to_session(
                         session,

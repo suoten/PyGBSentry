@@ -44,8 +44,8 @@ def register_main_path_plugin(
         enabled_default=enabled_default,
         enabled_key=enabled_key,
         debug_default=bool(cfg.get("debug", False)),
-        stream_policy=stream_policy,  # type: ignore[arg-type]
-        start_mode=start_mode,  # type: ignore[arg-type]
+        stream_policy=stream_policy,
+        start_mode=start_mode,
         dedup_by_ssrc=dedup_by_ssrc,
         stop_preempted_stream=stop_preempted_stream,
         operator="plugin",

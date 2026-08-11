@@ -83,19 +83,19 @@ for _name in _ENDPOINT_MODULES:
 # FIX: [2026-07-13] Log import failures at WARNING (visible in production) —
 # if these modules exist but fail to import, all their routes silently 404.
 try:
-    from app.api.v1.endpoints.stream import router as stream_router  # type: ignore
+    from app.api.v1.endpoints.stream import router as stream_router
 except Exception as _e:
     logger.warning(f"api router: stream package failed to import, skipping ({_e})", exc_info=True)
     stream_router = None  # type: ignore[assignment]
 
 try:
-    from app.api.common import channel  # type: ignore
+    from app.api.common import channel
 except Exception as _e:
     logger.warning(f"api router: app.api.common.channel failed to import, skipping ({_e})", exc_info=True)
     channel = None  # type: ignore[assignment]
 
 try:
-    from app.api.common import play_start  # type: ignore
+    from app.api.common import play_start
 except Exception as _e:
     logger.warning(f"api router: app.api.common.play_start failed to import, skipping ({_e})", exc_info=True)
     play_start = None  # type: ignore[assignment]
@@ -182,7 +182,7 @@ if not is_server_edition:
     _mount(metrics, prefix="/metrics", tags=["metrics"])
     _mount(apps, prefix="/apps", tags=["apps"])
     _mount(ptz, prefix="/ptz", tags=["ptz"])
-    _mount(ssl_cert, prefix="/ssl-cert", tags=["ssl-cert"])  # 硬编码中文tag→英文
+    _mount(ssl_cert, prefix="/ssl-cert", tags=["ssl-cert"])
 
 # P2-29 路由暴露验证: 以下 stub 路由有意注册到 OSS 路由表，确认无误。
 # 这些端点为企业版专有功能的占位（全部返回 501 + deprecated 标记），

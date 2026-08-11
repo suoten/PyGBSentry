@@ -53,7 +53,8 @@ async def _get_runtime_cfg() -> dict:
                     url = str(parsed.get("webhook_url") or "").strip()
                     if url_found is None and url:
                         url_found = url
-            except Exception:
+            except Exception as e:
+                logger.debug(f"webhook config parse failed: {e}")
                 continue
         merged["enabled"] = any_enabled if any_enabled else bool(merged.get("enabled", True))
         if url_found:

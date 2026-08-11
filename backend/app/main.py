@@ -2174,7 +2174,7 @@ async def zlm_api_error_handler(request: Request, exc: ZlmApiError):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    detail = exc.detail
+    detail: object = exc.detail
     if isinstance(detail, dict):
         payload = dict(detail)
         message = str(payload.get("message") or payload.get("detail") or "Request failed")
@@ -2252,7 +2252,7 @@ async def health():
     """无鉴权健康检查，供负载均衡/容器探针使用。检查 DB + Redis + SIP 关键服务状态。"""
     import time as _health_time
     from datetime import datetime, timezone
-    checks = {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    checks: dict[str, object] = {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
     # DB check (critical) — 记录延迟
     _t0 = _health_time.time()
     try:

@@ -10,7 +10,7 @@ import asyncio
 import shutil
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from loguru import logger
@@ -156,7 +156,7 @@ async def get_status() -> CertInfo:
         cert_path = f"/etc/letsencrypt/live/{cfg.domain}/cert.pem"
         info = await check_cert_status(cert_path, cfg.domain)
         _last_cert_info = info
-        info.last_check_at = datetime.now()
+        info.last_check_at = datetime.now(timezone.utc)
         return info
     except Exception as e:
         logger.warning(f"SSL cert status check failed: {e}")
@@ -190,7 +190,7 @@ async def force_renew() -> tuple[bool, str]:
             global _last_cert_info
             _last_cert_info = await get_status()
             if _last_cert_info:
-                _last_cert_info.last_renew_at = datetime.now()
+                _last_cert_info.last_renew_at = datetime.now(timezone.utc)
             return True, "Certificate renewed successfully"
         err_msg = stderr.decode("utf-8", errors="ignore")[:200]
         return False, f"Renewal failed (exit={proc.returncode}): {err_msg}"

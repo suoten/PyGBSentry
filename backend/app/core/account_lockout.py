@@ -76,8 +76,8 @@ def check_lockout_status(user: Any, now: Optional[datetime] = None) -> Tuple[boo
         # 仍在锁定期内
         return True, False
     # 锁已过期 — 就地重置，避免“下次失败即重锁”缺陷
-    user.failed_login_attempts = 0  # type: ignore[attr-defined]
-    user.locked_until = None  # type: ignore[attr-defined]
+    user.failed_login_attempts = 0
+    user.locked_until = None
     return False, True
 
 
@@ -95,9 +95,9 @@ def record_failed_attempt(user: Any, now: Optional[datetime] = None) -> bool:
     current = _now(now)
     current_count = int(getattr(user, "failed_login_attempts", 0) or 0)
     new_count = current_count + 1
-    user.failed_login_attempts = new_count  # type: ignore[attr-defined]
+    user.failed_login_attempts = new_count
     if new_count >= MAX_FAILED_ATTEMPTS:
-        user.locked_until = current + timedelta(minutes=LOCKOUT_MINUTES)  # type: ignore[attr-defined]
+        user.locked_until = current + timedelta(minutes=LOCKOUT_MINUTES)
         return True
     return False
 
@@ -107,8 +107,8 @@ def reset_login_failures(user: Any) -> None:
 
     幂等：即使原本计数为 0 也可安全调用。
     """
-    user.failed_login_attempts = 0  # type: ignore[attr-defined]
-    user.locked_until = None  # type: ignore[attr-defined]
+    user.failed_login_attempts = 0
+    user.locked_until = None
 
 
 def remaining_lock_seconds(user: Any, now: Optional[datetime] = None) -> int:

@@ -279,13 +279,13 @@ async def port_probe(
     # 实现端口探测，使用 asyncio.open_connection 测试 TCP 连通性
     _validate_host(host)
 
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port),
             timeout=timeout,
         )
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         writer.close()
         await writer.wait_closed()
         return {
@@ -296,7 +296,7 @@ async def port_probe(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except asyncio.TimeoutError:
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         return {
             "host": host,
             "port": port,
@@ -306,7 +306,7 @@ async def port_probe(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except (ConnectionRefusedError, OSError) as exc:
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         return {
             "host": host,
             "port": port,
@@ -347,7 +347,7 @@ async def sip_server_probe(
         f"\r\n"
     )
 
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     try:
         if transport.lower() == "udp":
             # UDP: 使用 asyncio Datagram
@@ -356,7 +356,7 @@ async def sip_server_probe(
             # TCP: 使用 asyncio.open_connection
             result = await _sip_probe_tcp(host, port, sip_options.encode(), timeout)
 
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         result["latency_ms"] = elapsed_ms
         result["host"] = host
         result["port"] = port
@@ -364,7 +364,7 @@ async def sip_server_probe(
         result["timestamp"] = datetime.now(timezone.utc).isoformat()
         return result
     except Exception as exc:
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         return {
             "host": host,
             "port": port,
@@ -378,7 +378,7 @@ async def sip_server_probe(
 
 async def _sip_probe_udp(host: str, port: int, data: bytes, timeout: float) -> dict:
     """通过 UDP 发送 SIP OPTIONS 并等待响应。"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     future = loop.create_future()
 
     class _SipUdpProtocol(asyncio.DatagramProtocol):
@@ -489,11 +489,11 @@ async def media_server_probe(
     # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
     form_data = {"secret": secret} if secret else {}
 
-    start = asyncio.get_event_loop().time()
+    start = asyncio.get_running_loop().time()
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=form_data, timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
-                elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+                elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
                 await resp.text()
                 try:
                     data = await resp.json(content_type=None)
@@ -521,7 +521,7 @@ async def media_server_probe(
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
     except asyncio.TimeoutError:
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         return {
             "host": host,
             "http_port": http_port,
@@ -531,7 +531,7 @@ async def media_server_probe(
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as exc:
-        elapsed_ms = round((asyncio.get_event_loop().time() - start) * 1000, 2)
+        elapsed_ms = round((asyncio.get_running_loop().time() - start) * 1000, 2)
         return {
             "host": host,
             "http_port": http_port,

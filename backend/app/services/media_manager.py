@@ -914,7 +914,7 @@ class MediaManager:
 
     async def _pick_fastest_mirror_async(self, urls: list[str]) -> str:
         """_pick_fastest_mirror 的异步包装（探测为阻塞 HTTP，放线程池执行）。"""
-        return await asyncio.get_event_loop().run_in_executor(
+        return await asyncio.get_running_loop().run_in_executor(
             None, self._pick_fastest_mirror, urls
         )
 
@@ -961,7 +961,7 @@ class MediaManager:
                 env = os.environ.copy()
                 env.setdefault("GIT_TERMINAL_PROMPT", "0")
                 env.setdefault("GIT_ASKPASS", "true")
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: self._run_cmd_stream(
                         ["git", "clone", "--progress", "--depth", "1", "--branch", git_ref, "--recurse-submodules", git_url, repo_dir],
@@ -972,7 +972,7 @@ class MediaManager:
                     ),
                 )
                 try:
-                    await asyncio.get_event_loop().run_in_executor(
+                    await asyncio.get_running_loop().run_in_executor(
                         None,
                         lambda: self._run_cmd_stream(
                             ["git", "submodule", "update", "--init", "--recursive"],
@@ -1104,7 +1104,7 @@ class MediaManager:
 
             if need_configure:
                 logger.info("Configuring ZLMediaKit with CMake...")
-                await asyncio.get_event_loop().run_in_executor(
+                await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: self._run_cmd_stream(cmake_config, cwd=build_dir, env=None, timeout=600, prefix="cmake"),
                 )
@@ -1112,7 +1112,7 @@ class MediaManager:
             else:
                 logger.info(f"CMake cache exists at {cmake_cache_file}, skip configure (incremental build on restart).")
             logger.info("Building ZLMediaKit with CMake...")
-            await asyncio.get_event_loop().run_in_executor(
+            await asyncio.get_running_loop().run_in_executor(
                 None,
                 lambda: self._run_cmd_stream(cmake_build, cwd=build_dir, env=None, timeout=1200, prefix="build"),
             )

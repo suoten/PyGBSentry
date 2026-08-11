@@ -8,6 +8,7 @@ ships built-in defaults and a best-effort Redis loader.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from loguru import logger
 
@@ -53,7 +54,7 @@ def mask_text(text: str) -> str:
     return out
 
 
-def mask_log_filter(record: dict) -> bool:
+def mask_log_filter(record: "Any") -> bool:
     """FIX: [2026-07-16 P0-D] Loguru sink filter that masks sensitive data in-place.
 
     Apply this as the ``filter`` parameter to ``logger.add()``. It modifies

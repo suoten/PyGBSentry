@@ -75,10 +75,10 @@ async def _write_sip_audit(message, addr, proto, direction: str):
         os.makedirs(log_dir)
 
     # Rotate by day
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+    today = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
     log_file = os.path.join(log_dir, f"sip_{today}.log")
 
-    timestamp = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
+    timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S.%f")[:-3]
 
     log_entry = f"""
 [{timestamp}] [{direction}] [{proto}] {addr[0]}:{addr[1]}

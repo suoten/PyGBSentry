@@ -113,7 +113,7 @@ def _is_stale(path: str, ttl_seconds: int) -> bool:
 async def _refresh_once():
     if not settings.SNAPSHOT_REFRESH_ENABLED:
         return
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     if not _in_window(
         now,
         settings.SNAPSHOT_REFRESH_WINDOW_START_HOUR,
