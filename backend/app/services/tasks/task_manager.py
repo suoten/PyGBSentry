@@ -55,6 +55,15 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     except Exception as e:
         logger.debug(f"Failed to start record_cleanup: {e}")
 
+    # 3. Catalog 定时刷新（自动同步设备新增/删除通道）
+    try:
+        from app.services.tasks import catalog_refresh
+        await catalog_refresh.start()
+        _stop_callbacks.append(catalog_refresh.stop)
+        logger.info("Background task started: catalog_refresh")
+    except Exception as e:
+        logger.warning(f"Failed to start catalog_refresh: {e}")
+
     logger.info(f"start_all_background_tasks: {len(_tasks)} task(s) + {len(_stop_callbacks)} stop callback(s) registered")
 
 

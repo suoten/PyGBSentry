@@ -1,4 +1,4 @@
-"""自动生成测试 - backend/.venv/Lib/site-packages/alembic/util/compat.py"""
+"""自动生成测试 - backend/app/services/tasks/timelapse.py"""
 # AUTO-GENERATED
 import pytest
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 _root = Path(__file__).parent.parent
 if str(_root) not in sys.path: sys.path.insert(0, str(_root))
 try:
-    from backend..venv.Lib.site-packages.alembic.util.compat import *  # noqa
+    from backend.app.services.tasks.timelapse import *  # noqa
     _OK = True
 except ImportError as _e:
     _OK = False; _ERR = str(_e)
@@ -15,28 +15,31 @@ for _n in list(globals()):
     if _n.startswith('test') and callable(globals()[_n]):
         del globals()[_n]
 
-class TestCompatAuto:
+class TestTimelapseAuto:
     @pytest.fixture(autouse=True)
     def _check(self):
         if not _OK: pytest.skip(f"import failed: {_ERR if not _OK else ''}")
-    def test_importlib_metadata_get_callable(self):
-        """测试 importlib_metadata_get 可调用（import 成功即通过，调用失败 skip）"""
+    def test_capture_snapshots_callable(self):
+        """测试 capture_snapshots 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            importlib_metadata_get("")
+            import asyncio
+            asyncio.run(capture_snapshots())
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_formatannotation_fwdref_callable(self):
-        """测试 formatannotation_fwdref 可调用（import 成功即通过，调用失败 skip）"""
+    def test_start_callable(self):
+        """测试 start 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            formatannotation_fwdref("", "")
+            import asyncio
+            asyncio.run(start())
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_read_config_parser_callable(self):
-        """测试 read_config_parser 可调用（import 成功即通过，调用失败 skip）"""
+    def test_stop_callable(self):
+        """测试 stop 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            read_config_parser({}, "")
+            import asyncio
+            asyncio.run(stop())
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 

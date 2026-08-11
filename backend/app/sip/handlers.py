@@ -459,6 +459,14 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     # 适应后端可能因外部进程管理器重启导致的短生命周期场景。
     # UDP 传输易丢 Catalog Query/Response 包，递增间隔可在丢包后快速重发。
     retry_delays = [2, 3, 5]
+    # FIX [2026-08-11 P1]: 每次重试前从 _device_last_seen_addr 获取设备最新地址，
+    # 解决 NAT 环境下设备 IP:Port 变更后 catalog query 发送到旧地址的问题。
+    # Keepalive 的源地址是 NAT 映射后的公网地址，比 REGISTER 时的地址更可靠。
+    def _get_latest_transport_info(original: tuple) -> tuple:
+        _latest = _device_last_seen_addr.get(device_id)
+        if _latest and len(_latest) >= 3:
+            return ((_latest[0], _latest[1]), _latest[2], original[2])
+        return original
     # FIX [2026-07-22 P0]: 添加无条件 INFO 日志（不依赖 SIP_DEBUG_TRACE_ENABLED）
     _addr_info = transport_info[0] if transport_info else ("?", "?")
     logger.info(f"[CATALOG_SYNC] Starting catalog sync for device {device_id} addr={_addr_info}")
@@ -475,7 +483,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     )
     _sip_debug_log("device_catalog_retry_initial", None, {"device_id": device_id, "attempt": 1, "delay_seconds": 0})
     try:
-        await commander.send_catalog_query(device_id, transport_info)
+        await commander.send_catalog_query(device_id, _get_latest_transport_info(transport_info))
     except Exception as e:
         # FIX: [2026-07-10] 生产环境必须有 ERROR 日志（_sip_debug_log 被门控默认不输出） [全栈工程师]
         logger.error(
@@ -510,7 +518,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         )
         _sip_debug_log("device_catalog_retry_attempt", None, {"device_id": device_id, "attempt": idx, "delay_seconds": delay})
         try:
-            await commander.send_catalog_query(device_id, transport_info)
+            await commander.send_catalog_query(device_id, _get_latest_transport_info(transport_info))
         except Exception as e:
             # FIX: [2026-07-10] 重试失败也必须有 ERROR 日志 [全栈工程师]
             logger.error(
@@ -2355,7 +2363,26 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     "catalog.last_error": "",
                 },
             )
-            _bg_create_task(handle_catalog_response(body, response_device_id))
+            # FIX [2026-08-11 P1]: 包装 handle_catalog_response 添加异常处理，
+            # 原实现通过 _bg_create_task 调用，异常时 catalog.sync_state 永久停留在
+            # "response_received"，前端显示"同步中"永不完成，运维人员无法感知失败。
+            async def _safe_handle_catalog_response(_body: str, _device_id: str):
+                try:
+                    await handle_catalog_response(_body, _device_id)
+                except Exception as _catalog_err:
+                    logger.error(
+                        f"[CATALOG_HANDLE_ERROR] device={_device_id} error={_catalog_err}",
+                        exc_info=True,
+                    )
+                    await patch_device_catalog_runtime(
+                        _device_id,
+                        {
+                            "catalog.sync_state": "error",
+                            "catalog.last_error": f"handle_failed: {_catalog_err}",
+                            "catalog.progress": 100,
+                        },
+                    )
+            _bg_create_task(_safe_handle_catalog_response(body, response_device_id))
             return
 
         elif cmd_type == "RecordInfo":

@@ -405,7 +405,7 @@ onMounted(() => {
 
 .login-form__title {
   margin: 0;
-  font-size: 52px;
+  font-size: 28px;
   font-weight: 700;
   color: var(--el-text-color-primary);
 }

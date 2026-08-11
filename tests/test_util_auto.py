@@ -1,4 +1,4 @@
-"""自动生成测试 - backend/.venv/Lib/site-packages/sqlalchemy/testing/util.py"""
+"""自动生成测试 - backend/.venv/Lib/site-packages/sqlalchemy/sql/util.py"""
 # AUTO-GENERATED
 import pytest
 import sys
@@ -6,7 +6,7 @@ from pathlib import Path
 _root = Path(__file__).parent.parent
 if str(_root) not in sys.path: sys.path.insert(0, str(_root))
 try:
-    from backend..venv.Lib.site-packages.sqlalchemy.testing.util import *  # noqa
+    from backend..venv.Lib.site-packages.sqlalchemy.sql.util import *  # noqa
     _OK = True
 except ImportError as _e:
     _OK = False; _ERR = str(_e)
@@ -19,150 +19,157 @@ class TestUtilAuto:
     @pytest.fixture(autouse=True)
     def _check(self):
         if not _OK: pytest.skip(f"import failed: {_ERR if not _OK else ''}")
-    def test_picklers_callable(self):
-        """测试 picklers 可调用（import 成功即通过，调用失败 skip）"""
+    def test_join_condition_callable(self):
+        """测试 join_condition 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            picklers()
+            join_condition("", "", "", 1)
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_random_choices_callable(self):
-        """测试 random_choices 可调用（import 成功即通过，调用失败 skip）"""
+    def test_find_join_source_callable(self):
+        """测试 find_join_source 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            random_choices("", "")
+            find_join_source("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_round_decimal_callable(self):
-        """测试 round_decimal 可调用（import 成功即通过，调用失败 skip）"""
+    def test_find_left_clause_that_matches_given_callable(self):
+        """测试 find_left_clause_that_matches_given 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            round_decimal("", "")
+            find_left_clause_that_matches_given("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_conforms_partial_ordering_callable(self):
-        """测试 conforms_partial_ordering 可调用（import 成功即通过，调用失败 skip）"""
+    def test_find_left_clause_to_join_from_callable(self):
+        """测试 find_left_clause_to_join_from 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            conforms_partial_ordering("", "")
+            find_left_clause_to_join_from("", "", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_all_partial_orderings_callable(self):
-        """测试 all_partial_orderings 可调用（import 成功即通过，调用失败 skip）"""
+    def test_visit_binary_product_callable(self):
+        """测试 visit_binary_product 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            all_partial_orderings("", "")
+            visit_binary_product("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_function_named_callable(self):
-        """测试 function_named 可调用（import 成功即通过，调用失败 skip）"""
+    def test_find_tables_callable(self):
+        """测试 find_tables 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            function_named("", "test")
+            find_tables("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_run_as_contextmanager_callable(self):
-        """测试 run_as_contextmanager 可调用（import 成功即通过，调用失败 skip）"""
+    def test_unwrap_order_by_callable(self):
+        """测试 unwrap_order_by 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            run_as_contextmanager("", "")
+            unwrap_order_by("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_rowset_callable(self):
-        """测试 rowset 可调用（import 成功即通过，调用失败 skip）"""
+    def test_unwrap_label_reference_callable(self):
+        """测试 unwrap_label_reference 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            rowset("")
+            unwrap_label_reference("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_fail_callable(self):
-        """测试 fail 可调用（import 成功即通过，调用失败 skip）"""
+    def test_expand_column_list_from_order_by_callable(self):
+        """测试 expand_column_list_from_order_by 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            fail("")
+            expand_column_list_from_order_by([], "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_provide_metadata_callable(self):
-        """测试 provide_metadata 可调用（import 成功即通过，调用失败 skip）"""
+    def test_clause_is_present_callable(self):
+        """测试 clause_is_present 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            provide_metadata("")
+            clause_is_present("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_flag_combinations_callable(self):
-        """测试 flag_combinations 可调用（import 成功即通过，调用失败 skip）"""
+    def test_tables_from_leftmost_callable(self):
+        """测试 tables_from_leftmost 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            flag_combinations()
+            tables_from_leftmost("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_lambda_combinations_callable(self):
-        """测试 lambda_combinations 可调用（import 成功即通过，调用失败 skip）"""
+    def test_surface_selectables_callable(self):
+        """测试 surface_selectables 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            lambda_combinations("")
+            surface_selectables("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_resolve_lambda_callable(self):
-        """测试 resolve_lambda 可调用（import 成功即通过，调用失败 skip）"""
+    def test_surface_selectables_only_callable(self):
+        """测试 surface_selectables_only 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            resolve_lambda("")
+            surface_selectables_only("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_metadata_fixture_callable(self):
-        """测试 metadata_fixture 可调用（import 成功即通过，调用失败 skip）"""
+    def test_extract_first_column_annotation_callable(self):
+        """测试 extract_first_column_annotation 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            metadata_fixture("")
+            extract_first_column_annotation("", "test")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_force_drop_names_callable(self):
-        """测试 force_drop_names 可调用（import 成功即通过，调用失败 skip）"""
+    def test_selectables_overlap_callable(self):
+        """测试 selectables_overlap 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            force_drop_names()
+            selectables_overlap("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_drop_all_tables_from_metadata_callable(self):
-        """测试 drop_all_tables_from_metadata 可调用（import 成功即通过，调用失败 skip）"""
+    def test_bind_values_callable(self):
+        """测试 bind_values 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            drop_all_tables_from_metadata([], "")
+            bind_values("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_drop_all_tables_callable(self):
-        """测试 drop_all_tables 可调用（import 成功即通过，调用失败 skip）"""
+    def test_adapt_criterion_to_null_callable(self):
+        """测试 adapt_criterion_to_null 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            drop_all_tables("", "", "", 1, "test")
+            adapt_criterion_to_null("", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_teardown_events_callable(self):
-        """测试 teardown_events 可调用（import 成功即通过，调用失败 skip）"""
+    def test_splice_joins_callable(self):
+        """测试 splice_joins 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            teardown_events("")
+            splice_joins("", "", "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_total_size_callable(self):
-        """测试 total_size 可调用（import 成功即通过，调用失败 skip）"""
+    def test_reduce_columns_callable(self):
+        """测试 reduce_columns 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            total_size("")
+            reduce_columns("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_count_cache_key_tuples_callable(self):
-        """测试 count_cache_key_tuples 可调用（import 成功即通过，调用失败 skip）"""
+    def test_reduce_columns_callable(self):
+        """测试 reduce_columns 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            count_cache_key_tuples("")
+            reduce_columns("")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 
-    def test_skip_if_timeout_callable(self):
-        """测试 skip_if_timeout 可调用（import 成功即通过，调用失败 skip）"""
+    def test_reduce_columns_callable(self):
+        """测试 reduce_columns 可调用（import 成功即通过，调用失败 skip）"""
         try:
-            skip_if_timeout("", "")
+            reduce_columns("")
+        except (Exception, SystemExit) as _e:
+            pytest.skip(f"调用失败（非 import 问题）: {_e}")
+
+    def test_criterion_as_pairs_callable(self):
+        """测试 criterion_as_pairs 可调用（import 成功即通过，调用失败 skip）"""
+        try:
+            criterion_as_pairs("", 1, 1, "")
         except (Exception, SystemExit) as _e:
             pytest.skip(f"调用失败（非 import 问题）: {_e}")
 

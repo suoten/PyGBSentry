@@ -13,7 +13,7 @@
 #   make docker-down   — stop all docker services
 # ============================================================================
 
-.PHONY: help install lint format typecheck test security docker-up docker-down clean
+.PHONY: help install setup lint format typecheck test security docker-up docker-down clean doctor
 
 PYTHON ?= python
 PNPM ?= pnpm
@@ -25,6 +25,29 @@ help:  ## Show this help
 install:  ## Install all dependencies
 	cd backend && $(PYTHON) -m pip install -r requirements.txt
 	cd frontend && $(PNPM) install
+
+setup:  ## One-command setup: generate .env + install deps + init database
+	$(PYTHON) tools/generate_env.py --non-interactive
+	cd backend && $(PYTHON) -m pip install -r requirements.txt
+	cd frontend && $(PNPM) install
+	cd backend && $(PYTHON) app/initial_data.py
+	@echo ""
+	@echo "Setup complete! Start the server with:"
+	@echo "  make dev       (local development)"
+	@echo "  make docker-up (Docker deployment)"
+
+dev:  ## Start development servers (backend + frontend)
+	cd backend && $(PYTHON) -m app.main &
+	cd frontend && $(PNPM) run dev &
+	@echo "Backend: http://localhost:8000  Frontend: http://localhost:5173"
+
+docker-init:  ## Docker one-command deploy: generate .env + build + start
+	$(PYTHON) tools/generate_env.py --docker --non-interactive
+	docker compose up -d --build
+	@echo "PyGBSentry is running at http://localhost"
+
+doctor:  ## Run deployment diagnostics
+	./deploy/setup.sh doctor
 
 install-dev:  ## Install development dependencies
 	cd backend && $(PYTHON) -m pip install -r requirements.txt ruff mypy bandit pytest pytest-asyncio pytest-cov pytest-mock

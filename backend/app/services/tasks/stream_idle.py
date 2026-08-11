@@ -149,7 +149,10 @@ async def check_idle_streams():
                         continue
                     host = str(getattr(node, "ip", "") or "").strip()
                     http_port = int(getattr(node, "http_port", 0) or 0)
-                    secret = str(getattr(node, "secret", "") or "")
+                    # FIX [2026-08-11 P0]: 使用 decrypted_secret（明文）调用 ZLM API，
+                    # 原实现使用 node.secret（AES-256-GCM 密文），ZLM 以密文作为鉴权期望值，
+                    # 导致全部 401，stream idle 检测无法获取 readerCount，空闲流无法被清理。
+                    secret = str(getattr(node, "decrypted_secret", "") or "") or str(settings.MEDIA_SERVER_SECRET or "")
                     if not host or http_port <= 0:
                         continue
                     stream_node_pairs.append((ss, host, http_port, secret))

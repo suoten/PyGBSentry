@@ -25,6 +25,7 @@ from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任�
 
 _catalog_agg: dict[tuple[str, str], dict] = {}
 _catalog_agg_ttl_seconds = 600
+_catalog_agg_max_size = 500  # FIX [2026-08-11 P2]: 硬上限防止极端场景内存增长
 _catalog_agg_lock = asyncio.Lock()
 _catalog_agg_prune_task: asyncio.Task | None = None
 __all__ = ["Catalog", "catalog", "handle_catalog_response"]
@@ -512,6 +513,11 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             agg = _catalog_agg[key]
             agg["items"].extend(items_data)
             agg["received"] = len(agg["items"])
+            # FIX [2026-08-11 P2]: 超过硬上限时丢弃最旧条目，防止内存无限增长
+            if len(_catalog_agg) > _catalog_agg_max_size:
+                _oldest_key = min(_catalog_agg, key=lambda k: _catalog_agg[k].get("ts", 0))
+                _catalog_agg.pop(_oldest_key, None)
+                logger.warning(f"Catalog agg exceeded max_size={_catalog_agg_max_size}, evicted oldest entry")
             received_total = agg["received"]
 
             # 清理过期条目（超?TTL 秒）
@@ -638,6 +644,13 @@ async def handle_catalog_response(xml_body: str, device_id: str):
 
             if not resource:
                 if remaining is not None and remaining <= 0:
+                    # FIX [2026-08-11 P1]: 通道配额超限时添加 WARNING 日志，
+                    # 原实现静默 continue 导致运维人员无法诊断"通道注册不上"的根因。
+                    logger.warning(
+                        f"[CATALOG_QUOTA] Channel quota exceeded for device={device_id}, "
+                        f"skipping channel={channel_id} name={name or 'N/A'} "
+                        f"(limit={limit}, current={current})"
+                    )
                     continue
                 effective_parent = item.get("parent_gb_id") or None
                 resource = Resource(

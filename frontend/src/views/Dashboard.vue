@@ -30,6 +30,29 @@
       :description="t('dashboard.demoModeDesc')"
     />
 
+    <!-- 首次用户引导（设备总数为0时显示） -->
+    <el-card v-if="!statsLoading && stats.device_total === 0" class="onboarding-card mb-6" shadow="never">
+      <div class="onboarding-content">
+        <div class="onboarding-icon">
+          <el-icon :size="48"><VideoCamera /></el-icon>
+        </div>
+        <div class="onboarding-text">
+          <h2 class="onboarding-title">{{ t('dashboard.welcomeTitle', '欢迎使用 PyGBSentry') }}</h2>
+          <p class="onboarding-desc">{{ t('dashboard.welcomeDesc', '您还没有添加任何设备，点击下方按钮开始接入第一台 GB28181 设备。') }}</p>
+          <div class="onboarding-actions">
+            <el-button type="primary" @click="$router.push('/devices')">
+              <el-icon class="mr-1"><Plus /></el-icon>
+              {{ t('dashboard.addFirstDevice', '添加设备') }}
+            </el-button>
+            <el-button @click="$router.push('/setup')">
+              <el-icon class="mr-1"><Setting /></el-icon>
+              {{ t('dashboard.setupGuide', '配置向导') }}
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <el-tabs v-model="activeTab" class="dashboard-tabs">
       <el-tab-pane :label="t('dashboard.overview')" name="overview">
     <!-- 统计卡片 -->
@@ -458,7 +481,7 @@ import { GridComponent, TooltipComponent, LegendComponent } from 'echarts/compon
 import { 
   Monitor, Box, CircleCheck, TrendCharts, Bell, Grid, 
   Connection, VideoPlay, Setting, DataAnalysis, BellFilled, 
-  Warning, Right, Clock, InfoFilled, DocumentCopy 
+  Warning, Right, Clock, InfoFilled, DocumentCopy, VideoCamera, Plus 
 } from '@element-plus/icons-vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
@@ -1086,6 +1109,42 @@ const copyAllSystemInfo = () => {
 </script>
 
 <style scoped>
+/* Onboarding Card */
+.onboarding-card {
+  border-radius: 12px;
+  border: 1px solid var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-9);
+}
+.onboarding-content {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 8px 0;
+}
+.onboarding-icon {
+  flex-shrink: 0;
+  color: var(--el-color-primary);
+}
+.onboarding-text {
+  flex: 1;
+}
+.onboarding-title {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+.onboarding-desc {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  color: var(--el-text-color-secondary);
+  line-height: 1.5;
+}
+.onboarding-actions {
+  display: flex;
+  gap: 12px;
+}
+
 /* Demo Alert */
 .demo-alert {
   border-radius: 8px;
