@@ -156,7 +156,7 @@ async def _snap(stream, output_dir: str, zlm_flv_base: str):
 def _cv_snap(url, path):
     try:
         cv2 = importlib.import_module("cv2")
-    except Exception:
+    except ImportError:
         # opencv-python 未安装时，直接跳过
         return False
 
@@ -169,7 +169,7 @@ def _cv_snap(url, path):
     cap.release()
     try:
         return os.path.exists(path)
-    except Exception:
+    except (OSError, ValueError):
         return False
 
 async def start():

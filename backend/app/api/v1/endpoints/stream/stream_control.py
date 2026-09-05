@@ -42,7 +42,10 @@ from ._response import (
 router = APIRouter()
 
 
-@router.post("/playback/{device_id}/{channel_id}")
+# FIX: [2026-08-22 PN] 删除 stream_control 版 /playback/{device_id}/{channel_id} 路由：
+# 与 stream_play.playback_stream 的路由路径完全重复，且因 stream_play 先注册，
+# control 版路由永远不可达（死路由）。函数保留（__init__.py 重导出、channel.py
+# 与测试以服务层方式直调），仅移除路由注册。
 async def playback_stream(
     device_id: str,
     channel_id: str,
@@ -366,7 +369,12 @@ async def download_stream(
             detail="device_transport_unavailable",
             extra_summary=f"device_id={device_id}; channel_id={channel_id}",
         )
-        raise _play_http_exception(503, "device_transport_unavailable", "Device signaling unavailable", "请确认设备在线")
+        # FIX: [2026-08-22 PN] 原调用缺必填参数 retryable → TypeError（端点崩溃 500），
+        # 补上 retryable=True 返回 503。
+        raise _play_http_exception(
+            503, "device_transport_unavailable", "Device signaling unavailable",
+            "Please verify the device is online and registered", retryable=True,
+        )
 
     result = None
     last_exc = None
@@ -414,7 +422,12 @@ async def download_stream(
             detail="download_invite_unavailable",
             extra_summary=f"device_id={device_id}; channel_id={channel_id}",
         )
-        raise _play_http_exception(503, "device_transport_unavailable", "Device signaling transport unavailable", "请确认设备在线")
+        # FIX: [2026-08-22 PN] 原调用缺必填参数 retryable → TypeError（端点崩溃 500），
+        # 补上 retryable=True 返回 503。
+        raise _play_http_exception(
+            503, "device_transport_unavailable", "Device signaling transport unavailable",
+            "Please verify the device is online and registered", retryable=True,
+        )
 
     stream_id = result.get("stream", "")  # 使用.get()防止KeyError
     app_name = result.get("app", "live")  # 使用.get()防止KeyError
@@ -568,6 +581,11 @@ async def playback_pause(
     from app.sip.playback_control import playback_control
     from app.sip.server import sip_server
 
+    # FIX: [2026-08-22 PN] 缺 playback_control 未初始化保护（stream_play 版有）：
+    # None.send_pause 会抛 AttributeError → 500。对齐 stream_play 版返回 503。
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
+
     # Find the playback session
     stmt = select(StreamSession).where(
         StreamSession.stream == payload.stream,
@@ -660,7 +678,9 @@ async def playback_pause(
 
                 # hardcoded 127.0.0.1 and 554 → use settings with explicit variable
                 _media_host = str(settings.MEDIA_SERVER_HOST or "")  # I3 回退值不再硬编码127.0.0.1
-                _rtsp_port = settings.STREAM_PUBLIC_RTSP_PORT or 554
+                # FIX: [2026-08-22 PN] 原引用不存在的配置项 STREAM_PUBLIC_RTSP_PORT →
+                # AttributeError（端点 500）。实际配置项为 MEDIA_SERVER_RTSP_PORT。
+                _rtsp_port = settings.MEDIA_SERVER_RTSP_PORT or 554
                 # S-02 防止FFmpeg参数注入 — 校验 app/stream 仅含安全字符
                 if not _SAFE_NAME_RE.match(payload.app) or not _SAFE_NAME_RE.match(payload.stream):
                     raise HTTPException(status_code=400, detail="Invalid app or stream name: must contain only alphanumeric, hyphens, underscores")
@@ -694,11 +714,14 @@ async def playback_pause(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     # R3-04 检查send_pause返回值，状态机拒绝时返回错误
+    # FIX: [2026-08-22 PN] cseq 为 NULL 时 `session.cseq + 1` 抛 TypeError → 500，
+    # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
+    cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_pause(
         asset, resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
-        cseq=session.cseq + 1,
+        cseq=cseq,
         from_tag=session.from_tag,
         to_tag=session.to_tag,
     )
@@ -706,7 +729,7 @@ async def playback_pause(
         raise HTTPException(status_code=409, detail="Playback state transition not allowed")
 
     # Update session cseq
-    session.cseq += 1
+    session.cseq = cseq
     await db.commit()
 
     await _stream_audit(
@@ -730,6 +753,11 @@ async def playback_resume(
     """恢复录像回放"""
     from app.sip.playback_control import playback_control
     from app.sip.server import sip_server
+
+    # FIX: [2026-08-22 PN] 缺 playback_control 未初始化保护（stream_play 版有）：
+    # None.send_resume 会抛 AttributeError → 500。对齐 stream_play 版返回 503。
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
     stmt = select(StreamSession).where(
         StreamSession.stream == payload.stream,
@@ -796,18 +824,21 @@ async def playback_resume(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     # R3-04 检查send_resume返回值，状态机拒绝时返回错误
+    # FIX: [2026-08-22 PN] cseq 为 NULL 时 `session.cseq + 1` 抛 TypeError → 500，
+    # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
+    cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_resume(
         asset, resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
-        cseq=session.cseq + 1,
+        cseq=cseq,
         from_tag=session.from_tag,
         to_tag=session.to_tag,
     )
     if not result:
         raise HTTPException(status_code=409, detail="Playback state transition not allowed")
 
-    session.cseq += 1
+    session.cseq = cseq
     await db.commit()
 
     await _stream_audit(
@@ -831,6 +862,11 @@ async def playback_seek(
     """拖动录像回放位置"""
     from app.sip.playback_control import playback_control
     from app.sip.server import sip_server
+
+    # FIX: [2026-08-22 PN] 缺 playback_control 未初始化保护（stream_play 版有）：
+    # None.send_seek 会抛 AttributeError → 500。对齐 stream_play 版返回 503。
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
     stmt = select(StreamSession).where(
         StreamSession.stream == payload.stream,
@@ -897,19 +933,22 @@ async def playback_seek(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     # R4-02 检查send_seek返回值
+    # FIX: [2026-08-22 PN] cseq 为 NULL 时 `session.cseq + 1` 抛 TypeError → 500，
+    # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
+    cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_seek(
         asset, resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         seek_time=payload.seek_time,
-        cseq=session.cseq + 1,
+        cseq=cseq,
         from_tag=session.from_tag,
         to_tag=session.to_tag,
     )
     if not result:
         raise HTTPException(status_code=409, detail="Playback state transition not allowed")
 
-    session.cseq += 1
+    session.cseq = cseq
     await db.commit()
 
     await _stream_audit(
@@ -933,6 +972,11 @@ async def playback_speed(
     """设置录像回放倍速 (0.25, 0.5, 1, 2, 4, 8)"""
     from app.sip.playback_control import playback_control
     from app.sip.server import sip_server
+
+    # FIX: [2026-08-22 PN] 缺 playback_control 未初始化保护（stream_play 版有）：
+    # None.send_speed 会抛 AttributeError → 500。对齐 stream_play 版返回 503。
+    if not playback_control:
+        raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
     # Validate speed
     valid_speeds = [0.25, 0.5, 1, 2, 4, 8]
@@ -1013,19 +1057,22 @@ async def playback_speed(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     # R4-02 检查send_speed返回值
+    # FIX: [2026-08-22 PN] cseq 为 NULL 时 `session.cseq + 1` 抛 TypeError → 500，
+    # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
+    cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_speed(
         asset, resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         speed=payload.speed,
-        cseq=session.cseq + 1,
+        cseq=cseq,
         from_tag=session.from_tag,
         to_tag=session.to_tag,
     )
     if not result:
         raise HTTPException(status_code=409, detail="Playback state transition not allowed")
 
-    session.cseq += 1
+    session.cseq = cseq
     await db.commit()
 
     await _stream_audit(

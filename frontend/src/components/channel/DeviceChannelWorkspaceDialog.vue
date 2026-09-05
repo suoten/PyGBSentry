@@ -34,14 +34,14 @@
         <span class="channel-context-chip channel-context-channel">{{ t('deviceChannelWs.channelLabel') }}：{{ currentChannel?.name || currentChannel?.gb_id || t('deviceChannelWs.selectChannelHint') }}</span>
       </div>
       <div class="channel-context-actions">
-        <el-tooltip :content="playTooltip?.(currentChannel)" placement="top">
+        <el-tooltip :content="playTooltip?.(currentChannel as Record<string, unknown>)" placement="top">
           <span>
             <el-button
               size="small"
               type="primary"
               class="context-btn context-btn--primary"
-              :disabled="!canPreviewChannel?.(currentChannel)"
-              @click="playStream?.(currentChannel)"
+              :disabled="!canPreviewChannel?.(currentChannel as Record<string, unknown>)"
+              @click="playStream?.(currentChannel as Record<string, unknown>)"
             >
               <el-icon class="mr-1"><VideoPlay /></el-icon>
               {{ t('deviceChannelWs.livePreview') }}
@@ -68,7 +68,7 @@
           size="small"
           style="width: 140px"
         >
-          <el-option :label="t('common.all')" :value="undefined" />
+          <el-option :label="t('common.all')" :value="undefined as unknown as number" />
           <el-option :label="t('common.online')" :value="1" />
           <el-option :label="t('common.offline')" :value="0" />
         </el-select>
@@ -79,7 +79,7 @@
           size="small"
           style="width: 140px"
         >
-          <el-option :label="t('common.all')" :value="undefined" />
+          <el-option :label="t('common.all')" :value="undefined as unknown as number" />
           <el-option :label="t('deviceChannelWs.typeCamera')" :value="1" />
           <el-option :label="t('deviceChannelWs.typeAlarm')" :value="2" />
           <el-option :label="t('deviceChannelWs.typeAudio')" :value="3" />
@@ -159,40 +159,8 @@
         </template>
       </el-table-column>
       <el-table-column prop="name" :label="t('common.name')" min-width="150" show-overflow-tooltip />
-      <el-table-column :label="t('deviceChannelWs.colPreview')" width="90" align="center">
-        <template #default="scope">
-          <div class="preview-status-cell">
-            <template v-if="channelStreamStatusLoading">
-              <el-icon class="is-loading" style="font-size: 14px; color: #94a3b8;"><Loading /></el-icon>
-            </template>
-            <template v-else-if="getChannelPreviewStatus">
-              <el-tooltip :content="getChannelPreviewStatus(scope.row)?.label || ''" placement="top">
-                <el-tag
-                  size="small"
-                  :type="getChannelPreviewStatus(scope.row)?.type || 'info'"
-                  effect="light"
-                  style="cursor: default; font-size: 11px;"
-                >
-                  <el-icon style="margin-right: 3px;" :size="10">
-                    <VideoPlay v-if="getChannelPreviewStatus(scope.row)?.icon === 'VideoPlay'" />
-                    <Microphone v-else-if="getChannelPreviewStatus(scope.row)?.icon === 'Microphone'" />
-                    <CloseBold v-else-if="getChannelPreviewStatus(scope.row)?.icon === 'CloseBold'" />
-                    <Warning v-else-if="getChannelPreviewStatus(scope.row)?.icon === 'Warning'" />
-                    <InfoFilled v-else />
-                  </el-icon>
-                  {{ getChannelPreviewStatus(scope.row)?.label || t('deviceChannelWs.unknown') }}
-                </el-tag>
-              </el-tooltip>
-            </template>
-            <template v-else>
-              <el-tag size="small" type="info" effect="light" style="cursor: default; font-size: 11px;">
-                <el-icon style="margin-right: 3px;" :size="10"><InfoFilled /></el-icon>
-                {{ t('deviceChannelWs.unknown') }}
-              </el-tag>
-            </template>
-          </div>
-        </template>
-      </el-table-column>
+      <!-- FIX [2026-09-02]: 按用户反馈移除「预览状态」列 —— 该列展示的是 ZLM 流状态，
+           无活跃流时恒为「离线」，与通道在线状态混淆造成误解。 -->
       <el-table-column :label="t('deviceChannelWs.colManufacturer')" prop="device_manufacturer" width="100" show-overflow-tooltip />
       <el-table-column :label="t('deviceChannelWs.colType')" width="80" align="center">
         <template #default="scope">
@@ -367,7 +335,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { CloseBold, Edit, Files, MoreFilled, Timer, VideoCamera, VideoPlay, Microphone, Warning, InfoFilled, Loading } from '@element-plus/icons-vue'
 
@@ -375,11 +343,11 @@ const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
-  currentDevice: Record<string, unknown>
-  currentChannel: Record<string, unknown>
+  currentDevice: Record<string, unknown> | null
+  currentChannel: Record<string, unknown> | null
   channelTotal: number
   channelOnlineTotal: number
-  channelFilters: Record<string, unknown>
+  channelFilters: { keyword: string; status?: number; resource_type?: number }
   channelStreamReset: string
   refreshingSnapshots: boolean
   channels: Record<string, unknown>[]
@@ -391,8 +359,6 @@ const props = defineProps<{
   channelPageSize: number
   playTooltip?: (row: Record<string, unknown>) => string
   canPreviewChannel?: (row: Record<string, unknown>) => boolean
-  getChannelPreviewStatus?: (row: Record<string, unknown>) => { label: string; type: string; icon: string } | null
-  channelStreamStatusLoading?: boolean
   playStream?: (row: Record<string, unknown>) => void
   closePlayer?: () => void
   loadChannelsDialog?: () => void
@@ -401,8 +367,8 @@ const props = defineProps<{
   getChannelRowClassName?: ({ row }: { row: Record<string, unknown> }) => string
   getChannelSnapSrc?: (row: Record<string, unknown>) => string
   getResourceTypeLabel?: (row: Record<string, unknown>) => string
-  getResourceTypeTagType?: (row: Record<string, unknown>) => string
-  getPtzTypeTagType?: (row: Record<string, unknown>) => string
+  getResourceTypeTagType?: (row: Record<string, unknown>) => 'primary' | 'success' | 'warning' | 'danger' | 'info'
+  getPtzTypeTagType?: (row: Record<string, unknown>) => 'primary' | 'success' | 'warning' | 'danger' | 'info'
   getPtzTypeLabel?: (row: Record<string, unknown>) => string
   saveChannelAudioInline?: (row: Record<string, unknown>) => void
   saveChannelStreamTypeInline?: (row: Record<string, unknown>) => void
@@ -421,6 +387,13 @@ const emit = defineEmits<{
   (e: 'update:channelFilters', v: { keyword: string; status?: number; resource_type?: number }): void
 }>()
 
+// Dialog 打开时自动加载通道列表
+watch(() => props.modelValue, (visible) => {
+  if (visible && props.loadChannelsDialog) {
+    props.loadChannelsDialog()
+  }
+}, { immediate: true })
+
 const channelStreamResetModel = computed({
   get: () => props.channelStreamReset,
   set: (v: string) => emit('update:channelStreamReset', v)
@@ -437,7 +410,7 @@ const channelPageSizeModel = computed({
 })
 
 const localFilters = computed({
-  get: () => props.channelFilters || { keyword: '', status: undefined, resource_type: undefined },
+  get: (): { keyword: string; status?: number; resource_type?: number } => props.channelFilters || { keyword: '', status: undefined, resource_type: undefined },
   set: (v) => emit('update:channelFilters', v)
 })
 

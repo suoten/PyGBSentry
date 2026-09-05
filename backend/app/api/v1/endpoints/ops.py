@@ -3,10 +3,12 @@ import psutil
 import datetime
 import os
 import signal
+import time
 from fastapi import APIRouter, Depends, Request, BackgroundTasks, HTTPException
 from sqlalchemy import text, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget
 from app.core.db_compat import normalize_db_type, run_compat_checks, vendor_hint
 from app.db.session import AsyncSessionLocal, get_db
 from app.api import deps
@@ -19,6 +21,10 @@ from app.models.alarm import Alarm
 
 router = APIRouter()
 STARTED_AT = datetime.datetime.now(datetime.timezone.utc)
+
+# 预置 CPU 采样基线：psutil.cpu_percent(interval=None) 首次调用返回 0.0，
+# 模块加载时调用一次建立基线，后续调用返回自上次调用以来的真实均值。
+psutil.cpu_percent(interval=None)
 
 _SELECT_REASON_LABELS = {
     "specified": "Specified Node",  # i18n
@@ -93,14 +99,30 @@ async def export_diagnostics(
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 
-@router.get("/status")
-async def get_system_status(current_user: User = Depends(deps.get_current_active_user)):
-    """
-    Get system status (CPU, RAM, ZLM)
-    """
-    # System Info
-    # S-07 psutil.cpu_percent(interval=1)阻塞事件循环1秒，改为异步执行
-    cpu_percent = await asyncio.to_thread(psutil.cpu_percent, 1)
+# 系统状态采集缓存（5s TTL + 单飞锁 + stale-while-revalidate）：
+# /ops/status 是仪表盘高频轮询端点。原实现每请求阻塞 1 秒（cpu_percent
+# interval=1）+ 每请求独立探测 ZLM（不可达时 2s 超时），20 并发下排队放大
+# 至 30s P95 / 91.5% 失败（压测实测）。缓存后每 5s 最多一次真实采集；
+# 缓存过期时立即返回旧值并在后台刷新，消除尾延迟。
+_STATUS_CACHE_TTL_SECONDS = 5.0
+_status_cache: dict = {"ts": 0.0, "data": None}
+_status_cache_lock = asyncio.Lock()
+
+
+async def _refresh_status_cache() -> None:
+    """单飞刷新系统状态缓存（等锁期间已被刷新则跳过）。"""
+    async with _status_cache_lock:
+        if _status_cache["data"] is None or time.monotonic() - _status_cache["ts"] >= _STATUS_CACHE_TTL_SECONDS:
+            _status_cache["data"] = await _collect_system_status()
+            _status_cache["ts"] = time.monotonic()
+
+
+async def _collect_system_status() -> dict:
+    """采集系统状态（CPU 非阻塞采样 + ZLM 探测）。"""
+    # S-07: psutil.cpu_percent(interval=1) 每次调用阻塞 1 秒（即使在线程池中，
+    # 也占满共享 worker 导致并发排队）。interval=None 立即返回自上次调用以来
+    # 的均值，配合外层 TTL 缓存即为监控端点的标准做法。
+    cpu_percent = psutil.cpu_percent(interval=None)
     memory = psutil.virtual_memory()
 
     # ZLM Info（优先使用 DB 活动/自动节点；回退全局 MEDIA_SERVER_*）
@@ -134,8 +156,6 @@ async def get_system_status(current_user: User = Depends(deps.get_current_active
         "memory_used": memory.used,
         "memory_total": memory.total,
         "memory_percent": memory.percent,
-        "uptime": datetime.datetime.now().isoformat(),
-        "uptime_seconds": int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds()),
         "zlm_status": zlm_status,
         "zlm_streams": zlm_streams,
         "zlm_node_id": zlm_node_id,
@@ -144,6 +164,26 @@ async def get_system_status(current_user: User = Depends(deps.get_current_active
         "zlm_target": f"{zlm_host}:{zlm_port}",
         "zlm_error": zlm_error,
     }
+
+
+@router.get("/status")
+async def get_system_status(current_user: User = Depends(deps.get_current_active_user)):
+    """
+    Get system status (CPU, RAM, ZLM) — 5s TTL 缓存 + 后台刷新，uptime 保持实时。
+    """
+    cached = _status_cache["data"]
+    if cached is None:
+        # 冷启动：尚无任何数据，同步采集一次（单飞）
+        await _refresh_status_cache()
+        cached = _status_cache["data"]
+    elif time.monotonic() - _status_cache["ts"] >= _STATUS_CACHE_TTL_SECONDS:
+        # 过期：立即返回旧值，后台刷新（stale-while-revalidate）
+        fire_and_forget(_refresh_status_cache())
+    out = dict(cached)
+    # uptime 类字段保持实时
+    out["uptime"] = datetime.datetime.now().isoformat()
+    out["uptime_seconds"] = int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds())
+    return out
 
 @router.get("/edition")
 def get_edition(current_user: User = Depends(deps.get_current_active_user)):
@@ -381,8 +421,9 @@ async def create_backup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查,
 ):
-
-    normalize_db_type()
+    # FIX: [2026-08-22 P2] normalize_db_type() 缺少必填参数 value → TypeError →
+    # POST /api/v1/ops/backup 必 500（测试发现）。备份格式按数据库类型分派。
+    db_type = normalize_db_type(settings.DATABASE_TYPE)
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     backup_dir = os.path.join(os.getcwd(), "data", "backups")
     os.makedirs(backup_dir, exist_ok=True)
@@ -449,6 +490,7 @@ async def create_backup(
         "filename": backup_filename,
         "tables": len(tables_to_backup),
         "path": backup_path,
+        "database": db_type,
     }
 
 

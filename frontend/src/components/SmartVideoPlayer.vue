@@ -22,7 +22,7 @@
         style="object-fit: contain; background: rgba(0, 0, 0, 0.85)"
       />
       <RtcPlayer v-else-if="isWebrtc" :webrtc-url="props.videoUrl" />
-      <H265Player v-else-if="isH265" :video-url="props.videoUrl" />
+      <H265Player v-else-if="isH265" :h265-url="props.videoUrl" />
       <JessibucaPlayer v-else :video-url="jessibucaUrl" :hls-url="props.hlsUrl" :codec="props.codec" />
     </template>
   </div>

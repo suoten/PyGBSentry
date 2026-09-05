@@ -297,7 +297,11 @@ export default {
     newAlarmsCount: 'New Alarms ({count})',
     copiedToClipboard: 'Copied to clipboard',
     copyFailedManual: 'Copy failed, please copy manually',
-    copyAllText: 'ID: {id}\nDomain: {domain}\nIP: {ip}\nPort: {port}\nPassword: {password}'
+    copyAllText: 'ID: {id}\nDomain: {domain}\nIP: {ip}\nPort: {port}\nPassword: {password}',
+    welcomeTitle: 'Welcome to PyGBSentry',
+    welcomeDesc: 'No devices added yet. Click below to connect your first GB28181 device.',
+    addFirstDevice: 'Add Device',
+    setupGuide: 'Setup Guide'
   },
   codec: {
     loading: 'Loading codec info...',
@@ -5610,7 +5614,7 @@ h265WebRtcWarning: 'H.265 stream detected. Some browsers may not support H.265 v
     toggleFailed: 'Failed to toggle status'
   },
   legacyGateway: {
-    title: 'Legacy Gateway',
+    title: 'Multi-Protocol Access',
     description: 'View sources and proxy streams of the legacy media gateway',
     sourceCount: 'Pull Sources',
     proxyStreamCount: 'Proxy Streams',

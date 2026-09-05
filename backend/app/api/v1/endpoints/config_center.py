@@ -8,7 +8,7 @@ from app.models.system_setting import SystemSetting
 from app.schemas.config_center import DraftResponse, UpdateDraftModuleRequest, ValidateDraftResponse
 from app.services.config_center_service import config_center_service
 from app.services.auth_audit import safe_auth_audit
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, AliasChoices
 from typing import Optional, Literal
 import json
 from loguru import logger
@@ -22,15 +22,32 @@ BASIC_CONFIG_KEY = "config_basic"
 
 
 class BasicConfigPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # FIX [2026-09-01 P1]: GET 返回与前端提交均使用 camelCase（pluginSandboxCpuLimitPercent），
+    # 原字段为 snake_case 且 extra="forbid"，导致基础配置保存必然 400
+    # （Parameter 'pluginSandboxCpuLimitPercent' validation failed）。
+    # 通过 validation_alias 同时兼容两种命名。
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
     streamPullTimeout: Optional[int] = Field(None, ge=1, le=300)
     alarmDefaultLevel: Optional[Literal["low", "medium", "high"]] = None
     deviceHeartbeatInterval: Optional[int] = Field(None, ge=5, le=600)
     recordAutoCleanDays: Optional[int] = Field(None, ge=0, le=365)
     logRetentionDays: Optional[int] = Field(None, ge=1, le=365)
-    plugin_sandbox_cpu_limit_percent: Optional[int] = Field(None, ge=1, le=100)
-    plugin_sandbox_memory_limit_mb: Optional[int] = Field(None, ge=1)
-    plugin_sandbox_disk_limit_mb: Optional[int] = Field(None, ge=1)
+    plugin_sandbox_cpu_limit_percent: Optional[int] = Field(
+        None,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices("pluginSandboxCpuLimitPercent", "plugin_sandbox_cpu_limit_percent"),
+    )
+    plugin_sandbox_memory_limit_mb: Optional[int] = Field(
+        None,
+        ge=0,
+        validation_alias=AliasChoices("pluginSandboxMemoryLimitMb", "plugin_sandbox_memory_limit_mb"),
+    )
+    plugin_sandbox_disk_limit_mb: Optional[int] = Field(
+        None,
+        ge=0,
+        validation_alias=AliasChoices("pluginSandboxDiskLimitMb", "plugin_sandbox_disk_limit_mb"),
+    )
 
 
 @router.get("/basic")

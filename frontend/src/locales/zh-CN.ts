@@ -297,7 +297,11 @@ export default {
     newAlarmsCount: '新告警（{count} 条）',
     copiedToClipboard: '已复制到剪贴板',
     copyFailedManual: '复制失败，请手动复制',
-    copyAllText: '编号: {id}\n域: {domain}\nIP: {ip}\n端口: {port}\n密码: {password}'
+    copyAllText: '编号: {id}\n域: {domain}\nIP: {ip}\n端口: {port}\n密码: {password}',
+    welcomeTitle: '欢迎使用 PyGBSentry',
+    welcomeDesc: '您还没有添加任何设备，点击下方按钮开始接入第一台 GB28181 设备。',
+    addFirstDevice: '添加设备',
+    setupGuide: '配置向导'
   },
   codec: {
     loading: '正在获取编码信息...',
@@ -5610,8 +5614,8 @@ h265WebRtcWarning: '当前为 H.265 码流，部分浏览器可能不支持 WebR
     toggleFailed: '切换状态失败'
   },
   legacyGateway: {
-    title: '旧版网关',
-    description: '查看旧版流媒体网关的源与代理流',
+    title: '多协议接入',
+    description: '管理多协议拉流源与代理流',
     sourceCount: '拉流源数',
     proxyStreamCount: '代理流数',
     totalStreamCount: '总流数',
@@ -5624,7 +5628,7 @@ h265WebRtcWarning: '当前为 H.265 码流，部分浏览器可能不支持 WebR
     colAddress: '地址',
     colStreamName: '流名称',
     proxyStreamsTitle: '代理流列表',
-    proxyStreamsHint: '由旧版网关转发的流',
+    proxyStreamsHint: '由多协议网关转发的流',
     emptyProxyStreams: '暂无代理流',
     colApp: '应用',
     colStreamId: '流ID',

@@ -101,7 +101,7 @@
               <div class="subscription-meta"><span class="subscription-label">{{ t('device.table.catalogSubscribe') }}</span><span class="subscription-value">{{ fmtCycle(scope.row.catalog_subscribe_cycle_seconds, t('device.table.noCycleSet')) }}</span></div>
               <div class="subscription-actions">
                 <el-tooltip :content="savingCatalogSub[scope.row.gb_id] ? t('device.table.streamModeSaving') : t('device.table.catalogSubSwitch')" placement="top"><span>
-                  <el-switch v-model="scope.row.catalog_subscribe_enabled" size="small" inline-prompt :active-text="t('channel.edit.switchOn')" :inactive-text="t('channel.edit.switchOff')" class="pretty-switch pretty-switch--success" :loading="savingCatalogSub[scope.row.gb_id]" @change="(val: boolean) => emit('toggleCatalogSubscribe', scope.row, val)" />
+                  <el-switch v-model="scope.row.catalog_subscribe_enabled" size="small" inline-prompt :active-text="t('channel.edit.switchOn')" :inactive-text="t('channel.edit.switchOff')" class="pretty-switch pretty-switch--success" :loading="savingCatalogSub[scope.row.gb_id]" @change="(val: string | number | boolean) => emit('toggleCatalogSubscribe', scope.row, val as boolean)" />
                 </span></el-tooltip>
                 <el-tooltip :content="scope.row.catalog_subscribe_cycle_seconds ? t('device.table.catalogSubCycleTip') : t('device.table.catalogSubCycleSetTip')" placement="top">
                   <button class="subscription-link" @click="emit('setCatalogSubscribeCycle', scope.row)">{{ t('device.table.setCycle') }}</button>
@@ -112,7 +112,7 @@
               <div class="subscription-meta"><span class="subscription-label">{{ t('device.table.locationSubscribe') }}</span><span class="subscription-value">{{ fmtCycle(scope.row.mobile_position_interval_seconds, t('device.table.noIntervalSet')) }}</span></div>
               <div class="subscription-actions">
                 <el-tooltip :content="savingMobileSub[scope.row.gb_id] ? t('device.table.streamModeSaving') : t('device.table.locationSubSwitch')" placement="top"><span>
-                  <el-switch v-model="scope.row.mobile_position_subscribe_enabled" size="small" inline-prompt :active-text="t('channel.edit.switchOn')" :inactive-text="t('channel.edit.switchOff')" class="pretty-switch" :loading="savingMobileSub[scope.row.gb_id]" @change="(val: boolean) => emit('toggleMobileSubscribe', scope.row, val)" />
+                  <el-switch v-model="scope.row.mobile_position_subscribe_enabled" size="small" inline-prompt :active-text="t('channel.edit.switchOn')" :inactive-text="t('channel.edit.switchOff')" class="pretty-switch" :loading="savingMobileSub[scope.row.gb_id]" @change="(val: string | number | boolean) => emit('toggleMobileSubscribe', scope.row, val as boolean)" />
                 </span></el-tooltip>
                 <el-tooltip :content="scope.row.mobile_position_interval_seconds ? t('device.table.locationSubIntervalTip') : t('device.table.locationSubIntervalSetTip')" placement="top">
                   <button class="subscription-link" @click="emit('setMobileSubscribeInterval', scope.row)">{{ t('device.table.setInterval') }}</button>
@@ -132,22 +132,22 @@
             <el-tooltip :content="t('device.table.viewChannelsTip')" placement="top"><span>
               <el-button size="small" plain @click="emit('viewDevice', scope.row)" class="device-action-btn device-action-btn--view"><el-icon class="mr-1"><View /></el-icon>{{ t('device.table.channels') }}</el-button>
             </span></el-tooltip>
-            <el-dropdown trigger="click" @command="(cmd: string) => handleDropdownCommand(scope.row, cmd)">
+            <el-dropdown trigger="click" popper-class="device-more-dropdown" @command="(cmd: string) => handleDropdownCommand(scope.row, cmd)">
               <el-button size="small" plain class="device-action-btn device-action-btn--more table-action-more">{{ t('device.table.more') }}<el-icon class="ml-1"><MoreFilled /></el-icon></el-button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item command="edit"><el-icon><Edit /></el-icon>{{ t('device.table.actionEdit') }}</el-dropdown-item>
                   <el-dropdown-item command="on"><el-icon class="text-emerald-500"><Bell /></el-icon>{{ t('device.table.actionDefend') }}</el-dropdown-item>
                   <el-dropdown-item command="off"><el-icon class="text-amber-500"><MuteNotification /></el-icon>{{ t('device.table.actionWithdraw') }}</el-dropdown-item>
-                  <el-dropdown-item command="map" divided><el-icon><Location /></el-icon>{{ t('device.table.actionLocate') }}</el-dropdown-item>
+                  <el-dropdown-item command="map"><el-icon><Location /></el-icon>{{ t('device.table.actionLocate') }}</el-dropdown-item>
                   <el-dropdown-item command="syncBasic"><el-icon><Tools /></el-icon>{{ t('device.table.actionSyncBasic') }}</el-dropdown-item>
-                  <el-dropdown-item command="teleboot" divided><el-icon><SwitchButton /></el-icon>{{ t('device.table.actionTeleboot') }}</el-dropdown-item>
+                  <el-dropdown-item command="teleboot"><el-icon><SwitchButton /></el-icon>{{ t('device.table.actionTeleboot') }}</el-dropdown-item>
                   <el-dropdown-item command="recordStart"><el-icon><VideoCamera /></el-icon>{{ t('device.table.actionRecordStart') }}</el-dropdown-item>
                   <el-dropdown-item command="recordStop"><el-icon><VideoPause /></el-icon>{{ t('device.table.actionRecordStop') }}</el-dropdown-item>
                   <el-dropdown-item command="alarmReset"><el-icon><BellFilled /></el-icon>{{ t('device.table.actionAlarmReset') }}</el-dropdown-item>
                   <el-dropdown-item command="iframe"><el-icon><Film /></el-icon>{{ t('device.table.actionIframe') }}</el-dropdown-item>
-                  <el-dropdown-item command="blacklist" divided class="text-warning"><el-icon><Warning /></el-icon>{{ t('device.table.actionBlacklist') }}</el-dropdown-item>
-                  <el-dropdown-item command="delete" divided class="text-danger"><el-icon><Delete /></el-icon>{{ t('device.table.actionDelete') }}</el-dropdown-item>
+                  <el-dropdown-item command="blacklist" class="text-warning"><el-icon><Warning /></el-icon>{{ t('device.table.actionBlacklist') }}</el-dropdown-item>
+                  <el-dropdown-item command="delete" class="text-danger"><el-icon><Delete /></el-icon>{{ t('device.table.actionDelete') }}</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
@@ -183,13 +183,13 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'update:page', v: number): void; (e: 'update:pageSize', v: number): void
-  (e: 'fetchDevices'): void; (e: 'pageSizeChange'): void; (e: 'viewDevice', row: Record<string, unknown>): void
-  (e: 'selectionChange', val: Record<string, unknown>[]): void; (e: 'batchDelete'): void; (e: 'openAddDialog'): void
-  (e: 'openAccessInfoDialog'): void; (e: 'saveOrganization', row: Record<string, unknown>): void
-  (e: 'saveStreamMode', row: Record<string, unknown>): void; (e: 'toggleCatalogSubscribe', row: Record<string, unknown>, enabled: boolean): void
-  (e: 'setCatalogSubscribeCycle', row: Record<string, unknown>): void; (e: 'toggleMobileSubscribe', row: Record<string, unknown>, enabled: boolean): void
-  (e: 'setMobileSubscribeInterval', row: Record<string, unknown>): void; (e: 'syncDeviceChannels', row: Record<string, unknown>): void
+  // NOTE: 签名数量过多（>10 个重载）会触发 vue-tsc 的重载联合类型解析上限，
+  // 导致父组件事件绑定退化为宽松类型而报错，故按载荷形状合并为联合事件名签名。
+  (e: 'update:page' | 'update:pageSize', v: number): void
+  (e: 'fetchDevices' | 'pageSizeChange' | 'batchDelete' | 'openAddDialog' | 'openAccessInfoDialog'): void
+  (e: 'viewDevice' | 'saveOrganization' | 'saveStreamMode' | 'setCatalogSubscribeCycle' | 'setMobileSubscribeInterval' | 'syncDeviceChannels', row: Record<string, unknown>): void
+  (e: 'selectionChange', val: Record<string, unknown>[]): void
+  (e: 'toggleCatalogSubscribe' | 'toggleMobileSubscribe', row: Record<string, unknown>, enabled: boolean): void
   (e: 'alarmDropdownCommand', row: Record<string, unknown>, cmd: string): void
 }>()
 
@@ -230,7 +230,7 @@ const streamModeOpts = computed(() => [
   { label: t('device.table.streamModeTcpActive'), value: 'TCP_ACTIVE' }
 ])
 const deviceTableSubtitle = computed(() => t('device.table.total', { n: props.totalDisplay }))
-const isOnline = (s: Record<string, unknown>) => Number(s) === 1 || String(s) === 'Online'
+const isOnline = (s: unknown) => Number(s) === 1 || String(s) === 'Online'
 const getRowClassName = ({ row }: { row: Record<string, unknown> }) => isOnline(row?.status) ? 'device-row--online' : 'device-row--offline'
 const fmtDateTime = (input: string | Date | null | undefined, empty = '-') => { if (!input) return empty; const d = input instanceof Date ? input : new Date(input); if (Number.isNaN(d.getTime())) return String(input); return d.toLocaleString(undefined, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) }
 const fmtCycle = (s: Record<string, unknown>, empty = t('device.table.statusOffline')) => { const n = Number(s || 0); if (!Number.isFinite(n) || n <= 0) return empty; if (n < 60) return `${Math.round(n)}s`; const m = n / 60; if (m < 60) return `${Math.round(m)}m`; return `${Math.round(m / 60)}h` }
@@ -307,4 +307,18 @@ async function handleDropdownCommand(row: Record<string, unknown>, cmd: string) 
 .pretty-switch :deep(.el-switch__inner .is-text) { font-size: 10px; font-weight: 700; color: #ffffff; text-shadow: 0 1px 1px rgba(0,0,0,0.1); }
 .pretty-switch :deep(.is-checked .el-switch__inner .is-text) { color: #ffffff; }
 @media (max-width: 960px) { .org-select-cell, .mode-select { width: 100%; } .device-toolbar-actions { justify-content: flex-start; } }
+</style>
+
+<style>
+/* 「更多」下拉菜单双列布局（popper 挂载在 body，需全局样式） */
+.device-more-dropdown .el-dropdown-menu {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(118px, 1fr));
+  column-gap: 4px;
+  padding: 6px;
+  min-width: 264px;
+}
+.device-more-dropdown .el-dropdown-menu__item { padding: 6px 10px; }
+/* 双列网格下分组分隔线会显示为贯穿横线，去掉由网格间距承担视觉分组 */
+.device-more-dropdown .el-dropdown-menu__item.is-divided { border-top: none; }
 </style>

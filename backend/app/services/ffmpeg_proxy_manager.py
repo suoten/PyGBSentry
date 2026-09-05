@@ -17,7 +17,10 @@ class FfmpegProcessInfo:
 
 class FfmpegProxyManager:
     def __init__(self):
-        self._lock = threading.Lock()
+        # FIX: [2026-08-22 P0] 使用 RLock 替代 Lock：start() 在 with self._lock 内
+        # 调用 self.stop(sid)，stop() 内部再次 with self._lock。threading.Lock 非重入，
+        # 嵌套获取导致 start() 永久死锁；RLock 允许同一线程重入。
+        self._lock = threading.RLock()
         self._procs: dict[str, FfmpegProcessInfo] = {}
 
     def start(self, source_id: str, cmd: str) -> FfmpegProcessInfo:

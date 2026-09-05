@@ -138,7 +138,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
             def parse_dt(s: str):
                 try:
                     return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
-                except Exception:
+                except ValueError:
                     return None
 
             # Sort by start_time

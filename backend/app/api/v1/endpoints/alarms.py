@@ -66,6 +66,40 @@ class AlarmNotificationItem(BaseModel):
     sent_at: datetime
 
 
+class AlarmItem(BaseModel):
+    """告警列表项响应模型（GET /api/v1/alarms）。
+
+    与 ``_build_alarm_item`` 的序列化 dict 字段一一对应，作为前后端
+    契约（frontend/src/types/models.ts Alarm 接口）。
+    """
+
+    id: str
+    tenant_id: Optional[str] = None
+    device_id: Optional[str] = None
+    channel_id: Optional[str] = None
+    priority: Optional[str] = None
+    method: Optional[str] = None
+    time: Optional[str] = None
+    description: Optional[str] = None
+    alarm_type: Optional[str] = None
+    status: Optional[int] = None
+    escalation_level: int = 0
+    escalation_count: int = 0
+    escalation_state: str = "open"
+    ack_at: Optional[str] = None
+    last_escalated_at: Optional[str] = None
+    escalation_note: Optional[str] = None
+
+
+class AlarmListResponse(BaseModel):
+    items: list[AlarmItem]
+    total: int
+    skip: int
+    limit: int
+    start_time: datetime
+    end_time: datetime
+
+
 class AlarmEscalationAction(BaseModel):
     note: Optional[str] = None
 
@@ -139,9 +173,10 @@ def _build_alarm_item(alarm: Alarm, escalation: AlarmEscalation | None) -> dict:
         "description": alarm.description,
         "alarm_type": alarm.alarm_type,
         "status": alarm.status,
-        "escalation_level": escalation.escalation_level if escalation else 0,
-        "escalation_count": escalation.escalation_count if escalation else 0,
-        "escalation_state": escalation.state if escalation else "open",
+        # or 兜底：escalation 行存在但列为 NULL 时保持契约非空（手工/异常数据防 500）
+        "escalation_level": (escalation.escalation_level or 0) if escalation else 0,
+        "escalation_count": (escalation.escalation_count or 0) if escalation else 0,
+        "escalation_state": (escalation.state or "open") if escalation else "open",
         "ack_at": escalation.ack_at.isoformat() if escalation and escalation.ack_at else None,
         "last_escalated_at": escalation.last_escalated_at.isoformat() if escalation and escalation.last_escalated_at else None,
         "escalation_note": escalation.escalation_note if escalation else None,
@@ -239,7 +274,7 @@ def _build_notification_item(row: AlarmNotification) -> dict:
         "sent_at": row.sent_at.isoformat() if row.sent_at else None,
     }
 
-@router.get("")
+@router.get("", response_model=AlarmListResponse)
 async def get_alarms(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),

@@ -1,4 +1,11 @@
 <template>
+  <div v-if="!showLayout && !route.matched.length" class="app-boot-splash">
+    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="app-boot-splash__logo">
+      <rect width="32" height="32" rx="10" fill="#0a0f1a"/>
+      <path d="M13 10L21 16L13 22Z" fill="#00ffff"/>
+    </svg>
+    <span>{{ branding.product_name }}</span>
+  </div>
   <div v-if="showLayout" class="common-layout">
     <el-container class="h-screen flex-col">
       <el-dialog
@@ -185,6 +192,10 @@ const router = useRouter()
 const activeRoute = computed(() => route.path)
 const isServerEdition = (import.meta.env.VITE_APP_EDITION || 'oss') === 'server'
 const showLayout = computed(() => {
+  // FIX [2026-09-02 P2]: 初始导航尚未被路由守卫确认时（matched 为空），不渲染布局。
+  // 原实现会先渲染受保护页布局+引导对话框，再被守卫重定向到 /login，造成
+  // 未登录用户短暂看到工作台的"闪屏"。matched 为空时渲染启动占位页。
+  if (!route.matched.length) return false
   if (['/login', '/register', '/setup'].includes(route.path)) return false
   if (route.path.startsWith('/m/')) return false
   return true
@@ -657,6 +668,25 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.app-boot-splash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--el-bg-color, #0a0f1a);
+  color: var(--el-text-color-primary, #e5eaf3);
+  font-size: 20px;
+  font-weight: 600;
+  z-index: 3000;
+}
+
+.app-boot-splash__logo {
+  width: 40px;
+  height: 40px;
+}
+
 .license-expiry-banner {
   background: linear-gradient(90deg, #fff7e6 0%, #fff1d6 100%);
   border-bottom: 1px solid #ffd591;

@@ -62,7 +62,7 @@ def _parse_hm(v: str) -> tuple[int, int] | None:
     try:
         sh, sm = [int(x) for x in str(v or "").strip().split(":", 1)]
         return sh, sm
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 
@@ -87,7 +87,7 @@ def _parse_schedules(raw) -> list[dict]:
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
-        except Exception:
+        except (ValueError, TypeError):
             return []
     if not isinstance(raw, list):
         return []

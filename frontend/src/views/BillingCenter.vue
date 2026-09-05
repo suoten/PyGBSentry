@@ -166,7 +166,7 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 
 const isDevMode = import.meta.env.DEV
 const { t } = useI18n()
@@ -181,7 +181,7 @@ const paginatedPlans = computed(() => {
 })
 watch(plans, () => { planPage.value = 1 })
 
-const subscription = ref<Subscription>({ id: '-', plan_id: '-', status: '-' })
+const subscription = ref<Subscription>({ id: '-', plan_code: '-', status: '-' })
 
 const plugins = ref<BillingPlan[]>([])
 const pluginPage = ref(1)
@@ -279,7 +279,7 @@ const saveBranding = async () => {
   }
 }
 
-const createOrder = async (plugin: Record<string, unknown>) => {
+const createOrder = async (plugin: BillingPlan) => {
   if (loading.value) return
   try {
     const months = monthsMap.value[plugin.id] || 1
@@ -315,7 +315,7 @@ const createOrder = async (plugin: Record<string, unknown>) => {
   }
 }
 
-const simulateCallback = async (plugin: Record<string, unknown>) => {
+const simulateCallback = async (plugin: BillingPlan) => {
   const current = orderSignatures.value[plugin.id]
   if (!current) {
     ElMessage.warning(t('billingPage.pleasePlaceOrderFirst'))

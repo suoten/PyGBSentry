@@ -161,7 +161,10 @@ async def record_index_verifier_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"record_index_verifier_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -322,7 +325,10 @@ async def snapshot_refresh_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"snapshot_refresh_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -505,7 +511,10 @@ async def rtmp_push_channel_monitor_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"rtmp_push_channel_monitor_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -666,7 +675,10 @@ async def pull_proxy_monitor_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"pull_proxy_monitor_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -844,7 +856,10 @@ async def mqtt_bridge_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"mqtt_bridge_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -1001,7 +1016,10 @@ def _alert_plugin_push_events_payload(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"{log_filename_prefix}_{cur_day.strftime('%Y-%m-%d')}.log"

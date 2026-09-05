@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # Security switches
     ALLOW_PUBLIC_REGISTRATION: bool = False
     ENABLE_AUTO_DISCOVERY: bool = False  # S-06 默认关闭未知设备自动注册，防止伪造设备
-    ENABLE_OPENAPI_DOCS: bool = False  # FIX [2026-08-11]: 默认关闭；仅在 dev/internal 网络显式开启
+    ENABLE_OPENAPI_DOCS: bool = False  # 默认关闭, dev 环境可设 True
     ENABLE_SECURITY_HEADERS: bool = True
     ENABLE_CSP: bool = True
     # CSP connect-src 额外白名单：逗号分隔的源表达式（含协议+主机+可选端口），
@@ -371,7 +371,7 @@ class Settings(BaseSettings):
     AI_GATEWAY_FORWARD_TIMEOUT_SECONDS: int = 10
 
     # Plugin dependency auto-install (for self-contained AI plugins)
-    PLUGIN_AUTO_INSTALL_DEPENDENCIES: bool = False  # FIX [2026-08-11]: 供应链安全考虑默认关闭；仅 dev 环境显式开启
+    PLUGIN_AUTO_INSTALL_DEPENDENCIES: bool = False  # 供应链安全, dev 环境可设 True
     PLUGIN_DEPENDENCY_INSTALL_TIMEOUT_SECONDS: int = 300
     PLUGIN_DEPENDENCY_VENDOR_DIR_NAME: str = ".vendor"
     # G-15: 插件依赖 venv 隔离（可选增强，与 .vendor 方式二选一）
@@ -1221,7 +1221,7 @@ def sip_via_host() -> str:
             return host
         try:
             return _socket.gethostbyname(host)
-        except Exception:
+        except (OSError, UnicodeError):
             return None
 
     # 依次尝试解析配置的域名

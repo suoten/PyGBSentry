@@ -37,6 +37,17 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+// window 上挂载的 h265web 播放器相关全局对象的最小类型声明（按本组件实际用到的 API）
+type H265WebJsPlayerInstance = {
+  on_ready_show_done_callback?: () => void
+  on_error_callback?: (e: unknown) => void
+  build(config: Record<string, unknown>): boolean
+  load_media?(url: string): void
+  change_media?(url: string): void
+  play?(): void
+}
+type H265LegacyPlayerFactory = (url: string, conf: Record<string, unknown>) => Record<string, unknown>
+
 const props = defineProps<{
   h265Url: string
 }>()
@@ -64,9 +75,9 @@ const diagnostics = ref({
   events: [] as string[]
 })
 
-let h265Player: Record<string, unknown> = null
+let h265Player: Record<string, unknown> | null = null
 let scriptSrcUsed = ''
-let previousEmscriptenModule: Record<string, unknown> = null
+let previousEmscriptenModule: Record<string, unknown> | null = null
 let hasPatchedEmscriptenModule = false
 let initSeq = 0
 
@@ -138,7 +149,7 @@ const loadScript = (src: string) =>
   })
 
 const loadFirstOk = async (srcList: string[]) => {
-  let lastErr: Record<string, unknown> = null
+  let lastErr: Record<string, unknown> | null = null
   for (const src of srcList) {
     try {
       await loadScript(src)
@@ -148,7 +159,7 @@ const loadFirstOk = async (srcList: string[]) => {
       return src
     } catch (e) {
       pushDiagEvent(t('h265Player.diagEventScriptLoadFailed', { src }))
-      lastErr = e
+      lastErr = e as Record<string, unknown>
     }
   }
   throw lastErr || new Error('load script failed')
@@ -177,9 +188,9 @@ const releasePlayer = async () => {
   if (hasPatchedEmscriptenModule) {
     try {
       if (previousEmscriptenModule === null) {
-        delete (window as Record<string, unknown>).Module
+        delete (window as unknown as Record<string, unknown>).Module
       } else {
-        ;(window as Record<string, unknown>).Module = previousEmscriptenModule
+        ;(window as unknown as Record<string, unknown>).Module = previousEmscriptenModule
       }
     } catch { /* ignore */ } finally {
       previousEmscriptenModule = null
@@ -250,12 +261,12 @@ const initByH265webjsPlayer = async (url: string) => {
   setDiagPhase('h265webjs_init')
   addDiagAttempt('h265webjs', url)
   diagnostics.value.currentUrl = url
-  const factory = (window as Record<string, unknown>).H265webjsPlayer
+  const factory = (window as unknown as { H265webjsPlayer?: () => H265WebJsPlayerInstance }).H265webjsPlayer
   if (typeof factory !== 'function' || !containerRef.value) {
     pushDiagEvent(t('h265Player.diagEventFactoryMissing'))
     return false
   }
-  const canUseSharedArrayBuffer = (window as Record<string, unknown>).crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined'
+  const canUseSharedArrayBuffer = (window as unknown as Record<string, unknown>).crossOriginIsolated === true && typeof SharedArrayBuffer !== 'undefined'
   const playerId = `h265_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   containerRef.value.id = playerId
   const instance = factory()
@@ -280,7 +291,7 @@ const initByH265webjsPlayer = async (url: string) => {
   diagnostics.value.basePaths = basePaths
   pushDiagEvent(t('h265Player.diagEventTryBasePaths', { paths: basePaths.join(' | ') }))
   
-  const H265WEB_PUBLIC_TOKEN = (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || ''
+  const H265WEB_PUBLIC_TOKEN = (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || ''
 
   for (const base of basePaths) {
     try {
@@ -294,7 +305,7 @@ const initByH265webjsPlayer = async (url: string) => {
         color: 'black',
         auto_play: true,
         ignore_audio: false,
-        token: (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN
+        token: (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN
       }
       if (canUseSharedArrayBuffer) {
         ;(config as Record<string, unknown>).ext_src_js_uri = 'extjs.js'
@@ -347,17 +358,17 @@ const initByLegacyApi = async (url: string) => {
   setDiagPhase('legacy_init')
   addDiagAttempt('legacy', url)
   diagnostics.value.currentUrl = url
-  const createFn = (window as Record<string, unknown>).new265webjs
-  const module = (window as Record<string, unknown>).H265webjsModule
-  
-  const H265WEB_PUBLIC_TOKEN = (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || ''
+  const createFn = (window as unknown as { new265webjs?: H265LegacyPlayerFactory }).new265webjs
+  const module = (window as unknown as { H265webjsModule?: { createPlayer?: H265LegacyPlayerFactory } }).H265webjsModule
+
+  const H265WEB_PUBLIC_TOKEN = (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || ''
 
   let ready = false
   const conf: Record<string, unknown> = {
     player: 'glplayer',
     width: 960,
     height: 540,
-    token: (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN,
+    token: (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN,
     extInfo: {
       autoPlay: true,
       ignoreAudio: 0
@@ -400,13 +411,13 @@ const initByLegacyApi = async (url: string) => {
 
 const patchEmscriptenModuleForH265web = () => {
   if (hasPatchedEmscriptenModule) return
-  const w = window as Record<string, unknown>
-  previousEmscriptenModule = Object.prototype.hasOwnProperty.call(w, 'Module') ? w.Module : null
+  const w = window as unknown as Record<string, unknown>
+  previousEmscriptenModule = Object.prototype.hasOwnProperty.call(w, 'Module') ? (w.Module as Record<string, unknown> | null) : null
   const base = w.Module && typeof w.Module === 'object' ? w.Module : {}
   w.Module = {
     ...base,
-    print: (() => {}) as Record<string, unknown>,
-    printErr: (() => {}) as Record<string, unknown>
+    print: () => {},
+    printErr: () => {}
   }
   hasPatchedEmscriptenModule = true
 }

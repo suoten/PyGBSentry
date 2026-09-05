@@ -7,6 +7,9 @@ import i18n from '@/locales'
 
 const t = i18n.global.t
 
+/** 允许将挂载字段置空的 Channel 视图（后端清空挂载点时传 null） */
+type PlacementNullableChannel = { region_parent_gb_id?: string | null; parent_gb_id?: string | null }
+
 export function useBatchOps(deps: {
   selectedChannels: { value: Channel[] }
   selectedNode: { value: Channel | null }
@@ -48,7 +51,7 @@ export function useBatchOps(deps: {
     if (!deps.selectedNode.value || !deps.canAddToSelectedNode.value || deps.selectedChannels.value.length === 0) return
     const key = deps.placementPayloadKey.value; const nid = String(deps.selectedNode.value.id || '').trim(); const toRm = deps.selectedChannels.value.filter(ch => deps.catalogParentId(ch) === nid)
     if (!toRm.length) { ElMessage.warning(t('channelBatchOps.notBelongToNode')); return }
-    try { await api.post('/api/v1/devices/channels/batch-placement', { resource_ids: toRm.map(ch => ch.id), placement: key === 'region_parent_gb_id' ? 'region' : 'business', target_id: '' }); ElMessage.success(t('channelBatchOps.batchRemoved', { count: toRm.length })); toRm.forEach(ch => { if (key === 'region_parent_gb_id') ch.region_parent_gb_id = null; else ch.parent_gb_id = null }); deps.selectedChannels.value = []; await Promise.all([deps.loadTree(), deps.loadChannels(), deps.loadUnaddedCount()]) } catch (e: unknown) { ElMessage.error(getFriendlyError(e).message) }
+    try { await api.post('/api/v1/devices/channels/batch-placement', { resource_ids: toRm.map(ch => ch.id), placement: key === 'region_parent_gb_id' ? 'region' : 'business', target_id: '' }); ElMessage.success(t('channelBatchOps.batchRemoved', { count: toRm.length })); toRm.forEach(ch => { const c = ch as PlacementNullableChannel; if (key === 'region_parent_gb_id') c.region_parent_gb_id = null; else c.parent_gb_id = null }); deps.selectedChannels.value = []; await Promise.all([deps.loadTree(), deps.loadChannels(), deps.loadUnaddedCount()]) } catch (e: unknown) { ElMessage.error(getFriendlyError(e).message) }
   }
 
   const removeFromNode = async (channel: Record<string, unknown>) => {
@@ -62,7 +65,7 @@ export function useBatchOps(deps: {
   }
 
   const onBusinessFilterTreeClick = (data: { id: string; label: string }) => { listBusinessFilterPickId.value = data.id; listBusinessFilterPickLabel.value = data.label }
-  const onBusinessFilterConfirm = (nodeId: string, filters: Record<string, unknown>, page: Record<string, unknown>, loadChannels: () => Promise<void>) => { if (!nodeId) return; filters.value.listBusinessParentGbId = nodeId; filters.value.listBusinessParentLabel = String(listBusinessFilterPickLabel.value || nodeId).trim(); listBusinessFilterDialogVisible.value = false; page.value = 1; loadChannels() }
+  const onBusinessFilterConfirm = (nodeId: string, filters: { value: Record<string, unknown> }, page: { value: number }, loadChannels: () => Promise<void>) => { if (!nodeId) return; filters.value.listBusinessParentGbId = nodeId; filters.value.listBusinessParentLabel = String(listBusinessFilterPickLabel.value || nodeId).trim(); listBusinessFilterDialogVisible.value = false; page.value = 1; loadChannels() }
 
   return { batchPlacementLoading, batchBusinessDialogVisible, batchBusinessPickId, listBusinessFilterDialogVisible, listBusinessFilterPickId, listBusinessFilterPickLabel, onBatchPlacementCommand, batchClearPlacement, batchAddToSelectedNode, batchRemoveFromNode, removeFromNode, onBatchBusinessTreeClick, onBatchBusinessConfirm, onBusinessFilterTreeClick, onBusinessFilterConfirm }
 }

@@ -102,14 +102,14 @@ export function useOlMap(targetId: string, config: MapConfig) {
 
     map = new Map({
       target: targetId,
-      layers: [baseLayer, markerLayer.value],
+      layers: [baseLayer, markerLayer.value as VectorLayer],
       view: new View({
         center: fromLonLat([config.center_lng, config.center_lat]),
         zoom: config.zoom_level,
         minZoom: config.min_zoom,
         maxZoom: config.max_zoom
       }),
-      overlays: popupOverlay.value ? [popupOverlay.value] : [],
+      overlays: popupOverlay.value ? [popupOverlay.value as Overlay] : [],
       controls: []
     })
   }

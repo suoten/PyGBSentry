@@ -189,7 +189,16 @@ import SmartVideoPlayer from '../components/SmartVideoPlayer.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import SharedChannelTree from '../components/channel/SharedChannelTree.vue'
 import { useChannelTreeStats } from '../utils/channelTreeStats'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
+
+// 设备树节点（/api/v1/devices/tree 响应，按实际使用字段定义）
+interface DeviceTreeNode {
+  id: string
+  label?: string
+  nodeType?: string
+  children?: unknown[]
+  [key: string]: unknown
+}
 
 const treeMode = ref<'business' | 'region'>('business')
 const { t } = useI18n()  // FIXED: 国际化
@@ -198,10 +207,10 @@ type FilterableTreeRef = {
 }
 
 const treeRef = ref<FilterableTreeRef | null>(null)
-const treeData = ref<VideoRecord[]>([])
+const treeData = ref<DeviceTreeNode[]>([])
 const loadingTree = ref(false)
 const filterText = ref('')
-const selectedNode = ref<VideoRecord | null>(null)
+const selectedNode = ref<DeviceTreeNode | null>(null)
 
 const selectedDeviceId = ref('')
 const selectedChannelIds = ref<string[]>([])
@@ -225,7 +234,8 @@ const fetchVodSources = async () => {
   if (!id) return
   vodSourcesLoading.value = true
   try {
-    const res = await api.get(`/api/v1/vod/vod/sources/${id}`)
+    // FIX: [2026-08-22 PN] 后端 vod 双前缀已修复（/api/v1/vod/vod → /api/v1/vod）
+    const res = await api.get(`/api/v1/vod/sources/${id}`)
     const sources = Array.isArray(res.data?.sources) ? res.data.sources : []
     vodSources.value = sources
     if (sources.length && selectedVodSource.value < 0) {
@@ -250,7 +260,8 @@ const fetchVodOptimizedUrl = async () => {
   if (!id) return
   vodOptimizedLoading.value = true
   try {
-    const res = await api.get(`/api/v1/vod/vod/optimized-url/${id}`)
+    // FIX: [2026-08-22 PN] 后端 vod 双前缀已修复（/api/v1/vod/vod → /api/v1/vod）
+    const res = await api.get(`/api/v1/vod/optimized-url/${id}`)
     const url = res.data?.url
     if (url) {
       previewUrl.value = url
@@ -277,7 +288,7 @@ const bulkDeleting = ref(false)
 const repairing = ref<Record<string, boolean>>({})
 const bulkRepairing = ref(false)
 const selectedIds = ref<string[]>([])
-const isPlayableTreeChannel = (node: TreeNode) => {
+const isPlayableTreeChannel = (node: Record<string, unknown>) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   if (nodeType !== 'channel' && nodeType !== 'source_stream') return false
   if (Number(node?.status) !== 1) return false
@@ -285,7 +296,7 @@ const isPlayableTreeChannel = (node: TreeNode) => {
   const typeCode = gbId ? gbId.substring(10, 13) : ''
   return ['131', '132', '111', '112', '118'].includes(typeCode)
 }
-const shouldShowStatusBadge = (node: TreeNode) => {
+const shouldShowStatusBadge = (node: Record<string, unknown>) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   return nodeType === 'channel' || nodeType === 'source_stream'
 }
@@ -354,7 +365,7 @@ const fetchTree = async () => {
   }
 }
 
-const collectChannelIds = (node: TreeNode): string[] => {
+const collectChannelIds = (node: Record<string, unknown>): string[] => {
   const ids = new Set<string>()
   const walk = (item: Record<string, unknown>) => {
     if (!item || typeof item !== 'object') return
@@ -372,7 +383,7 @@ const collectChannelIds = (node: TreeNode): string[] => {
 }
 
 const handleNodeClick = (data: Record<string, unknown>) => {
-  selectedNode.value = data
+  selectedNode.value = data as DeviceTreeNode
   page.value = 1
   if (data.nodeType === 'channel' || data.nodeType === 'source_stream') {
     selectedChannelIds.value = [String(data.channelId || data.id || '')].filter((v) => !!v)

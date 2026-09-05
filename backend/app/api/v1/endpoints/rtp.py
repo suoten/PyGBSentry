@@ -47,7 +47,7 @@ async def open_rtp_receive(
             status_code=400,
             detail="stream_id_required",
         )
-        raise HTTPException(status_code=400, detail="stream_id required")  # noqa: F823
+        raise HTTPException(status_code=400, detail="stream_id required")
     app = (payload.app or "live").strip() or "live"
     tcp_mode = int(payload.tcp_mode or 0)
     if tcp_mode not in (0, 1, 2):
@@ -134,7 +134,9 @@ async def open_rtp_receive(
         port = int(allocated_port)
         await db.commit()
     except Exception as zlm_err:
-        from fastapi import HTTPException
+        # FIX: [2026-08-22 PN] 原 except 块内 `from fastapi import HTTPException` 使
+        # HTTPException 成为函数局部名，前置 400 校验分支抛 UnboundLocalError → 500。
+        # 模块级已导入 HTTPException，删除局部导入。
         task.status = "failed"
         task.last_error = str(zlm_err)
         await db.commit()

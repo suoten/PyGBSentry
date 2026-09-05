@@ -91,9 +91,16 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
             # 从文件末尾反向读取，避免全量加载到内存
             f.seek(0, 2)  # 移动到文件末尾
             file_end = f.tell()
+            # FIX: [2026-08-22 P1] 行数 off-by-one：文件以 \n 结尾（真实日志标准形态）时，
+            # 按 \n 反向分块切分会把结尾空串计为一行（total 多 1 且返回幻影空行）。
+            # 文件以 \n 结尾时从倒数第 2 字节开始读取，跳过最后的换行符。
+            pos = file_end
+            if file_end > 0:
+                f.seek(file_end - 1)
+                if f.read(1) == b"\n":
+                    pos = file_end - 1
             block_size = 8192
             remaining = b""
-            pos = file_end
 
             while pos > 0 and len(lines) < _MAX_LOG_LINES:
                 read_size = min(block_size, pos)

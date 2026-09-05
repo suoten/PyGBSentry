@@ -28,7 +28,6 @@ from pathlib import Path
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND_DIR))
 
-from loguru import logger
 from sqlalchemy import select
 
 # 必须在导入 settings 之前设置旧密钥环境变量

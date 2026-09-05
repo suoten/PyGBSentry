@@ -206,7 +206,7 @@ const dynamicProvinceOptions = computed(() => {
       code: String(item?.code || '').slice(0, 2),
       children: Array.isArray(item?.children) ? item.children : []
     }))
-    .filter((item: Record<string, unknown>) => /^\d{2}$/.test(item.code))
+    .filter((item: { name: string; code: string; children: unknown[] }) => /^\d{2}$/.test(item.code))
 })
 
 const cityOptions = computed(() => {
@@ -218,7 +218,7 @@ const cityOptions = computed(() => {
       code: String(item?.code || '').slice(2, 4),
       children: Array.isArray(item?.children) ? item.children : []
     }))
-    .filter((item: Record<string, unknown>) => /^\d{2}$/.test(item.code))
+    .filter((item: { name: string; code: string; children: unknown[] }) => /^\d{2}$/.test(item.code))
 })
 
 const districtOptions = computed(() => {
@@ -231,7 +231,7 @@ const districtOptions = computed(() => {
       name: String(item?.name || ''),
       code: String(item?.code || '').slice(4, 6)
     }))
-    .filter((item: Record<string, unknown>) => /^\d{2}$/.test(item.code))
+    .filter((item: { name: string; code: string }) => /^\d{2}$/.test(item.code))
 })
 
 const selectedProvinceName = computed(() => {

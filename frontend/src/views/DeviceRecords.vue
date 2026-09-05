@@ -103,7 +103,7 @@ import DeviceRecordList from '../components/DeviceRecordList.vue'
 import OptionWithTitle from '../components/OptionWithTitle.vue'
 import { parseDeviceChannelsResponse } from '../utils/deviceApi'
 import { getApiErrorMessage } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化
@@ -243,7 +243,7 @@ const reloadDevices = async () => {
       })
       .filter(Boolean) as Array<{ value: string; label: string; name: string; deviceId: string; organizationId: string }>
     deviceOptions.value = normalizedDevices.map((d) => ({ value: d.value, label: d.label }))
-    deviceTreeData.value = buildDeviceTree(normalizedDevices, orgRows)
+    deviceTreeData.value = buildDeviceTree(normalizedDevices, orgRows) as TreeNode[]
   } catch (e: unknown) {
     ElMessage.error(getApiErrorMessage(e, t('record.deviceLoadFailed')))
     deviceOptions.value = []
@@ -262,9 +262,9 @@ const loadChannels = async (deviceId: string) => {
   }
   try {
     const res = await api.get(`/api/v1/devices/${encodeURIComponent(d)}/channels`)
-    const rows = parseDeviceChannelsResponse(res.data)
+    const rows = (await parseDeviceChannelsResponse(res.data)) as Array<Record<string, unknown>>
     channelOptions.value = rows
-      .map((item: Record<string, unknown>) => {
+      .map((item) => {
         const id = String(item?.gb_id || '').trim()
         if (!id) return null
         const name = String(item?.name || item?.channel_name || id).trim()

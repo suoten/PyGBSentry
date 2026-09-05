@@ -28,9 +28,8 @@ import ast
 import json
 import os
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 AUDIT_ENABLED = os.environ.get("AUDIT_L3_ENABLED", "true").lower() in {"true", "1", "yes"}
 
@@ -178,7 +177,6 @@ class ExceptionPatternScanner(ast.NodeVisitor):
             and isinstance(node.type, ast.Name)
             and node.type.id == "Exception"
         )
-        is_broad_except = is_bare_except or is_exception_except
 
         if is_bare_except:
             self._add_finding(

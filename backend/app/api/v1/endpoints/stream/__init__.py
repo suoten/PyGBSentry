@@ -14,6 +14,19 @@ router.include_router(control_router)
 router.include_router(query_router)
 router.include_router(proxy_router)
 
+# FIX: [2026-08-22 PN] 路由遮蔽修复：FastAPI 按注册顺序匹配，双参数通配路径
+# /play/{device_id}/{channel_id} 与 /playback/{device_id}/{channel_id} 原先注册在
+# 静态/多段具体路径（/play/{stream_id}/switch、/playback/{call_id}/pause|resume|seek|speed、
+# /playback/{stream_id}/control）之前，导致具体路径被通配路径捕获
+# （如 /play/xxx/switch 被解析为 device_id=xxx、channel_id=switch）。
+# 此处用稳定排序把两个通配路径移到聚合 router 末尾，保证具体路径优先匹配，
+# 其余路由相对顺序不变。
+_WILDCARD_TWO_PARAM_PATHS = {
+    "/play/{device_id}/{channel_id}",
+    "/playback/{device_id}/{channel_id}",
+}
+router.routes.sort(key=lambda r: getattr(r, "path", "") in _WILDCARD_TWO_PARAM_PATHS)
+
 # ---- 重新导出被外部模块引用的名称（保持向后兼容） ----
 
 # 从 stream_play 重新导出

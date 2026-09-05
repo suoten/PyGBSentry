@@ -19,12 +19,10 @@ from __future__ import annotations
 
 import argparse
 import importlib
-import inspect
 import json
 import os
 import sys
 from pathlib import Path
-from typing import Any
 
 
 def check_router_registration(backend_dir: str) -> list[dict]:
@@ -132,7 +130,6 @@ def check_db_models(backend_dir: str) -> list[dict]:
     sys.path.insert(0, backend_dir)
     os.chdir(backend_dir)
 
-    from sqlalchemy import inspect as sa_inspect
     from app.db.base import Base
 
     model_modules = [
@@ -186,7 +183,7 @@ def main() -> int:
     script_dir = Path(__file__).resolve().parent
     backend_dir = args.backend_dir or str(script_dir.parent)
 
-    print(f"L5 audit: checking startup integrity...")
+    print("L5 audit: checking startup integrity...")
     print(f"  Backend: {backend_dir}")
 
     all_issues = []

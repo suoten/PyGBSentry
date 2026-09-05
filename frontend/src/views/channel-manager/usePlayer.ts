@@ -151,8 +151,8 @@ export function usePlayer() {
     const channelId = String(row?.gb_id || row?.channelId || row?.id || '').trim()
     if (!deviceId || !channelId) return
 
-    currentChannel.value = row
-    currentDevice.value = { gb_id: deviceId, name: String(row.device_name || deviceId) }
+    currentChannel.value = row as Channel
+    currentDevice.value = { gb_id: deviceId, name: String(row.device_name || deviceId) } as Channel
     const key = channelId
     channelPlayLoading.value[key] = true
 

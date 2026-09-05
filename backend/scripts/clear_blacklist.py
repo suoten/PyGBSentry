@@ -15,7 +15,7 @@ sys.path.insert(0, str(_BACKEND_DIR))
 
 async def main():
     from app.db.session import AsyncSessionLocal
-    from sqlalchemy import select, delete, text
+    from sqlalchemy import text
 
     clear_all = "--clear-all" in sys.argv
     target_ip = None

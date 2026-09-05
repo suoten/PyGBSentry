@@ -111,6 +111,25 @@ async def close_redis():
     redis_client = None
 
 
+async def hset_mapping(client, key: str, mapping: dict) -> None:
+    """HSET 多字段写入（Redis 3.0 兼容）。
+
+    FIX [2026-09-01 P1]: ``HSET key f1 v1 f2 v2`` 多字段语法是 Redis 4.0 新增；
+    Windows 旧版 Redis 3.0.504 会返回 "wrong number of arguments for 'hset'
+    command"，导致心跳平滑等依赖 hset 的功能静默失效。改为逐字段 pipeline 写入。
+    """
+    if not mapping:
+        return
+    if len(mapping) == 1:
+        field, value = next(iter(mapping.items()))
+        await client.hset(key, str(field), value if isinstance(value, (str, bytes, int, float)) else str(value))
+        return
+    pipe = client.pipeline(transaction=False)
+    for field, value in mapping.items():
+        pipe.hset(key, str(field), value if isinstance(value, (str, bytes, int, float)) else str(value))
+    await pipe.execute()
+
+
 async def get_redis() -> Optional[redis.Redis]:
     """获取 Redis 客户端；不可用（未连接/连接失败）时返回 None，不抛异常。
 
@@ -263,7 +282,8 @@ class RedisHACluster:
             except Exception as _mm_err:
                 # FIX [2026-07-17 P3-5]: 描述性日志替代 "silently_swallowed_exception"
                 logger.warning(f"[Cluster HA] Failed to read active_stream_count from media_manager: {_mm_err}")
-            await redis_client.hset(self._node_key, mapping=load_info)
+            # FIX [2026-09-01 P1]: hset(mapping=) 需 Redis 4.0+，改用兼容写入
+            await hset_mapping(redis_client, self._node_key, load_info)
             # 同时写入旧格式以保持兼容
             await redis_client.hset("pygbsentry:nodes", self.node_id, time.time())
             logger.info(f"[Cluster HA] Node {self.node_id} registered to cluster")

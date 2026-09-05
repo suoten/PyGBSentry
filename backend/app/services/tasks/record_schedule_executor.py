@@ -54,7 +54,7 @@ def _parse_ranges(raw: str) -> list[dict]:
     try:
         arr = json.loads(raw or "[]")
         return arr if isinstance(arr, list) else []
-    except Exception:
+    except (ValueError, TypeError):
         return []
 
 
@@ -62,7 +62,7 @@ def _is_in_range(now: datetime.datetime, start_hm: str, end_hm: str) -> bool:
     try:
         sh, sm = [int(x) for x in start_hm.split(":", 1)]
         eh, em = [int(x) for x in end_hm.split(":", 1)]
-    except Exception:
+    except (ValueError, TypeError):
         return False
     start = now.replace(hour=sh, minute=sm, second=0, microsecond=0)
     end = now.replace(hour=eh, minute=em, second=0, microsecond=0)

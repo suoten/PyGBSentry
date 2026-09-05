@@ -58,7 +58,10 @@ from loguru import logger
 
 PLUGIN_DIR = "plugins"
 MARKETPLACE_CATALOG_PATH = os.path.join(PLUGIN_DIR, "marketplace.json")
-BACKEND_ROOT_DIR = FSPath(__file__).resolve().parents[4]  # backend/
+# FIX: [2026-08-22 P1] parents[4] 指向 backend/app 而非 backend/，导致 PLUGIN_DIR_ABS 错位、
+# /plugins/plugin-assets/ 404。本文件位于 backend/app/api/v1/endpoints/plugins/，parents 链为
+# [plugins, endpoints, v1, api, app, backend]，故取 parents[5]。
+BACKEND_ROOT_DIR = FSPath(__file__).resolve().parents[5]  # backend/
 PLUGIN_DIR_ABS = BACKEND_ROOT_DIR / PLUGIN_DIR
 
 # ---------------------------------------------------------------------------

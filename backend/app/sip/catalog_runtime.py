@@ -193,6 +193,11 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
                     resource = existing_resources.get(item_id)
                     if resource:
                         if event_type == "DEL":
+                            # FIX [2026-09-03 P1]: 先删录像记录再删通道，避免
+                            # records_resource_id_fkey 外键违反（PG/MySQL）。
+                            from app.models.record import Record as _Rec
+                            from sqlalchemy import delete as _del
+                            await session.execute(_del(_Rec).where(_Rec.resource_id == resource.id))
                             await session.delete(resource)
                             existing_resources.pop(item_id, None)
                         else:

@@ -98,6 +98,26 @@ def _build_play_urls(
     urls["https_fmp4"] = https_fmp4
     urls["ws_fmp4"] = ws_fmp4
     urls["wss_fmp4"] = wss_fmp4
+    # FIX [2026-09-04 P1]: HTTPS 站点适配 —— 对外访问协议为 https 时，主地址族
+    # （flv/hls/fmp4/ts/ws_*）升级为对应的安全变体（https/wss，端口取 https_port）。
+    # 原实现主地址恒为 http://，而 nginx 只在 443(HTTPS) 对外提供流媒体时，
+    # 会生成 http://host:443 这种 plain-HTTP 打 TLS 端口的必然失败地址，
+    # 前端选中即黑屏/被混合内容拦截。
+    if str(settings.STREAM_PUBLIC_SCHEME or "").strip().lower() == "https":
+        secure_map = {
+            "flv": "https_flv",
+            "fmp4": "https_fmp4",
+            "ts": "https_ts",
+            "hls": "https_hls",
+            "ws_flv": "wss_flv",
+            "ws_fmp4": "wss_fmp4",
+            "ws_ts": "wss_ts",
+            "ws_hls": "wss_hls",
+            "rtc": "rtcs",
+        }
+        for plain_key, secure_key in secure_map.items():
+            if urls.get(secure_key):
+                urls[plain_key] = urls[secure_key]
     for key in (
         "flv",
         "https_flv",
@@ -123,6 +143,23 @@ def _build_play_urls(
     return urls
 
 
+def _effective_https_port(selected_node) -> int:
+    """计算 HTTPS 族播放地址端口。
+
+    FIX [2026-09-03 P1]: HTTPS 站点（STREAM_PUBLIC_SCHEME=https）未显式配置
+    MEDIA_SERVER_HTTPS_PORT / 节点 https_port 时，端口为 0 导致 https 族地址
+    全部为 null，HTTPS 页面只剩会被混合内容拦截的 http 地址（实时预览黑屏）。
+    此时自动沿用 STREAM_PUBLIC_HTTP_PORT（nginx 443 反代场景的标准配置）。
+    """
+    https_port = _safe_int(
+        _node_value(selected_node, "https_port"),
+        _safe_int(settings.MEDIA_SERVER_HTTPS_PORT, 0),
+    )
+    if https_port <= 0 and str(settings.STREAM_PUBLIC_SCHEME or "").strip().lower() == "https":
+        https_port = _safe_int(settings.STREAM_PUBLIC_HTTP_PORT, 443)
+    return https_port
+
+
 def _build_media_server_payload(selected_node, media_host: str | None, http_port: int | None, zlm_probe_ok: bool) -> dict:
     public_host = _first_non_empty(
         media_host,
@@ -131,10 +168,7 @@ def _build_media_server_payload(selected_node, media_host: str | None, http_port
         settings.STREAM_PUBLIC_HOST,
         settings.MEDIA_SERVER_HOST,
     )
-    https_port = _safe_int(
-        _node_value(selected_node, "https_port"),
-        _safe_int(settings.MEDIA_SERVER_HTTPS_PORT, 0),
-    )
+    https_port = _effective_https_port(selected_node)
     rtmp_port = _safe_int(
         _node_value(selected_node, "rtmp_port"),
         _safe_int(settings.MEDIA_SERVER_RTMP_PORT, 0),
@@ -768,7 +802,7 @@ async def _build_full_play_response(
         media_port,
         _safe_int(_node_value(selected_node, "public_http_port"), _safe_int(settings.STREAM_PUBLIC_HTTP_PORT, 0)),
     )
-    https_port = _safe_int(_node_value(selected_node, "https_port"), _safe_int(settings.MEDIA_SERVER_HTTPS_PORT, 0))
+    https_port = _effective_https_port(selected_node)
     rtsp_port = _safe_int(_node_value(selected_node, "rtsp_port"), _safe_int(settings.MEDIA_SERVER_RTSP_PORT, 0))
     rtsps_port = _safe_int(_node_value(selected_node, "rtsps_port"), _safe_int(settings.MEDIA_SERVER_RTSPS_PORT, 0))
     rtmp_port = _safe_int(_node_value(selected_node, "rtmp_port"), _safe_int(settings.MEDIA_SERVER_RTMP_PORT, 0))

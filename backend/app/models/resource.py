@@ -48,8 +48,8 @@ class Resource(Base):
     # 目录树结构
     parent_id = Column(String(32), ForeignKey("resources.id"), nullable=True)
     parent_gb_id = Column(String(20), nullable=True, index=True)
-    civil_code = Column(String(16), nullable=True, index=True, comment="行政区划编码")
-    node_type = Column(String(16), default="channel", index=True)
+    civil_code = Column(String(64), nullable=True, index=True, comment="行政区划编码")
+    node_type = Column(String(32), default="channel", index=True)
     region_parent_gb_id = Column(String(64), nullable=True, index=True)
 
     # GB28181 Extended Fields

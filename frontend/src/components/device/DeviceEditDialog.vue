@@ -173,6 +173,27 @@ interface DeviceForm {
   heartbeat_count: number
 }
 
+/** deviceData 的局部字段视图（用于编辑表单回填） */
+interface DeviceEditRow {
+  gb_id?: string
+  organization_id?: string
+  name?: string
+  password?: string
+  ip_addr?: string
+  port?: number | null
+  transport?: string
+  manufacturer?: string
+  model?: string
+  firmware?: string
+  domain?: string
+  charset?: string
+  ssrc_check?: boolean
+  geo_coord_sys?: string
+  as_message_channel?: boolean
+  heartbeat_interval?: number
+  heartbeat_count?: number
+}
+
 const props = defineProps<{
   modelValue: boolean
   deviceData: Record<string, unknown> | null
@@ -223,7 +244,7 @@ watch(() => props.modelValue, async (val) => {
   if (val) {
     await loadOrganizations()
     if (props.deviceData) {
-      const row = props.deviceData
+      const row = props.deviceData as DeviceEditRow
       form.value = {
         gb_id: row.gb_id || '',
         organization_id: row.organization_id || '',

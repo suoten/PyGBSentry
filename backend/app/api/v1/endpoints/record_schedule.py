@@ -139,103 +139,6 @@ async def create_schedule(
     return {"id": plan.id, "resource_id": plan.resource_id, "plan_type": plan.plan_type, "enabled": plan.enabled}
 
 
-@router.put("/{schedule_id}")
-async def update_schedule(
-    schedule_id: str,
-    payload: RecordScheduleUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-):
-    """更新录像计划。"""
-    stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
-    if not current_user.is_superuser:
-        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
-            Asset, Asset.id == Resource.asset_id
-        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
-    row = (await db.execute(stmt)).scalars().first()
-    if not row:
-        await safe_auth_audit(
-            db,
-            module="record_schedule",
-            action="update_schedule",
-            source="record_schedule_admin",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=404,
-            detail="not_found",
-            extra_summary=f"schedule_id={schedule_id}",
-        )
-        raise HTTPException(status_code=404, detail="Record schedule not found")
-    if payload.plan_type is not None:
-        row.plan_type = payload.plan_type
-    if payload.enabled is not None:
-        row.enabled = payload.enabled
-    if payload.time_ranges is not None:
-        row.time_ranges = json.dumps(payload.time_ranges)
-    if payload.priority is not None:
-        row.priority = payload.priority
-    await db.commit()
-    await safe_auth_audit(
-        db,
-        module="record_schedule",
-        action="update_schedule",
-        source="record_schedule_admin",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-        extra_summary=f"schedule_id={row.id}; resource_id={row.resource_id}",
-    )
-    return {"status": "ok"}
-
-
-@router.delete("/{schedule_id}")
-async def delete_schedule(
-    schedule_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-):
-    """删除录像计划。"""
-    stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
-    if not current_user.is_superuser:
-        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
-            Asset, Asset.id == Resource.asset_id
-        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
-    row = (await db.execute(stmt)).scalars().first()
-    if not row:
-        await safe_auth_audit(
-            db,
-            module="record_schedule",
-            action="delete_schedule",
-            source="record_schedule_admin",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=404,
-            detail="not_found",
-            extra_summary=f"schedule_id={schedule_id}",
-        )
-        raise HTTPException(status_code=404, detail="Record schedule not found")
-    rid, resid, ptype = row.id, row.resource_id, row.plan_type or ""
-    await db.delete(row)
-    await db.commit()
-    await safe_auth_audit(
-        db,
-        module="record_schedule",
-        action="delete_schedule",
-        source="record_schedule_admin",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-        extra_summary=f"schedule_id={rid}; resource_id={resid}; plan_type={ptype}",
-    )
-    return {"status": "ok"}
-
-
 class StorageConfigPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     storage_root: str | None = None
@@ -374,6 +277,110 @@ async def list_schedule_runtimes(
         }
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# FIX: [2026-08-22 P1] 路由遮蔽修复：原 PUT /{schedule_id} 先于 PUT /storage-config、
+# PUT /storage-nodes 注册，FastAPI 按注册顺序匹配，两个静态路径被通配路由抢先捕获
+# （schedule_id="storage-config"/"storage-nodes" → 查无此计划 → 404），存储配置
+# 与存储节点端点不可用。把单段通配路由 /{schedule_id} 移到静态路由之后注册。
+# ---------------------------------------------------------------------------
+
+@router.put("/{schedule_id}")
+async def update_schedule(
+    schedule_id: str,
+    payload: RecordScheduleUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """更新录像计划。"""
+    stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
+    if not current_user.is_superuser:
+        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
+            Asset, Asset.id == Resource.asset_id
+        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
+    row = (await db.execute(stmt)).scalars().first()
+    if not row:
+        await safe_auth_audit(
+            db,
+            module="record_schedule",
+            action="update_schedule",
+            source="record_schedule_admin",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=404,
+            detail="not_found",
+            extra_summary=f"schedule_id={schedule_id}",
+        )
+        raise HTTPException(status_code=404, detail="Record schedule not found")
+    if payload.plan_type is not None:
+        row.plan_type = payload.plan_type
+    if payload.enabled is not None:
+        row.enabled = payload.enabled
+    if payload.time_ranges is not None:
+        row.time_ranges = json.dumps(payload.time_ranges)
+    if payload.priority is not None:
+        row.priority = payload.priority
+    await db.commit()
+    await safe_auth_audit(
+        db,
+        module="record_schedule",
+        action="update_schedule",
+        source="record_schedule_admin",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+        extra_summary=f"schedule_id={row.id}; resource_id={row.resource_id}",
+    )
+    return {"status": "ok"}
+
+
+@router.delete("/{schedule_id}")
+async def delete_schedule(
+    schedule_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """删除录像计划。"""
+    stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
+    if not current_user.is_superuser:
+        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
+            Asset, Asset.id == Resource.asset_id
+        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
+    row = (await db.execute(stmt)).scalars().first()
+    if not row:
+        await safe_auth_audit(
+            db,
+            module="record_schedule",
+            action="delete_schedule",
+            source="record_schedule_admin",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=404,
+            detail="not_found",
+            extra_summary=f"schedule_id={schedule_id}",
+        )
+        raise HTTPException(status_code=404, detail="Record schedule not found")
+    rid, resid, ptype = row.id, row.resource_id, row.plan_type or ""
+    await db.delete(row)
+    await db.commit()
+    await safe_auth_audit(
+        db,
+        module="record_schedule",
+        action="delete_schedule",
+        source="record_schedule_admin",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+        extra_summary=f"schedule_id={rid}; resource_id={resid}; plan_type={ptype}",
+    )
+    return {"status": "ok"}
 
 
 class ForceActionPayload(BaseModel):

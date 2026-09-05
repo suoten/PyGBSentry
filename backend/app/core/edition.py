@@ -48,12 +48,12 @@ def edition_label() -> str:
 
 def has_plugin_marketplace() -> bool:
     """Plugin Marketplace is a server-edition feature; OSS exposes 501 stubs."""
-    return is_server_edition() and settings.PLUGIN_MARKETPLACE_ENABLED
+    return bool(is_server_edition()) and settings.PLUGIN_MARKETPLACE_ENABLED
 
 
 def has_license_verification() -> bool:
     """Paid-plugin license verification is a server-edition feature."""
-    return is_server_edition()
+    return bool(is_server_edition())
 
 
 def has_quota_enforcement() -> bool:
@@ -62,4 +62,4 @@ def has_quota_enforcement() -> bool:
     OSS edition does not enforce quotas — :func:`commercial_guard.get_effective_limits`
     returns ``(0, 0)`` meaning "unlimited".
     """
-    return is_server_edition()
+    return bool(is_server_edition())

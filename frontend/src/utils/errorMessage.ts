@@ -14,13 +14,29 @@ export type FriendlyError = {
   upgradeHookReport?: Record<string, unknown>
 }
 
+interface ApiErrorResponse {
+  status?: number
+  data?: Record<string, unknown>
+}
+
+interface StructuredErrorDetail {
+  reason_code?: string
+  reasonCode?: string
+  suggestion?: string
+  retryable?: boolean
+  diagnostics?: Record<string, unknown>
+  message?: string
+  detail?: string
+  upgrade_hook_report?: Record<string, unknown>
+}
+
 // FIXED-P2: W-18 错误消息匹配添加英文关键词，兼容后端英文返回
 export function getFriendlyError(error: unknown): FriendlyError {
-  const res = (error as Record<string, unknown>)?.response
+  const res = (error as { response?: ApiErrorResponse })?.response
   const status = res?.status
   const data = res?.data
 
-  const pickString = (...list: Record<string, unknown>[]) => {
+  const pickString = (...list: unknown[]) => {
     for (const item of list) {
       const value = typeof item === 'string' ? item.trim() : ''
       if (value) return value
@@ -31,7 +47,7 @@ export function getFriendlyError(error: unknown): FriendlyError {
   const structuredDetail =
     data && typeof data === 'object'
       ? typeof (data as Record<string, unknown>).detail === 'object' && (data as Record<string, unknown>).detail
-        ? (data as Record<string, unknown>).detail
+        ? (data as Record<string, unknown>).detail as StructuredErrorDetail
         : null
       : null
 
@@ -47,7 +63,7 @@ export function getFriendlyError(error: unknown): FriendlyError {
     structuredDetail?.diagnostics && typeof structuredDetail.diagnostics === 'object'
       ? structuredDetail.diagnostics
       : data?.diagnostics && typeof data.diagnostics === 'object'
-        ? data.diagnostics
+        ? data.diagnostics as Record<string, unknown>
         : undefined
 
   const detail = pickString(
@@ -56,7 +72,7 @@ export function getFriendlyError(error: unknown): FriendlyError {
     structuredDetail?.detail,
     (data as Record<string, unknown>)?.message,
     (data as Record<string, unknown>)?.msg,
-    res?.data?.detail?.msg
+    (res?.data?.detail as { msg?: unknown })?.msg
   )
   const msg = detail || (error as Error)?.message || t('error.requestFailed') // FIXED: 国际化
 

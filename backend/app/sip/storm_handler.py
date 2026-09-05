@@ -2,11 +2,12 @@ import time
 import asyncio
 from loguru import logger
 import datetime
-from sqlalchemy import update
+from sqlalchemy import select, update
 from app.core.redis import redis_client
 from app.db.session import AsyncSessionLocal
 from app.models.asset import Asset
 from app.models.platform import ParentPlatform
+from app.models.resource import Resource
 
 
 
@@ -38,7 +39,19 @@ async def should_skip_keepalive_db_update(gb_id: str, ip: str, port: int) -> boo
                     return True
 
             # Needs DB update, set cache
-            await redis_client.hset(key, mapping={"time": now, "ip": ip, "port": port})
+            # FIX [2026-09-01 P1]: hset(mapping=) 多字段语法需 Redis 4.0+；本机
+            # Windows Redis 3.0 会抛 "wrong number of arguments"，导致心跳平滑
+            # 失效、每次心跳都直查 DB。改用兼容函数逐字段写入。
+            from app.core.redis import hset_mapping
+            await hset_mapping(
+                redis_client,
+                key,
+                {
+                    "time": str(now if now is not None else 0),
+                    "ip": str(ip if ip is not None else ""),
+                    "port": str(port if port is not None else 0),
+                },
+            )
             await redis_client.expire(key, KEEPALIVE_DB_INTERVAL * 2)
             return False
         except Exception as e:
@@ -187,11 +200,28 @@ async def _process_batch(batch: list):
                         # 修复：心跳只更新 last_keepalive 和 status，
                         #   ip_addr/port/transport 仅在 REGISTER 时设置（注册时已验证源 IP）
                         #   NAT 端口变化场景由设备重新注册处理
-                        stmt = update(Asset).where(Asset.gb_id == item["gb_id"]).values(
+                        #
+                        # FIX [2026-09-04 P1]: 心跳证明设备可达——若该设备此前被（误）标离线，
+                        # 除恢复设备状态外，同时恢复其通道 status（个别真实离线通道由目录
+                        # 刷新校正）。否则看门狗误标后，通道要等最长 30 分钟的目录刷新才恢复，
+                        # 表现为「通道慢慢离线、同步才回来」。
+                        _arow = (
+                            await session.execute(
+                                select(Asset.id, Asset.status).where(Asset.gb_id == item["gb_id"])
+                            )
+                        ).first()
+                        if _arow is None:
+                            continue
+                        _was_offline = (_arow.status or 0) == 0
+                        stmt = update(Asset).where(Asset.id == _arow.id).values(
                             last_keepalive=item["time"],
                             status=1,
                         )
                         await session.execute(stmt)
+                        if _was_offline:
+                            await session.execute(
+                                update(Resource).where(Resource.asset_id == _arow.id).values(status=1)
+                            )
 
                         platform_stmt = update(ParentPlatform).where(
                             (ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"])
@@ -202,14 +232,33 @@ async def _process_batch(batch: list):
 
                     elif item["type"] == "register":
                         is_online = item["expires"] > 0
+                        # FIX [2026-09-01 P2]: 注册即活性证明 — 同步更新 last_keepalive。
+                        # 原实现只更新 register_time，重启后 _check_device_offline 在
+                        # 「注册完成→首个心跳到达」的窗口内读到过期的 last_keepalive，
+                        # 把刚上线的设备连同通道误标离线，监控中心无法上屏。
                         stmt = update(Asset).where(Asset.gb_id == item["gb_id"]).values(
                             register_time=item["time"],
+                            last_keepalive=item["time"],
                             status=1 if is_online else 0,
                             ip_addr=item["ip"],
                             port=item["port"],
                             transport=item["proto"]
                         )
                         await session.execute(stmt)
+
+                        if is_online:
+                            # 设备重新上线时恢复其通道状态（个别真实离线通道由目录刷新校正）。
+                            # 两步查询（先取 asset id 再按 asset_id 更新），
+                            # 避免在 UPDATE 的 WHERE 中使用子查询引发的方言兼容问题。
+                            _asset_id_row = await session.execute(
+                                select(Asset.id).where(Asset.gb_id == item["gb_id"])
+                            )
+                            _asset_id = _asset_id_row.scalar()
+                            if _asset_id:
+                                restore_stmt = update(Resource).where(
+                                    Resource.asset_id == _asset_id
+                                ).values(status=1)
+                                await session.execute(restore_stmt)
 
                         platform_stmt = update(ParentPlatform).where(
                             (ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"])

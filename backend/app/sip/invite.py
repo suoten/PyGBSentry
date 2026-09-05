@@ -600,7 +600,7 @@ def _is_ipv4(v: str | None) -> bool:
         return False
     try:
         nums = [int(p) for p in parts]
-    except Exception:
+    except ValueError:
         return False
     return all(0 <= n <= 255 for n in nums)
 
@@ -635,7 +635,7 @@ def _parse_port_range(raw: str | None) -> tuple[int, int]:
 def _get_client_tx_manager():
     try:
         from app.sip import transactions as sip_transactions
-    except Exception:
+    except ImportError:
         return None
     return getattr(sip_transactions, "client_tx_manager", None) or getattr(sip_transactions, "tx_manager", None)
 
@@ -1313,7 +1313,10 @@ class SipInvite:
                 event = asyncio.Event()
                 result_container = {"received": False, "status_code": 0}
 
-                def _bye_response_handler(msg: SipMessage, addr_t: tuple, proto_t: str, transport_t):
+                # FIX [2026-09-01 P1]: 必须为 async — server.process_message 对所有
+                # response handler 统一 await，同步函数返回 bool 会触发
+                # "object bool can't be used in 'await' expression"。
+                async def _bye_response_handler(msg: SipMessage, addr_t: tuple, proto_t: str, transport_t):
                     if msg.get_header("Call-ID") != call_id:
                         return False
                     # W-03 BYE response handler must also check CSeq method is BYE to avoid mismatch
@@ -2692,6 +2695,9 @@ class SipInvite:
         if _pending_for_wd:
             _pending_for_wd[1]["watchdog_on_timeout"] = _on_timeout
         start_watchdog(key=f"invite:{call_id}", timeout_seconds=timeout, on_timeout=_on_timeout)
+        # NOTE: ACK 超时检测由 invite_server_state.py 的 Timer H (RFC 3261 §17.2.1) 处理。
+        # UAC 侧（本模块）在收到 200 OK 后主动发送 ACK，无需等待设备 ACK。
+        # UAS 侧在 invite_server_state 中已有完整的 Timer H 超时 + BYE 清理机制。
 
         logger.info(f"Sent {session_name} INVITE to {channel_id} (SSRC: {ssrc}, zlm_ssrc_check={bool(ssrc_check_enabled)})")
 
@@ -2817,7 +2823,10 @@ class SipInvite:
                 await tx_manager.send_request(req, addr, proto, transport)
             else:
                 data = req.to_bytes()
-                await send_sip_bytes(transport, data, addr, proto)
+                # FIX: [2026-08-22 PN] 原调用 send_sip_bytes(transport, data, addr, proto)
+                # 参数顺序与签名 send_sip_bytes(proto, transport, addr, data) 颠倒，
+                # 导致 tx_manager=None 回退分支发送必然失败。
+                await send_sip_bytes(proto, transport, addr, data)
             logger.debug(f"send_session_refresh_reinvite: sent re-INVITE call_id={call_id} cseq={cseq}")
             return True
         except Exception as e:

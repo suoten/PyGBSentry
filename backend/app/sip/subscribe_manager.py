@@ -76,20 +76,29 @@ class SubscribeManager:
 
     # GB13 CSeq持久化 — 进程重启后CSeq从DB恢复
     async def _persist_cseq(self, call_id: str, cseq: int):
-        """Persist CSeq to Redis/DB for recovery after restart"""
+        """Persist CSeq to Redis for recovery after restart.
+
+        FIX: [2026-08-22 P1] 原导入 app.core.redis_state.get_redis_state —— 该函数
+        不存在，ImportError 被 except 吞掉 → CSeq 持久化/恢复从未生效（测试发现）。
+        改用 app.core.redis 的全局客户端（未初始化时静默跳过，行为与原降级一致）。
+        """
         try:
-            from app.core.redis_state import get_redis_state
-            state = get_redis_state()
-            await state.set(f"sip:sub_cseq:{call_id}", str(cseq), ttl=86400)
+            from app.core import redis as _redis_module
+            client = _redis_module.redis_client
+            if client is None:
+                return
+            await client.set(f"sip:sub_cseq:{call_id}", str(cseq), ex=86400)
         except Exception as e:
             logger.warning(f"CSeq persist failed: {e}")
 
     async def _restore_cseq(self, call_id: str) -> int:
         """Restore CSeq from Redis/DB"""
         try:
-            from app.core.redis_state import get_redis_state
-            state = get_redis_state()
-            val = await state.get(f"sip:sub_cseq:{call_id}")
+            from app.core import redis as _redis_module
+            client = _redis_module.redis_client
+            if client is None:
+                return 1
+            val = await client.get(f"sip:sub_cseq:{call_id}")
             if val:
                 return int(val)
         except Exception as e:
@@ -404,7 +413,14 @@ class SubscribeManager:
     async def remove_inbound(self, device_id: str, event: str) -> SubscribeInfo | None:
         # P2 竞态条件 — inbound操作添加锁保护
         async with self._lock:
-            return self._inbound.pop(f"{device_id}:{event}", None)
+            key = f"{device_id}:{event}"
+            sub = self._inbound.pop(key, None)
+            # FIX: [2026-08-22 PN] remove_inbound 同时取消并移除续期任务，
+            # 原实现不取消 → 任务空转到 sleep 结束才自清
+            renew_task = self._inbound_renew_tasks.pop(key, None)
+            if renew_task and not renew_task.done():
+                renew_task.cancel()
+            return sub
 
     # W-01 SubscribeManager全部方法添加锁保护，消除竞态条件
     async def put_outbound(self, subscribe: OutboundSubscribe) -> OutboundSubscribe:

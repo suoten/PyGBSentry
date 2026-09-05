@@ -248,6 +248,34 @@ import { logger } from '@/utils/logger'
 
 const { t } = useI18n()
 
+// window 上挂载的第三方播放器库的最小类型声明（按本组件实际用到的 API）
+type HlsLevel = { height: number }
+type HlsPlayerInstance = {
+  loadSource(url: string): void
+  attachMedia(media: HTMLVideoElement): void
+  on<E, D>(event: string, handler: (event: E, data: D) => void): void
+  destroy(): void
+  currentLevel: number
+  levels: HlsLevel[]
+}
+type HlsStatic = {
+  isSupported(): boolean
+  new (config: Record<string, unknown>): HlsPlayerInstance
+  Events: Record<string, string>
+  ErrorTypes: Record<string, string>
+}
+type FlvPlayerInstance = {
+  attachMediaElement(media: HTMLVideoElement): void
+  load(): void
+  on<E, D, I>(event: string, handler: (eventType: E, detail: D, info: I) => void): void
+  play(): Promise<void>
+}
+type FlvJsStatic = {
+  isSupported(): boolean
+  createPlayer(mediaDataSource: Record<string, unknown>, config?: Record<string, unknown>): FlvPlayerInstance
+  Events: Record<string, string>
+}
+
 // Props
 const props = withDefaults(defineProps<{
   sources: VodSource | string
@@ -256,6 +284,7 @@ const props = withDefaults(defineProps<{
   poster?: string
   startTime?: number
   showControls?: boolean
+  showNativeControls?: boolean
   showQualityIndicator?: boolean
   enableSeamlessPlayback?: boolean
 }>(), {
@@ -266,12 +295,9 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (e: 'play'): void
-  (e: 'pause'): void
-  (e: 'ended'): void
-  (e: 'timeupdate', time: number): void
+  (e: 'play' | 'pause' | 'ended'): void
+  (e: 'timeupdate' | 'ready', value: number): void
   (e: 'error', error: { code: string; message: string }): void
-  (e: 'ready', duration: number): void
   (e: 'qualitychange', level: VodQualityLevel): void
   (e: 'metrics', metrics: VodQualityMetrics): void
   (e: 'statechange', state: VodPlayerState): void
@@ -344,7 +370,7 @@ const flashUrl = ref('')
 const flashVars = ref('')
 
 // HLS.js 实例
-let hlsInstance: unknown = null
+let hlsInstance: HlsPlayerInstance | null = null
 
 // 隐藏控制栏定时器
 let hideControlsTimer: number | null = null
@@ -430,7 +456,7 @@ async function initPlayer() {
     }
     
   } catch (error: unknown) {
-    handleError('init_error', error.message || t('player.initFailed'))  // FIXED: P3 i18n
+    handleError('init_error', (error as { message?: string }).message || t('player.initFailed'))  // FIXED: P3 i18n
   }
 }
 
@@ -507,7 +533,7 @@ async function initDirectMp4(url: string) {
   if (props.autoplay !== false) {
     try {
       await videoEl.value.play()
-    } catch (e: Event) {
+    } catch {
       // 自动播放被阻止，监听用户交互
       setupAutoplayUnlock()
     }
@@ -548,70 +574,68 @@ async function initStreaming(url: string) {
  */
 async function initHlsPlayer(url: string) {
   // 检查 HLS.js 是否可用
-  if (typeof window !== 'undefined' && (window as Record<string, unknown>).Hls) {
-    const Hls = (window as Record<string, unknown>).Hls
-    
-    if (Hls.isSupported()) {
-      hlsInstance = new Hls({
-        enableWorker: true,
-        lowLatencyMode: false, // 点播不使用低延迟模式
-        backBufferLength: config.value.maxBufferTime ? config.value.maxBufferTime / 1000 : 30,
-        maxBufferLength: config.value.maxBufferTime ? config.value.maxBufferTime / 1000 : 30,
-        maxMaxBufferLength: config.value.maxBufferTime ? (config.value.maxBufferTime / 1000) * 2 : 60,
-        startLevel: -1, // 自动选择
-        autoStartLoad: true,
-        // 稳定性优化
-        fragLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 10000,
-        levelLoadingMaxRetry: 3,
-        manifestLoadingTimeOut: 10000,
-        manifestLoadingMaxRetry: 3,
-      })
-      
-      hlsInstance.loadSource(url)
-      hlsInstance.attachMedia(videoEl.value)
-      
-      hlsInstance.on(Hls.Events.MANIFEST_PARSED, (_: Record<string, unknown>, data: Record<string, unknown>) => {
-        const levels = data.levels || []
-        if (levels.length > 0) {
-          state.value.availableQualities = ['auto', ...levels.map((l: Record<string, unknown>) => `level_${l.height}p`)]
+  const Hls = typeof window !== 'undefined' ? (window as unknown as { Hls?: HlsStatic }).Hls : undefined
+
+  if (Hls && Hls.isSupported()) {
+    hlsInstance = new Hls({
+      enableWorker: true,
+      lowLatencyMode: false, // 点播不使用低延迟模式
+      backBufferLength: config.value.maxBufferTime ? config.value.maxBufferTime / 1000 : 30,
+      maxBufferLength: config.value.maxBufferTime ? config.value.maxBufferTime / 1000 : 30,
+      maxMaxBufferLength: config.value.maxBufferTime ? (config.value.maxBufferTime / 1000) * 2 : 60,
+      startLevel: -1, // 自动选择
+      autoStartLoad: true,
+      // 稳定性优化
+      fragLoadingTimeOut: 20000,
+      fragLoadingMaxRetry: 3,
+      levelLoadingTimeOut: 10000,
+      levelLoadingMaxRetry: 3,
+      manifestLoadingTimeOut: 10000,
+      manifestLoadingMaxRetry: 3,
+    })
+
+    hlsInstance.loadSource(url)
+    hlsInstance.attachMedia(videoEl.value as HTMLVideoElement)
+
+    hlsInstance.on(Hls.Events.MANIFEST_PARSED, (_: unknown, data: { levels?: HlsLevel[] }) => {
+      const levels = data.levels || []
+      if (levels.length > 0) {
+        state.value.availableQualities = ['auto', ...levels.map((l): VodQualityLevel => `level_${l.height}p`)]
+      }
+
+      state.value.status = 'ready'
+
+      if (props.startTime && props.startTime > 0) {
+        videoEl.value!.currentTime = props.startTime
+      }
+
+      if (props.autoplay !== false) {
+        videoEl.value!.play().catch(() => setupAutoplayUnlock())
+      }
+
+      emit('ready', videoEl.value!.duration)
+    })
+
+    hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (_: unknown, data: { level: number }) => {
+      const level = hlsInstance!.levels[data.level]
+      if (level) {
+        const quality: VodQualityLevel = `level_${level.height}p`
+        if (state.value.qualityLevel !== quality) {
+          const prev = state.value.qualityLevel
+          state.value.qualityLevel = quality
+          emit('qualitychange', quality)
         }
-        
-        state.value.status = 'ready'
-        
-        if (props.startTime && props.startTime > 0) {
-          videoEl.value!.currentTime = props.startTime
-        }
-        
-        if (props.autoplay !== false) {
-          videoEl.value!.play().catch(() => setupAutoplayUnlock())
-        }
-        
-        emit('ready', videoEl.value!.duration)
-      })
-      
-      hlsInstance.on(Hls.Events.LEVEL_SWITCHED, (_: Record<string, unknown>, data: Record<string, unknown>) => {
-        const level = hlsInstance.levels[data.level]
-        if (level) {
-          const quality = `level_${level.height}p`
-          if (state.value.qualityLevel !== quality) {
-            const prev = state.value.qualityLevel
-            state.value.qualityLevel = quality
-            emit('qualitychange', quality as VodQualityLevel)
-          }
-        }
-      })
-      
-      hlsInstance.on(Hls.Events.ERROR, (_: Record<string, unknown>, data: Record<string, unknown>) => {
-        if (data.fatal) {
-          handleError('hls_error', data.details || t('player.hlsError'))  // FIXED: P3 i18n
-        }
-      })
-      
-      startMetricsCollection()
-      return
-    }
+      }
+    })
+
+    hlsInstance.on(Hls.Events.ERROR, (_: unknown, data: { fatal?: boolean; details?: string }) => {
+      if (data.fatal) {
+        handleError('hls_error', data.details || t('player.hlsError'))  // FIXED: P3 i18n
+      }
+    })
+
+    startMetricsCollection()
+    return
   }
   
   // 降级到原生 HLS 支持
@@ -633,74 +657,72 @@ async function initHlsPlayer(url: string) {
  * 初始化 FLV 播放器
  */
 async function initFlvPlayer(url: string) {
-  if (typeof window !== 'undefined' && (window as Record<string, unknown>).flvjs) {
-    const flvjs = (window as Record<string, unknown>).flvjs
-    
-    if (flvjs.isSupported()) {
-      const flvPlayer = flvjs.createPlayer({
-        type: 'flv',
-        url: url,
-        hasAudio: true,
-        hasVideo: true,
-        cors: true,
-        isLive: false, // 点播
-      }, {
-        enableWorker: true,
-        enableStashBuffer: true,
-        stashInitialSize: 128, // 增大初始缓冲区
-        autoCleanupSourceBuffer: true,
-        autoCleanupMinBackwardDuration: 3,
-        autoCleanupMaxBackwardDuration: 8,
-        // 稳定性优化
-        lazyLoad: true,
-        lazyLoadMaxDuration: 3 * 60,
-        lazyLoadRecoverDuration: 30,
-        // 缓冲控制
-        bufferingTime: config.value.startBufferTime || 1000,
-        maxBufferLength: 30,
-        maxBufferSize: 10 * 1024 * 1024,
-      })
-      
-      flvPlayer.attachMediaElement(videoEl.value!)
-      flvPlayer.load()
-      
-      flvPlayer.on(flvjs.Events.METADATA_ARRIVED, (metadata: Record<string, unknown>) => {
-        if (metadata) {
-          state.value.duration = metadata.duration || 0
-          if (props.startTime) videoEl.value!.currentTime = props.startTime
-        }
-      })
-      
-      flvPlayer.on(flvjs.Events.ERROR, (errType: Record<string, unknown>, errDetail: Record<string, unknown>, errInfo: Record<string, unknown>) => {
-        handleError('flv_error', errInfo || t('player.flvError'))  // FIXED: P3 i18n
-      })
-      
-      flvPlayer.on(flvjs.Events.STATISTICS_INFO, (info: Record<string, unknown>) => {
-        updateMetrics({
-          bitrate: info.speed * 8, // 转换为 bps
-          fps: info.videoData?.fps || 0,
-          width: info.videoData?.width || 0,
-          height: info.videoData?.height || 0,
-          bufferDelay: (info.speed || 0) * 1000,
-          droppedFrames: info.droppedFrames || 0,
-          totalFrames: info.totalFrames || 0,
-          latency: 0,
-          lastUpdate: Date.now()
-        })
-      })
-      
-      state.value.status = 'ready'
-      
-      if (props.autoplay !== false) {
-        flvPlayer.play().catch(() => setupAutoplayUnlock())
+  const flvjs = typeof window !== 'undefined' ? (window as unknown as { flvjs?: FlvJsStatic }).flvjs : undefined
+
+  if (flvjs && flvjs.isSupported()) {
+    const flvPlayer = flvjs.createPlayer({
+      type: 'flv',
+      url: url,
+      hasAudio: true,
+      hasVideo: true,
+      cors: true,
+      isLive: false, // 点播
+    }, {
+      enableWorker: true,
+      enableStashBuffer: true,
+      stashInitialSize: 128, // 增大初始缓冲区
+      autoCleanupSourceBuffer: true,
+      autoCleanupMinBackwardDuration: 3,
+      autoCleanupMaxBackwardDuration: 8,
+      // 稳定性优化
+      lazyLoad: true,
+      lazyLoadMaxDuration: 3 * 60,
+      lazyLoadRecoverDuration: 30,
+      // 缓冲控制
+      bufferingTime: config.value.startBufferTime || 1000,
+      maxBufferLength: 30,
+      maxBufferSize: 10 * 1024 * 1024,
+    })
+
+    flvPlayer.attachMediaElement(videoEl.value!)
+    flvPlayer.load()
+
+    flvPlayer.on(flvjs.Events.METADATA_ARRIVED, (metadata: { duration: number }) => {
+      if (metadata) {
+        state.value.duration = metadata.duration || 0
+        if (props.startTime) videoEl.value!.currentTime = props.startTime
       }
-      
-      emit('ready', state.value.duration)
-      startMetricsCollection()
-      return
+    })
+
+    flvPlayer.on(flvjs.Events.ERROR, (errType: Record<string, unknown>, errDetail: Record<string, unknown>, errInfo: Record<string, unknown>) => {
+      handleError('flv_error', (errInfo as unknown as string) || t('player.flvError'))  // FIXED: P3 i18n
+    })
+
+    flvPlayer.on(flvjs.Events.STATISTICS_INFO, (info: { speed: number; videoData: { fps: number; width: number; height: number }; droppedFrames: number; totalFrames: number }) => {
+      updateMetrics({
+        bitrate: info.speed * 8, // 转换为 bps
+        fps: info.videoData?.fps || 0,
+        width: info.videoData?.width || 0,
+        height: info.videoData?.height || 0,
+        bufferDelay: (info.speed || 0) * 1000,
+        droppedFrames: info.droppedFrames || 0,
+        totalFrames: info.totalFrames || 0,
+        latency: 0,
+        lastUpdate: Date.now()
+      })
+    })
+
+    state.value.status = 'ready'
+
+    if (props.autoplay !== false) {
+      flvPlayer.play().catch(() => setupAutoplayUnlock())
     }
+
+    emit('ready', state.value.duration)
+    startMetricsCollection()
+    return
   }
-  
+
   throw new Error(t('player.flvNotSupported'))  // FIXED: P3 i18n
 }
 
@@ -732,14 +754,14 @@ function setupAutoplayUnlock() {
  */
 async function play() {
   if (!videoEl.value) return
-  
+
   try {
     await videoEl.value.play()
     isPlaying.value = true
     state.value.status = 'playing'
     emit('play')
-  } catch (e: Event) {
-    handleError('play_error', e.message || t('player.playFailed'))  // FIXED: P3 i18n
+  } catch (e: unknown) {
+    handleError('play_error', (e as { message?: string }).message || t('player.playFailed'))  // FIXED: P3 i18n
   }
 }
 
@@ -830,10 +852,11 @@ function toggleMute() {
 /**
  * 设置音量
  */
-function setVolume(value: number) {
+function setVolume(value: number | number[]) {
   if (!videoEl.value) return
-  
-  const vol = Math.max(0, Math.min(1, value))
+
+  const val = Array.isArray(value) ? value[0] : value
+  const vol = Math.max(0, Math.min(1, val))
   videoEl.value.volume = vol
   state.value.volume = vol
   isMuted.value = vol === 0
@@ -901,7 +924,7 @@ async function toggleFullscreen() {
       await document.exitFullscreen()
       isFullscreen.value = false
     }
-  } catch (e: Event) {
+  } catch (e: unknown) {
     logger.error(t('player.fullscreenFailed'), e)  // FIXED: P3 i18n
   }
 }

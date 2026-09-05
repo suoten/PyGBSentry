@@ -144,6 +144,9 @@ def _resource_to_node(r: Resource, device_id: str = "") -> dict[str, Any]:
         "manufacturer": getattr(r, "manufacturer", None),
         "model": getattr(r, "model", None),
         "device_id": device_id,
+        # FIX [2026-09-01 P1]: 前端监控中心等组件读取 camelCase deviceId；
+        # 只返回 snake_case 会导致上屏请求 /stream/play/undefined/<channel> 404。
+        "deviceId": device_id,
     }
 
 
@@ -197,10 +200,15 @@ class DeviceOrganizationUpdate(BaseModel):
 
 
 class CatalogSubscriptionUpdate(BaseModel):
-    """目录订阅更新。"""
+    """目录订阅更新。
+
+    FIX: [2026-08-22 P1] 原字段 enabled/expiry 与端点读取的 payload.cycle_seconds
+    及前端实际发送的 {enabled, cycle_seconds} 均不匹配（extra=forbid → 422，
+    传模型字段则 AttributeError → 500），PUT 无任何成功路径（测试发现）。
+    """
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
-    expiry: int = 3600
+    cycle_seconds: int = 300
 
 
 class MobilePositionSubscriptionUpdate(BaseModel):

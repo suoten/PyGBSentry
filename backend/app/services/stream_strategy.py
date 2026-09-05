@@ -73,7 +73,11 @@ def should_probe_back_to_tcp_passive(
         return False, ""
     if not updated_at:
         return False, ""
-    if datetime.now(timezone.utc) - updated_at > timedelta(minutes=max_idle_minutes):
+    # FIX: [2026-08-22 P0] DB 读出的 updated_at 可能是 naive datetime（SQLite 场景），
+    # 与 aware 的 datetime.now(timezone.utc) 相减抛 TypeError → _reconcile_stream_policy
+    # 循环整体失败被吞，流自愈探测从未生效（测试发现）。统一按 UTC 归一后再比较。
+    updated_utc = updated_at if updated_at.tzinfo else updated_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) - updated_utc > timedelta(minutes=max_idle_minutes):
         return False, ""
     return True, f"Switch-back probe condition met: success={success_total}, failure_rate={failure_rate}%"  # i18n
 

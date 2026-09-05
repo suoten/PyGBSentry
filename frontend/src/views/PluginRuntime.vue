@@ -172,7 +172,7 @@ import PluginPanels from '../components/plugin/PluginPanels.vue'
 import { getFriendlyError, getApiErrorMessage } from '../utils/errorMessage'
 // 无需商城跳转
 import { useActivatedRefreshOnce } from '../composables/useActivatedRefreshOnce'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 
 const route = useRoute()
 const { t } = useI18n()  // FIXED: 国际化

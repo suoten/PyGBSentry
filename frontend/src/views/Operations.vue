@@ -435,7 +435,7 @@
             </div>
 
             <!-- 诊断结论（卡片式，人话版） -->
-            <div v-if="cascadeDiagnosis.diagnostics?.length > 0" class="mb-4">
+            <div v-if="(cascadeDiagnosis.diagnostics?.length || 0) > 0" class="mb-4">
               <div class="text-sm font-semibold mb-2">{{ t('ops.diagResult') }}</div>
               <div class="space-y-2">
                 <div v-for="d in cascadeDiagnosis.diagnostics" :key="d.key" class="p-3 rounded" :style="{
@@ -936,7 +936,111 @@ import { getFriendlyError, getApiErrorMessage } from '../utils/errorMessage'
 import { buildWsUrlWithTicket } from '@/utils/wsTicket'  // P0-6: ws-ticket 认证
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
+
+// ── 本页局部类型（API 响应行结构，按实际使用字段定义）──
+
+interface LogFileRow {
+  name?: string
+  size?: number
+  mtime?: number
+}
+
+interface TraceEventRow {
+  created_at?: string
+  event?: string
+  trace_id?: string
+  platform_id?: string
+  device_id?: string
+  channel_id?: string
+  payload?: string
+}
+
+interface MediaNodeRow {
+  id: string
+  ip?: string
+  is_embedded?: boolean
+  is_active?: boolean
+}
+
+interface LeaseItem {
+  media_server_id?: string
+  port?: number
+  stream_session_id?: string
+  leased_at?: string
+}
+
+interface CascadeRegisterInfo {
+  last_ok_at?: string
+  last_gb_id?: string
+  last_addr?: string
+  last_transport?: string
+  auth?: string
+}
+
+interface CascadeKeepaliveInfo {
+  last_at?: string
+  last_addr?: string
+}
+
+interface CascadeInboundPlatform {
+  platform_id?: string
+  register?: CascadeRegisterInfo
+  keepalive?: CascadeKeepaliveInfo
+}
+
+interface CascadeDiagItem {
+  key?: string
+  level?: string
+  title?: string
+  detail?: string
+  suggestion?: string
+}
+
+interface CascadeTraceEventCounts {
+  register_received: number
+  register_401_challenge: number
+  register_ok_platform: number
+  register_ok_device: number
+  register_auth_failed: number
+}
+
+interface CascadeTraceEvent {
+  created_at?: string
+  event: string
+  payload?: { reason?: string }
+}
+
+interface CascadeSipConfig {
+  sip_id?: string
+  sip_domain?: string
+  sip_ip?: string
+  sip_port?: number | string
+}
+
+interface CascadeDiagnosis {
+  inbound_platforms?: CascadeInboundPlatform[]
+  diagnostics?: CascadeDiagItem[]
+  recent_trace_events_count?: CascadeTraceEventCounts
+  recent_trace_by_trace_id?: Record<string, CascadeTraceEvent[]>
+  sip_config?: CascadeSipConfig
+}
+
+interface DiagStreamRow {
+  stream: string
+  name?: string
+  readerCount: number
+  aliveSecond?: number | string
+}
+
+interface DiagItem {
+  step: string
+  key?: string
+  ok: boolean
+  title?: string
+  detail?: string
+  suggestion?: string
+}
 
 const { t } = useI18n()
 const route = useRoute()
@@ -962,7 +1066,7 @@ const logContainsAny = ref(String(route.query.log_contains_any || ''))
 
 const historyLogsVisible = ref(false)
 const historyLogsLoading = ref(false)
-const historyLogFiles = ref<AuditLog[]>([])
+const historyLogFiles = ref<LogFileRow[]>([])
 
 const logViewerVisible = ref(false)
 const currentLogFile = ref('')
@@ -1034,7 +1138,7 @@ const downloadLog = async (row: Record<string, unknown>) => {
 }
 
 const traceLoading = ref(false)
-const traceRows = ref<AuditLog[]>([])
+const traceRows = ref<TraceEventRow[]>([])
 const tracePage = ref(1)
 const tracePageSize = ref(10)
 const paginatedTraceRows = computed(() => {
@@ -1088,7 +1192,7 @@ const isTraceColumnVisible = (key: string) => visibleTraceColumns.value.includes
 const resetTraceColumns = () => {
   visibleTraceColumns.value = [...defaultTraceColumns]
 }
-const mediaNodes = ref<AuditLog[]>([])
+const mediaNodes = ref<MediaNodeRow[]>([])
 const mediaPage = ref(1)
 const mediaPageSize = ref(10)
 const paginatedMediaNodes = computed(() => {
@@ -1527,7 +1631,7 @@ const copyMediaNodesEnv = async () => {
 }
 
 const leaseDialogVisible = ref(false)
-const leaseItems = ref<AuditLog[]>([])
+const leaseItems = ref<LeaseItem[]>([])
 const leasesLoading = ref(false)
 const leaseFilterNodeId = ref<string>('')
 const leaseOnlyUnbound = ref(true)
@@ -2124,8 +2228,8 @@ watch(visibleTraceColumns, (value) => {
 
 // 国标级联诊断
 const cascadeLoading = ref(false)
-const cascadeDiagnosis = ref<AuditLog>({})
-const cascadeSipConfig = ref<AuditLog>({})
+const cascadeDiagnosis = ref<CascadeDiagnosis>({})
+const cascadeSipConfig = ref<CascadeSipConfig>({})
 
 const loadCascadeDiagnosis = async () => {
   cascadeLoading.value = true
@@ -2145,8 +2249,8 @@ const loadCascadeDiagnosis = async () => {
 
 const cascadeOverallLevel = computed(() => {
   const diags = cascadeDiagnosis.value?.diagnostics || []
-  if (diags.some((d: Record<string, unknown>) => d.level === 'error')) return 'error'
-  if (diags.some((d: Record<string, unknown>) => d.level === 'warn')) return 'warn'
+  if (diags.some((d) => d.level === 'error')) return 'error'
+  if (diags.some((d) => d.level === 'warn')) return 'warn'
   return 'ok'
 })
 
@@ -2171,8 +2275,8 @@ const cascadeOverallTitle = computed(() => {
 const cascadeOverallDesc = computed(() => {
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
   const diags = cascadeDiagnosis.value?.diagnostics || []
-  const errorCount = diags.filter((d: Record<string, unknown>) => d.level === 'error').length
-  const warnCount = diags.filter((d: Record<string, unknown>) => d.level === 'warn').length
+  const errorCount = diags.filter((d) => d.level === 'error').length
+  const warnCount = diags.filter((d) => d.level === 'warn').length
   if (platforms.length === 0) return t('ops.noDownstreamPlatforms')
   const parts = [t('ops.downstreamConnected', { count: platforms.length })]
   if (errorCount > 0) parts.push(t('ops.errorCount', { count: errorCount }))
@@ -2181,12 +2285,12 @@ const cascadeOverallDesc = computed(() => {
 })
 
 const cascadeStepActive = computed(() => {
-  const counts = cascadeDiagnosis.value?.recent_trace_events_count || {}
+  const counts = (cascadeDiagnosis.value?.recent_trace_events_count || {}) as CascadeTraceEventCounts
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
   if (counts.register_received > 0) {
     if (counts.register_401_challenge > 0) {
-      if (counts.register_ok_platform > 0 || counts.register_ok_device > 0 || platforms.some((p: Record<string, unknown>) => Boolean((p.register as Record<string, unknown> | undefined)?.last_ok_at))) {
-        if (platforms.some((p: Record<string, unknown>) => Boolean((p.keepalive as Record<string, unknown> | undefined)?.last_at))) {
+      if (counts.register_ok_platform > 0 || counts.register_ok_device > 0 || platforms.some((p) => Boolean(p.register?.last_ok_at))) {
+        if (platforms.some((p) => Boolean(p.keepalive?.last_at))) {
           return 4
         }
         return 3
@@ -2200,27 +2304,27 @@ const cascadeStepActive = computed(() => {
 
 const cascadeStepProcessStatus = computed(() => {
   const diags = cascadeDiagnosis.value?.diagnostics || []
-  if (diags.some((d: Record<string, unknown>) => d.level === 'error')) return 'error'
+  if (diags.some((d) => d.level === 'error')) return 'error'
   return 'process'
 })
 
 const cascadeStep1Desc = computed(() => {
-  const counts = cascadeDiagnosis.value?.recent_trace_events_count || {}
+  const counts = (cascadeDiagnosis.value?.recent_trace_events_count || {}) as CascadeTraceEventCounts
   if (counts.register_received > 0) return t('ops.receivedTimes', { count: counts.register_received })
   return t('ops.noRequestReceived')
 })
 
 const cascadeStep2Desc = computed(() => {
-  const counts = cascadeDiagnosis.value?.recent_trace_events_count || {}
+  const counts = (cascadeDiagnosis.value?.recent_trace_events_count || {}) as CascadeTraceEventCounts
   if (counts.register_401_challenge > 0) return t('ops.sentChallengeTimes', { count: counts.register_401_challenge })
   return '—'
 })
 
 const cascadeStep3Desc = computed(() => {
-  const counts = cascadeDiagnosis.value?.recent_trace_events_count || {}
+  const counts = (cascadeDiagnosis.value?.recent_trace_events_count || {}) as CascadeTraceEventCounts
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
   const okCount = (counts.register_ok_platform || 0) + (counts.register_ok_device || 0)
-  const registeredPlatforms = platforms.filter((p: Record<string, unknown>) => Boolean((p.register as Record<string, unknown> | undefined)?.last_ok_at)).length
+  const registeredPlatforms = platforms.filter((p) => Boolean(p.register?.last_ok_at)).length
   if (okCount > 0 || registeredPlatforms > 0) return t('ops.platformsRegistered', { count: registeredPlatforms })
   if (counts.register_auth_failed > 0) return t('ops.authFailedTimes', { count: counts.register_auth_failed })
   return '—'
@@ -2228,7 +2332,7 @@ const cascadeStep3Desc = computed(() => {
 
 const cascadeStep4Desc = computed(() => {
   const platforms = cascadeDiagnosis.value?.inbound_platforms || []
-  const withKeepalive = platforms.filter((p: Record<string, unknown>) => Boolean((p.keepalive as Record<string, unknown> | undefined)?.last_at)).length
+  const withKeepalive = platforms.filter((p) => Boolean(p.keepalive?.last_at)).length
   if (withKeepalive > 0) return t('ops.heartbeatsNormal', { count: withKeepalive })
   return '—'
 })
@@ -2264,10 +2368,10 @@ const cascadeEventTagType = (event: string) => {
 const diagNodeId = ref<string>('')
 const diagChannelId = ref<string>('')
 const diagChannelName = ref<string>('')
-const diagActiveStreams = ref<AuditLog[]>([])
+const diagActiveStreams = ref<DiagStreamRow[]>([])
 const diagChannelLoading = ref(false)
 const diagLoading = ref(false)
-const diagResults = ref<AuditLog[]>([])
+const diagResults = ref<DiagItem[]>([])
 const diagAllSteps = [
   { key: 'zlm_api', label: t('ops.zlmApiConnectivity') },
   { key: 'stream_list', label: t('ops.streamListCheck') },

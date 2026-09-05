@@ -40,9 +40,12 @@ class Broadcast:
         try:
             await asyncio.sleep(timeout)
             from app.sip.invite import invite_state
-            if call_id not in invite_state._invite_pending:
+            # FIX: [2026-08-22 PN] 原访问不存在的 invite_state._invite_pending（实际属性名
+            # 为 invite_pending），AttributeError 被外层 except 吞掉，导致看门狗超时后
+            # SSRC/StreamSession/pending 条目泄漏。
+            if call_id not in invite_state.invite_pending:
                 return
-            invite_state._invite_pending.pop(call_id, None)
+            invite_state.invite_pending.pop(call_id, None)
             logger.warning(f"[Broadcast] INVITE watchdog timed out for call_id={call_id}, cleaning pending and releasing SSRC")
             from app.sip.ssrc_manager import ssrc_manager
             try:

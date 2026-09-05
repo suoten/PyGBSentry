@@ -27,16 +27,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: npm
-          cache-dependency-path: editions/open-source/frontend/package-lock.json
+      # 统一使用 pnpm（与 ci.yml / CONTRIBUTING.md / pnpm-lock.yaml 一致）。
+      # 此前使用 npm ci 但仓库无 package-lock.json，CI 必然失败。
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 9
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+        id: pnpm-cache
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.os == 'Linux' && env.STORE_PATH || '~/.pnpm-store' }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
       - name: Install dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
       - name: Mirror / TS-JS conflict check
-        run: npm run check:no-js-mirrors
+        run: pnpm run check:no-js-mirrors
       - name: No raw axios response.data.detail
-        run: npm run check:no-raw-axios-detail
+        run: pnpm run check:no-raw-axios-detail
       - name: Typecheck (vue-tsc, incremental)
-        run: npm run typecheck:ci
+        run: pnpm run typecheck:ci
 
   server-frontend:
     runs-on: ubuntu-latest

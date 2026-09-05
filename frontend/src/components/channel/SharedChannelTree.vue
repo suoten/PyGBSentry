@@ -56,6 +56,7 @@
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Folder, VideoCamera } from '@element-plus/icons-vue'
+import type { TreeNode } from '@/types/models'
 
 const { t } = useI18n()
 
@@ -63,21 +64,21 @@ const props = withDefaults(defineProps<{
   data: Record<string, unknown>[]
   propsConfig: Record<string, unknown>
   nodeKey?: string
-  filterNodeMethod?: (value: string, data: Record<string, unknown>, node?: TreeNode) => boolean
-  defaultExpandedKeys?: Record<string, unknown>[]
-  currentNodeKey?: string | number | null
+  filterNodeMethod?: (value: string, data: Record<string, unknown>, node?: unknown) => boolean
+  defaultExpandedKeys?: Array<string | number>
+  currentNodeKey?: string | number
   highlightCurrent?: boolean
   defaultExpandAll?: boolean
   draggable?: boolean
-  treeClass?: string | Record<string, unknown>
+  treeClass?: string | Record<string, unknown> | Array<string | Record<string, unknown>>
   folderIconClass?: string
   folderNodeTypes?: string[]
-  folderPredicate?: (data: Record<string, unknown>) => boolean
+  folderPredicate?: (data: TreeNode) => boolean
   baseChannelIconClass?: string
-  showStatusBadge?: (data: Record<string, unknown>) => boolean
-  showNodeStats?: (data: Record<string, unknown>) => boolean
-  getNodeStats?: (data: Record<string, unknown>) => { online: number; total: number }
-  getNodeStatsTone?: (data: Record<string, unknown>) => string
+  showStatusBadge?: (data: TreeNode) => boolean
+  showNodeStats?: (data: TreeNode) => boolean
+  getNodeStats?: (data: TreeNode) => { online: number; total: number }
+  getNodeStatsTone?: (data: TreeNode) => string
   showPlayingTag?: boolean
   isChannelPlaying?: (channelId: string) => boolean
   truncateText?: boolean
@@ -115,7 +116,7 @@ type InnerTreeRef = {
 const innerTreeRef = ref<InnerTreeRef | null>(null)
 
 const isFolderNode = (data: Record<string, unknown>) => {
-  if (props.folderPredicate) return !!props.folderPredicate(data)
+  if (props.folderPredicate) return !!props.folderPredicate(data as TreeNode)
   const nodeType = String(data?.nodeType || '').toLowerCase()
   return props.folderNodeTypes.includes(nodeType)
 }
@@ -124,7 +125,7 @@ const isStatusOnline = (data: Record<string, unknown>) => Number(data?.status) =
 
 const shouldShowStatusBadge = (data: Record<string, unknown>) => {
   if (!props.showStatusBadge) return false
-  return !!props.showStatusBadge(data)
+  return !!props.showStatusBadge(data as TreeNode)
 }
 
 const channelIconClass = (data: Record<string, unknown>) => {
@@ -156,14 +157,14 @@ const treeTextStyle = (data: Record<string, unknown>) => {
   return undefined
 }
 
-const shouldShowNodeStats = (data: Record<string, unknown>) => !!props.showNodeStats?.(data)
+const shouldShowNodeStats = (data: Record<string, unknown>) => !!props.showNodeStats?.(data as TreeNode)
 
 const getNodeStatsSafe = (data: Record<string, unknown>) => {
-  const s = props.getNodeStats?.(data)
+  const s = props.getNodeStats?.(data as TreeNode)
   return s || { online: 0, total: 0 }
 }
 
-const getNodeStatsToneSafe = (data: Record<string, unknown>) => props.getNodeStatsTone?.(data) || 'muted'
+const getNodeStatsToneSafe = (data: Record<string, unknown>) => props.getNodeStatsTone?.(data as TreeNode) || 'muted'
 
 const isPlayingNode = (data: Record<string, unknown>) => {
   const channelId = String(data?.id || '')
@@ -171,10 +172,10 @@ const isPlayingNode = (data: Record<string, unknown>) => {
   return !!props.isChannelPlaying(channelId)
 }
 
-const onNodeClick = (...args: unknown[]) => emit('node-click', args[0], args[1], args[2], args[3])
-const onNodeExpand = (...args: unknown[]) => emit('node-expand', args[0], args[1], args[2])
-const onNodeCollapse = (...args: unknown[]) => emit('node-collapse', args[0], args[1], args[2])
-const onNodeDragStart = (...args: unknown[]) => emit('node-drag-start', args[0], args[1])
+const onNodeClick = (...args: unknown[]) => emit('node-click', args[0] as Record<string, unknown>, args[1] as TreeNode, args[2] as Record<string, unknown>, args[3] as MouseEvent)
+const onNodeExpand = (...args: unknown[]) => emit('node-expand', args[0] as Record<string, unknown>, args[1] as TreeNode, args[2] as Record<string, unknown>)
+const onNodeCollapse = (...args: unknown[]) => emit('node-collapse', args[0] as Record<string, unknown>, args[1] as TreeNode, args[2] as Record<string, unknown>)
+const onNodeDragStart = (...args: unknown[]) => emit('node-drag-start', args[0] as TreeNode, args[1] as DragEvent)
 const onNodeContextmenu = (ev: MouseEvent, data: Record<string, unknown>) => {
   if (!props.enableContextMenu) return
   emit('node-contextmenu', ev, data)

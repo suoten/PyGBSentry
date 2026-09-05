@@ -125,6 +125,8 @@ import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import type { OrgNode } from '../api/organizations'
+import type { Node as ElTreeNode } from 'element-plus/es/components/tree/src/model/node'
+import type { AllowDropType } from 'element-plus/es/components/tree/index'
 import {
   getOrganizationTree,
   createOrganization,
@@ -234,14 +236,14 @@ const doDelete = async (data: OrgNode) => {
   }
 }
 
-const allowDrop = (_draggingNode: Record<string, unknown>, _dropNode: Record<string, unknown>, type: string) => {
+const allowDrop = (_draggingNode: ElTreeNode, _dropNode: ElTreeNode, type: AllowDropType) => {
   return type !== 'inner'
 }
 
 const handleNodeDrop = async (
-  draggingNode: Record<string, unknown>,
-  dropNode: Record<string, unknown>,
-  dropType: string,
+  draggingNode: ElTreeNode,
+  dropNode: ElTreeNode,
+  dropType: 'before' | 'after' | 'inner',
 ) => {
   if (dropType === 'inner') return
   const siblings =

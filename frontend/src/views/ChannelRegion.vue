@@ -96,7 +96,7 @@
           size="small"
           class="flex-1"
           height="calc(100vh - 260px)"
-          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows)"
+          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows as Channel[])"
         >
           <el-table-column type="selection" width="48" />
           <el-table-column prop="gbName" :label="t('channelRegion.colName')" min-width="140" show-overflow-tooltip />
@@ -107,7 +107,7 @@
           <el-table-column :label="t('channelRegion.colType')" width="100">
             <template #default="{ row }">
               <el-tag size="small" effect="plain" :style="channelTypeTag(row.dataType).style">
-                {{ channelTypeTag(row.dataType).name }}
+                {{ t(channelTypeTag(row.dataType).nameKey) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -148,7 +148,7 @@
       <div v-if="pickMode === 'channel'">
         <el-input v-model="pickKw" :placeholder="t('channelRegion.searchGbOrName')" clearable class="mb-2" @keyup.enter="searchPick" />
         <el-button size="small" type="primary" class="mb-2" @click="searchPick">{{ t('channelRegion.query') }}</el-button>
-        <el-table :data="pickRows" size="small" max-height="360" @selection-change="(r: Record<string, unknown>[]) => (pickSel = r)">
+        <el-table :data="pickRows" size="small" max-height="360" @selection-change="(r: Record<string, unknown>[]) => (pickSel = r as Channel[])">
           <el-table-column type="selection" width="45" />
           <el-table-column prop="gbDeviceId" :label="t('channelRegion.colChannelCode')" width="160" />
           <el-table-column prop="gbName" :label="t('channelRegion.colName')" />
@@ -203,7 +203,7 @@ import PageHeader from '../components/PageHeader.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { channelTypeTag } from '../constants/channelType'
 import { getFriendlyError } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 
 const { t } = useI18n()
 
@@ -458,7 +458,7 @@ const showAddRegionDialog = () => {
   regionDialogVisible.value = true
 }
 
-const onTreeContextMenu = (data: Record<string, unknown>, _node?: TreeNode, _component?: unknown, _e?: MouseEvent) => {
+const onTreeContextMenu = (evt: Event, data: Record<string, unknown>, _node: unknown, _component: unknown) => {
   currentRegionId.value = String(data?.id || data?.code || '')
   regionDialogMode.value = 'edit'
   regionForm.value = { code: String(data?.code || ''), name: String(data?.label || data?.name || ''), parent_id: '', sort_order: Number(data?.sort_order || 0) }

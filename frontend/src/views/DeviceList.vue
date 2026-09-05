@@ -122,7 +122,7 @@ const savingMobileSub = ref<Record<string, boolean>>({})
 const catalogSyncPolling = ref<Record<string, boolean>>({})
 const batchSnapping = ref(false)
 
-const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()).map(o => ({ id: o.id, label: o.name })) } catch { organizationOptions.value = []; logger.warn('加载组织树失败') } }
+const loadOrganizations = async () => { try { organizationOptions.value = flattenOrgTree(await getOrganizationTree()).map(o => ({ id: o.id, label: o.label })) } catch { organizationOptions.value = []; logger.warn('加载组织树失败') } }
 
 const fetchDevices = async (silentArg?: boolean | number) => {
   const silent = typeof silentArg === 'boolean' ? silentArg : false
@@ -151,7 +151,7 @@ const fetchDevices = async (silentArg?: boolean | number) => {
 
 const handlePageSizeChange = () => { page.value = 1; fetchDevices() }
 const handleSearch = () => { page.value = 1; fetchDevices() }
-const handleView = async (row: Record<string, unknown>) => { if (!row?.gb_id) return; currentDevice.value = row; currentChannel.value = null; channelPage.value = 1; dialogVisible.value = true; await detailDrawer.value?.loadChannelsDialog() }
+const handleView = async (row: Record<string, unknown>) => { if (!row?.gb_id) return; currentDevice.value = row as Device; currentChannel.value = null; channelPage.value = 1; dialogVisible.value = true; await detailDrawer.value?.loadChannelsDialog() }
 const refreshDevices = async () => { page.value = 1; const ok = await fetchDevices(); if (ok) ElMessage.success(t('device.refreshedDeviceList')) }
 const toggleAutoRefresh = () => {
   autoRefresh.value = !autoRefresh.value

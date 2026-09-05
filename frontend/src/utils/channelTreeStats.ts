@@ -1,20 +1,19 @@
 import { ref, type Ref } from 'vue'
-import type { TreeNode } from '@/types/models'
 
 export type TreeNodeStats = { online: number; total: number }
 
-type NodeMatcher = string[] | ((node: TreeNode) => boolean)
+type NodeMatcher = string[] | ((node: Record<string, unknown>) => boolean)
 
 export interface UseChannelTreeStatsOptions {
   countableNodeTypes: NodeMatcher
   statsVisibleNodeTypes: NodeMatcher
-  isPlayableChannel: (node: TreeNode) => boolean
+  isPlayableChannel: (node: Record<string, unknown>) => boolean
 }
 
 const resolveMatcher = (matcher: NodeMatcher) => {
   if (typeof matcher === 'function') return matcher
   const typeSet = new Set((matcher || []).map((item) => String(item || '').toLowerCase()))
-  return (node: TreeNode) => {
+  return (node: Record<string, unknown>) => {
     const nodeType = String(node?.nodeType || '').toLowerCase()
     return typeSet.has(nodeType)
   }
@@ -28,7 +27,7 @@ export const useChannelTreeStats = (
   const isStatsVisibleNode = resolveMatcher(options.statsVisibleNodeTypes)
   const treeNodeStats = ref<Record<string, TreeNodeStats>>({})
 
-  const collectNodeChannelStats = (node: TreeNode): TreeNodeStats => {
+  const collectNodeChannelStats = (node: Record<string, unknown>): TreeNodeStats => {
     let total = 0
     let online = 0
     if (isCountableNode(node)) {
@@ -63,15 +62,15 @@ export const useChannelTreeStats = (
     treeNodeStats.value = statsMap
   }
 
-  const shouldShowNodeStats = (node: TreeNode) => isStatsVisibleNode(node)
+  const shouldShowNodeStats = (node: Record<string, unknown>) => isStatsVisibleNode(node)
 
-  const getNodeStats = (node: TreeNode): TreeNodeStats => {
+  const getNodeStats = (node: Record<string, unknown>): TreeNodeStats => {
     const key = String(node?.id || '').trim()
     if (!key) return { online: 0, total: 0 }
     return treeNodeStats.value[key] || { online: 0, total: 0 }
   }
 
-  const getNodeStatsTone = (node: TreeNode) => {
+  const getNodeStatsTone = (node: Record<string, unknown>) => {
     const stats = getNodeStats(node)
     if (stats.total <= 0) return 'muted'
     const ratio = stats.online / stats.total

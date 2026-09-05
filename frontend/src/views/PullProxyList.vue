@@ -215,7 +215,26 @@ import EmptyStateWithAction from '../components/EmptyStateWithAction.vue'
 import StreamPlayerDialog from '../components/StreamPlayerDialog.vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import AppDialog from '../components/common/AppDialog.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
+
+// 拉流代理源行（/api/v1/integrations/sources 响应，按实际使用字段定义）
+interface PullSourceRow {
+  id: string
+  name?: string
+  protocol?: string
+  host?: string
+  port?: number
+  username?: string
+  path?: string
+  stream_name?: string
+  enabled?: boolean
+  gb_enabled?: boolean
+  gb_id?: string
+  gb_name?: string
+  gb_parent_gb_id?: string
+  extra?: Record<string, unknown>
+  [key: string]: unknown
+}
 import { useI18n } from 'vue-i18n'  // FIXED: P3 i18n
 
 const { t } = useI18n()  // FIXED: P3 i18n
@@ -359,7 +378,7 @@ const proxyStreamSet = computed(() => {
 const isRunning = (row: Record<string, unknown>) => proxyStreamSet.value.has(normalizeStreamName(row))
 
 const isRunningEffective = (row: Record<string, unknown>) => {
-  const v = row?.extra?.['runtime.proxy.is_running']
+  const v = (row?.extra as Record<string, unknown> | undefined)?.['runtime.proxy.is_running']
   if (typeof v === 'boolean') return v
   if (String(v || '') === 'true') return true
   if (String(v || '') === 'false') return false
@@ -367,13 +386,13 @@ const isRunningEffective = (row: Record<string, unknown>) => {
 }
 
 const isUnhealthy = (row: Record<string, unknown>) => {
-  const v = row?.extra?.['runtime.proxy.unhealthy']
+  const v = (row?.extra as Record<string, unknown> | undefined)?.['runtime.proxy.unhealthy']
   if (typeof v === 'boolean') return v
   return String(v || '') === 'true'
 }
 
 const desiredState = (row: Record<string, unknown>) => {
-  const s = String(row?.extra?.['desired.state'] || '').trim().toLowerCase()
+  const s = String((row?.extra as Record<string, unknown> | undefined)?.['desired.state'] || '').trim().toLowerCase()
   return s === 'stopped' ? 'stopped' : 'running'
 }
 
@@ -450,7 +469,7 @@ const loadFfmpegCmds = async () => {
   }
 }
 
-const openDialog = (row?: Record<string, unknown>) => {
+const openDialog = (row?: PullSourceRow) => {
   editingId.value = row?.id || ''
   form.value = row ? {
     name: row.name || '',
@@ -737,7 +756,7 @@ const stopProxy = async (row: Record<string, unknown>) => {
 
 const handleSourceMoreCommand = async (row: Record<string, unknown>, cmd: string) => {
   if (cmd === 'test') {
-    await testSource(row.id)
+    await testSource(row.id as string)
     return
   }
   if (cmd === 'start') {
@@ -749,11 +768,11 @@ const handleSourceMoreCommand = async (row: Record<string, unknown>, cmd: string
     return
   }
   if (cmd === 'pushUrl') {
-    await showPushUrl(row.id)
+    await showPushUrl(row.id as string)
     return
   }
   if (cmd === 'delete') {
-    await remove(row.id)
+    await remove(row.id as string)
   }
 }
 

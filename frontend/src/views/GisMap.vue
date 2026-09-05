@@ -197,7 +197,7 @@ import { ElMessage } from 'element-plus'
 import { getApiErrorMessage } from '../utils/errorMessage'
 import PageHeader from '../components/PageHeader.vue'
 import { parseDeviceChannelsResponse } from '../utils/deviceApi'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 
 const { t } = useI18n()  // FIXED: 国际化
 const router = useRouter()

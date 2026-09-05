@@ -69,7 +69,20 @@ def _prune_secret_cache() -> None:
             _ZLM_SECRET_CACHE.pop(k, None)
 
 
-async def verify_zlm_secret(secret: str | None = None) -> bool:
+async def verify_zlm_secret(request: Request, secret: str | None = None) -> bool:
+    """校验 ZLM hook 回调密钥。
+
+    FIX [2026-09-01 P0]: ZLM 把 secret 放在 POST 表单体中，原依赖只从
+    query string 取参，导致所有 hook 回调 403、on_publish 拒绝推流
+    （ZLM 日志表现为「禁止RTP推流:[bad http status code]:403」）。
+    现优先读 query，缺省时回落到表单体。
+    """
+    if not secret:
+        try:
+            form = await request.form()
+            secret = str(form.get("secret") or "").strip() or None
+        except Exception:
+            secret = None
     if not secret:
         raise HTTPException(status_code=403, detail="ZLM secret invalid")
     global_secret = str(settings.MEDIA_SERVER_SECRET or "")
@@ -138,12 +151,52 @@ async def _ok() -> dict:
     return {"code": 0, "msg": "success"}
 
 
-async def _safe_json(request: Request) -> dict | None:
+async def _hook_secret(request: Request, data: dict | None = None) -> str | None:
+    """读取 hook 请求的 secret：query 优先，其次表单/JSON 负载。
+
+    FIX [2026-09-01 P0]: ZLM 回调把 secret 放在表单体中；只读 query 会导致
+    节点触摸/清理会话等逻辑拿不到 secret。
+    """
+    s = request.query_params.get("secret")
+    if s:
+        return s
+    if data and isinstance(data, dict):
+        v = data.get("secret")
+        if v:
+            return str(v)
     try:
-        return await request.json()
+        form = await request.form()
+        v = form.get("secret")
+        return str(v) if v else None
     except Exception:
-        logger.warning("Hook 回调 JSON parse failed")
         return None
+
+
+async def _safe_json(request: Request) -> dict | None:
+    """解析 ZLM hook 回调负载。
+
+    FIX [2026-09-01 P0]: ZLM 标准行为是以 ``application/x-www-form-urlencoded``
+    POST 回调（所有事件字段含 secret 都在表单体中）。原实现只尝试 JSON，
+    form 回调一律返回 None，导致 on_stream_changed/on_publish 等事件全部
+    被当作空数据处理（SSRC 就绪通知永不触发，点播走轮询兜底且常超时）。
+    """
+    try:
+        data = await request.json()
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    try:
+        form = await request.form()
+        result: dict = {}
+        for key in form.keys():
+            value = form[key]
+            result[str(key)] = value if isinstance(value, str) else str(value)
+        if result:
+            return result
+    except Exception as e:
+        logger.warning(f"Hook 回调负载解析失败: {e}")
+    return None
 
 
 async def _find_media_node_by_secret(session, secret: str | None) -> MediaNode | None:
@@ -264,7 +317,7 @@ async def on_server_started(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    secret = request.query_params.get("secret")
+    secret = await _hook_secret(request, data if isinstance(data, dict) else None)
     await _touch_media_node_by_secret(secret, data if isinstance(data, dict) else None)
     if secret:
         try:
@@ -301,7 +354,7 @@ async def on_server_keepalive(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
     return await _ok()
 
 
@@ -310,7 +363,7 @@ async def on_play(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
 
     app_name = (data if isinstance(data, dict) else {}).get("app", "")
     stream_id = (data if isinstance(data, dict) else {}).get("stream", "")
@@ -369,7 +422,7 @@ async def on_publish(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
 
     app_name = data.get("app")
     stream_id = data.get("stream")
@@ -440,7 +493,7 @@ async def on_stream_changed(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
 
     app_name = extract_first(data, ("app", "appName"))
     stream_id = extract_first(data, ("stream", "streamId", "id"))
@@ -481,7 +534,7 @@ async def on_stream_changed(request: Request):
         try:
             if is_unreg:
                 # 流注销，清理会话（R24-01b: _cleanup_sessions 内部自管理 session，不再持有外部 db）
-                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_stream_changed_unreg", ssrc=ssrc, hook_secret=request.query_params.get("secret", ""), hook_data=data if isinstance(data, dict) else None)
+                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_stream_changed_unreg", ssrc=ssrc, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
                 # 也通知插件：让媒体联动型插件可以停止分析/资源占用
                 if isinstance(data, dict):
                     try:
@@ -535,7 +588,7 @@ async def on_send_rtp_stopped(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
     app_name = extract_first(data, ("app", "appName"))
     stream_id = extract_first(data, ("stream", "streamId", "id"))
     ssrc = extract_first(data, ("ssrc",))
@@ -546,7 +599,7 @@ async def on_send_rtp_stopped(request: Request):
         )
         try:
             # R24-01b: _cleanup_sessions 内部自管理 session
-            await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_send_rtp_stopped", ssrc=ssrc, cascade_only=True, hook_secret=request.query_params.get("secret", ""), hook_data=data if isinstance(data, dict) else None)
+            await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_send_rtp_stopped", ssrc=ssrc, cascade_only=True, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
         except Exception as e:
             logger.warning(f"Hook callback operation failed: {e}")  # i18n
     return await _ok()
@@ -557,7 +610,7 @@ async def on_rtp_server_timeout(request: Request):
     data = await _safe_json(request)
     if not data:
         return await _ok()
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
     app_name = extract_first(data, ("app", "appName"))
     stream_id = extract_first(data, ("stream", "streamId", "id"))
     ssrc = extract_first(data, ("ssrc",))
@@ -682,7 +735,7 @@ async def on_rtp_server_timeout(request: Request):
                 # R24-01b: _cleanup_sessions 内部自管理 session
                 # P0-RTP: 传递 grace_period_seconds 给 _cleanup_sessions，
                 # 让其跳过宽限期内创建的会话
-                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_rtp_server_timeout", ssrc=ssrc, hook_secret=request.query_params.get("secret", ""), hook_data=data if isinstance(data, dict) else None, grace_period_seconds=_grace_period)
+                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_rtp_server_timeout", ssrc=ssrc, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None, grace_period_seconds=_grace_period)
 
             # Notify frontend about stream drop
             fire_and_forget(plugin_manager.emit("ON_MEDIA_STREAM_DROPPED", {
@@ -726,7 +779,7 @@ async def on_stream_none_reader(request: Request):
     data = await _safe_json(request)
     if not data:
         return {"code": 0, "close": False}
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
 
     app_name = (data or {}).get("app")
     stream_id = (data or {}).get("stream")
@@ -751,13 +804,13 @@ async def on_stream_none_reader(request: Request):
     none_reader_delay = float(settings.ZLM_NONE_READER_DELAY_SECONDS or 0)
     if none_reader_delay > 0 and app_name == "live":
         logger.info(f"[none_reader] Delayed close for live stream: {app_name}/{stream_id}, delay={none_reader_delay}s")
-        _t = asyncio.create_task(_delayed_none_reader_cleanup(app_name, stream_id, ssrc, none_reader_delay, request.query_params.get("secret", ""), data if isinstance(data, dict) else None))
+        _t = asyncio.create_task(_delayed_none_reader_cleanup(app_name, stream_id, ssrc, none_reader_delay, (await _hook_secret(request, data if isinstance(data, dict) else None)) or "", data if isinstance(data, dict) else None))
         _track_none_reader_task(_t)  # prevent GC of delayed cleanup task
         return {"code": 0, "close": False}
 
     try:
         # R24-01b: _cleanup_sessions 内部自管理 session
-        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="on_stream_none_reader", hook_secret=request.query_params.get("secret", ""), hook_data=data if isinstance(data, dict) else None)
+        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="on_stream_none_reader", hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
     except Exception as e:
         logger.error(f"Error in on_stream_none_reader processing: {e}")
 
@@ -852,7 +905,7 @@ async def on_stream_not_found(request: Request):
     data = await _safe_json(request)
     if not data:
         return {"code": 0, "msg": "ignored"}
-    await _touch_media_node_by_secret(request.query_params.get("secret"), data if isinstance(data, dict) else None)
+    await _touch_media_node_by_secret(await _hook_secret(request, data if isinstance(data, dict) else None), data if isinstance(data, dict) else None)
 
     app_name = (data or {}).get("app")
     stream_id = (data or {}).get("stream")
@@ -866,7 +919,7 @@ async def on_stream_not_found(request: Request):
     )
     try:
         # R24-01b: _cleanup_sessions 内部自管理 session
-        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="stream_not_found_auto_recovery", hook_secret=request.query_params.get("secret", ""), hook_data=data if isinstance(data, dict) else None)
+        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="stream_not_found_auto_recovery", hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
     except Exception as e:
         logger.error(f"Error in on_stream_not_found processing: {e}")
 
@@ -945,7 +998,7 @@ async def on_record_mp4(request: Request):
             media_node_id = None
             node = None
             try:
-                secret = request.query_params.get("secret")
+                secret = await _hook_secret(request, data if isinstance(data, dict) else None)
                 if secret:
                     # P0-02: secret 列已加密存储，改用辅助函数解密比较
                     node = await _find_media_node_by_secret(session, secret)

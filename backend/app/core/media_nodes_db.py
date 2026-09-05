@@ -49,6 +49,10 @@ class RuntimeMediaNode:
     rtp_port_range_start: int = 0
     rtp_port_range_end: int = 0
     record_mgr_port: int = 0
+    # FIX: [2026-08-22 P1] 新增 is_online 透传（ORM MediaNode.is_online 由 health_service
+    # 维护）。get_cluster_status 直接访问 node.is_online，原 dataclass 无此字段 →
+    # 表中有节点时必抛 AttributeError → /media/cluster-status 500（测试发现）。
+    is_online: bool = False
 
 
 def _to_runtime(node: MediaNode) -> RuntimeMediaNode:
@@ -85,6 +89,7 @@ def _to_runtime(node: MediaNode) -> RuntimeMediaNode:
         rtp_port_range_start=int(getattr(node, "rtp_port_range_start", 0) or 0),
         rtp_port_range_end=int(getattr(node, "rtp_port_range_end", 0) or 0),
         record_mgr_port=int(getattr(node, "record_mgr_port", 0) or 0),
+        is_online=bool(getattr(node, "is_online", False)),
     )
 
 

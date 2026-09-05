@@ -1,4 +1,6 @@
 """网络管理：流量/带宽/拓扑与流媒体概况。"""
+import asyncio
+import time
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,10 +14,48 @@ from app.models.platform import ParentPlatform
 from app.models.user import User
 from app.api import deps
 from app.core.config import settings
+from app.core.async_utils import fire_and_forget
 from app.core.http_client import get_http_client
 from loguru import logger
 
 router = APIRouter()
+
+# ZLM getMediaList 探测缓存（5s TTL + 单飞锁 + stale-while-revalidate）：
+# /network/summary 与 /network/bandwidth 是仪表盘高频轮询端点。原实现
+# 每请求独立探测 ZLM（不可达时 2s 超时），并发下排队放大至 19s+ P95
+# （压测实测）。缓存后每 5s 最多一次真实探测；过期时立即返回旧值并
+# 后台刷新。探测失败按空列表处理。
+_ZLM_PROBE_TTL_SECONDS = 5.0
+_zlm_probe_cache: dict = {"ts": 0.0, "media_list": []}
+_zlm_probe_lock = asyncio.Lock()
+
+
+async def _refresh_zlm_probe() -> None:
+    """单飞刷新 ZLM 探测缓存（等锁期间已被刷新则跳过）。"""
+    async with _zlm_probe_lock:
+        if time.monotonic() - _zlm_probe_cache["ts"] >= _ZLM_PROBE_TTL_SECONDS:
+            media_list: list[dict] = []
+            try:
+                url = f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}/index/api/getMediaList"
+                # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
+                r = await (await get_http_client()).post(url, data={"secret": settings.MEDIA_SERVER_SECRET}, timeout=2)
+                if r.status_code == 200 and r.json().get("code") == 0:
+                    media_list = r.json().get("data", []) or []
+            except Exception as e:
+                logger.debug(f"非关键操作失败: {e}")
+            _zlm_probe_cache["ts"] = time.monotonic()
+            _zlm_probe_cache["media_list"] = media_list
+
+
+async def _probe_zlm_media_list_cached() -> list[dict]:
+    """带 5s TTL 缓存的 ZLM getMediaList 探测（stale-while-revalidate）。"""
+    if _zlm_probe_cache["ts"] <= 0.0:
+        # 冷启动：尚无任何数据，同步探测一次（单飞）
+        await _refresh_zlm_probe()
+    elif time.monotonic() - _zlm_probe_cache["ts"] >= _ZLM_PROBE_TTL_SECONDS:
+        # 过期：立即返回旧值，后台刷新
+        fire_and_forget(_refresh_zlm_probe())
+    return _zlm_probe_cache["media_list"]
 
 
 def _safe_float(value, default: float = 0.0) -> float:
@@ -70,20 +110,10 @@ async def network_summary(
             .where(Asset.tenant_id == tenant_filter)
         )
     stream_count = (await db.execute(stream_count_stmt)).scalar() or 0
-    stream_count_zlm = stream_count
-    zlm_bandwidth_mbps = 0.0
-    try:
-        url = f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}/index/api/getMediaList"
-        # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-        r = await (await get_http_client()).post(url, data={"secret": settings.MEDIA_SERVER_SECRET}, timeout=2)  # 同步requests→异步httpx，避免阻塞事件循环
-        if r.status_code == 200:
-            data = r.json()
-            if data.get("code") == 0:
-                media_list = data.get("data", [])
-                stream_count_zlm = len(media_list)
-                zlm_bandwidth_mbps = _calc_zlm_bandwidth_mbps(media_list)
-    except Exception as e:
-        logger.debug(f"非关键操作失败: {e}")
+    # ZLM 实时流数/带宽：走 5s TTL 缓存探测（见 _probe_zlm_media_list_cached）
+    media_list = await _probe_zlm_media_list_cached()
+    stream_count_zlm = len(media_list)
+    zlm_bandwidth_mbps = _calc_zlm_bandwidth_mbps(media_list)
     return {
         "device_total": device_total,
         "device_online": device_online,
@@ -230,16 +260,9 @@ async def network_bandwidth(
     active_streams = (await db.execute(stmt)).scalar() or 0
 
     estimated_mbps = active_streams * 2.0
-    zlm_bandwidth_mbps = 0.0
-    try:
-        url = f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}/index/api/getMediaList"
-        # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-        r = await (await get_http_client()).post(url, data={"secret": settings.MEDIA_SERVER_SECRET}, timeout=2)  # 同步requests→异步httpx，避免阻塞事件循环
-        if r.status_code == 200 and r.json().get("code") == 0:
-            zlm_bandwidth_mbps = _calc_zlm_bandwidth_mbps(r.json().get("data", []))
-    except Exception as e:
-        logger.debug(f"操作失败,返回默认值: {e}")
-        zlm_bandwidth_mbps = 0.0
+    # ZLM 实时带宽：走 5s TTL 缓存探测（见 _probe_zlm_media_list_cached）
+    media_list = await _probe_zlm_media_list_cached()
+    zlm_bandwidth_mbps = _calc_zlm_bandwidth_mbps(media_list)
     zlm_bandwidth_kbps = int(round(zlm_bandwidth_mbps * 1000))
 
     # 写入当前点到历史表

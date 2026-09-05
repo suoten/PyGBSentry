@@ -92,4 +92,9 @@ async def remove_blacklist(
                     logger.warning(f"reload_ip_blacklist failed: {e}")
             fire_and_forget(_reload_with_catch())  # P0-16: 保存引用防 GC + 异常日志
 
+    # FIX: [2026-08-22 P3] IP 不在黑名单时返回 404 而非 200 "Success"
+    # （原实现审计记 failed 但响应成功，语义不一致；测试发现）
+    if rc <= 0:
+        from fastapi import HTTPException as _HTTPException
+        raise _HTTPException(status_code=404, detail="IP not in blacklist")  # i18n
     return {"message": "Success"}

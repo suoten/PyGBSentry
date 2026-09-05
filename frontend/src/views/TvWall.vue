@@ -573,7 +573,7 @@ const isPlayableTreeChannel = (node: any) => {
   return ['131', '132', '111', '112', '118'].includes(typeCode)
 }
 
-const shouldShowStatusBadge = (node: TreeNode) => {
+const shouldShowStatusBadge = (node: Record<string, unknown>) => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   return ['channel', 'source_stream', 'device'].includes(nodeType)
 }
@@ -763,8 +763,8 @@ const isChannelPlaying = (channelId: string) => {
     .some((s: Record<string, unknown>) => s && s.channelId === channelId && ((s.url || s.hls) || s.loading))
 }
 
-const isTvWallTreeFolderNode = (node: TreeNode) => {
-  return Array.isArray(node?.children) && node.children.length > 0
+const isTvWallTreeFolderNode = (node: Record<string, unknown>) => {
+  return Array.isArray(node?.children) && (node.children as unknown[]).length > 0
 }
 
 function enterSingleScreenMode() {
@@ -869,7 +869,7 @@ const fetchTree = async () => {
     const sourceTree = buildSourceTree(sourceList)
     treeData.value = sourceTree ? [sourceTree, ...deviceTree] : deviceTree
     rebuildTreeNodeStats()
-    playQueue.value = collectPlayableNodes(treeData.value)
+    playQueue.value = collectPlayableNodes(treeData.value) as TvWallScreen[]
   } catch (e: unknown) {
     ElMessage.error(getApiErrorMessage(e, t('tvWall.loadTreeFailed')))
   } finally {
@@ -986,7 +986,8 @@ const handleNodeClick = (data: Record<string, unknown>, node: TreeNode) => {
 }
 
 const handleDragStart = (node: TreeNode, ev: DragEvent) => {
-  if (node.data.nodeType !== 'channel' && node.data.nodeType !== 'source_stream') {
+  const nodeData = node.data as Record<string, unknown>
+  if (nodeData.nodeType !== 'channel' && nodeData.nodeType !== 'source_stream') {
     ev.preventDefault()
     return
   }

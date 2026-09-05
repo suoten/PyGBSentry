@@ -194,7 +194,7 @@ import JessibucaPlayer from '../components/JessibucaPlayer.vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 import { logger } from '@/utils/logger'
 
 const { t } = useI18n()
@@ -357,7 +357,7 @@ function updateMapMarkers() {
   vectorSource.clear()
   
   mobileChannels.value.forEach(ch => {
-    const feature = new Feature(new Point(fromLonLat([ch.longitude, ch.latitude])))
+    const feature = new Feature(new Point(fromLonLat([ch.longitude!, ch.latitude!])))
     feature.set('channel', ch)
     
     feature.setStyle(new Style({
@@ -373,11 +373,11 @@ function updateMapMarkers() {
   })
 }
 
-function selectChannel(ch: Record<string, unknown>) {
+function selectChannel(ch: Channel) {
   selectedChannel.value = ch
   if (map) {
     map.getView().animate({
-      center: fromLonLat([ch.longitude, ch.latitude]),
+      center: fromLonLat([ch.longitude!, ch.latitude!]),
       zoom: 15,
       duration: 500
     })
@@ -385,13 +385,13 @@ function selectChannel(ch: Record<string, unknown>) {
   }
 }
 
-async function callDevice(ch: Record<string, unknown>) {
+async function callDevice(ch: Channel) {
   selectChannel(ch)
   popupData.value = { name: ch.name || ch.gb_id, url: '', loading: true }
   popupVisible.value = true
   // Set popup position
   if (popupOverlay) {
-    popupOverlay.setPosition(fromLonLat([ch.longitude, ch.latitude]))
+    popupOverlay.setPosition(fromLonLat([ch.longitude!, ch.latitude!]))
   }
   
   try {
@@ -414,24 +414,24 @@ function closePopup() {
   popupData.value.url = ''
 }
 
-async function trackDevice(ch: Record<string, unknown>) {
+async function trackDevice(ch: Channel) {
   selectChannel(ch)
   trackingChannel.value = ch
   if (!trajectorySource) return
   trajectorySource.clear()
-  
+
   try {
-    const res = await api.get('/api/v1/map/trajectory', { 
-      params: { 
+    const res = await api.get('/api/v1/map/trajectory', {
+      params: {
         device_id: ch.device_id,
-        limit: 50 
-      } 
+        limit: 50
+      }
     })
-    
+
     if (Array.isArray(res.data) && res.data.length > 0) {
       const points = res.data
-        .filter((p: Record<string, unknown>) => p.lng && p.lat)
-        .map((p: Record<string, unknown>) => fromLonLat([p.lng, p.lat]))
+        .filter((p: { lng: number; lat: number }) => p.lng && p.lat)
+        .map((p: { lng: number; lat: number }) => fromLonLat([p.lng, p.lat]))
       
       if (points.length > 1) {
         const line = new Feature(new LineString(points))
@@ -483,7 +483,7 @@ async function loadActiveSessions() {
   }
 }
 
-async function joinExistingSession(session: Record<string, unknown>) {
+async function joinExistingSession(session: ConferenceSession) {
   conferenceAlarm.value = null
   conferenceDrawerVisible.value = true
   conferencePlayUrl.value = ''
@@ -523,7 +523,7 @@ async function loadConferenceParticipants() {
   }
 }
 
-async function openConference(alarm: Record<string, unknown>) {
+async function openConference(alarm: Alarm) {
   conferenceAlarm.value = alarm
   conferenceDrawerVisible.value = true
   conferencePlayUrl.value = ''

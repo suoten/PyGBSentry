@@ -179,10 +179,10 @@
             <el-tag v-for="(count, level) in quality.level_distribution" :key="String(level)" size="small">{{ level }}: {{ count }}</el-tag>
           </div>
           <div v-if="quality.slow_samples?.length" class="mt-2">
-            <div class="text-sm font-semibold mb-1" style="color: var(--el-text-color-secondary)">{{ t('slaPage.slowestTop', { count: quality.slow_samples.length }) }}</div>
+            <div class="text-sm font-semibold mb-1" style="color: var(--el-text-color-secondary)">{{ t('slaPage.slowestTop', { count: quality.slow_samples!.length }) }}</div>
             <div v-for="s in quality.slow_samples" :key="s.alarm_id" class="text-xs flex justify-between py-1 border-b" style="border-color: var(--el-border-color-extra-light)">
               <span>{{ s.device_id?.slice(0, 12) || '-' }}</span>
-              <span :style="{ color: s.ack_minutes > 60 ? 'var(--el-color-danger)' : '' }">{{ s.ack_minutes?.toFixed(1) }} {{ t('slaPage.minutes') }}</span>
+              <span :style="{ color: s.ack_minutes! > 60 ? 'var(--el-color-danger)' : '' }">{{ s.ack_minutes?.toFixed(1) }} {{ t('slaPage.minutes') }}</span>
             </div>
           </div>
         </div>
@@ -256,6 +256,20 @@ interface SlaOverview {
   overdue_open: number
   acknowledged_today: number
   avg_ack_minutes_today: number
+}
+
+interface SlaSlowSample {
+  alarm_id: string
+  device_id?: string
+  ack_minutes?: number
+}
+
+interface SlaQuality {
+  p50_ack_minutes?: number
+  p90_ack_minutes?: number
+  samples?: number
+  level_distribution?: Record<string, number>
+  slow_samples?: SlaSlowSample[]
 }
 
 const { t } = useI18n()
@@ -475,7 +489,7 @@ const fetchCompare = async () => {
 
 const qualityDays = ref(7)
 const qualityLoading = ref(false)
-const quality = ref<Record<string, unknown>>({})
+const quality = ref<SlaQuality>({})
 
 const fetchQuality = async () => {
   qualityLoading.value = true

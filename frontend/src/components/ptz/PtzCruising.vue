@@ -2,7 +2,7 @@
   <div class="panel-box">
     <div class="row-line">
       <span class="row-label">{{ t('ptzCtrl.cruiseId') }}</span>
-      <el-input-number :model-value="cruiseId" :min="1" :max="255" controls-position="right" @update:model-value="(v: number) => emitValue('update:cruiseId', v, cruiseId)" />
+      <el-input-number :model-value="cruiseId" :min="1" :max="255" controls-position="right" @update:model-value="(v: number | undefined) => emitValue('update:cruiseId', v, cruiseId)" />
     </div>
 
     <div class="points-wrap">
@@ -52,7 +52,7 @@
         :min="1"
         :max="4095"
         controls-position="right"
-        @update:model-value="(v: number) => emitValue('update:speed', v, speed)"
+        @update:model-value="(v: number | undefined) => emitValue('update:speed', v, speed)"
       />
       <div class="row-actions">
         <el-button type="primary" size="small" :loading="actionLoading === 'set_speed'" @click="$emit('action', 'set_speed')">{{ t('common.save') }}</el-button>
@@ -75,7 +75,7 @@
         :min="1"
         :max="4095"
         controls-position="right"
-        @update:model-value="(v: number) => emitValue('update:stayTime', v, stayTime)"
+        @update:model-value="(v: number | undefined) => emitValue('update:stayTime', v, stayTime)"
       />
       <div class="row-actions">
         <el-button type="primary" size="small" :loading="actionLoading === 'set_time'" @click="$emit('action', 'set_time')">{{ t('common.save') }}</el-button>
@@ -136,7 +136,7 @@ const emit = defineEmits<{
 
 const emitValue = (eventName: 'update:cruiseId' | 'update:presetId' | 'update:speed' | 'update:stayTime', value: string | number | undefined, fallback: number) => {
   const next = Number(value ?? fallback)
-  ;(emit as Record<string, unknown>)(eventName, Number.isFinite(next) ? next : fallback)
+  ;(emit as (e: 'update:cruiseId' | 'update:presetId' | 'update:speed' | 'update:stayTime', value: number) => void)(eventName, Number.isFinite(next) ? next : fallback)
 }
 
 const onSelectPreset = (value: string | number | undefined) => {

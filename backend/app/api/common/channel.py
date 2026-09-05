@@ -20,7 +20,7 @@ def _uuid7_hex(n: int = 16) -> str:
 
 import math
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1630,9 +1630,12 @@ async def channel_play(
         channel_id = resource.gb_id
     if not channel_id:
         raise HTTPException(status_code=400, detail="channelId is required")  # i18n
+    # FIX: [2026-08-22 PN] 原调用缺必填参数 background_tasks → TypeError → 500。
+    # 服务层直调需自行构造 BackgroundTasks 实例。
     return await play_stream(
         device_id=device_id,
         channel_id=channel_id,
+        background_tasks=BackgroundTasks(),
         stream_type=stream_type or "auto",
         db=db,
         current_user=current_user,
@@ -1744,7 +1747,13 @@ async def channel_preset_query(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     resource, asset = await _resolve_channel_asset_pair(db, current_user, channel_id)
-    data = await query_preset(asset.gb_id, resource.gb_id, db, current_user)
+    # FIX: [2026-08-22 PN] 原以位置参数调用 query_preset(asset.gb_id, resource.gb_id, db, current_user)，
+    # db 落入 remote 形参、current_user 落入 db → AttributeError → 500。改为关键字传参。
+    # 另需显式 remote=False：直调时 remote 形参默认值是 Query(False) FieldInfo
+    # 对象（真值），不传会误入 SIP 远程查询分支。
+    data = await query_preset(
+        asset.gb_id, resource.gb_id, remote=False, db=db, current_user=current_user,
+    )
     preset_list = data.get("preset_list", []) if isinstance(data, dict) else []
     out: list[dict[str, Any]] = []
     for it in preset_list:

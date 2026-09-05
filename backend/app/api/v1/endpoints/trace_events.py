@@ -20,7 +20,7 @@ def _parse_dt(value: str | None) -> datetime | None:
         return None
     try:
         return datetime.fromisoformat(s)
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 

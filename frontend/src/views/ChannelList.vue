@@ -100,7 +100,7 @@
           class="channel-table"
           header-row-class-name="channel-table-header-row"
           row-key="gbId"
-          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows)"
+          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows as Channel[])"
         >
           <el-table-column type="selection" width="50" />
           <el-table-column prop="gbName" :label="t('common.name')" min-width="160" show-overflow-tooltip />
@@ -113,8 +113,8 @@
           <el-table-column :label="t('common.type')" width="110">
             <template #default="{ row }">
               <el-tooltip :content="t('channel.list.channelTypeTip', { type: row.dataType })" placement="top">
-                <el-tag size="small" effect="plain" :style="(channelTypeTag(row.dataType) as any).style">
-                  {{ (channelTypeTag(row.dataType) as any).name }}
+                <el-tag size="small" effect="plain" :style="channelTypeTag(row.dataType).style">
+                  {{ t(channelTypeTag(row.dataType).nameKey) }}
                 </el-tag>
               </el-tooltip>
             </template>
@@ -234,10 +234,19 @@
       <PickCivilDialog v-model="showCivil" @picked="onCivilDialogPicked" />
       <PickGroupDialog v-model="showGroup" @picked="onGroupDialogPicked" />
 
-            <ChannelPlayerDialog
-        v-model:visible="playerVisible"
+      <!-- FIX [2026-09-02]: 接入高级播放器（多播放内核 + 云台控制 + 语音对讲） -->
+      <AdvancedVideoPlayerDialog
+        v-model="playerVisible"
         :device-id="playDeviceGb"
         :channel-id="playChannelGb"
+        :urls="playerView.playUrls"
+        :play-url="playerView.playUrl"
+        :codec="playerView.playCodec"
+        :app="playerView.playApp"
+        :stream="playerView.playStreamId"
+        :request="playerView.playRequest"
+        @refresh="refreshPlayer"
+        @close="onPlayerClosed"
       />
 
     <ChannelEditDialog
@@ -265,14 +274,15 @@ import { ArrowDown, RefreshRight, Search, VideoPlay, Edit, MoreFilled, Timer } f
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
-import ChannelPlayerDialog from '../components/channel/ChannelPlayerDialog.vue'
+import AdvancedVideoPlayerDialog from '../components/AdvancedVideoPlayerDialog.vue'
+import { usePlayer } from './channel-manager/usePlayer'
 import ChannelEditDialog from '../components/channel/ChannelEditDialog.vue'
 import AddChannelDialog from '../components/channel/AddChannelDialog.vue'
 import PickCivilDialog from '../components/channel/PickCivilDialog.vue'
 import PickGroupDialog from '../components/channel/PickGroupDialog.vue'
 import { channelTypeTag } from '../constants/channelType'
 import { getFriendlyError } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -333,9 +343,31 @@ const playerVisible = ref(false)
 
 const playDeviceGb = ref('')
 const playChannelGb = ref('')
+
+// FIX [2026-09-02]: 播放流程由 usePlayer 驱动，供高级播放器展示（进度/多内核/云台）
+const wsPlayer = usePlayer()
+const playerView = computed(() => ({
+  playUrl: wsPlayer.playUrl.value,
+  playCodec: wsPlayer.playCodec.value,
+  playApp: wsPlayer.playApp.value,
+  playStreamId: wsPlayer.playStreamId.value,
+  playUrls: wsPlayer.playUrls as Record<string, string | undefined>,
+  playRequest: {
+    ...wsPlayer.playRequest,
+    status: wsPlayer.playRequest.status as 'idle' | 'requesting' | 'waiting' | 'ready' | 'error',
+  },
+}))
+const refreshPlayer = async () => {
+  if (!playDeviceGb.value || !playChannelGb.value) return
+  await wsPlayer.playStream({ device_id: playDeviceGb.value, gb_id: playChannelGb.value })
+}
+const onPlayerClosed = async () => {
+  await wsPlayer.closePlayer()
+  playerVisible.value = false
+}
 const currentRow = ref<Channel | null>(null)
 const editVisible = ref(false)
-const editForm = ref<Channel>({})
+const editForm = ref<Record<string, unknown>>({})
 
 const addVisible = ref(false)
 
@@ -474,10 +506,11 @@ const play = async (row: Record<string, unknown>) => {
   const deviceId = String(row?.deviceId || '').trim()
   const channelId = String(row?.gbDeviceId || '').trim()
   if (!deviceId || !channelId) return
-  currentRow.value = row
+  currentRow.value = row as Channel
   playDeviceGb.value = deviceId
   playChannelGb.value = channelId
   playerVisible.value = true
+  await wsPlayer.playStream({ device_id: deviceId, gb_id: channelId })
 }
 
 const stopRow = async (row: Record<string, unknown>) => {

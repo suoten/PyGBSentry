@@ -10,7 +10,6 @@
 """
 import asyncio
 import sys
-import os
 from pathlib import Path
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -21,7 +20,7 @@ async def main():
     from app.core.config import settings
     from app.db.session import AsyncSessionLocal
     from app.core.field_crypto import encrypt_field, decrypt_field
-    from sqlalchemy import select, text
+    from sqlalchemy import text
 
     print("=" * 70)
     print("PyGBSentry 加密诊断工具")
@@ -76,27 +75,27 @@ async def main():
 
             # 4. 尝试解密这个 secret
             if secret and not secret_is_empty:
-                print(f"    尝试解密 secret...")
+                print("    尝试解密 secret...")
                 try:
                     # FIX [2026-07-19]: 严格模式——明文 secret 不应被误判为"解密成功"
                     plaintext = decrypt_field(secret, purpose="media_secret", allow_plaintext=False)
                     if plaintext is not None:
                         print(f"    ✓ 解密成功！明文={plaintext[:8]}... (长度={len(plaintext)})")
                     else:
-                        print(f"    ✗ 解密失败（返回 None）— 这就是 'Field decryption failed' 的原因")
-                        print(f"    → secret 列有值但用当前 FIELD_ENCRYPTION_KEY 解不开")
-                        print(f"    → 说明这个 secret 是用不同的密钥加密的，或仍是明文未加密")
+                        print("    ✗ 解密失败（返回 None）— 这就是 'Field decryption failed' 的原因")
+                        print("    → secret 列有值但用当前 FIELD_ENCRYPTION_KEY 解不开")
+                        print("    → 说明这个 secret 是用不同的密钥加密的，或仍是明文未加密")
                 except Exception as e:
                     print(f"    ✗ 解密异常: {type(e).__name__}: {e}")
             else:
                 if secret_is_null:
-                    print(f"    → secret 列为 NULL（未设置）")
-                    print(f"    → health_service 应报 'ZLM secret not configured'")
-                    print(f"    → 如果仍报 'Field decryption failed'，说明代码未更新")
+                    print("    → secret 列为 NULL（未设置）")
+                    print("    → health_service 应报 'ZLM secret not configured'")
+                    print("    → 如果仍报 'Field decryption failed'，说明代码未更新")
                 elif secret_is_empty:
-                    print(f"    → secret 列为空字符串")
-                    print(f"    → health_service 应报 'ZLM secret not configured'")
-                    print(f"    → 如果仍报 'Field decryption failed'，说明代码未更新")
+                    print("    → secret 列为空字符串")
+                    print("    → health_service 应报 'ZLM secret not configured'")
+                    print("    → 如果仍报 'Field decryption failed'，说明代码未更新")
 
     # 5. 其他表的加密字段
     print("\n[4] 其他表的加密字段状态")

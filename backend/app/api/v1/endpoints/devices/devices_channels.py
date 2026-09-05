@@ -18,7 +18,6 @@ from loguru import logger
 from . _common import (
     _normalize_default_stream_type,
     _normalize_region_code,
-    _build_region_chain,
     _resource_to_node,
     _get_effective_sip_id,
     _civil_code_from_sip_id,
@@ -526,7 +525,9 @@ async def update_channel(
         action="update_channel",
         operator=current_user.username or str(current_user.id),
         result="success",
-        summary=f"channel_id={channel_id}; name={channel.name}",
+        # FIX: [2026-08-22 P1] safe_auth_audit 无 summary 形参（正确名称为 extra_summary），
+        # 原 TypeError → PUT /devices/channels/{id} 必 500 且更新回滚（测试发现）。
+        extra_summary=f"channel_id={channel_id}; name={channel.name}",
     )
     await db.commit()
     return {"status": "ok"}
@@ -773,7 +774,16 @@ async def get_device_tree(
     region_root_dir_nodes: list[dict[str, Any]] = []
 
     def ensure_region_chain(region_code: str) -> list[tuple[str, str]]:
-        chain = _build_region_chain(region_code)
+        # FIX: [2026-08-22 PN] _build_region_chain 的签名是 (code, nodes) 且返回 None，
+        # 原调用缺第二参数 → TypeError → GET /devices/tree 带行政区数据必 500。
+        # 此处内联构建 (code, label) 行政区链（口径与 _common._build_region_chain 一致）。
+        chain: list[tuple[str, str]] = []
+        if region_code and region_code != "000000":
+            for _len in (2, 4, 6):
+                _c = region_code[:_len].ljust(_len, "0")
+                if _c == "000000":
+                    continue
+                chain.append((_c, f"行政区 {_c}"))
         for idx, (code, label) in enumerate(chain):
             # 只有当该行政区划在数据库中存在，或者 infer_region_placement 为 True 时才创建
             if code not in region_nodes:
@@ -1052,6 +1062,12 @@ async def get_business_tree(
             if "children" not in parent_node:
                 parent_node["children"] = []
             parent_node["children"].append(node)
+        elif parent_gb_id == gb_id:
+            # FIX [2026-09-01 P2]: 一体化摄像机常以设备 ID 作为第一个通道 ID，
+            # 该通道 parent_gb_id 等于自身 gb_id。原逻辑落入 else 分支被直接
+            # 丢弃，导致业务树/监控中心设备树看不到任何通道。自引用视为
+            # 无父节点，挂载到根资源组。
+            nodes[root_gb_id]["children"].append(node)
         else:
             if (ref.node_type or "").lower() == "channel":
                 continue

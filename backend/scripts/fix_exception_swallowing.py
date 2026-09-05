@@ -9,7 +9,6 @@
   - except (asyncio.CancelledError, asyncio.TimeoutError): pass → 加 logger.debug
 """
 import re
-import os
 from pathlib import Path
 
 BACKEND_DIR = Path(__file__).parent.parent / "app"

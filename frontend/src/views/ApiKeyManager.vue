@@ -135,7 +135,7 @@ import TableSkeleton from '../components/TableSkeleton.vue'
 import EmptyStateWithAction from '../components/EmptyStateWithAction.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 
 const { t } = useI18n()
 const loading = ref(false)

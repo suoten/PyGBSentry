@@ -556,39 +556,46 @@ class SipTalk:
         await asyncio.sleep(timeout)
         async with _talk_pending_lock:
             pending = _talk_pending.get(call_id)
-        if pending and pending[1].get("status") != "ended":
-            logger.info(f"Talk session {call_id} timed out, sending BYE")
+        if pending:
+            state = pending[1]
+            # FIX: [2026-08-22 PN] status=ended 仅跳过 BYE 发送；
+            # 原实现 ended 时跳过整个清理块 → pending 残留、SSRC 泄漏
+            if state.get("status") != "ended":
+                logger.info(f"Talk session {call_id} timed out, sending BYE")
+                try:
+                    _addr = state.get("addr")
+                    _transport = state.get("transport")
+                    _proto = state.get("proto") or "UDP"
+                    _from_tag = (state.get("from_tag") or "").strip()
+                    _to_tag = (state.get("to_tag") or "").strip()
+                    _from_header = state.get("from_header") or ""
+                    _to_header = state.get("to_header") or ""
+                    _cseq = int(state.get("cseq") or 1) + 1
+
+                    if _addr and _transport:
+                        bye_branch = f"z9hG4bK{secrets.token_hex(10)}"
+                        bye_to = _to_header
+                        if _to_tag and "tag=" not in bye_to:
+                            bye_to = f"{bye_to};tag={_to_tag}"
+
+                        bye = SipMessage()
+                        bye.method = "BYE"
+                        bye.uri = f"sip:{_addr[0]}:{_addr[1]}"
+                        bye.version = "SIP/2.0"
+                        bye.headers["Via"] = f"SIP/2.0/{_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={bye_branch}"
+                        bye.headers["From"] = _from_header
+                        bye.headers["To"] = bye_to
+                        bye.headers["Call-ID"] = call_id
+                        bye.headers["CSeq"] = f"{_cseq} BYE"
+                        bye.headers["Max-Forwards"] = "70"
+                        bye.headers["User-Agent"] = settings.PROJECT_NAME
+                        await send_sip_bytes(_proto, _transport, _addr, bye.to_bytes())
+
+                    state["status"] = "ended"
+                except Exception as e:
+                    logger.warning(f"Failed to send BYE for timed-out talk session {call_id}: {e}")
+            # 清理（无论是否 ended）：释放 SSRC 并移除 pending
             try:
-                state = pending[1]
-                _addr = state.get("addr")
-                _transport = state.get("transport")
-                _proto = state.get("proto") or "UDP"
-                _from_tag = (state.get("from_tag") or "").strip()
-                _to_tag = (state.get("to_tag") or "").strip()
-                _from_header = state.get("from_header") or ""
-                _to_header = state.get("to_header") or ""
-                _cseq = int(state.get("cseq") or 1) + 1
-
-                if _addr and _transport:
-                    bye_branch = f"z9hG4bK{secrets.token_hex(10)}"
-                    bye_to = _to_header
-                    if _to_tag and "tag=" not in bye_to:
-                        bye_to = f"{bye_to};tag={_to_tag}"
-
-                    bye = SipMessage()
-                    bye.method = "BYE"
-                    bye.uri = f"sip:{_addr[0]}:{_addr[1]}"
-                    bye.version = "SIP/2.0"
-                    bye.headers["Via"] = f"SIP/2.0/{_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={bye_branch}"
-                    bye.headers["From"] = _from_header
-                    bye.headers["To"] = bye_to
-                    bye.headers["Call-ID"] = call_id
-                    bye.headers["CSeq"] = f"{_cseq} BYE"
-                    bye.headers["Max-Forwards"] = "70"
-                    bye.headers["User-Agent"] = settings.PROJECT_NAME
-                    await send_sip_bytes(_proto, _transport, _addr, bye.to_bytes())
-
-                state["status"] = "ended"
                 # S-17 对讲超时挂断时释放SSRC，防止泄漏
                 _timeout_ssrc = state.get("ssrc")
                 if _timeout_ssrc:
@@ -600,7 +607,7 @@ class SipTalk:
                 async with _talk_pending_lock:
                     _talk_pending.pop(call_id, None)
             except Exception as e:
-                logger.warning(f"Failed to send BYE for timed-out talk session {call_id}: {e}")
+                logger.warning(f"Failed to cleanup timed-out talk session {call_id}: {e}")
 
     async def send_bye(self, asset, transport_info: tuple, call_id: str) -> bool:
         async with _talk_pending_lock:

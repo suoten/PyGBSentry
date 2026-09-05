@@ -60,6 +60,26 @@ type PlayRequestUi = {
   diagnostics?: Record<string, unknown>
 }
 
+// window 上挂载的第三方播放器库的最小类型声明（按本组件实际用到的 API）
+type JessibucaInstance = {
+  on<T>(event: string, handler: (data: T) => void): void
+  play(url?: string): void
+  destroy(): unknown
+  resize(): void
+  mute(): void
+  isPlaying(): boolean
+  screenshot(name?: string, format?: string, quality?: number): void
+}
+type JessibucaConstructor = new (options: Record<string, unknown>) => JessibucaInstance
+type H265WebJsPlayerInstance = {
+  on_ready_show_done_callback?: () => void
+  build(config: Record<string, unknown>): unknown
+  load_media?(url: string): void
+  change_media?(url: string): void
+  play?(): void
+}
+type H265LegacyPlayerFactory = (url: string, conf: Record<string, unknown>) => Record<string, unknown>
+
 const { t } = useI18n() // FIXED: 国际化
 
 const props = withDefaults(defineProps<{
@@ -75,17 +95,18 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-  (e: 'status', v: { status: 'loading' | 'ready' | 'error'; hint?: string }): void
+  (e: 'status', v: { status: 'loading' | 'ready' | 'error' | 'closed'; hint?: string }): void
   (e: 'error', v: { hint: string }): void
   (e: 'refreshRequest'): void
   (e: 'suggestSwitch', v: 'h265' | 'webrtc'): void
-  (e: 'dragZoom', v: { 
-    length: number, 
-    width: number, 
-    mid_point_x: number, 
-    mid_point_y: number, 
-    length_x: number, 
-    length_y: number 
+  (e: 'close'): void
+  (e: 'dragZoom', v: {
+    length: number,
+    width: number,
+    mid_point_x: number,
+    mid_point_y: number,
+    length_x: number,
+    length_y: number
   }): void
 }>()
 
@@ -371,13 +392,13 @@ const switchToCompatibilityMode = (hint: string) => {
 
 const playerRoot = ref<HTMLElement | null>(null)
 const container = ref<HTMLElement | null>(null)
-let jessibuca: Record<string, unknown> = null
-let h265Player: Record<string, unknown> = null
+let jessibuca: JessibucaInstance | null = null
+let h265Player: Record<string, unknown> | null = null
 let h265VideoEl: HTMLVideoElement | null = null
-let watchdogTimer: Record<string, unknown> = null
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null
 let resizeObserver: ResizeObserver | null = null
 let teardownTask: Promise<void> = Promise.resolve()
-let fallbackTimer: Record<string, unknown> = null
+let fallbackTimer: ReturnType<typeof setTimeout> | null = null
 const h265webInitSeq = ref(0)
 
 const markJessibucaDestroying = (instance: Record<string, unknown>) => {
@@ -404,13 +425,13 @@ const patchJessibucaInternalReset = (instance: Record<string, unknown>) => {
   }
 }
 
-const H265WEB_PUBLIC_TOKEN = (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || ''
+const H265WEB_PUBLIC_TOKEN = (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || ''
 
 const loadScript = (src: string) =>
   new Promise<void>((resolve, reject) => {
     const existed = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null
     if (existed) {
-      if ((existed as Record<string, unknown>).dataset.loaded === '1') {
+      if (existed.dataset.loaded === '1') {
         resolve()
         return
       }
@@ -422,7 +443,7 @@ const loadScript = (src: string) =>
     script.src = src
     script.async = true
     script.onload = () => {
-      ;(script as Record<string, unknown>).dataset.loaded = '1'
+      script.dataset.loaded = '1'
       resolve()
     }
     script.onerror = () => reject(new Error(`load script failed: ${src}`))
@@ -442,8 +463,8 @@ const loadFirstOk = async (srcList: string[]) => {
   throw lastErr || new Error('load script failed')
 }
 
-const resolveJessibucaCtor = async () => {
-  const win = window as Record<string, unknown>
+const resolveJessibucaCtor = async (): Promise<JessibucaConstructor | null> => {
+  const win = window as unknown as { Jessibuca?: JessibucaConstructor }
   if (typeof win.Jessibuca === 'function') return win.Jessibuca
   try {
     await loadFirstOk([
@@ -485,8 +506,8 @@ const destroyPlayers = async () => {
       markJessibucaDestroying(instance)
       try {
         const ret = instance.destroy()
-        if (ret && typeof ret.then === 'function') {
-          await ret.catch(() => { /* play() rejected: common on pause/destroy, safe to ignore */ })
+        if (ret && typeof (ret as { then?: unknown }).then === 'function') {
+          await (ret as Promise<void>).catch(() => { /* play() rejected: common on pause/destroy, safe to ignore */ })
         }
       } catch { /* cleanup: ignore */ }
     }
@@ -529,7 +550,7 @@ const destroyPlayers = async () => {
         container.value.removeAttribute('data-jessibuca')
       } catch { /* cleanup: ignore */ }
       try {
-        ;(container.value as Record<string, unknown>).dataset.jessibuca = ''
+        container.value.dataset.jessibuca = ''
       } catch { /* cleanup: ignore */ }
     }
   }
@@ -537,7 +558,7 @@ const destroyPlayers = async () => {
   await teardownTask
 }
 
-const initPlayer = (JessibucaCtor: Record<string, unknown>) => {
+const initPlayer = (JessibucaCtor: JessibucaConstructor) => {
   if (!container.value || typeof JessibucaCtor !== 'function') return
 
   // Jessibuca 不支持 HLS，如果当前 URL 是 HLS，提前提示并切换到备选方案
@@ -565,7 +586,7 @@ const initPlayer = (JessibucaCtor: Record<string, unknown>) => {
     container.value.removeAttribute('data-jessibuca')
   } catch { /* cleanup: ignore */ }
   try {
-    ;(container.value as Record<string, unknown>).dataset.jessibuca = ''
+    container.value.dataset.jessibuca = ''
   } catch { /* ignore */ }
 
   const playUrl = String(currentUrl.value || '').trim()
@@ -643,10 +664,10 @@ const initPlayer = (JessibucaCtor: Record<string, unknown>) => {
         resizeObserver = new ResizeObserver(() => {
           try {
             if (jessibuca && typeof jessibuca.resize === 'function') {
-              requestAnimationFrame(() => jessibuca.resize())
+              requestAnimationFrame(() => (jessibuca as JessibucaInstance).resize())
             }
             if (h265Player && typeof h265Player.resize === 'function') {
-              requestAnimationFrame(() => h265Player.resize())
+              requestAnimationFrame(() => ((h265Player as Record<string, unknown>).resize as () => void)())
             }
           } catch { /* cleanup: ignore */ }
         })
@@ -820,7 +841,7 @@ const initH265Player = async () => {
     player: 'glplayer',
     width: Math.max(2, Math.floor(width || 960)),
     height: Math.max(2, Math.floor(height || 540)),
-    token: (import.meta as Record<string, unknown>)?.env?.VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN,
+    token: (import.meta.env as Record<string, unknown>).VITE_H265WEB_TOKEN || H265WEB_PUBLIC_TOKEN,
     extInfo: {
       autoPlay: true,
       ignoreAudio: 0
@@ -833,8 +854,8 @@ const initH265Player = async () => {
   }
 
   try {
-    const createFn = (window as Record<string, unknown>).new265webjs
-    const module = (window as Record<string, unknown>).H265webjsModule
+    const createFn = (window as unknown as { new265webjs?: H265LegacyPlayerFactory }).new265webjs
+    const module = (window as unknown as { H265webjsModule?: { createPlayer?: H265LegacyPlayerFactory } }).H265webjsModule
     if (typeof createFn === 'function') {
       h265Player = createFn(targetUrl, conf)
     } else if (module && typeof module.createPlayer === 'function') {
@@ -848,7 +869,7 @@ const initH265Player = async () => {
 
   if (!h265Player) {
     try {
-      const factory = (window as Record<string, unknown>).H265webjsPlayer
+      const factory = (window as unknown as { H265webjsPlayer?: () => H265WebJsPlayerInstance }).H265webjsPlayer
       if (typeof factory === 'function') {
         const playerId = `h265web_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
         container.value.id = playerId

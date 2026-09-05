@@ -30,8 +30,9 @@ from typing import Any
 
 AUDIT_ENABLED = os.environ.get("AUDIT_L2_ENABLED", "true").lower() in {"true", "1", "yes"}
 
+# 同时匹配 `export interface X { ... }` 与 `export type X = { ... }` 两种声明
 TS_INTERFACE_PATTERN = re.compile(
-    r"export\s+interface\s+(\w+)\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}",
+    r"export\s+(?:interface\s+(\w+)\s*|type\s+(\w+)\s*=\s*)\{([^}]*(?:\{[^}]*\}[^}]*)*)\}",
     re.DOTALL,
 )
 
@@ -49,6 +50,7 @@ PYDANTIC_MODULES = [
     "app.api.v1.endpoints.billing",
     "app.api.v1.endpoints.control",
     "app.api.v1.endpoints.devices._common",
+    "app.api.v1.endpoints.devices.devices_crud",
     "app.api.v1.endpoints.integrations",
     "app.api.v1.endpoints.login",
     "app.api.v1.endpoints.map",
@@ -74,47 +76,36 @@ TS_TYPE_FILES = [
 
 MOBILE_TS_API_DIR = "mobile/src/api"
 
+# TS 接口 → Pydantic 响应模型配对表。
+# 配对原则：只配对"前端展示接口 ↔ 后端实际作为响应契约的模型"。
+# 请求载荷（Create/Update/Query）不是响应契约，不得出现在此表中；
+# 端点返回手写 dict 且无响应模型的领域暂不配对（避免假阳性）。
 TS_TO_PYDANTIC_MAP: dict[str, str] = {
-    "Device": "DeviceUpdatePayload",
-    "Channel": "ChannelUpdatePayload",
-    "Alarm": "AlarmNotificationItem",
-    "VideoRecord": "DeviceRecordQueryPayload",
-    "BillingPlan": "BillingPlanCreate",
-    "Subscription": "SubscriptionUpdate",
-    "Order": "PluginOrderCreate",
-    "CascadePlatform": "PlatformCreate",
-    "AuditLog": "AuditLogItem",
-    "ApiKey": "UserApiKey",
-    "WorkOrder": "WorkOrderCreate",
-    "AssetLedger": "AssetCreate",
-    "MaintenanceRecord": "MaintenanceCreate",
-    "StructuredEvent": "StructuredEventCreate",
-    "Organization": "OrganizationCreate",
-    "AuditLogItem": "AuditLogItem",
+    # 响应模型配对（response_model 强制契约）
+    "Device": "DeviceItem",            # GET /api/v1/devices
+    "Alarm": "AlarmItem",              # GET /api/v1/alarms
+    "CascadePlatform": "PlatformItem", # GET /api/v1/platforms
+    "AuditLogItem": "AuditLogItem",    # GET /api/v1/audit-center/logs
     "DraftResponse": "DraftResponse",
     "DiffResponse": "DiffResponse",
     "PublishResponse": "PublishResponse",
     "RollbackResponse": "RollbackResponse",
-    "OrgNode": "OrganizationCreate",
-    "OrgItem": "OrganizationCreate",
 }
 
 SKIP_TS_FIELDS = {
     "[key: string]: unknown",
 }
 
-SKIP_PYDANTIC_FIELDS = {
-    "tenant_id",
-    "created_at",
-    "updated_at",
-}
-
 
 def parse_ts_interfaces(content: str) -> dict[str, set[str]]:
     interfaces: dict[str, set[str]] = {}
     for match in TS_INTERFACE_PATTERN.finditer(content):
-        name = match.group(1)
-        body = match.group(2)
+        name = match.group(1) or match.group(2)
+        body = match.group(3)
+        # 剥离索引签名（如 `[key: string]: unknown`），
+        # 防止其中的 `key` 被 TS_FIELD_PATTERN 误识别为数据字段。
+        # 停止字符含逗号，避免单行接口写法误吞后续字段。
+        body = re.sub(r"\[\s*\w+\s*:\s*string\s*\]\s*:\s*[^\n;,]+", " ", body)
         fields: set[str] = set()
         for field_match in TS_FIELD_PATTERN.finditer(body):
             field_name = field_match.group(1)
@@ -192,8 +183,11 @@ def check_pair(
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
 
+    # 干净对比：不做任何字段剔除或补全。
+    # 旧行为（从 Pydantic 侧剔除 created_at/updated_at/tenant_id 并补 id）
+    # 会在 TS 合法持有这些字段时产生假阳性 ERROR，并掩盖真实缺失的 id。
     ts_fields_clean = ts_fields - SKIP_TS_FIELDS
-    pydantic_fields_clean = (pydantic_fields - SKIP_PYDANTIC_FIELDS) | {"id"}
+    pydantic_fields_clean = set(pydantic_fields)
 
     ts_only = ts_fields_clean - pydantic_fields_clean
     for field in sorted(ts_only):
@@ -263,12 +257,29 @@ def main() -> int:
     all_issues: list[dict[str, Any]] = []
     matched = 0
 
-    for ts_name, ts_fields in sorted(ts_interfaces.items()):
-        pydantic_name = TS_TO_PYDANTIC_MAP.get(ts_name)
-        if pydantic_name is None:
+    for ts_name, pydantic_name in sorted(TS_TO_PYDANTIC_MAP.items()):
+        ts_fields = ts_interfaces.get(ts_name)
+        if ts_fields is None:
+            # 配对声明的 TS 接口不存在（改名/删除）— 静默跳过会造成检测缺口
+            all_issues.append({
+                "level": "WARN",
+                "type": "PAIR_TS_NOT_FOUND",
+                "ts_interface": ts_name,
+                "pydantic_model": pydantic_name,
+                "field": "",
+                "message": f"TS interface {ts_name} declared in TS_TO_PYDANTIC_MAP not found in frontend sources — pair check skipped",
+            })
             continue
         pydantic_fields = pydantic_models.get(pydantic_name)
         if pydantic_fields is None:
+            all_issues.append({
+                "level": "WARN",
+                "type": "PAIR_PYDANTIC_NOT_FOUND",
+                "ts_interface": ts_name,
+                "pydantic_model": pydantic_name,
+                "field": "",
+                "message": f"Pydantic model {pydantic_name} declared in TS_TO_PYDANTIC_MAP not importable — pair check skipped",
+            })
             continue
         matched += 1
         issues = check_pair(ts_name, ts_fields, pydantic_name, pydantic_fields)

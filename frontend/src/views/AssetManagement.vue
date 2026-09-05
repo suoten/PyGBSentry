@@ -63,7 +63,7 @@
           <QueryFormSection :title="t('assetPage.filterConditions')" :default-collapsed="true">
             <el-form-item :label="t('assetPage.filterByDevice')">
               <el-select v-model="filterAssetId" :placeholder="t('assetPage.filterByDevice')" clearable style="width: 280px" @change="loadMaintenances">
-                <el-option v-for="a in ledger" :key="a.id" :label="a.name || a.gb_id" :value="a.id" />
+                <el-option v-for="a in ledger" :key="a.id" :label="a.name || (a.gb_id as string | undefined)" :value="a.id" />
               </el-select>
             </el-form-item>
           </QueryFormSection>
@@ -117,7 +117,7 @@
         <el-form :model="maintenanceForm" label-width="80px">
           <el-form-item :label="t('common.device')">
             <el-select v-model="maintenanceForm.asset_id" :placeholder="t('common.selectDevice')" class="w-full">
-              <el-option v-for="a in ledger" :key="a.id" :label="a.name || a.gb_id" :value="a.id" />
+              <el-option v-for="a in ledger" :key="a.id" :label="a.name || (a.gb_id as string | undefined)" :value="a.id" />
             </el-select>
           </el-form-item>
           <el-form-item :label="t('common.type')">
@@ -132,7 +132,7 @@
             <el-date-picker v-model="maintenanceForm.maintenance_date" type="datetime" value-format="YYYY-MM-DDTHH:mm:ss" class="w-full" />
           </el-form-item>
           <el-form-item :label="t('common.remark')">
-            <el-input v-model="maintenanceForm.note" type="textarea" rows="2" />
+            <el-input v-model="maintenanceForm.note" type="textarea" :rows="2" />
           </el-form-item>
         </el-form>
         <template #footer>
@@ -155,7 +155,7 @@ import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import QueryFormSection from '../components/QueryFormSection.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 
 const { t } = useI18n()
 

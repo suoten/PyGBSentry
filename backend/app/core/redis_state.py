@@ -67,7 +67,9 @@ class RedisDict:
         mapped = {}
         for field, v in value.items():
             mapped[field] = json.dumps(v) if not isinstance(v, str) else v
-        await redis_client.hset(self._key(k), mapping=mapped)
+        # FIX [2026-09-01 P1]: hset(mapping=) 需 Redis 4.0+，改用兼容写入（Redis 3.0）
+        from app.core.redis import hset_mapping
+        await hset_mapping(redis_client, self._key(k), mapped)
         if self._ttl:
             await redis_client.expire(self._key(k), self._ttl)
 

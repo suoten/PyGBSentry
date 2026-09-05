@@ -196,8 +196,22 @@ const { t } = useI18n()
 
 const props = defineProps<{
   visible: boolean
-  channelData: Record<string, unknown>
+  channelData: Record<string, unknown> | null
 }>()
+
+/** channelData 的局部字段视图（用于编辑表单回填；其余字段经索引签名保持 unknown） */
+interface ChannelEditRow {
+  id: string
+  gb_id: string
+  name?: string
+  default_stream_type?: string
+  address?: string
+  ip_address?: string
+  password?: string
+  resolution?: string
+  business_group_id?: string
+  [key: string]: unknown
+}
 
 const emit = defineEmits<{
   (e: 'update:visible', value: boolean): void
@@ -247,7 +261,7 @@ const form = ref<{
 
 watch(() => props.visible, (val) => {
   if (val && props.channelData) {
-    const row = props.channelData
+    const row = props.channelData as ChannelEditRow
     form.value = {
       id: row.id,
       gb_id: row.gb_id,

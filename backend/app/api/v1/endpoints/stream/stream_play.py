@@ -83,6 +83,9 @@ async def stream_error_catalog(
         {"reason_code": "asset_or_channel_not_found", "http_status": 404, "retryable": False, "message": "Device or channel not found"},
         {"reason_code": "max_concurrent_streams", "http_status": 429, "retryable": True, "message": "Concurrent stream limit reached"},  # i18n
         {"reason_code": "play_request_failed", "http_status": 502, "retryable": True, "message": "Stream invite request failed"},  # i18n
+        # FIX: [2026-08-22 PN] 补充 /play_status 实际会返回但目录缺失的两个错误码
+        {"reason_code": "media_port_exhausted", "http_status": 503, "retryable": True, "message": "Media node RTP port exhausted"},
+        {"reason_code": "invite_send_failed", "http_status": 503, "retryable": True, "message": "Invite send failed"},
     ]
     data = []
     for item in items:
@@ -940,7 +943,6 @@ async def play_stream(
                         logger.warning(f"Error: {e}")
                     if not _reuse_probe_ok:
                         try:
-                            from app.core.media_nodes_db import get_db_media_node_by_id
                             from app.db.session import AsyncSessionLocal
                             _db_host = _db_port = _db_secret = None
                             async with AsyncSessionLocal() as _db_sess:

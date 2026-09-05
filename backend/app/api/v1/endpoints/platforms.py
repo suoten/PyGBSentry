@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, or_, desc, func
 import json
 from loguru import logger
+from typing import Any
 
 from app.db.session import get_db
 from app.models.platform import ParentPlatform
@@ -442,7 +443,31 @@ class PlatformUpdate(BaseModel):
     enable: bool | None = None
 
 
-@router.get("")
+class PlatformItem(BaseModel):
+    """上级平台列表项响应模型（GET /api/v1/platforms）。
+
+    与列表端点的序列化 dict 字段一一对应，作为前后端契约
+    （frontend/src/types/models.ts CascadePlatform 接口）。
+    """
+
+    id: str
+    name: str
+    server_gb_id: str | None = None
+    server_ip: str | None = None
+    server_port: int | None = None
+    transport: str | None = None
+    client_gb_id: str | None = None
+    tenant_id: str | None = None
+    is_online: bool | None = None
+    register_interval: int | None = None
+    keepalive_interval: int | None = None
+    catalog_batch_size: int = 0
+    catalog_push_delay_seconds: int = 0
+    enable: bool | None = None
+    runtime: dict[str, Any] = {}
+
+
+@router.get("", response_model=list[PlatformItem])
 async def list_platforms(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),

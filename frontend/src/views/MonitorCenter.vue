@@ -816,7 +816,7 @@ import { useChannelTreeStats } from '../utils/channelTreeStats'
 
 import { buildSourceTree } from '../utils/channelSourceTree'
 
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 
 import { logger } from '@/utils/logger'
 
@@ -862,7 +862,7 @@ const isPlayableTreeChannel = (node: any) => {
 
 
 
-const shouldShowStatusBadge = (node: TreeNode) => {
+const shouldShowStatusBadge = (node: Record<string, unknown>) => {
 
   const nodeType = String(node?.nodeType || '').toLowerCase()
 
@@ -1007,9 +1007,9 @@ const isChannelPlaying = (channelId: string) => {
 
 
 
-const isMonitorTreeFolderNode = (node: TreeNode) => {
+const isMonitorTreeFolderNode = (node: Record<string, unknown>) => {
 
-  return Array.isArray(node?.children) && node.children.length > 0
+  return Array.isArray(node?.children) && (node.children as unknown[]).length > 0
 
 }
 
@@ -1517,7 +1517,7 @@ const handleDoubleClick = async (data: Record<string, unknown>) => {
 
     channelId: data.id || data.gb_id,
 
-    deviceId: data.deviceId,
+    deviceId: data.deviceId ?? data.device_id,
 
     nodeType: data.nodeType
 
@@ -1533,7 +1533,9 @@ const handleDoubleClick = async (data: Record<string, unknown>) => {
 
 const handleDragStart = (node: TreeNode, ev: DragEvent) => {
 
-  if (node.data.nodeType !== 'channel' && node.data.nodeType !== 'source_stream') {
+  const nodeData = node.data as Record<string, unknown>
+
+  if (nodeData.nodeType !== 'channel' && nodeData.nodeType !== 'source_stream') {
 
     ev.preventDefault()
 
@@ -1669,6 +1671,12 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
 
 
+  // FIX [2026-09-01 P1]: 设备树接口返回 snake_case 的 device_id，原代码只读
+  // camelCase deviceId，导致上屏请求 /stream/play/undefined/<channel> 404（资源不存在）。
+  const deviceId = channel.deviceId ?? channel.device_id
+
+
+
   screens.value[index] = {
 
     loading: true,
@@ -1677,7 +1685,7 @@ const playInScreen = async (channel: Record<string, unknown>, index: number) => 
 
     channelId: channel.id || channel.gb_id,
 
-    deviceId: channel.deviceId,
+    deviceId,
 
     nodeType: channel.nodeType
 

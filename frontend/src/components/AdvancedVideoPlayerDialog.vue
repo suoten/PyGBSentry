@@ -1,8 +1,8 @@
 <template>
   <el-dialog
     v-model="dialogVisible"
-    width="84vw"
-    top="4vh"
+    width="min(1600px, 94vw)"
+    top="3vh"
     :close-on-click-modal="false"
     :destroy-on-close="true"
     :show-close="false"
@@ -1103,8 +1103,9 @@ watch(
 
 .player-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.9fr);
-  gap: 16px;
+  /* FIX [2026-09-04]: 视频区占满剩余宽度，侧栏定宽 340px（原 0.9fr 在宽屏上被拉得过宽） */
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 12px;
   transition: all 0.3s ease;
 }
 
@@ -1113,7 +1114,9 @@ watch(
 }
 
 .player-layout.is-immersive .player-stage {
-  height: min(80vh, 800px);
+  height: min(82vh, 900px);
+  aspect-ratio: auto;
+  max-height: none;
 }
 
 .request-banner {
@@ -1166,7 +1169,7 @@ watch(
 .player-card,
 .tabs-card {
   border: 1px solid #dbe2ea;
-  border-radius: 18px;
+  border-radius: 12px;
   background: #fff;
   overflow: hidden;
   box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
@@ -1240,8 +1243,12 @@ watch(
 }
 
 .player-stage {
-  height: min(62vh, 620px);
-  min-height: 320px;
+  /* FIX [2026-09-04]: 原固定高度 min(62vh, 620px) 在 16:9 画面下方留出大片黑底。
+     改为随宽度按 16:9 自适应、仅用 max-height 封顶，画面上下左右不再留白。 */
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  max-height: min(66vh, 700px);
+  min-height: 280px;
   background: #000;
   border-radius: 0;
   overflow: hidden;

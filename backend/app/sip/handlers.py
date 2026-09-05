@@ -2370,18 +2370,20 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 try:
                     await handle_catalog_response(_body, _device_id)
                 except Exception as _catalog_err:
-                    logger.error(
-                        f"[CATALOG_HANDLE_ERROR] device={_device_id} error={_catalog_err}",
-                        exc_info=True,
+                    logger.opt(exception=True).error(
+                        f"[CATALOG_HANDLE_ERROR] device={_device_id} error={_catalog_err}"
                     )
-                    await patch_device_catalog_runtime(
-                        _device_id,
-                        {
-                            "catalog.sync_state": "error",
-                            "catalog.last_error": f"handle_failed: {_catalog_err}",
-                            "catalog.progress": 100,
-                        },
-                    )
+                    try:
+                        await patch_device_catalog_runtime(
+                            _device_id,
+                            {
+                                "catalog.sync_state": "error",
+                                "catalog.last_error": f"handle_failed: {_catalog_err}",
+                                "catalog.progress": 100,
+                            },
+                        )
+                    except Exception as _patch_err:
+                        logger.error(f"[CATALOG_HANDLE_ERROR] Failed to patch runtime for {_device_id}: {_patch_err}")
             _bg_create_task(_safe_handle_catalog_response(body, response_device_id))
             return
 
@@ -2430,7 +2432,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             await send_response(transport, proto, addr, resp)
             _sip_debug_log("message_directory_info", message, {"gb_id": gb_id})
             try:
-                from app.sip.catalog import catalog_data_manager
+                # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                from app.sip.catalog_data_manager import catalog_data_manager
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route DirectoryInfo response to catalog_data_manager: {e}")
@@ -2442,7 +2446,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             await send_response(transport, proto, addr, resp)
             _sip_debug_log("message_alarm_code_response", message, {"gb_id": gb_id})
             try:
-                from app.sip.catalog import catalog_data_manager
+                # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                from app.sip.catalog_data_manager import catalog_data_manager
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route AlarmCodeResponse response to catalog_data_manager: {e}")
@@ -2505,7 +2511,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                         logger.warning("[MESSAGE] PlatformService not available for cascade DeviceControl forwarding")
                 else:
                     try:
-                        from app.sip.catalog import catalog_data_manager
+                        # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                        # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                        from app.sip.catalog_data_manager import catalog_data_manager
                         await catalog_data_manager.put(device_id_xml, "DeviceControl", body)
                     except Exception as e:
                         logger.warning(f"Failed to route DeviceControl to catalog_data_manager: {e}")
@@ -2546,7 +2554,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     else:
                         logger.warning(f"[MESSAGE] Failed to forward cascade ConfigDownload from {gb_id} for channel {device_id_xml}")
             try:
-                from app.sip.catalog import catalog_data_manager
+                # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                from app.sip.catalog_data_manager import catalog_data_manager
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route {cmd_type} response to catalog_data_manager: {e}")
@@ -2560,7 +2570,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             logger.info(f"ConfigSet response from {gb_id}: Result={result}")
             _sip_debug_log("message_configset", message, {"gb_id": gb_id, "result": result})
             try:
-                from app.sip.catalog import catalog_data_manager
+                # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                from app.sip.catalog_data_manager import catalog_data_manager
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route ConfigSet response to catalog_data_manager: {e}")
@@ -2583,7 +2595,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             logger.info(f"ConfigUpload response from {gb_id}: Result={result}")
             _sip_debug_log("message_configupload", message, {"gb_id": gb_id, "result": result})
             try:
-                from app.sip.catalog import catalog_data_manager
+                # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                from app.sip.catalog_data_manager import catalog_data_manager
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route ConfigUpload response to catalog_data_manager: {e}")
@@ -2627,7 +2641,9 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             else:
                 # 非级联场景：将 Broadcast 请求路由到 catalog_data_manager 供上层处理
                 try:
-                    from app.sip.catalog import catalog_data_manager
+                    # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
+                    # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
+                    from app.sip.catalog_data_manager import catalog_data_manager
                     await catalog_data_manager.put(broadcast_device_id, "Broadcast", body)
                 except Exception as e:
                     logger.warning(f"Failed to route Broadcast to catalog_data_manager: {e}")
@@ -3551,7 +3567,9 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
                         notify_cseq = 2
                     from app.sip.send import send_sip_bytes
                     from app.sip.message import SipMessage
-                    from app.sip.utils import sip_host_for_contact
+                    # FIX: [2026-08-22 PN] sip_host_for_contact 位于 app.core.config（app/sip/utils.py 不存在），
+                    # 原 ImportError 被吞 → SUBSCRIBE 注销的 terminated NOTIFY 永远不发送
+                    from app.core.config import sip_host_for_contact
                     notify_req = SipMessage()
                     notify_req.method = "NOTIFY"
                     notify_req.uri = message.get_header("Contact") or f"sip:{gb_id}@{addr[0]}:{addr[1]}"

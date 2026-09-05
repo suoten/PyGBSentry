@@ -98,6 +98,7 @@ import type { FormInstance, FormRules } from 'element-plus'
 import api from '@/utils/http'
 import { getFriendlyError } from '../../utils/errorMessage'
 import AppDialog from '../common/AppDialog.vue'
+import type { TreeNode } from '@/types/models'
 
 const { t } = useI18n()
 
@@ -197,13 +198,13 @@ watch(parentKeyword, (keyword) => {
 
 const createParentTreeOptions = computed(() => {
   const walk = (nodes: Record<string, unknown>[]): Record<string, unknown>[] => {
-    return (nodes || []).map((node: TreeNode) => {
+    return (nodes || []).map((node) => {
       const nodeType = String(node?.nodeType || '').toLowerCase()
       const allow = ['root', 'region', 'directory'].includes(nodeType)
       return {
         ...node,
         disabled: !allow,
-        children: walk(Array.isArray(node?.children) ? node.children : [])
+        children: walk(Array.isArray(node?.children) ? (node.children as Record<string, unknown>[]) : [])
       }
     })
   }

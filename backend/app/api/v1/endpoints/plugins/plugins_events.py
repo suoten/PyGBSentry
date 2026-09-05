@@ -333,7 +333,10 @@ async def network_watchdog_events(
 
     # 收集：新到旧。以日期文件逆序扫描
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"network_watchdog_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -502,7 +505,10 @@ async def stream_idle_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"stream_idle_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -647,7 +653,10 @@ async def timelapse_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"timelapse_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -799,7 +808,10 @@ async def webhook_pusher_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"webhook_pusher_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -966,7 +978,10 @@ async def s3_sync_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"s3_sync_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -1132,7 +1147,10 @@ async def ptz_tour_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"ptz_tour_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -1294,7 +1312,10 @@ async def auto_record_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"auto_record_{cur_day.strftime('%Y-%m-%d')}.log"
@@ -1456,7 +1477,10 @@ async def record_schedule_executor_events(
         }
 
     collected: list[dict] = []
-    target_end_inclusive = page * page_size
+    # FIX: [2026-08-22 P1] has_more 恒 False：收集上限为 page*page_size，与 end_idx
+    # 相等，len(collected) > end_idx 永不成立。多收集 1 条用于探测是否有下一页
+    # （与 sip_logger 端点的 need_collect = target_end_inclusive + 1 行为对齐）。
+    target_end_inclusive = page * page_size + 1
     cur_day = end_date
     while cur_day >= start_date:
         file_path = FSPath(log_dir) / f"record_schedule_executor_{cur_day.strftime('%Y-%m-%d')}.log"

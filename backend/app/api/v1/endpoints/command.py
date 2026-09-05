@@ -43,6 +43,27 @@ def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 
 
+def _duration_sec(started_at: datetime | None, ended_at: datetime | None) -> int:
+    """FIX: [2026-08-22 P1] GET /command/sessions 对 open 会话的 duration 计算混用
+    aware/naive：DB 列为 naive DateTime，ended_at 为 None 时以 aware 的
+    datetime.now(timezone.utc) 兜底再与 naive started_at 相减 → TypeError → 500。
+    统一折算为 naive UTC 后求差（ended_at 若为 aware 一并归一化）。
+    """
+
+    def _to_naive_utc(dt: datetime | None) -> datetime | None:
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+
+    start = _to_naive_utc(started_at)
+    if start is None:
+        return 0
+    end = _to_naive_utc(ended_at) or datetime.now(timezone.utc).replace(tzinfo=None)
+    return int(max(0, (end - start).total_seconds()))
+
+
 async def _ensure_session(db: AsyncSession, user: User, session_id: str, title: str | None = None):
     row = (
         await db.execute(
@@ -134,14 +155,7 @@ async def list_sessions(
             "participant_count": participant_count_map.get(str(r.id), 0),
             "instruction_count": instruction_count_map.get(str(r.id), 0),
             "last_instruction_at": last_instruction_at_map.get(str(r.id)),
-            "duration_sec": int(
-                max(
-                    0,
-                    (
-                        ((r.ended_at or datetime.now(timezone.utc)) - (r.started_at or datetime.now(timezone.utc))).total_seconds()
-                    ),
-                )
-            ),
+            "duration_sec": _duration_sec(r.started_at, r.ended_at),
         }
         for r in rows
     ]

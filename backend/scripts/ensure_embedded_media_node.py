@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 async def main() -> None:
     from sqlalchemy import text
 
+    from app.core.config import settings
     from app.core.media_nodes_db import ensure_embedded_media_node
     from app.db.session import AsyncSessionLocal, engine
 

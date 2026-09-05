@@ -223,12 +223,21 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                 _inspect_ref = inspect
                 def _guarded_open(*args, **kwargs):
                     global _sandbox_reentrancy_depth
-                    if _sandbox_reentrancy_depth > 0:
+                    _frame = _inspect_ref.currentframe()
+                    _caller = _frame.f_back if _frame else None
+                    # FIX: [2026-08-22 PN] 沙箱模块级绕过修复：插件模块级代码在
+                    # importlib 的 exec() 内执行时 depth>0，原实现无条件放行 →
+                    # 模块级 open('w') 可绕过沙箱。现 depth>0 仅当直接调用方为
+                    # 内部模块（import 机制正常加载路径，如 encodings 惰性加载）
+                    # 时豁免；插件模块级调用仍走下方检查。
+                    if _sandbox_reentrancy_depth > 0 and (
+                        _caller is None
+                        or _is_internal_caller(_caller.f_globals.get("__name__", ""), _caller)
+                    ):
                         return orig(*args, **kwargs)
                     _sandbox_reentrancy_depth += 1
                     try:
-                        frame = _inspect_ref.currentframe()
-                        if not _is_direct_plugin_caller(frame.f_back, pid):
+                        if not _is_direct_plugin_caller(_caller, pid):
                             return orig(*args, **kwargs)
                         try:
                             mode = "r"
@@ -261,12 +270,53 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
             setattr(_builtins, name, _make_open_guard(original, plugin_id))
             continue
 
+        if name == "__import__":
+            def _make_import_guard(orig, pid):
+                _inspect_ref = inspect
+                def _guarded_import(*args, **kwargs):
+                    global _sandbox_reentrancy_depth
+                    # __import__ 保留完整 depth 豁免：import 机制加载路径需要
+                    if _sandbox_reentrancy_depth > 0:
+                        return orig(*args, **kwargs)
+                    _sandbox_reentrancy_depth += 1
+                    try:
+                        frame = _inspect_ref.currentframe()
+                        plugin_caller = _is_direct_plugin_caller(frame.f_back, pid)
+                        if plugin_caller:
+                            # FIX: [2026-08-22 P2] 安全设计：插件上下文中的运行期 import 一律拦截。
+                            # 不能因 import hook 在位而放行走 meta_path —— 常见危险模块
+                            # （socket/ssl/subprocess 等）在宿主进程已缓存在 sys.modules，
+                            # 缓存命中根本不经过 meta_path finder，放行即绕过黑名单。
+                            # vendor 依赖应在模块加载期导入（加载路径经 hook 校验 + vendor
+                            # 目录注入 sys.path），运行期请使用插件 SDK 的受控 API。
+                            raise RuntimeError(
+                                f"[Sandbox] Plugin '{pid}' attempted to call blocked builtin function '__import__()', "
+                                f"which is in the dangerous API blacklist and has been blocked by runtime sandbox"  # i18n
+                            )
+                        return orig(*args, **kwargs)
+                    finally:
+                        _sandbox_reentrancy_depth -= 1
+                return _guarded_import
+
+            setattr(_builtins, name, _make_import_guard(original, plugin_id))
+            continue
+
         def _make_guard(orig, blocked_name, pid):
             _inspect_ref = inspect
             def _guarded(*args, **kwargs):
                 global _sandbox_reentrancy_depth
                 if _sandbox_reentrancy_depth > 0:
-                    return orig(*args, **kwargs)
+                    # FIX: [2026-08-22 PN] 沙箱模块级绕过修复（eval/exec）：
+                    # depth>0 不再无条件放行——插件模块级 eval/exec 在 importlib 的
+                    # exec() 内执行（depth>0），原实现全部绕过。现仅当直接调用方为
+                    # 内部模块（import 机制加载路径，如对新导入模块代码的 exec）时
+                    # 豁免；compile 保留完整豁免（不执行代码，风险较低）。
+                    if blocked_name == "compile":
+                        return orig(*args, **kwargs)
+                    frame = _inspect_ref.currentframe()
+                    caller = frame.f_back if frame else None
+                    if caller is None or _is_internal_caller(caller.f_globals.get("__name__", ""), caller):
+                        return orig(*args, **kwargs)
                 _sandbox_reentrancy_depth += 1
                 try:
                     frame = _inspect_ref.currentframe()
@@ -471,7 +521,8 @@ class PluginManager:
                 with open(server_candidate, "r", encoding="utf-8") as f:
                     meta = json.load(f)
                 return meta if isinstance(meta, dict) else None
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load plugin.json for single-file plugin '{module_name}': {e}")
             return None
 
         return None
@@ -1041,14 +1092,20 @@ class PluginManager:
             "skipped": 0,
             "errors": [],
         }
-        if hook_name.upper() == "ON_SIP_SEND" or hook_name.upper() == "ON_SIP_RECV":  # Hook名称大小写不匹配修复，统一转大写比较
+        # FIX: [2026-08-22 PN] SIP Trace 两个缺陷修复：
+        # 1) type 判断原用原大小写 hook_name == "ON_SIP_SEND" 比较（实际常量为小写
+        #    on_sip_send）恒 False → send 方向也记成 "recv"；
+        # 2) 接收方向原判断 "ON_SIP_RECV"，与常量 on_sip_receive（大写后为
+        #    ON_SIP_RECEIVE）不符 → 接收方向从不记录。
+        _hook_upper = hook_name.upper()
+        if _hook_upper == "ON_SIP_SEND" or _hook_upper == "ON_SIP_RECEIVE":
             try:
                 msg = args[0]
                 addr = args[1] if len(args) > 1 else None
                 proto = args[2] if len(args) > 2 else "UDP"
                 trace = {
                     "time": time.time(),
-                    "type": "send" if hook_name == "ON_SIP_SEND" else "recv",
+                    "type": "send" if _hook_upper == "ON_SIP_SEND" else "recv",
                     "method": getattr(msg, "method", "Response"),
                     "call_id": msg.get_header("Call-ID"),
                     "cseq": msg.get_header("CSeq"),

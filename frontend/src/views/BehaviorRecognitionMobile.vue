@@ -91,8 +91,24 @@ import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import AppDialog from '../components/common/AppDialog.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 import { logger } from '@/utils/logger'
+
+interface MobilePluginConfig {
+  ai_callback_url?: string
+  sync_urls?: string
+  send_snapshot_url?: boolean
+  timeout_seconds?: number
+  enabled?: boolean
+}
+
+interface PluginPushEvent {
+  id: string
+  time?: string
+  ok?: boolean
+  summary?: string
+  detail?: string
+}
 
 const { t } = useI18n()
 
@@ -100,7 +116,7 @@ const pluginId = 'behavior_recognition_suite'
 
 const loadingConfig = ref(true)
 const enabled = ref(false)
-const config = ref<StructuredEvent>({})
+const config = ref<MobilePluginConfig>({})
 
 const statusText = computed(() => (enabled.value ? t('behaviorMobile.enabled') : t('behaviorMobile.notEnabled')))
 const statusColorClass = computed(() =>
@@ -114,10 +130,10 @@ function formatSyncUrls(v: unknown): string {
 }
 
 const configDialogVisible = ref(false)
-const configForm = ref<StructuredEvent>({})
+const configForm = ref<MobilePluginConfig>({})
 const saving = ref(false)
 
-const events = ref<StructuredEvent[]>([])
+const events = ref<PluginPushEvent[]>([])
 const loadingEvents = ref(false)
 
 async function loadConfig() {

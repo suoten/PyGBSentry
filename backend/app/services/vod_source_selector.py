@@ -255,7 +255,7 @@ class VodSourceSelector:
                 'path': result.path,
                 'query': result.query,
             }
-        except Exception:
+        except ValueError:
             return {}
 
     async def _check_sources_concurrent(self, candidates: list[VodSourceCandidate]):

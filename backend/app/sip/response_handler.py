@@ -13,6 +13,7 @@ import secrets
 import re
 from app.sip.send import send_sip_bytes
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
+from app.core.config import settings, sip_host_for_contact, sip_via_host
 from typing import Optional
 
 # GB2 3xx重定向自动跟随 — 重定向计数器，防止循环
@@ -122,7 +123,7 @@ async def _record_stream_health(session, stream_session: StreamSession, status_c
     result = await session.execute(select(AssetStreamHealth).where(AssetStreamHealth.asset_id == stream_session.asset_id))
     health = result.scalars().first()
     if not health:
-        health = AssetStreamHealth(asset_id=stream_session.asset_id)
+        health = AssetStreamHealth(asset_id=stream_session.asset_id, last_mode="UDP")
         session.add(health)
 
     is_success = (status_code < 300) and (status_code != 202)
@@ -257,7 +258,6 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                         for k in _keys[:len(_REDIRECT_COUNTS) - _REDIRECT_COUNTS_MAX + 100]:
                             _REDIRECT_COUNTS.pop(k, None)
                     try:
-                        from app.core.config import settings, sip_host_for_contact, sip_via_host
                         new_branch = f"z9hG4bK{secrets.token_hex(8)}"
                         cseq_header = message.get_header("CSeq") or "1 INVITE"
                         cseq_parts = cseq_header.split()
@@ -366,7 +366,10 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
         rseq_header = message.get_header("RSeq") or ""
         if "100rel" in require_header.lower() and rseq_header and call_id_val:
             try:
-                from app.core.config import settings, sip_host_for_contact, sip_via_host
+                # 注意：settings/sip_host_for_contact/sip_via_host 使用模块级导入（第 16 行）。
+                # 此处曾出现函数内局部导入，使这三个名字被编译为局部变量，
+                # 导致 3xx 重定向分支（函数前部使用同名符号）抛 UnboundLocalError，
+                # 重定向功能静默失效 — 严禁在此函数内重新导入这些名字。
                 cseq_header = message.get_header("CSeq") or "1 INVITE"
                 cseq_num = cseq_header.split()[0] if cseq_header else "1"
                 branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
@@ -401,17 +404,24 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                 logger.warning(f"[PRACK] Failed to send PRACK: {prack_err}")
         return
 
-    # C-21 对讲INVITE的ACK由on_talk_200_ok统一发送，此处跳过避免双重ACK
-    _is_talk_invite = False
-    try:
-        from app.sip import talk as _talk_mod
-        if call_id in _talk_mod._talk_pending:
-            _is_talk_invite = True
-    except Exception as _talk_check_err:
-        # 对讲模块导入失败时记录日志，否则双重ACK问题无法诊断
-        logger.debug(f"Failed to check talk pending for {call_id}: {_talk_check_err}")
+    # C-21 对讲INVITE的 2xx ACK由on_talk_200_ok统一发送，此处跳过避免双重ACK。
+    # FIX [2026-08-22 P1]: 非 2xx 最终响应（4xx/5xx/6xx）的对讲 INVITE 仍必须发送
+    # ACK（RFC 3261 §13.2.2.4），原实现一律跳过 → 设备侧事务悬挂至超时（测试发现）。
+    _is_talk_invite_2xx = False
+    if 200 <= status_code < 300:
+        try:
+            from app.sip import talk as _talk_mod
+            if call_id in _talk_mod._talk_pending:
+                _is_talk_invite_2xx = True
+        except Exception as _talk_check_err:
+            # 对讲模块导入失败时记录日志，否则双重ACK问题无法诊断
+            logger.debug(f"Failed to check talk pending for {call_id}: {_talk_check_err}")
 
-    if not _is_talk_invite:
+    # FIX [2026-08-22 P1]: 3xx 的 ACK 已在上方 3xx 分支发送（含重定向失败/
+    # 无 Contact 的场景），此处跳过，避免落入通用 ACK 块产生双重 ACK（测试发现）。
+    _is_3xx_final = 300 <= status_code < 400
+
+    if not _is_talk_invite_2xx and not _is_3xx_final:
         req = SipMessage()
         req.method = "ACK"
         contact = message.get_header("Contact")
@@ -486,6 +496,11 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
         except Exception as e:
             logger.warning(f"Error: {e}")
         async with invite_module.invite_state.stream_switch_lock:
+            # FIX: [2026-08-22 PN] 流切换回退死代码修复：原实现先 pop stream_switch_pending，
+            # 下方 4xx 分支再检查 call_id in stream_switch_pending 恒 False →
+            # _do_stream_switch_rollback 永不触发。现先捕获状态再清理。
+            is_stream_switch = call_id in invite_module.invite_state.stream_switch_pending
+            saved_target_type = invite_module.invite_state.stream_switch_pending.get(call_id)
             invite_module.invite_state.stream_switch_pending.pop(call_id, None)
             invite_module.invite_state.stream_switch_rollback_depth.pop(call_id, None)
             invite_module.invite_state.stream_switch_rollback_depth_timestamps.pop(call_id, None)
@@ -545,19 +560,9 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
                             logger.warning(f"Talk SSRC release failed for {_talk_ssrc}: {_ssrc_rel_err}")
             except Exception as _talk_cleanup_err:
                 logger.warning(f"Talk cleanup error for {call_id}: {_talk_cleanup_err}")
-            # 流切换失败，取消超时看门狗并主动触发回退
-            async with invite_module.invite_state.stream_switch_lock:
-                is_stream_switch = call_id in invite_module.invite_state.stream_switch_pending
-                saved_target_type = invite_module.invite_state.stream_switch_pending.get(call_id)
-                invite_module.invite_state.stream_switch_pending.pop(call_id, None)
-                invite_module.invite_state.stream_switch_pending_timestamps.pop(call_id, None)
-            try:
-                from app.sip.watchdog import cancel_stream_switch_watchdog
-                cancel_stream_switch_watchdog(call_id)
-            except Exception as e:
-                # FIX: [2026-07-10] 补充上下文（原仅 "Error: {e}" 无法定位 call_id） [全栈工程师]
-                logger.warning(f"Cancel stream switch watchdog failed for {call_id}: {e}")
             # 流切换失败时主动触发回退
+            # FIX: [2026-08-22 PN] 使用公共路径在清理前捕获的 is_stream_switch/saved_target_type
+            # （原实现此处重查已 pop 的 stream_switch_pending 恒为空 → 回退死代码，误入协议降级重试）
             if is_stream_switch and invite_module.sip_invite:
                 try:
                     inviter = invite_module.sip_invite
@@ -872,110 +877,12 @@ async def handle_invite_response(message: SipMessage, addr: tuple, proto: str, t
 
         logger.info("Sent ACK")
 
-    elif 100 <= message.status_code < 200:
-        call_id = message.get_header("Call-ID")
-        if call_id:
-            invite_module.on_invite_provisional(call_id, message.status_code, message.reason_phrase or "")
-        logger.debug(f"INVITE provisional response: {message.status_code} {message.reason_phrase}")
-
-    elif message.status_code >= 400:
-        logger.error(f"INVITE failed with {message.status_code} {message.reason_phrase}")
-        call_id = message.get_header("Call-ID")
-        if call_id:
-            _REDIRECT_COUNTS.pop(call_id, None)  # C-16 INVITE失败时也清理重定向计数器
-            # 对讲INVITE 4xx-6xx时清理_talk_pending和释放SSRC，否则资源泄漏
-            try:
-                from app.sip import talk as _talk_mod_err
-                _talk_entry_err = _talk_mod_err._talk_pending.pop(call_id, None)
-                if _talk_entry_err:
-                    _, _talk_res_err = _talk_entry_err
-                    _talk_sock_err = _talk_res_err.pop("socket", None)
-                    if _talk_sock_err:
-                        try:
-                            _talk_sock_err.close()
-                        except Exception as _talk_sock_close_err:
-                            # FIX [2026-07-17 P2-8]: 描述性日志替代 "silently_swallowed_exception"
-                            logger.warning(f"Failed to close talk socket on call_id={call_id}: {_talk_sock_close_err}")
-                    _talk_ssrc_err = _talk_res_err.get("ssrc")
-                    if _talk_ssrc_err:
-                        try:
-                            from app.sip.ssrc_manager import ssrc_manager
-                            await ssrc_manager.release(str(_talk_ssrc_err))
-                        except Exception as _ssrc_err:
-                            logger.warning(f"Talk SSRC release failed on INVITE error for {_talk_ssrc_err}: {_ssrc_err}")
-            except Exception as _talk_err_cleanup:
-                logger.warning(f"Talk cleanup on INVITE error for {call_id}: {_talk_err_cleanup}")
-            try:
-                invite_module.cancel_invite_watchdog(call_id)
-            except Exception as e:
-                logger.warning(f"Error: {e}")
-            try:
-                from app.sip.invite import unregister_ssrc_waiter
-                async with AsyncSessionLocal() as ss:
-                    ss_result = await ss.execute(select(StreamSession).where(StreamSession.call_id == call_id))
-                    ss_obj = ss_result.scalars().first()
-                    if ss_obj and ss_obj.ssrc:
-                        await unregister_ssrc_waiter(str(ss_obj.ssrc))
-            except Exception as e:
-                logger.warning(f"Exception: {e}")
-            # 流切换失败，取消超时看门狗并主动触发回退
-            async with invite_module.invite_state.stream_switch_lock:
-                is_stream_switch = call_id in invite_module.invite_state.stream_switch_pending
-                saved_target_type = invite_module.invite_state.stream_switch_pending.get(call_id)
-            try:
-                from app.sip.watchdog import cancel_stream_switch_watchdog
-                cancel_stream_switch_watchdog(call_id)
-            except Exception as e:
-                # FIX: [2026-07-10] 补充上下文（原仅 "Error: {e}" 无法定位 call_id） [全栈工程师]
-                logger.warning(f"Cancel stream switch watchdog failed for {call_id}: {e}")
-            async with invite_module.invite_state.stream_switch_lock:
-                invite_module.invite_state.stream_switch_pending.pop(call_id, None)
-                invite_module.invite_state.stream_switch_pending_timestamps.pop(call_id, None)
-            # 通知等待 INVITE 响应的协程（错误响应）
-            invite_module.on_invite_response(
-                call_id,
-                message.status_code,
-                message.reason_phrase or "",
-                message.body or "",
-                record_route=message.get_header("Record-Route"),  # GB28181协议 — 传递Record-Route头到dialog
-                # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 传递 Session-Expires 头域
-                session_expires_header=message.get_header("Session-Expires"),
-            )
-            # 流切换失败时主动触发回退（不做协议降级重试）
-            if is_stream_switch and invite_module.sip_invite:
-                try:
-                    inviter = invite_module.sip_invite
-                    if inviter:  # pyright None narrowing
-                        await inviter._do_stream_switch_rollback(call_id, saved_target_type=saved_target_type)
-                except Exception as rollback_err:
-                    logger.warning(f"[Stream Switch] Rollback after failure failed for {call_id}: {rollback_err}")
-                return
-        if call_id and invite_module.sip_invite:
-            retried = False  # retried possibly unbound
-            inviter = invite_module.sip_invite
-            if inviter:
-                retried = await inviter.retry_invite_with_fallback(call_id)
-            if not retried:
-                try:
-                    async with AsyncSessionLocal() as session:
-                        result = await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))
-                        stream_session = result.scalars().first()
-                        if stream_session:
-                            old_lease_id = getattr(stream_session, "_pending_old_lease_id", None)
-                            if old_lease_id:
-                                try:
-                                    from app.core.media_nodes_db import release_lease
-                                    async with AsyncSessionLocal() as lease_session:
-                                        await release_lease(lease_session, old_lease_id)
-                                        await lease_session.commit()
-                                except Exception as lease_err:
-                                    logger.warning(f"Failed to release old lease after INVITE 4xx: {lease_err}")
-                            await _record_stream_health(session, stream_session, message.status_code)
-                            from app.services.stream_session_service import finalize_stream_session
-                            await finalize_stream_session(session, stream_session, reason=f"invite_failed_{int(message.status_code or 0)}")  # 移除内部 loguru import，统一使用模块级 logger
-                            await session.commit()
-                except Exception as e:
-                    logger.error(f"invite_failed cleanup DB error for {call_id}: {e}")
+    # FIX: [2026-08-22 PN] 删除两处死代码分支：
+    # 1) elif 100 <= status < 200：1xx 已在上方 `if status_code < 200:` 分支 return，永不可达；
+    # 2) elif status >= 400：仅当 call_id 为空时进入，但内部重新读取同一 message 的
+    #    Call-ID（仍为空）→ 所有 `if call_id:` 守卫恒 False，整块为 no-op。
+    # 4xx 的有效处理（含流切换回退）已统一在上方 `if call_id:` 公共路径的
+    # `if status_code >= 400:` 分支中完成。
 
 
 # ---------------------------------------------------------------------------

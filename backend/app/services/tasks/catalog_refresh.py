@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import asyncio
-import datetime
 from loguru import logger
 from sqlalchemy import select
 from app.db.session import AsyncSessionLocal

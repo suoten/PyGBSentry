@@ -163,7 +163,11 @@ if not is_server_edition:
     _mount(audit_center, prefix="/audit-center", tags=["audit-center"])
     _mount(control, prefix="/control", tags=["control"])
     _mount(record, prefix="/record", tags=["record"])
-    _mount(vod, prefix="/vod", tags=["vod"])
+    # FIX: [2026-08-22 PN] vod.py 路由自带 /vod 前缀，原再以 prefix="/vod" 挂载
+    # 产生双前缀 /api/v1/vod/vod/...。去掉挂载前缀，最终路径为单前缀
+    # /api/v1/vod/play|sources|stream|quality-report|optimized-url（与
+    # VOD_OPTIMIZATION_GUIDE 文档一致）。
+    _mount(vod, tags=["vod"])
     _mount(gb_record, prefix="/gb-record", tags=["gb-record"])
     _mount(record_schedule, prefix="/record-schedule", tags=["record-schedule"])
     _mount(regions, prefix="/regions", tags=["regions"])

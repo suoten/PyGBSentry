@@ -52,8 +52,7 @@ from pathlib import Path
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BACKEND_DIR))
 
-from loguru import logger
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 
 def _mask(s: str | None, keep: int = 4) -> str:
@@ -155,7 +154,7 @@ async def diagnose(gb_id: str, device_password: str | None = None) -> dict:
         encrypted = encrypt_field(test_plain, purpose="sip_password")
         decrypted = decrypt_field(encrypted, purpose="sip_password", allow_plaintext=False)
         if decrypted == test_plain:
-            print(f"  [OK] FIELD_ENCRYPTION_KEY 可正常加解密字段 (round-trip 成功)")
+            print("  [OK] FIELD_ENCRYPTION_KEY 可正常加解密字段 (round-trip 成功)")
         else:
             print(f"  [FAIL] FIELD_ENCRYPTION_KEY round-trip 失败：期望 {test_plain!r}, 实际 {decrypted!r}")
             result["recommendations"].append(
@@ -201,7 +200,7 @@ async def diagnose(gb_id: str, device_password: str | None = None) -> dict:
             print(f"          password={'set' if pf_client.password else '(empty)'}, server_ip={pf_client.server_ip}:{pf_client.server_port}")
             result["matched_records"].append({"table": "parent_platforms_client", "record": pf_client})
         else:
-            print(f"  [ParentPlatform.client_gb_id] 未匹配")
+            print("  [ParentPlatform.client_gb_id] 未匹配")
 
         # ParentPlatform server match (本平台作为上级)
         pf_server = None
@@ -217,7 +216,7 @@ async def diagnose(gb_id: str, device_password: str | None = None) -> dict:
             print(f"          password={'set' if pf_server.password else '(empty)'}, server_ip={pf_server.server_ip}:{pf_server.server_port}")
             result["matched_records"].append({"table": "parent_platforms_server", "record": pf_server})
         else:
-            print(f"  [ParentPlatform.server_gb_id] 未匹配")
+            print("  [ParentPlatform.server_gb_id] 未匹配")
     print()
 
     # 3. 解密所有匹配记录的 password
@@ -258,17 +257,17 @@ async def diagnose(gb_id: str, device_password: str | None = None) -> dict:
 
         if db_plaintexts:
             if any(p == device_provided for p in db_plaintexts):
-                print(f"  [OK] 设备本地密码与 DB 中至少一条记录的明文密码一致")
+                print("  [OK] 设备本地密码与 DB 中至少一条记录的明文密码一致")
             else:
-                print(f"  [FAIL] 设备本地密码与 DB 所有记录的明文密码都不一致 — 需修正 DB 密码")
+                print("  [FAIL] 设备本地密码与 DB 所有记录的明文密码都不一致 — 需修正 DB 密码")
                 result["recommendations"].append(
                     f"使用 --fix-set-password 修正 DB 中 {gb_id} 的密码为设备本地真实密码"
                 )
         else:
-            print(f"  [INFO] DB 中无可解密的明文密码 — 无法比对，但设备本地密码已提供")
+            print("  [INFO] DB 中无可解密的明文密码 — 无法比对，但设备本地密码已提供")
     else:
-        print(f"  [INFO] 未提供 --device-password 参数，跳过设备本地密码比对")
-        print(f"         提示: 如已知设备本地密码，可加上 --device-password <密码> 进行精确比对")
+        print("  [INFO] 未提供 --device-password 参数，跳过设备本地密码比对")
+        print("         提示: 如已知设备本地密码，可加上 --device-password <密码> 进行精确比对")
     print()
 
     # 综合诊断结论
@@ -279,7 +278,7 @@ async def diagnose(gb_id: str, device_password: str | None = None) -> dict:
     if not result["matched_records"]:
         print(f"[根因] 数据库中没有 gb_id={gb_id} 的任何记录 (assets / parent_platforms 三类全部未匹配)")
         print(f"       日志中 candidates=1 表示系统只能用 SIP_DEFAULT_PASSWORD={_mask(default_pwd)} 作为候选密码")
-        print(f"       但设备本地配置的密码与默认密码不一致，导致 Response mismatch")
+        print("       但设备本地配置的密码与默认密码不一致，导致 Response mismatch")
         print()
         print("[方案 A] 在后台「设备管理」页面添加该设备，并填入设备本地真实密码 (推荐)")
         print("        1) 登录 PyGBSentry 后台 → 设备管理 → 新增设备")
@@ -361,7 +360,7 @@ async def fix_add_device(gb_id: str) -> None:
         session.add(new_asset)
         await session.commit()
         print(f"[OK] 已添加设备 {gb_id} (id={new_asset.id})")
-        print(f"     password 已用 SIP_DEFAULT_PASSWORD 加密写入")
+        print("     password 已用 SIP_DEFAULT_PASSWORD 加密写入")
         print()
         print("[注意] 请确认设备本地配置的密码确实是 SIP_DEFAULT_PASSWORD，否则仍会认证失败")
         print("       如设备使用其他密码，请改用 --fix-set-password <真实密码> 命令")
@@ -475,7 +474,7 @@ async def clear_blacklist(ip: str | None = None) -> None:
                 await session.commit()
                 print(f"  [OK] 已清空 DB 黑名单表 ({len(count)} 条)")
             else:
-                print(f"  [INFO] DB 黑名单表为空")
+                print("  [INFO] DB 黑名单表为空")
 
     # 清理内存中的认证失败计数（Redis 或本地后端）
     try:
@@ -489,7 +488,7 @@ async def clear_blacklist(ip: str | None = None) -> None:
             if cleaned is not None:
                 print(f"  [OK] 已清理全部认证失败计数 ({cleaned} 条)")
             else:
-                print(f"  [OK] 已调用 cleanup_auth_failures")
+                print("  [OK] 已调用 cleanup_auth_failures")
     except Exception as e:
         print(f"  [WARN] 清理认证失败计数异常 (非致命): {e}")
 
@@ -498,12 +497,12 @@ async def clear_blacklist(ip: str | None = None) -> None:
         from app.sip.server import sip_server
         if hasattr(sip_server, "reload_ip_blacklist"):
             await sip_server.reload_ip_blacklist()
-            print(f"  [OK] 已重新加载 SIP 服务器黑名单缓存")
+            print("  [OK] 已重新加载 SIP 服务器黑名单缓存")
         else:
-            print(f"  [INFO] SIP 服务器无 reload_ip_blacklist 方法，重启后端以刷新缓存")
+            print("  [INFO] SIP 服务器无 reload_ip_blacklist 方法，重启后端以刷新缓存")
     except Exception as e:
         print(f"  [WARN] 重新加载黑名单缓存异常 (非致命): {e}")
-        print(f"         重启后端服务可强制刷新缓存")
+        print("         重启后端服务可强制刷新缓存")
 
     print()
     print("[下一步] 设备下一次 REGISTER 不会被黑名单拦截，可正常走认证流程")
@@ -553,16 +552,15 @@ async def verify_config() -> None:
         print("[OK] SIP_DEFAULT_PASSWORD 无可疑字符 (纯 ASCII 可打印)")
 
     # 检查是否被环境变量覆盖
-    import os
     env_pwd = os.environ.get("SIP_DEFAULT_PASSWORD")
     if env_pwd is not None:
         print()
-        print(f"[INFO] 检测到环境变量 SIP_DEFAULT_PASSWORD 已设置:")
+        print("[INFO] 检测到环境变量 SIP_DEFAULT_PASSWORD 已设置:")
         print(f"       环境变量值 (repr): {env_pwd!r}")
         if env_pwd == pwd:
-            print(f"       [OK] 环境变量与 .env 一致")
+            print("       [OK] 环境变量与 .env 一致")
         else:
-            print(f"       [WARN] 环境变量与 .env 不一致！环境变量会覆盖 .env")
+            print("       [WARN] 环境变量与 .env 不一致！环境变量会覆盖 .env")
             print(f"              .env 加载值: {pwd!r}")
             print(f"              环境变量值:   {env_pwd!r}")
     else:
@@ -798,8 +796,8 @@ async def verify_against_log(passwords: list[str], log_path: Path | None = None)
     print("-" * 70)
     # 如果 server.expected_resp_with_default_pwd 字段存在，验证服务器计算是否正确
     if server_expected_default and server_expected_default not in ("", "None"):
-        # 用 auth.realm（client_realm）计算
-        recalc_client = DigestAuth.calculate_response(
+        # 用 auth.realm（client_realm）计算（仅验证算法路径可达，结果不用于比对）
+        DigestAuth.calculate_response(
             username=auth_username,
             password="",  # 用空密码，仅用于检查算法路径
             realm=auth_realm,

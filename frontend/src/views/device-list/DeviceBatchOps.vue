@@ -35,10 +35,10 @@ const router = useRouter()
 // Dialog visibility
 const addDialogVisible = ref(false)
 const editDialogVisible = ref(false)
-const editDialogDeviceData = ref<Device>(null)
+const editDialogDeviceData = ref<Record<string, unknown> | null>(null)
 const accessInfoDialogVisible = ref(false)
 const blacklistDialogVisible = ref(false)
-const blacklistDialogDeviceData = ref<Device>(null)
+const blacklistDialogDeviceData = ref<Record<string, unknown> | null>(null)
 const ipBlacklistDialogVisible = ref(false)
 
 // Inline saving state
@@ -54,7 +54,7 @@ let catalogSyncDialogCloseTimer: number | null = null
 const catalogSyncDialogVisible = ref(false)
 const catalogSyncDialogGbId = ref('')
 const catalogSyncDialogName = ref('')
-const catalogSyncDialogRuntime = ref<Device>({})
+const catalogSyncDialogRuntime = ref<Record<string, unknown>>({})
 
 const scheduleCatalogSyncDialogClose = (delayMs = 1600) => {
   clearCatalogSyncDialogCloseTimer()
@@ -144,7 +144,7 @@ const handleBlacklist = (row: Record<string, unknown>) => { blacklistDialogDevic
 const handleAlarm = async (row: Record<string, unknown>, isOn: boolean) => {
   try {
     const action = isOn ? t('deviceBatch.armAction') : t('deviceBatch.disarmAction'); const guardCmd = isOn ? 'SetGuard' : 'ResetGuard'
-    const channelsRes = await api.get(`/api/v1/devices/${row.gb_id}/channels`); const channels = parseDeviceChannelsResponse(channelsRes.data)
+    const channelsRes = await api.get(`/api/v1/devices/${row.gb_id}/channels`); const channels = await parseDeviceChannelsResponse(channelsRes.data) as Array<{ gb_id: string }>
     if (channels.length === 0) { ElMessage.warning(t('deviceBatch.noChannelsForOperation')); return }
     await api.post(`/api/v1/control/${row.gb_id}/${channels[0].gb_id}/guard`, { guard_cmd: guardCmd }); ElMessage.success(t('deviceBatch.guardCommandSent', { action }))
   } catch (e: unknown) { const f = getFriendlyError(e); ElMessage.error(f.suggestion ? `${f.message}（${f.suggestion}）` : f.message) }
@@ -159,7 +159,7 @@ const syncDeviceChannels = async (row: Record<string, unknown>) => {
     clearCatalogSyncDialogCloseTimer(); catalogSyncDialogGbId.value = gbId; catalogSyncDialogName.value = String(row.name || '').trim(); catalogSyncDialogRuntime.value = {}; catalogSyncDialogVisible.value = true
     await api.post(`/api/v1/devices/${gbId}/sync`); emit('fetchDevices')
     const idx = props.devices.findIndex((d: Record<string, unknown>) => String(d?.gb_id || '') === gbId)
-    if (idx >= 0 && props.devices[idx]?.catalog_sync_runtime) catalogSyncDialogRuntime.value = { ...props.devices[idx].catalog_sync_runtime }
+    if (idx >= 0 && props.devices[idx]?.catalog_sync_runtime) catalogSyncDialogRuntime.value = { ...(props.devices[idx].catalog_sync_runtime as Record<string, unknown>) }
     startCatalogSyncPolling(gbId)
   } catch (e: unknown) { catalogSyncDialogVisible.value = false; clearCatalogSyncDialogCloseTimer(); catalogSyncDialogGbId.value = ''; catalogSyncDialogName.value = ''; catalogSyncDialogRuntime.value = {}; const f = getFriendlyError(e); ElMessage.error(f.suggestion ? `${f.message}（${f.suggestion}）` : f.message) }
 }
@@ -177,7 +177,7 @@ const handleAlarmDropdownCommand = async (row: Record<string, unknown>, cmd: str
 const getFirstChannelId = async (deviceId: string): Promise<string | null> => {
   try {
     const res = await api.get(`/api/v1/devices/${deviceId}/channels`)
-    const channels = parseDeviceChannelsResponse(res.data)
+    const channels = await parseDeviceChannelsResponse(res.data) as Array<{ gb_id: string }>
     return channels.length > 0 ? channels[0].gb_id : null
   } catch { return null }
 }
@@ -280,7 +280,7 @@ const setMobileSubscribeInterval = async (row: Record<string, unknown>) => {
 const exportToCsv = (organizationOptions: { id: string; label: string }[]) => {
   if (!props.devices || props.devices.length === 0) { ElMessage.warning(t('deviceBatch.noDataToExport')); return }
   const headers = [t('deviceBatch.csvHeaderGbId'), t('deviceBatch.csvHeaderDeviceName'), t('deviceBatch.csvHeaderStatus'), t('deviceBatch.csvHeaderIp'), t('deviceBatch.csvHeaderOrganization'), t('deviceBatch.csvHeaderManufacturer'), t('deviceBatch.csvHeaderChannelCount'), t('deviceBatch.csvHeaderLastActive'), t('deviceBatch.csvHeaderStreamMode')]
-  const rows = props.devices.map(d => { const org = organizationOptions.find(o => o.id === d.organization_id)?.label || t('deviceBatch.unassigned'); const status = (Number(d.status) === 1 || d.status === 'Online') ? t('common.online') : t('common.offline'); return [`\t${d.gb_id}`, d.name || '', status, d.ip_addr || '', org, d.manufacturer || '', d.channel_count || 0, d.last_keepalive ? new Date(d.last_keepalive).toLocaleString() : '', d.stream_mode || 'GLOBAL'] })
+  const rows = props.devices.map(d => { const org = organizationOptions.find(o => o.id === d.organization_id)?.label || t('deviceBatch.unassigned'); const status = (Number(d.status) === 1 || (d.status as number | string | undefined) === 'Online') ? t('common.online') : t('common.offline'); return [`\t${d.gb_id}`, d.name || '', status, d.ip_addr || '', org, d.manufacturer || '', d.channel_count || 0, d.last_keepalive ? new Date(d.last_keepalive).toLocaleString() : '', d.stream_mode || 'GLOBAL'] })
   let csv = '\uFEFF'; csv += headers.join(',') + '\n'; rows.forEach(r => { csv += r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\n' })
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.setAttribute('download', `${t('deviceBatch.csvFilename')}_${new Date().toISOString().slice(0,10)}.csv`); document.body.appendChild(link); link.click(); document.body.removeChild(link)
 }
@@ -334,7 +334,7 @@ const batchSnapshot = async () => {
       if (!gbId) continue
       try {
         const res = await api.get(`/api/v1/devices/${gbId}/channels`)
-        const channels = parseDeviceChannelsResponse(res.data)
+        const channels = await parseDeviceChannelsResponse(res.data) as Array<{ gb_id: string }>
         for (const ch of channels) {
           if (ch.gb_id) channelIds.push(ch.gb_id)
         }

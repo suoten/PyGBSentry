@@ -48,7 +48,7 @@
         :device-id="deviceId"
         :channel-id="channelGbId"
         :initial-start="initialStart"
-        @play="$emit('play', $event)"
+        @play="$emit('play', $event as unknown as Record<string, unknown>)"
       />
     </div>
   </el-dialog>

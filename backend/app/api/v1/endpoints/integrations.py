@@ -450,16 +450,21 @@ async def _update_source_runtime(db: AsyncSession, source: AccessSource, patch: 
     extra = getattr(source, "extra", None)
     if not isinstance(extra, dict):
         extra = {}
+    # FIX: [2026-08-22 P1] 原实现先 extra[key]=v 原地修改 ORM 已加载的 dict，再赋值
+    # dict(extra)（内容相等），SQLAlchemy 属性变更检测比较新旧值相等 → UPDATE 永不发出，
+    # desired.state/last_play_*/last_test_* 等运行时字段全部丢失。
+    # 改为先拷贝原始 dict 构造新对象再合并 patch，保证赋值时新旧值可区分。
+    new_extra = dict(extra)
     changed = False
     for k, v in (patch or {}).items():
         key = str(k or "").strip()
         if not key:
             continue
-        extra[key] = v
+        new_extra[key] = v
         changed = True
     if not changed:
         return
-    source.extra = dict(extra)
+    source.extra = new_extra
     try:
         await db.commit()
     except Exception:

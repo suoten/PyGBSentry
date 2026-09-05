@@ -265,7 +265,7 @@ def _is_ipv4(value: str) -> bool:
     try:
         ipaddress.IPv4Address(value)
         return True
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -273,7 +273,7 @@ def _is_public_ipv4(value: str) -> bool:
     try:
         ip = ipaddress.IPv4Address(value)
         return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified)
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 
@@ -281,7 +281,7 @@ def _resolve_to_ipv4(hostname: str) -> str | None:
     try:
         ip = socket.gethostbyname(hostname)
         return ip if _is_ipv4(ip) else None
-    except Exception:
+    except (OSError, UnicodeError):
         return None
 
 

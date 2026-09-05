@@ -138,7 +138,13 @@ async def list_streams(
             )
     payload.sort(key=lambda x: (x["app"], x["stream"]))
     total = len(payload)
-    paged = payload[offset:offset + limit]
+    # FIX: [2026-08-22 PN] DB 回退路径（ZLM 不可用）已在 SQL 层做 limit/offset 分页，
+    # 原实现此处再切片一次导致双重分页（第 2 页起返回空列表）。回退路径直接返回，
+    # ZLM 主数据源路径（未在 SQL 层分页）保留内存切片。
+    if sessions_fallback:
+        paged = payload
+    else:
+        paged = payload[offset:offset + limit]
     return {"items": paged, "total": total, "limit": limit, "offset": offset}
 
 
@@ -176,9 +182,12 @@ async def get_webrtc_url(
                 raise HTTPException(status_code=400, detail="Invalid app_name or stream_id: must contain only alphanumeric, hyphens, underscores")
             # 原始流地址 (ZLM 本地 RTSP)
             _media_host = settings.MEDIA_SERVER_HOST or ''  # I3 回退值不再硬编码127.0.0.1
-            src_url = f"rtsp://{_media_host}:{settings.STREAM_PUBLIC_RTSP_PORT or 554}/{app_name}/{stream_id}"
+            # FIX: [2026-08-22 PN] 原引用不存在的配置项 STREAM_PUBLIC_RTSP_PORT →
+            # AttributeError。实际配置项为 MEDIA_SERVER_RTSP_PORT。
+            _rtsp_port = settings.MEDIA_SERVER_RTSP_PORT or 554
+            src_url = f"rtsp://{_media_host}:{_rtsp_port}/{app_name}/{stream_id}"
             # 目标流推回 ZLM
-            dst_url = f"rtsp://{_media_host}:{settings.STREAM_PUBLIC_RTSP_PORT or 554}/{app_name}/{target_stream_id}"
+            dst_url = f"rtsp://{_media_host}:{_rtsp_port}/{app_name}/{target_stream_id}"
 
             # 使用硬件加速 (尝试 qsv/nvenc，回退到 libx264) 并丢弃 B 帧
             cmd = f"ffmpeg -rtsp_transport tcp -i {src_url} -c:v libx264 -profile:v baseline -bf 0 -preset ultrafast -tune zerolatency -c:a copy -f rtsp -rtsp_transport tcp {dst_url}"

@@ -10,13 +10,14 @@ from app.db.session import AsyncSessionLocal
 from app.models.asset import Asset
 from app.models.platform import ParentPlatform
 from app.models.resource import Resource
+from app.models.record import Record
 from app.services.commercial_guard import check_channel_quota
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
 from app.sip.catalog_runtime import patch_device_catalog_runtime, utc_now_iso
 from app.sip.send import send_sip_bytes
 import secrets
 from sqlalchemy import select, delete
-from app.core.redis import redis_client
+from app.core import redis as _redis_module  # 动态获取 redis_client，避免 import 时为 None
 from loguru import logger  # 统一使用 loguru 替代 logging
 import asyncio
 import json
@@ -339,11 +340,16 @@ async def handle_catalog_response(xml_body: str, device_id: str):
 
         # 解析视频能力：VideoOptMask bit0 表示是否有视频
         # 0 = 无视频能力，> 0 = 有视频能力
-        # W-18 VideoOptMask为空时has_video默认False，避免音频通道被误标为视频通道
-        has_video: bool = False
-        if video_opt_mask_str and video_opt_mask_str.isdigit():
-            mask_val = int(video_opt_mask_str)
-            has_video = mask_val > 0
+        # FIX [2026-09-02 P2]: 原实现（W-18）在 VideoOptMask 字段缺失时默认
+        # has_video=False，导致绝大多数不携带该可选字段的普通摄像头在
+        # 通道列表/工作区被误标为「仅音频」。现改为：字段显式为 "0" 才视为
+        # 无视频（音频/报警输出通道）；字段缺失或非数字按有视频处理。
+        has_video: bool = True
+        if video_opt_mask_str:
+            if video_opt_mask_str.isdigit():
+                has_video = int(video_opt_mask_str) > 0
+            else:
+                has_video = True
 
         # 通道类型推断：PTZType > 0 ?摄像头；Parental > 0 ?目录
         ptz_type = int(ptz_type_str) if ptz_type_str and ptz_type_str.isdigit() else 0
@@ -415,7 +421,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
     all_items = items_data
 
     # Redis 分片聚合逻辑
-    if redis_client is not None and sn and _total_sum_effective > 0:  # 显式 None 守卫避免 pyright Never
+    if _redis_module.redis_client is not None and sn and _total_sum_effective > 0:  # 显式 None 守卫避免 pyright Never
         redis_key = f"pygbsentry:catalog:{device_id}:{sn}"
 
         # 将本次切片存入Redis List
@@ -426,7 +432,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             # Redis 操作添加 try-except，避免 Redis 不可用时整个 catalog 同步失败
             try:
                 # R24-06: 使用 pipeline 保证 RPUSH + EXPIRE 原子性
-                pipe = redis_client.pipeline()
+                pipe = _redis_module.redis_client.pipeline()
                 pipe.rpush(redis_key, *json_items)
                 pipe.expire(redis_key, 600)
                 await pipe.execute()
@@ -446,7 +452,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         return items
         """
         try:
-            lua_result = await redis_client.eval(
+            lua_result = await _redis_module.redis_client.eval(
                 _CATALOG_AGG_LUA, 1, redis_key, _total_sum_effective
             )
         except Exception as e:
@@ -467,7 +473,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         if lua_result is None:
             # 尚未收集完毕 — 使用 LLEN 更新进度
             try:
-                received_total = await redis_client.llen(redis_key)
+                received_total = await _redis_module.redis_client.llen(redis_key)
             except Exception:
                 received_total = len(all_items)
             await patch_device_catalog_runtime(
@@ -546,183 +552,225 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         all_items = _catalog_agg.pop(key, {}).get("items", items_data)
 
     # ========== 开始入库逻辑 ==========
-    async with AsyncSessionLocal() as session:
-        stmt = select(Asset).where(Asset.gb_id == device_id)
-        result = await session.execute(stmt)
-        asset = result.scalars().first()
+    logger.info(f"[CATALOG_DB_DEBUG] device={device_id} entering DB upsert phase, all_items={len(all_items)}, total_sum={_total_sum_effective}, received_total={received_total}, redis_path={_redis_module.redis_client is not None}")
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(Asset).where(Asset.gb_id == device_id)
+            result = await session.execute(stmt)
+            asset = result.scalars().first()
 
-        if not asset:
-            platform_stmt = select(ParentPlatform).where(
-                (ParentPlatform.server_gb_id == device_id) | (ParentPlatform.client_gb_id == device_id)
-            )
-            platform_result = await session.execute(platform_stmt)
-            platform = platform_result.scalars().first()
-            if not platform:
-                logger.warning(f"Received Catalog for unknown asset/platform: {device_id}")
-                return
-            asset = Asset(
-                gb_id=device_id,
-                name=f"Platform_{device_id}",
-                tenant_id=platform.tenant_id or "default",
-                decrypted_password=platform.decrypted_password or "",
-                domain=settings.SIP_DOMAIN,
-                transport=(platform.transport or "UDP"),
-                ip_addr=platform.server_ip,
-                port=platform.server_port,
-                status=1,
-            )
-            session.add(asset)
-            await session.flush()
-            logger.info(f"Created platform asset for Catalog source: {device_id}, platform_id={platform.id}")
-
-        allowed, limit, current = await check_channel_quota(session, asset.tenant_id or "default")
-        remaining = None if limit <= 0 else max(limit - current, 0)
-
-        seen_ids = set()
-
-        # 批量预查
-        channel_ids = [it.get("channel_id") for it in all_items if it.get("channel_id")]
-        existing_resources = {}
-        if channel_ids:
-            stmt = select(Resource).where(
-                Resource.gb_id.in_(channel_ids),
-                Resource.tenant_id == (asset.tenant_id or "default")
-            )
-            res = await session.execute(stmt)
-            for r in res.scalars().all():
-                existing_resources[r.gb_id] = r
-
-        for item in all_items:
-            channel_id = item.get("channel_id")
-            if not channel_id:
-                continue
-
-            seen_ids.add(channel_id)
-
-            name = item.get("name")
-            status = item.get("status")
-            civil_code = item.get("civil_code")
-            ptz_type_str = item.get("ptz_type")
-            channel_type = item.get("channel_type", 1)
-            address = item.get("address")
-            longitude = item.get("longitude")
-            latitude = item.get("latitude")
-            has_video = item.get("has_video", False)  # R-06 与解析阶段默认值一致，VideoOptMask为空时默认无视频
-
-            ptz_type = None
-            if ptz_type_str and ptz_type_str.isdigit():
-                ptz_type = int(ptz_type_str)
-            is_online = 1 if status == "ON" else 0
-
-            # 通道类型映射?=目录, 1=摄像? 2=报警, 3=音频
-            if channel_type == 0:
-                node_type = "directory"
-            else:
-                node_type = "channel"
-
-            try:
-                lon_f = float(longitude) if longitude else None
-                lat_f = float(latitude) if latitude else None
-            except ValueError:
-                lon_f = None
-                lat_f = None
-
-            resource = existing_resources.get(channel_id)
-
-            # 构建 capabilities 字段：包含 has_video、default_stream_type
-            caps = {}  # caps={} was inside comment line
-            existing_caps = {}
-            if resource:
-                existing_caps = resource.capabilities or {}
-
-            if isinstance(existing_caps, dict):
-                caps = dict(existing_caps)
-            caps["has_video"] = bool(has_video)
-            caps["catalog_has_video"] = bool(has_video)
-            if channel_type:
-                caps["catalog_channel_type"] = int(channel_type)
-
-            if not resource:
-                if remaining is not None and remaining <= 0:
-                    # FIX [2026-08-11 P1]: 通道配额超限时添加 WARNING 日志，
-                    # 原实现静默 continue 导致运维人员无法诊断"通道注册不上"的根因。
-                    logger.warning(
-                        f"[CATALOG_QUOTA] Channel quota exceeded for device={device_id}, "
-                        f"skipping channel={channel_id} name={name or 'N/A'} "
-                        f"(limit={limit}, current={current})"
-                    )
-                    continue
-                effective_parent = item.get("parent_gb_id") or None
-                resource = Resource(
-                    tenant_id=asset.tenant_id or "default",
-                    asset_id=asset.id,
-                    gb_id=channel_id,
-                    name=name,
-                    status=is_online,
-                    parent_gb_id=effective_parent,
-                    civil_code=civil_code,
-                    ptz_type=ptz_type if ptz_type is not None else 0,
-                    node_type=node_type,
-                    type=channel_type,
-                    capabilities=caps,
-                    address=address,
-                    longitude=lon_f,
-                    latitude=lat_f
+            if not asset:
+                platform_stmt = select(ParentPlatform).where(
+                    (ParentPlatform.server_gb_id == device_id) | (ParentPlatform.client_gb_id == device_id)
                 )
-                session.add(resource)
-                if remaining is not None:
-                    remaining -= 1
-            else:
-                resource.asset_id = asset.id
-                resource.name = name
-                resource.status = is_online
-                if civil_code:
-                    resource.civil_code = civil_code
-                if ptz_type is not None:
-                    resource.ptz_type = ptz_type
-                if resource.node_type != "directory" or node_type == "directory":
-                    resource.node_type = node_type
-                if channel_type:
-                    resource.type = channel_type
-                resource.capabilities = caps
-                resource.address = address or resource.address
-                if lon_f is not None:
-                    resource.longitude = lon_f
-                if lat_f is not None:
-                    resource.latitude = lat_f
+                platform_result = await session.execute(platform_stmt)
+                platform = platform_result.scalars().first()
+                if not platform:
+                    logger.warning(f"Received Catalog for unknown asset/platform: {device_id}")
+                    return
+                asset = Asset(
+                    gb_id=device_id,
+                    name=f"Platform_{device_id}",
+                    tenant_id=platform.tenant_id or "default",
+                    decrypted_password=platform.decrypted_password or "",
+                    domain=settings.SIP_DOMAIN,
+                    transport=(platform.transport or "UDP"),
+                    ip_addr=platform.server_ip,
+                    port=platform.server_port,
+                    status=1,
+                )
+                session.add(asset)
+                await session.flush()
+                logger.info(f"Created platform asset for Catalog source: {device_id}, platform_id={platform.id}")
 
-        # R24-06: 事务边界修复 — 将 upsert 和 cleanup 合并到单次 commit，
-        # 保证 Resource 新增/更新与过期 Resource 删除是原子的，避免半同步状态
-        # 触发清理条件：如果这是一次完整的同步 (总数明确且收集完毕，或者为单条响应)
-        if (_total_sum_effective > 0 and received_total >= _total_sum_effective) or (_total_sum_effective <= 0) or (not sn):
-            if seen_ids:
-                logger.info(f"Triggering catalog cleanup for {device_id}, total_sum={_total_sum_effective}, seen_ids={len(seen_ids)}")
-                existing_stmt = select(Resource.id, Resource.gb_id).where(Resource.asset_id == asset.id)
-                if asset.tenant_id:
-                    existing_stmt = existing_stmt.where(Resource.tenant_id == asset.tenant_id)
-                existing_result = await session.execute(existing_stmt)
-                ids_to_delete = [rid for rid, gid in existing_result.all() if gid not in seen_ids]
-                _BATCH_SIZE = 500
-                for batch_start in range(0, len(ids_to_delete), _BATCH_SIZE):
-                    batch = ids_to_delete[batch_start:batch_start + _BATCH_SIZE]
-                    await session.execute(delete(Resource).where(Resource.id.in_(batch)))
-                logger.info(f"Cleaned up removed resources for device {device_id}, sync complete")
+            allowed, limit, current = await check_channel_quota(session, asset.tenant_id or "default")
+            remaining = None if limit <= 0 else max(limit - current, 0)
+            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} asset_id={asset.id} quota: allowed={allowed} limit={limit} current={current} remaining={remaining}")
 
-        await session.commit()
+            seen_ids = set()
 
-        await patch_device_catalog_runtime(
-            device_id,
-            {
-                "catalog.last_response_at": utc_now_iso(),
-                "catalog.last_sn": str(sn or ""),
-                "catalog.last_sum_num": int(_total_sum_effective or 0),
-                "catalog.last_received_total": int(received_total or 0),
-                "catalog.last_item_count": item_count,
-                "catalog.last_error": "",
-                "catalog.sync_state": "synced",
-                "catalog.progress": 100,
-            },
-        )
-        logger.info(f"Updated Catalog for {device_id}, processed {len(all_items)} items total")
+            # 批量预查
+            channel_ids = [it.get("channel_id") for it in all_items if it.get("channel_id")]
+            existing_resources = {}
+            if channel_ids:
+                stmt = select(Resource).where(
+                    Resource.gb_id.in_(channel_ids),
+                    Resource.tenant_id == (asset.tenant_id or "default")
+                )
+                res = await session.execute(stmt)
+                for r in res.scalars().all():
+                    existing_resources[r.gb_id] = r
+            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} channel_ids={len(channel_ids)} existing_resources={len(existing_resources)}")
+
+            for item in all_items:
+                channel_id = item.get("channel_id")
+                if not channel_id:
+                    continue
+
+                try:
+                    seen_ids.add(channel_id)
+
+                    name = item.get("name")
+                    status = item.get("status")
+                    civil_code = item.get("civil_code")
+                    # 防御：某些设备（如 EasyGBS）返回 XML 标签名作为值（如 "CivilCode"），需过滤
+                    if civil_code in ("CivilCode", "civilcode", ""):
+                        civil_code = None
+                    civil_code = (civil_code or "")[:64] or None  # 截断到列长度上限
+                    ptz_type_str = item.get("ptz_type")
+                    channel_type = item.get("channel_type", 1)
+                    address = item.get("address")
+                    longitude = item.get("longitude")
+                    latitude = item.get("latitude")
+                    has_video = item.get("has_video", True)
+
+                    ptz_type = None
+                    if ptz_type_str and ptz_type_str.isdigit():
+                        ptz_type = int(ptz_type_str)
+                    is_online = 1 if str(status).upper().strip() in ("ON", "ONLINE", "OK", "1", "TRUE") else 0
+
+                    if channel_type == 0:
+                        node_type = "directory"
+                    else:
+                        node_type = "channel"
+
+                    try:
+                        lon_f = float(longitude) if longitude else None
+                        lat_f = float(latitude) if latitude else None
+                    except ValueError:
+                        lon_f = None
+                        lat_f = None
+
+                    resource = existing_resources.get(channel_id)
+
+                    caps = {}
+                    try:
+                        existing_caps = resource.capabilities if resource else None
+                        if existing_caps is None:
+                            existing_caps = {}
+                        elif not isinstance(existing_caps, dict):
+                            try:
+                                import json as _json
+                                parsed = _json.loads(existing_caps)
+                                existing_caps = parsed if isinstance(parsed, dict) else {}
+                            except Exception:
+                                existing_caps = {}
+                        if isinstance(existing_caps, dict):
+                            caps = dict(existing_caps)
+                    except Exception as _caps_err:
+                        logger.warning(f"[CATALOG] Failed to read capabilities for {channel_id}: {_caps_err}")
+                        caps = {}
+                    try:
+                        caps["has_video"] = bool(has_video)
+                        caps["catalog_has_video"] = bool(has_video)
+                        if channel_type:
+                            caps["catalog_channel_type"] = int(channel_type)
+                    except Exception as _caps_set_err:
+                        logger.warning(f"[CATALOG] Failed to set capabilities for {channel_id}: {_caps_set_err}")
+                        caps = {"has_video": bool(has_video), "catalog_has_video": bool(has_video)}
+
+                    if not resource:
+                        if remaining is not None and remaining <= 0:
+                            logger.warning(
+                                f"[CATALOG_QUOTA] Channel quota exceeded for device={device_id}, "
+                                f"skipping channel={channel_id} name={name or 'N/A'} "
+                                f"(limit={limit}, current={current})"
+                            )
+                            continue
+                        effective_parent = item.get("parent_gb_id") or None
+                        resource = Resource(
+                            tenant_id=asset.tenant_id or "default",
+                            asset_id=asset.id,
+                            gb_id=channel_id,
+                            name=name,
+                            status=is_online,
+                            parent_gb_id=effective_parent,
+                            civil_code=civil_code,
+                            ptz_type=ptz_type if ptz_type is not None else 0,
+                            node_type=node_type,
+                            type=channel_type,
+                            capabilities=caps,
+                            address=address,
+                            longitude=lon_f,
+                            latitude=lat_f
+                        )
+                        session.add(resource)
+                        if remaining is not None:
+                            remaining -= 1
+                    else:
+                        resource.asset_id = asset.id
+                        resource.name = name
+                        resource.status = is_online
+                        if civil_code:
+                            resource.civil_code = civil_code
+                        if ptz_type is not None:
+                            resource.ptz_type = ptz_type
+                        if resource.node_type != "directory" or node_type == "directory":
+                            resource.node_type = node_type
+                        if channel_type:
+                            resource.type = channel_type
+                        resource.capabilities = caps
+                        resource.address = address or resource.address
+                        if lon_f is not None:
+                            resource.longitude = lon_f
+                        if lat_f is not None:
+                            resource.latitude = lat_f
+                except Exception as _item_err:
+                    logger.opt(exception=True).error(f"[CATALOG_ITEM_ERROR] device={device_id} channel_id={channel_id} error={_item_err}")
+                    raise
+
+            if (_total_sum_effective > 0 and received_total >= _total_sum_effective) or (_total_sum_effective <= 0) or (not sn):
+                if seen_ids:
+                    logger.info(f"Triggering catalog cleanup for {device_id}, total_sum={_total_sum_effective}, seen_ids={len(seen_ids)}")
+                    with session.no_autoflush:
+                        existing_stmt = select(Resource.id, Resource.gb_id).where(Resource.asset_id == asset.id)
+                        if asset.tenant_id:
+                            existing_stmt = existing_stmt.where(Resource.tenant_id == asset.tenant_id)
+                        existing_result = await session.execute(existing_stmt)
+                        ids_to_delete = [rid for rid, gid in existing_result.all() if gid not in seen_ids]
+                    logger.info(f"[CATALOG_DB_DEBUG] device={device_id} cleanup: ids_to_delete={len(ids_to_delete)}")
+                    _BATCH_SIZE = 500
+                    for batch_start in range(0, len(ids_to_delete), _BATCH_SIZE):
+                        batch = ids_to_delete[batch_start:batch_start + _BATCH_SIZE]
+                        # FIX [2026-09-03 P1]: 先删录像记录再删通道，避免 records_resource_id_fkey
+                        # 外键违反（PostgreSQL/MySQL；SQLite 默认不启用外键故不报）。
+                        await session.execute(delete(Record).where(Record.resource_id.in_(batch)))
+                        await session.execute(delete(Resource).where(Resource.id.in_(batch)))
+                    logger.info(f"Cleaned up removed resources for device {device_id}, sync complete")
+
+            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} flushing session before commit")
+            await session.flush()
+            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} flush done, committing")
+            await session.commit()
+            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} commit done")
+
+            await patch_device_catalog_runtime(
+                device_id,
+                {
+                    "catalog.last_response_at": utc_now_iso(),
+                    "catalog.last_sn": str(sn or ""),
+                    "catalog.last_sum_num": int(_total_sum_effective or 0),
+                    "catalog.last_received_total": int(received_total or 0),
+                    "catalog.last_item_count": item_count,
+                    "catalog.last_error": "",
+                    "catalog.sync_state": "synced",
+                    "catalog.progress": 100,
+                },
+            )
+            logger.info(f"Updated Catalog for {device_id}, processed {len(all_items)} items total")
+    except Exception as _db_err:
+        logger.opt(exception=True).error(f"[CATALOG_DB_ERROR] device={device_id} failed during DB upsert: {_db_err}")
+        try:
+            await patch_device_catalog_runtime(
+                device_id,
+                {
+                    "catalog.sync_state": "error",
+                    "catalog.last_error": f"db_upsert_failed: {_db_err}",
+                    "catalog.progress": 100,
+                },
+            )
+        except Exception as _rt_err:
+            logger.warning(f"[CATALOG_DB_ERROR] device={device_id} failed to update catalog runtime state: {_rt_err}")
+        raise
 # Singleton instance
 catalog = None

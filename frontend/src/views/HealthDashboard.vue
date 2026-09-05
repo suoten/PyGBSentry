@@ -127,7 +127,7 @@
 
         <el-table-column prop="last_mode" :label="t('healthPage.lastModeCol')" width="120">
           <template #default="scope">
-            <el-tag :type="getModeTagType(scope.row.last_mode)" size="small">
+            <el-tag :type="getModeTagType(scope.row.last_mode) as 'success' | 'warning' | 'info'" size="small">
               {{ scope.row.last_mode || '—' }}
             </el-tag>
           </template>
@@ -166,7 +166,7 @@
 
         <el-table-column prop="recommended_mode" :label="t('healthPage.recommendCol')" width="120">
           <template #default="scope">
-            <el-tag :type="getModeTagType(scope.row.recommended_mode)" size="small">
+            <el-tag :type="getModeTagType(scope.row.recommended_mode) as 'success' | 'warning' | 'info'" size="small">
               {{ scope.row.recommended_mode }}
             </el-tag>
           </template>

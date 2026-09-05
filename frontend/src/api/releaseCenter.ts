@@ -1,4 +1,4 @@
-﻿import api from '@/utils/http'
+import api from '@/utils/http'
 
 export type DiffItem = {
   module: string
@@ -26,7 +26,7 @@ export const getDraftDiff = async (draftId: string): Promise<DiffResponse> => {
   return res.data
 }
 
-export const publishDraft = async (draftId: string, confirmToken: string, publishNote?: string): Promise<PublishResponse> => {
+export const publishDraft = async (draftId: string, confirmToken?: string, publishNote?: string): Promise<PublishResponse> => {
   const res = await api.post('/api/v1/release-center/publish', {
     draft_id: draftId,
     confirm_token: confirmToken,

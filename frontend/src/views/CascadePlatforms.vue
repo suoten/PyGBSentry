@@ -333,8 +333,55 @@ import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { useRouter } from 'vue-router'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 import { useI18n } from 'vue-i18n'  // FIXED: P3 i18n
+
+// ── 本页局部类型（诊断 API 响应结构，按实际使用字段定义）──
+
+interface CascadeDiagItem {
+  key?: string
+  level?: string
+  title?: string
+  detail?: string
+  suggestion?: string
+}
+
+interface CascadeTraceEvt {
+  created_at?: string
+  event: string
+  payload?: Record<string, unknown>
+}
+
+interface CascadeDiagnosisData {
+  platform_id?: string
+  platform?: CascadePlatform
+  level?: string
+  diagnostics?: CascadeDiagItem[]
+  recent_trace_by_trace_id?: Record<string, CascadeTraceEvt[]>
+  recent_trace_events_count?: {
+    platform_register_sent?: number
+    platform_register_401?: number
+    platform_register_ok?: number
+    platform_register_failed?: number
+  }
+  sip_config?: {
+    sip_id?: string
+    sip_domain?: string
+    sip_ip?: string
+    sip_port?: number | string
+  }
+  runtime?: Record<string, string | undefined>
+}
+
+interface CatalogChannelRow {
+  id: string
+  name?: string
+  gb_id?: string
+  channel_type?: number
+  protocol?: string
+  device_name?: string
+  device_id?: string
+}
 
 const { t } = useI18n()  // FIXED: P3 i18n
 
@@ -444,7 +491,7 @@ const openLogs = (row: Record<string, unknown>) => {
 const actionLoading = ref<Record<string, { register?: boolean; catalog?: boolean; diagnosis?: boolean }>>({})
 const diagnosisVisible = ref(false)
 const diagnosisLoading = ref(false)
-const diagnosisData = ref<CascadePlatform | null>(null)
+const diagnosisData = ref<CascadeDiagnosisData | null>(null)
 
 const triggerRegister = async (row: Record<string, unknown>) => {
   const id = String(row.id || '')
@@ -608,7 +655,7 @@ const handlePlatformMoreCommand = async (row: Record<string, unknown>, cmd: stri
 
 const catalogVisible = ref(false)
 const catalogPlatformId = ref<string | null>(null)
-const catalogChannels = ref<CascadePlatform[]>([])
+const catalogChannels = ref<CatalogChannelRow[]>([])
 const catalogChannelsLoading = ref(false)
 const catalogResourceIds = ref<string[]>([])
 const catalogSaving = ref(false)
@@ -638,7 +685,7 @@ const loadCatalogData = async () => {
   }
 }
 
-const catalogOptionLabel = (ch: Record<string, unknown>) => {
+const catalogOptionLabel = (ch: CatalogChannelRow) => {
   const chType = Number(ch?.channel_type ?? 0)
   if (chType === 1) return t('cascade.catalogOptStream', { name: ch?.name || ch?.gb_id || '—' })
   if (chType === 2) return t('cascade.catalogOptProxy', { protocol: ch?.protocol || '—', name: ch?.name || ch?.gb_id || '—' })
@@ -716,8 +763,8 @@ const copyDiagnosis = async () => {
 // 获取特定平台ID关联的trace事件
 const getTracesForPlatform = (platformId: string) => {
   if (!diagnosisData.value?.recent_trace_by_trace_id) return []
-  const traces: Record<string, unknown>[] = []
-  const traces_by_id = diagnosisData.value.recent_trace_by_trace_id as Record<string, any[]>
+  const traces: CascadeTraceEvt[] = []
+  const traces_by_id = diagnosisData.value.recent_trace_by_trace_id
   for (const tid in traces_by_id) {
     for (const evt of traces_by_id[tid]) {
       if (evt.payload?.platform_id === platformId || evt.payload?.gb_id) {
@@ -764,8 +811,8 @@ const diagEventLabel = (event: string) => {
 const diagBannerDesc = computed(() => {
   if (!diagnosisData.value) return ''
   const diags = diagnosisData.value.diagnostics || []
-  const errorCount = diags.filter((d: Record<string, unknown>) => d.level === 'error').length
-  const warnCount = diags.filter((d: Record<string, unknown>) => d.level === 'warn').length
+  const errorCount = diags.filter((d) => d.level === 'error').length
+  const warnCount = diags.filter((d) => d.level === 'warn').length
   if (errorCount === 0 && warnCount === 0) return t('cascade.diagAllOk')
   const parts = []
   if (errorCount > 0) parts.push(t('cascade.diagErrorCount', { count: errorCount }))
@@ -775,11 +822,11 @@ const diagBannerDesc = computed(() => {
 
 const diagStepActive = computed(() => {
   if (!diagnosisData.value) return 0
-  const rt = diagnosisData.value.runtime || {}
+  const rt: Record<string, string | undefined> = diagnosisData.value.runtime || {}
   const diags = diagnosisData.value.diagnostics || []
   if (rt['register.last_ok_at']) {
     const missCount = parseInt(rt['keepalive.miss_count'] || '0')
-    if (missCount === 0 && !diags.some((d: Record<string, unknown>) => String(d.key || '').startsWith('keepalive'))) return 4
+    if (missCount === 0 && !diags.some((d) => String(d.key || '').startsWith('keepalive'))) return 4
     return 3
   }
   if (rt['register.last_status_code']) return 2
@@ -790,20 +837,20 @@ const diagStepActive = computed(() => {
 const diagStepProcessStatus = computed(() => {
   if (!diagnosisData.value) return 'process'
   const diags = diagnosisData.value.diagnostics || []
-  if (diags.some((d: Record<string, unknown>) => d.level === 'error')) return 'error'
+  if (diags.some((d) => d.level === 'error')) return 'error'
   return 'process'
 })
 
 const diagStep1Desc = computed(() => {
   if (!diagnosisData.value) return '—'
-  const rt = diagnosisData.value.runtime || {}
+  const rt: Record<string, string | undefined> = diagnosisData.value.runtime || {}
   if (rt['register.last_sent_at']) return t('cascade.diagStep1Sent')
   return t('cascade.diagStep1NotSent')
 })
 
 const diagStep2Desc = computed(() => {
   if (!diagnosisData.value) return '—'
-  const rt = diagnosisData.value.runtime || {}
+  const rt: Record<string, string | undefined> = diagnosisData.value.runtime || {}
   const code = rt['register.last_status_code']
   if (code === '401') return t('cascade.diagStep2Challenged')
   if (rt['register.last_has_auth']) return t('cascade.diagStep2Passed')
@@ -812,7 +859,7 @@ const diagStep2Desc = computed(() => {
 
 const diagStep3Desc = computed(() => {
   if (!diagnosisData.value) return '—'
-  const rt = diagnosisData.value.runtime || {}
+  const rt: Record<string, string | undefined> = diagnosisData.value.runtime || {}
   if (rt['register.last_ok_at']) return t('cascade.diagStep3Success')
   const code = rt['register.last_status_code']
   if (code === '403') return t('cascade.diagStep3Rejected')
@@ -822,7 +869,7 @@ const diagStep3Desc = computed(() => {
 
 const diagStep4Desc = computed(() => {
   if (!diagnosisData.value) return '—'
-  const rt = diagnosisData.value.runtime || {}
+  const rt: Record<string, string | undefined> = diagnosisData.value.runtime || {}
   const miss = parseInt(rt['keepalive.miss_count'] || '0')
   if (rt['keepalive.last_ack_at']) return t('cascade.diagStep4Normal')
   if (miss > 0) return t('cascade.diagStep4Missed', { count: miss })

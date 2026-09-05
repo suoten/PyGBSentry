@@ -44,7 +44,7 @@
               <el-icon class="mr-1"><Plus /></el-icon>
               {{ t('dashboard.addFirstDevice', '添加设备') }}
             </el-button>
-            <el-button @click="$router.push('/setup')">
+            <el-button @click="$router.push('/setup')" v-if="userStore?.isSuperuser || userStore?.role === 'admin' || userStore?.role === 'owner'">
               <el-icon class="mr-1"><Setting /></el-icon>
               {{ t('dashboard.setupGuide', '配置向导') }}
             </el-button>
@@ -470,6 +470,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onDeactivated, onActivated, watch } from 'vue'
+import { useUserStore } from '@/stores/user'
 import api from '@/utils/http'
 import { logger } from '@/utils/logger'
 import { ElNotification, ElMessage } from 'element-plus'
@@ -489,12 +490,13 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import AppDialog from '../components/common/AppDialog.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, MaintenanceRecord, StructuredEvent, PluginConfig } from '@/types/models'
 import { useI18n } from 'vue-i18n'
 
 use([CanvasRenderer, LineChart, BarChart, GaugeChart, GridComponent, TooltipComponent, LegendComponent])
 
 const { t } = useI18n()
+const userStore = useUserStore()
 
 const demoEnabled = ref(false)
 

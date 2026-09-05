@@ -38,10 +38,18 @@ class TestLocalSipStateBackend:
 
 
 class TestSipStateBackendFactory:
-    def test_get_local_backend(self):
+    def test_get_local_backend(self, monkeypatch):
         from app.sip.state_backend import get_sip_state_backend, LocalSipStateBackend
         # Reset singleton
         import app.sip.state_backend as mod
+        from app.core.config import settings
+        # FIX: 显式强制 local 后端 — 否则测试结果依赖运行环境的 .env
+        # （SIP_STATE_BACKEND=redis 且 Redis 可达时返回 Redis 后端，顺序不稳定）
+        monkeypatch.setattr(settings, "SIP_STATE_BACKEND", "local")
         mod._backend_instance = None
-        backend = get_sip_state_backend()
-        assert isinstance(backend, LocalSipStateBackend)
+        try:
+            backend = get_sip_state_backend()
+            assert isinstance(backend, LocalSipStateBackend)
+        finally:
+            # 恢复单例，避免影响后续测试
+            mod._backend_instance = None

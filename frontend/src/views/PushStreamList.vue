@@ -287,6 +287,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import type { UploadFile, UploadFiles } from 'element-plus'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
@@ -296,7 +297,20 @@ import EmptyStateWithAction from '../components/EmptyStateWithAction.vue'
 import JessibucaPlayer from '../components/JessibucaPlayer.vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import { useRouter } from 'vue-router'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
+
+// 推流通道行（/api/v1/push-channels 响应，按实际使用字段定义）
+interface PushChannelRow {
+  id: string
+  name?: string
+  stream_name?: string
+  enabled?: boolean
+  push_key_enabled?: boolean
+  gb_enabled?: boolean
+  gb_id?: string
+  gb_name?: string
+  [key: string]: unknown
+}
 
 const { t } = useI18n()
 const loading = ref(false)
@@ -406,7 +420,7 @@ const proxyStreamSet = computed(() => {
 const isRunning = (row: Record<string, unknown>) => proxyStreamSet.value.has(normalizeStreamName(row))
 
 const isRunningEffective = (row: Record<string, unknown>) => {
-  const v = row?.extra?.['runtime.rtmp.is_running']
+  const v = (row?.extra as Record<string, unknown> | undefined)?.['runtime.rtmp.is_running']
   if (typeof v === 'boolean') return v
   if (String(v || '') === 'true') return true
   if (String(v || '') === 'false') return false
@@ -414,13 +428,13 @@ const isRunningEffective = (row: Record<string, unknown>) => {
 }
 
 const isUnhealthy = (row: Record<string, unknown>) => {
-  const v = row?.extra?.['runtime.rtmp.unhealthy']
+  const v = (row?.extra as Record<string, unknown> | undefined)?.['runtime.rtmp.unhealthy']
   if (typeof v === 'boolean') return v
   return String(v || '') === 'true'
 }
 
 const desiredState = (row: Record<string, unknown>) => {
-  const s = String(row?.extra?.['desired.state'] || '').trim().toLowerCase()
+  const s = String((row?.extra as Record<string, unknown> | undefined)?.['desired.state'] || '').trim().toLowerCase()
   return s === 'stopped' ? 'stopped' : 'running'
 }
 
@@ -525,7 +539,7 @@ const openImportDialog = () => {
   importVisible.value = true
 }
 
-const onImportFileChange = (uploadFile: File) => {
+const onImportFileChange = (uploadFile: UploadFile, _uploadFiles: UploadFiles) => {
   const raw = uploadFile?.raw
   importFile.value = raw instanceof File ? raw : null
 }
@@ -534,7 +548,7 @@ const onImportFileRemove = () => {
   importFile.value = null
 }
 
-const openEditDialog = (row: Record<string, unknown>) => {
+const openEditDialog = (row: PushChannelRow) => {
   editingId.value = row.id
   form.value = {
     name: row.name || '',

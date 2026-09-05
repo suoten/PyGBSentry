@@ -22,7 +22,7 @@ export const buildSourceTree = (
   }
   const protocolGroups: Record<string, ProtocolGroupNode> = {}
   for (const item of enabled) {
-    const protocol = (item.protocol || 'OTHER').toUpperCase()
+    const protocol = (item.protocol as string || 'OTHER').toUpperCase()
     if (!protocolGroups[protocol]) {
       protocolGroups[protocol] = {
         id: `source-protocol:${protocol}`,
@@ -41,9 +41,9 @@ export const buildSourceTree = (
     })
   }
 
-  const protocolNodes = Object.values(protocolGroups).sort((a: Record<string, unknown>, b: Record<string, unknown>) => a.label.localeCompare(b.label))
-  for (const node of protocolNodes as Record<string, unknown>[]) {
-    node.children.sort((a: Record<string, unknown>, b: Record<string, unknown>) => a.label.localeCompare(b.label))
+  const protocolNodes = Object.values(protocolGroups).sort((a: ProtocolGroupNode, b: ProtocolGroupNode) => a.label.localeCompare(b.label))
+  for (const node of protocolNodes as ProtocolGroupNode[]) {
+    node.children.sort((a: Record<string, unknown>, b: Record<string, unknown>) => (a.label as string).localeCompare(b.label as string))
   }
 
   return {

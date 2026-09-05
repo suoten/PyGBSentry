@@ -81,7 +81,7 @@ export const useTagsViewStore = defineStore('tagsView', {
     },
     addView(route: Record<string, unknown>) {
       if (!route) return
-      const meta = route.meta || {}
+      const meta = (route.meta || {}) as Record<string, unknown>
       if (meta.noTagsView) return
       if (meta.hidden) return
       if (route.redirect) return

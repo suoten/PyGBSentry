@@ -27,7 +27,6 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 AUDIT_ENABLED = os.environ.get("AUDIT_L4_ENABLED", "true").lower() in {"true", "1", "yes"}
 

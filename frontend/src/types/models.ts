@@ -15,15 +15,14 @@ export interface Device {
   ip_addr?: string
   port?: number
   status?: number
+  is_online?: boolean
   manufacturer?: string
   model?: string
   register_time?: string
   last_keepalive?: string
   heartbeat_interval?: number
   heartbeat_count?: number
-  keepalive_interval?: number
   channel_count?: number
-  tenant_id?: string
   organization_id?: string
   transport?: string
   firmware?: string
@@ -43,22 +42,20 @@ export interface Channel {
   id: string
   gb_id: string
   name: string
-  device_id: string
-  device_gb_id?: string
+  device_id?: string
   status?: number
-  stream_type?: string
+  online?: boolean
   default_stream_type?: string
-  manufacturer?: string
-  model?: string
   longitude?: number
   latitude?: number
   ptz_type?: number
-  parent_id?: string
   parent_gb_id?: string
+  region_parent_gb_id?: string
   civil_code?: string
   node_type?: string
   has_audio?: boolean
-  capabilities?: Record<string, unknown>
+  parental?: number
+  address?: string
   [key: string]: unknown
 }
 
@@ -114,16 +111,23 @@ export interface PluginRuntimeRow {
 
 export interface BillingPlan {
   id: string
+  code?: string
   name: string
-  price?: number
-  currency?: string
+  price_monthly?: number
+  price_yearly?: number
+  max_devices?: number
+  max_channels?: number
+  is_active?: boolean
   [key: string]: unknown
 }
 
 export interface Subscription {
   id: string
-  plan_id?: string
+  plan_code?: string
   status?: string
+  starts_at?: string
+  ends_at?: string
+  trial_ends_at?: string
   [key: string]: unknown
 }
 
@@ -149,10 +153,15 @@ export interface License {
 export interface CascadePlatform {
   id: string
   name: string
-  server_id?: string
+  server_gb_id?: string
   server_ip?: string
   server_port?: number
-  status?: string
+  transport?: string
+  client_gb_id?: string
+  is_online?: boolean
+  enable?: boolean
+  register_interval?: number
+  keepalive_interval?: number
   [key: string]: unknown
 }
 
@@ -211,14 +220,12 @@ export interface DiagResult {
 // ── 审计日志 ──
 
 export interface AuditLog {
-  id: string
   audit_id?: string
   module?: string
   action?: string
   operator?: string
   result?: string
   summary?: string
-  time?: string
   created_at?: string
   [key: string]: unknown
 }

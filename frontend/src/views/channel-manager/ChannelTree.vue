@@ -1,7 +1,7 @@
 <template>
   <div class="w-80 flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm transition-shadow duration-200 hover:shadow-md">
     <div class="p-3 border-b border-slate-200 bg-slate-50/80 backdrop-blur-sm">
-      <el-radio-group :model-value="props.treeMode" size="small" @update:model-value="(v) => { emit('update:treeMode', v); emit('loadTree') }">
+      <el-radio-group :model-value="props.treeMode" size="small" @update:model-value="(v: string | number | boolean | undefined) => { emit('update:treeMode', v as 'business' | 'region'); emit('loadTree') }">
         <el-radio-button value="business">{{ t('channelTree.businessGroup') }}</el-radio-button>
         <el-radio-button value="region">{{ t('channelTree.region') }}</el-radio-button>
       </el-radio-group>
@@ -163,10 +163,10 @@ const canPlay = (row: Record<string, unknown>) => {
   return true
 }
 
-const getChannelGbIdForNode = (node: TreeNode) => String(node?.gb_id || node?.channelId || node?.id || '').trim()
+const getChannelGbIdForNode = (node: Record<string, unknown>) => String(node?.gb_id || node?.channelId || node?.id || '').trim()
 
 type ContextMenuTargetType = 'channel' | 'directory'
-const getContextMenuTargetType = (node: TreeNode): ContextMenuTargetType => {
+const getContextMenuTargetType = (node: Record<string, unknown>): ContextMenuTargetType => {
   const nodeType = String(node?.nodeType || '').toLowerCase()
   if (!nodeType) return 'channel'
   return nodeType === 'channel' ? 'channel' : 'directory'

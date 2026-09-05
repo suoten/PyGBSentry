@@ -64,7 +64,7 @@
           :data="channelList"
           size="small"
           height="calc(100vh - 260px)"
-          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows)"
+          @selection-change="(rows: Record<string, unknown>[]) => (multipleSelection = rows as Channel[])"
         >
           <el-table-column type="selection" width="48" />
           <el-table-column prop="gbName" :label="t('channelGroup.colName')" min-width="140" />
@@ -75,7 +75,7 @@
           <el-table-column :label="t('channelGroup.colType')" width="100">
             <template #default="{ row }">
               <el-tag size="small" effect="plain" :style="channelTypeTag(row.dataType).style">
-                {{ channelTypeTag(row.dataType).name }}
+                {{ t(channelTypeTag(row.dataType).nameKey) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -116,7 +116,7 @@
       <div v-if="pickMode === 'channel'">
         <el-input v-model="pickKw" :placeholder="t('channelGroup.search')" clearable class="mb-2" @keyup.enter="searchPick" />
         <el-button size="small" type="primary" class="mb-2" @click="searchPick">{{ t('channelGroup.query') }}</el-button>
-        <el-table :data="pickRows" size="small" max-height="360" @selection-change="(r: Record<string, unknown>[]) => (pickSel = r)">
+        <el-table :data="pickRows" size="small" max-height="360" @selection-change="(r: Record<string, unknown>[]) => (pickSel = r as Channel[])">
           <el-table-column type="selection" width="45" />
           <el-table-column prop="gbDeviceId" :label="t('channelGroup.colChannelCode')" width="160" />
           <el-table-column prop="gbName" :label="t('channelGroup.colName')" />
@@ -171,7 +171,7 @@ import PageHeader from '../components/PageHeader.vue'
 import AppDialog from '../components/common/AppDialog.vue'
 import { channelTypeTag } from '../constants/channelType'
 import { getFriendlyError } from '../utils/errorMessage'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
 
 const { t } = useI18n()
 

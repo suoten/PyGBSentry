@@ -49,23 +49,68 @@ else:
     # _before_cursor_execute_strip_tzinfo 事件修复，故改为可配置以恢复 5-15% 性能。
     # 默认 0（保持兼容），生产环境可在 .env 中设置 DB_STATEMENT_CACHE_SIZE=100 开启。
     _stmt_cache_size = settings.DB_STATEMENT_CACHE_SIZE
-    engine_kwargs["connect_args"] = {
-        "statement_cache_size": _stmt_cache_size,
-    }
+    # FIX [2026-09-02 P1]: statement_cache_size 是 asyncpg 专属参数，原实现对
+    # 所有非 SQLite 方言（含 MySQL/aiomysql）都传入，导致 MySQL 后端启动即
+    # 崩溃：connect() got an unexpected keyword argument 'statement_cache_size'。
+    # 现仅对 PostgreSQL 传入；MySQL 无需额外连接参数。
+    if db_uri.lower().startswith("postgresql"):
+        engine_kwargs["connect_args"] = {
+            "statement_cache_size": _stmt_cache_size,
+        }
 
 
 def _sqlite_integrity_check_and_repair(db_path: str) -> None:
-    """启动前检查 SQLite 数据库完整性，若损坏则备份并重建空库。"""
+    """启动前检查 SQLite 数据库完整性，若损坏则备份并重建空库。
+
+    同时检查 WAL/SHM 侧文件 — 这些文件损坏时 ``PRAGMA integrity_check`` 可能
+    返回 ``ok``，但后续 ``PRAGMA journal_mode=WAL`` 会抛出
+    ``database disk image is malformed``。
+    """
     if not os.path.exists(db_path):
         return
+
+    # 先检查 WAL/SHM 侧文件是否损坏 — 如果主库 integrity_check 通过但侧文件损坏,
+    # 删除侧文件即可修复(WAL 模式下侧文件可安全删除,SQLite 会自动重建)
+    _wal_path = f"{db_path}-wal"
+    _shm_path = f"{db_path}-shm"
+    _need_sidecar_cleanup = False
+
     try:
         conn = sqlite3.connect(db_path, timeout=5)
         result = conn.execute("PRAGMA integrity_check").fetchone()
+        # 尝试切换 journal_mode 来检测 WAL 文件是否损坏
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.DatabaseError as _wal_err:
+            logger.warning("SQLite WAL mode switch failed: {} — marking sidecar for cleanup", _wal_err)
+            _need_sidecar_cleanup = True
         conn.close()
         status = result[0] if result else "unknown"
-        if status == "ok":
+        if status == "ok" and not _need_sidecar_cleanup:
             return
-        logger.warning("SQLite integrity_check: {} — database is corrupted, attempting repair", status)
+        if _need_sidecar_cleanup:
+            logger.warning("SQLite WAL/SHM sidecar files are corrupted, cleaning up: {}", db_path)
+            for _sidecar in (_wal_path, _shm_path):
+                if os.path.exists(_sidecar):
+                    try:
+                        os.remove(_sidecar)
+                        logger.info("Removed corrupted sidecar: {}", _sidecar)
+                    except Exception as _rm_err:
+                        logger.warning("Failed to remove sidecar {}: {}", _sidecar, _rm_err)
+            # 删除侧文件后重新检查主库完整性
+            try:
+                conn2 = sqlite3.connect(db_path, timeout=5)
+                result2 = conn2.execute("PRAGMA integrity_check").fetchone()
+                conn2.close()
+                status2 = result2[0] if result2 else "unknown"
+                if status2 == "ok":
+                    logger.info("SQLite recovered after sidecar cleanup: {}", db_path)
+                    return
+                logger.warning("SQLite integrity_check after sidecar cleanup: {} — database still corrupted", status2)
+            except sqlite3.DatabaseError as _e2:
+                logger.warning("SQLite cannot open database after sidecar cleanup: {} — attempting full repair", _e2)
+        else:
+            logger.warning("SQLite integrity_check: {} — database is corrupted, attempting repair", status)
     except sqlite3.DatabaseError as e:
         logger.warning("SQLite cannot open database: {} — attempting repair", e)
 
@@ -182,6 +227,10 @@ if is_sqlite:
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.execute(f"PRAGMA busy_timeout={settings.SQLITE_BUSY_TIMEOUT_MS}")
+        # FIX [2026-09-03 P1]: 启用外键强制（SQLite 默认关闭）。此前本地 SQLite 删除
+        # 设备/通道时不校验 records 等外键、静默留下孤儿数据，而服务器 PostgreSQL
+        # 会报 ForeignKeyViolationError，造成「本地不报、服务器报」的不一致。
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 AsyncSessionLocal = sessionmaker(
@@ -220,9 +269,11 @@ async def ensure_db_connection_with_retry() -> bool:
             async with engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
             return True
-        except Exception:
+        except Exception as e:
+            # FIX [2026-09-02 P3]: 日志带上底层异常类型与信息，便于区分
+            # SQLite busy 锁 / 磁盘 IO / 连接池耗尽等不同根因。
             _db_health_check_failed = True
-            logger.warning("DB connection lost, initiating reconnect with exponential backoff...")
+            logger.warning(f"DB connection lost ({type(e).__name__}: {e}), initiating reconnect with exponential backoff...")
 
     # 指数退避重连
     for attempt in range(1, _db_reconnect_max_retries + 1):
@@ -247,9 +298,19 @@ async def get_db():
     async with AsyncSessionLocal() as session:
         try:
             yield session
-        except Exception:
+        except Exception as exc_value:
             await session.rollback()
             # FIX: [2026-07-03] 异常时标记 DB 健康状态为失败，触发后续重连 [可靠性工程师]
+            # FIX [2026-09-02 P2]: 仅连接级故障（OperationalError 等数据库驱动错误）
+            # 才标记失效；业务性异常（完整性冲突、请求参数引发的查询错误等）不应
+            # 触发全局"DB 掉线"误判，否则每 30s 健康循环都会做一次无谓的重连风暴。
             global _db_health_check_failed
-            _db_health_check_failed = True
+            try:
+                from sqlalchemy.exc import DBAPIError as _DBAPIError
+                from sqlalchemy.exc import OperationalError as _SAOperationalError
+                _is_connection_failure = isinstance(exc_value, (_DBAPIError, _SAOperationalError))
+            except Exception:
+                _is_connection_failure = True
+            if _is_connection_failure:
+                _db_health_check_failed = True
             raise

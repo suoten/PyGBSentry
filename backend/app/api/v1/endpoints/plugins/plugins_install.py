@@ -92,18 +92,29 @@ async def upload_plugin(
         raise
     except (OSError, IOError) as e:
         raise HTTPException(status_code=500, detail=f"Failed to write plugin file: {e}") from e
-    peek = _peek_plugin_json_from_zip(temp_path)
-    if peek:
-        await _precheck_paid_plugin_install(
-            {"id": peek.get("id"), "type": peek.get("type")},
-            _authorization_for_server_proxy(request),
-        )  # 同步requests→异步httpx，避免阻塞事件循环
-    install_plan = _plan_install_or_upgrade_from_zip(temp_path)
-    plugin_id_for_audit = str(install_plan.get("plugin_id") or plugin_id_for_audit)
-    op_for_audit = str(install_plan.get("operation") or op_for_audit)
-    previous_version_for_audit = str(install_plan.get("current_version") or "")
-    version_for_audit = str(install_plan.get("incoming_version") or "")
-    upgrade_snapshot = _create_plugin_upgrade_snapshot(plugin_id_for_audit)
+    # FIX: [2026-08-22 P1] 临时 zip 泄漏：原 try/finally 只覆盖安装阶段，
+    # plan/precheck 阶段（_peek/_precheck_paid_plugin_install/_plan_install_or_upgrade_from_zip）
+    # 抛 400（如 PLUGIN_PACKAGE_SIGNATURE_REQUIRED 默认强制签名校验失败）时尚未进入
+    # 该 try，temp_<uuid>_<name>.zip 残留。此处以 _plan_phase_ok 标记 + try/finally
+    # 确保 plan 阶段任何异常路径都清理临时文件（成功路径仍由安装阶段的 finally 清理）。
+    _plan_phase_ok = False
+    try:
+        peek = _peek_plugin_json_from_zip(temp_path)
+        if peek:
+            await _precheck_paid_plugin_install(
+                {"id": peek.get("id"), "type": peek.get("type")},
+                _authorization_for_server_proxy(request),
+            )  # 同步requests→异步httpx，避免阻塞事件循环
+        install_plan = _plan_install_or_upgrade_from_zip(temp_path)
+        plugin_id_for_audit = str(install_plan.get("plugin_id") or plugin_id_for_audit)
+        op_for_audit = str(install_plan.get("operation") or op_for_audit)
+        previous_version_for_audit = str(install_plan.get("current_version") or "")
+        version_for_audit = str(install_plan.get("incoming_version") or "")
+        upgrade_snapshot = _create_plugin_upgrade_snapshot(plugin_id_for_audit)
+        _plan_phase_ok = True
+    finally:
+        if not _plan_phase_ok and os.path.exists(temp_path):
+            os.remove(temp_path)
     try:
         # 运行时安装/升级：先停机，避免旧插件后台任务在 load_plugins 后残留/重复
         await plugin_manager.emit(HOOK_ON_SHUTDOWN)

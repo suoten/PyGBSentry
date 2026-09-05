@@ -19,7 +19,7 @@ defineProps<{
 const attrs = useAttrs()
 
 const isFlex = computed(() => {
-  const c: Record<string, unknown> = attrs.class
+  const c: unknown = attrs.class
   if (!c) return false
   if (typeof c === 'string') return c.includes('flex')
   if (Array.isArray(c)) {

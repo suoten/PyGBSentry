@@ -201,7 +201,19 @@ const onPlayerError = (error: { code: string; message: string }) => {
   ElMessage.warning(t('streamPlayerDlg.playErrorPrefix') + getApiErrorMessage(error, t('streamPlayerDlg.playError')))
 }
 
-const onPlayerStats = (stats: Record<string, unknown>) => {
+// EnhancedStreamPlayer @stats 事件负载（StreamMetrics，buffer/healthScore 为可选扩展字段）
+interface PlayerStatsPayload {
+  fps: number
+  bitrate: number
+  resolution: string
+  droppedFrames: number
+  totalFrames: number
+  latency: number
+  buffer?: number
+  healthScore?: number
+}
+
+const onPlayerStats = (stats: PlayerStatsPayload) => {
   streamMetrics.value = {
     fps: stats.fps || 0,
     bitrate: stats.bitrate || 0,

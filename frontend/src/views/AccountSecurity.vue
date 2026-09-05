@@ -97,7 +97,10 @@ const startSetup = async () => {
 }
 
 const enable = async () => {
-  if (!code.value) return ElMessage.warning(t('account.enterCode'))
+  if (!code.value) {
+    ElMessage.warning(t('account.enterCode'))
+    return
+  }
   loading.value = true
   try {
     await api.post('/api/v1/users/me/2fa/enable', { code: code.value })
@@ -114,7 +117,10 @@ const enable = async () => {
 }
 
 const disable = async () => {
-  if (!code.value) return ElMessage.warning(t('account.enterCode'))
+  if (!code.value) {
+    ElMessage.warning(t('account.enterCode'))
+    return
+  }
   loading.value = true
   try {
     await api.post('/api/v1/users/me/2fa/disable', { code: code.value })

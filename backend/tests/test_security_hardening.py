@@ -222,23 +222,25 @@ class TestCatalogRetryDelays(unittest.TestCase):
     """测试 catalog 重试退避策略"""
 
     def test_retry_delays_match_source(self):
-        """验证重试延迟为 1→5→15（线性退避，与 handlers.py 源码一致）"""
-        # 从 handlers.py 源码中提取 retry_delays
+        """验证重试延迟为 2→3→5（递增间隔，与 handlers.py 源码一致）
+
+        2026-07-29 P0 变更：重试间隔从 [1, 5, 15] 优化为 [2, 3, 5]（共 10 秒，
+        4 次查询机会），适应后端短生命周期场景；UDP 丢包后可快速重发。
+        """
         import inspect
         from app.sip import handlers
         source = inspect.getsource(handlers._schedule_device_catalog_retry)
-        # 验证源码中包含正确的延迟值
-        self.assertIn("[1, 5, 15]", source,
-                      "retry_delays should be [1, 5, 15] for linear backoff")
+        self.assertIn("[2, 3, 5]", source,
+                      "retry_delays should be [2, 3, 5] incremental backoff")
 
     def test_retry_delays_count(self):
         """验证重试次数为3次"""
         import inspect
         from app.sip import handlers
         source = inspect.getsource(handlers._schedule_device_catalog_retry)
-        self.assertIn("[1, 5, 15]", source)
-        # 3 delays = 1 initial + 2 retries = 3 total attempts
-        delays = [1, 5, 15]
+        self.assertIn("[2, 3, 5]", source)
+        # 3 delays = 1 initial + 3 retries = 4 total attempts
+        delays = [2, 3, 5]
         self.assertEqual(len(delays), 3)
 
 

@@ -7,7 +7,6 @@ import asyncio
 import time
 import argparse
 import httpx
-import json
 from typing import Any
 
 
@@ -118,7 +117,7 @@ async def main():
     ]
 
     print(f"\n{'='*80}")
-    print(f"PyGBSentry Performance Benchmark")
+    print("PyGBSentry Performance Benchmark")
     print(f"Base URL: {base_url}")
     print(f"Concurrency: {args.concurrency} | Total per endpoint: {args.total}")
     print(f"{'='*80}\n")

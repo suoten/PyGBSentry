@@ -17,8 +17,6 @@
     :channel-page-size="channelPageSize"
     :play-tooltip="playTooltip"
     :can-preview-channel="canPreviewChannel"
-    :get-channel-preview-status="getChannelPreviewStatus"
-    :channel-stream-status-loading="channelStreamStatusLoading"
     :play-stream="playStream"
     :close-player="closePlayer"
     :load-channels-dialog="loadChannelsDialog"
@@ -89,13 +87,20 @@
     @success="loadChannelsDialog"
   />
 
-  <ChannelPlayerDialog
-    v-model:visible="playerVisibleModel"
-    :device-id="currentDevice?.gb_id"
-    :channel-id="currentChannel?.gb_id"
-    :device-name="currentDevice?.name"
-    :channel-name="currentChannel?.name"
-    :device-status="currentDevice?.status"
+  <AdvancedVideoPlayerDialog
+    v-model="playerVisibleModel"
+    :device-id="String(currentDevice?.gb_id || '')"
+    :channel-id="String(currentChannel?.gb_id || '')"
+    :device-status="Number(currentDevice?.status ?? 1)"
+    :subtitle="playerSubtitle"
+    :urls="playerView.playUrls"
+    :play-url="playerView.playUrl"
+    :codec="playerView.playCodec"
+    :app="playerView.playApp"
+    :stream="playerView.playStreamId"
+    :request="playerView.playRequest"
+    @refresh="refreshPlayer"
+    @close="onPlayerClosed"
   />
   <StreamPlayerDialog
     v-model="recordPlaybackVisible"
@@ -115,14 +120,17 @@ import { useI18n } from 'vue-i18n'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import ChannelEditDialog from '../../components/channel/ChannelEditDialog.vue'
-import ChannelPlayerDialog from '../../components/channel/ChannelPlayerDialog.vue'
+// FIX [2026-09-02]: 实时预览恢复使用高级播放器 —— 内置 4 种播放内核切换
+// (Jessibuca/H265/HLS/WebRTC) + 云台控制 + 语音对讲 + 编解码信息 Tab。
+// 之前被误接到了简化版 ChannelPlayerDialog（单播放器、无云台）。
+import AdvancedVideoPlayerDialog from '../../components/AdvancedVideoPlayerDialog.vue'
+import { usePlayer } from '../../views/channel-manager/usePlayer'
 import DeviceChannelWorkspaceDialog from '../../components/channel/DeviceChannelWorkspaceDialog.vue'
 import CloudRecordWorkspaceDialog from '../../components/CloudRecordWorkspaceDialog.vue'
 import DeviceRecordWorkspaceDialog from '../../components/DeviceRecordWorkspaceDialog.vue'
 import TimelineRecordWorkspaceDialog from '../../components/TimelineRecordWorkspaceDialog.vue'
 import StreamPlayerDialog from '../../components/StreamPlayerDialog.vue'
 import { getFriendlyError } from '../../utils/errorMessage'
-import { parseDeviceChannelsResponse } from '../../utils/deviceApi'
 import type { Device } from '@/types/models'
 
 const { t } = useI18n()
@@ -167,7 +175,7 @@ const channelEditData = ref<Device | null>(null)
 const channelInlineSaving = ref<Record<string, boolean>>({})
 const channelSnapReloadToken = ref<number>(Date.now())
 const openChannelEdit = (row: Record<string, unknown>) => {
-  channelEditData.value = { ...row }
+  channelEditData.value = { ...row } as Device
   channelEditDialogVisible.value = true
 }
 const refreshingSnapshots = ref(false)
@@ -193,116 +201,56 @@ const recordWindowMinutes = ref<number>(30)
 const recordAnchorAt = ref<string>('')
 
 // ━━ 播放状态 ━━
-const playSeq = ref(0)
-const playSessionId = ref('')
-const playRequest = ref<Device | null>(null)
-const playStreamId = ref('')
-const playApp = ref('live')
-const playUrl = ref('')
-const playCodec = ref('')
-const playUrls = reactive<{ webrtc: string; flv: string; hls: string; raw: string }>({
-  webrtc: '',
-  flv: '',
-  hls: '',
-  raw: ''
+// FIX [2026-09-02]: 高级播放器的播放流程由 usePlayer 驱动（与通道管理器一致），
+// 原先在此处定义的一组本地 play* 状态从未被完整使用，属于死代码，已删除。
+const wsPlayer = usePlayer()
+
+const playerSubtitle = computed(() => {
+  const dev = String(props.currentDevice?.gb_id || '')
+  const ch = String(props.currentChannel?.gb_id || '')
+  if (dev && ch) return `${dev} / ${ch}`
+  return String(props.currentDevice?.name || '')
 })
-const playDiag = reactive({
-  zlm_probe_ok: false,
-  zlm_stream_ready: false,
-  invite_sdp_ip: '',
-  invite_media_port: null as null | number,
-  invite_media_protocol: '',
-  rtp_port_range: ''
-})
-const playMode = ref<'webrtc' | 'flv' | 'hls' | 'raw'>('flv')
-const playbackPaused = ref(false)
-const playbackSpeed = ref<number>(1)
-const playbackSeekAt = ref<Date | null>(null)
-const playbackActionLoading = ref(false)
-// FIX: [2026-07-03] 增加 16x 倍速选项 [全栈工程师]
-const playbackSpeedOptions = [0.25, 0.5, 1, 2, 4, 8, 16]
-const playbackCursorSec = ref<number | null>(null)
 
-// ━━ 流状态缓存 ━━
-const channelStreamStatusCache = ref<Record<string, Record<string, unknown>>>({})
-const channelStreamStatusLoading = ref(false)
+// AdvancedVideoPlayerDialog 期望解包后的纯值（PlayRequestUi 结构），
+// 这里从 usePlayer 的 refs 中派生一个视图模型
+const playerView = computed(() => ({
+  playUrl: wsPlayer.playUrl.value,
+  playCodec: wsPlayer.playCodec.value,
+  playApp: wsPlayer.playApp.value,
+  playStreamId: wsPlayer.playStreamId.value,
+  playUrls: wsPlayer.playUrls as Record<string, string | undefined>,
+  playRequest: {
+    ...wsPlayer.playRequest,
+    status: wsPlayer.playRequest.status as 'idle' | 'requesting' | 'waiting' | 'ready' | 'error',
+  },
+}))
 
-const loadChannelStreamStatus = async (channelList: Record<string, unknown>[]) => {
-  if (!channelList || !channelList.length) return
-  const ids = channelList.map((c: Record<string, unknown>) => String(c?.id || c?.gb_id || '')).filter(Boolean)
-  if (!ids.length) return
-  channelStreamStatusLoading.value = true
-  try {
-    const res = await api.get('/api/common/channel/stream-status', {
-      params: { ids: ids.join(',') },
-      timeout: 10000,
-    })
-    const data = res.data?.channels || []
-    const newCache: Record<string, Record<string, unknown>> = {}
-    for (const item of data) {
-      if (item.resourceId) newCache[String(item.resourceId)] = item
-      if (item.channelGbId) newCache[String(item.channelGbId)] = item
-      if (item.channelId != null) newCache[String(item.channelId)] = item
-    }
-    channelStreamStatusCache.value = { ...channelStreamStatusCache.value, ...newCache }
-  } catch {
-    //  ━━ 流状态检查不影响通道列表显示 ━━
-  } finally {
-    channelStreamStatusLoading.value = false
-  }
+const refreshPlayer = async () => {
+  const devId = String(props.currentDevice?.gb_id || '').trim()
+  const chId = String(props.currentChannel?.gb_id || '').trim()
+  if (!devId || !chId) return
+  await wsPlayer.playStream({ device_id: devId, gb_id: chId })
 }
 
-const _lookupStreamStatus = (row: Record<string, unknown>): Record<string, unknown> | null => {
-  const cache = channelStreamStatusCache.value
-  const keys = [String(row?.id || ''), String(row?.gb_id || '')].filter(Boolean)
-  for (const k of keys) {
-    if (cache[k]) return cache[k]
-  }
-  return null
+const onPlayerClosed = async () => {
+  await wsPlayer.closePlayer()
+  emit('update:playerVisible', false)
 }
 
-const getChannelPreviewStatus = (row: Record<string, unknown>) => {
-  const cache = channelStreamStatusCache.value
-  const keys = [String(row?.id || ''), String(row?.gb_id || '')].filter(Boolean)
-  let status: Record<string, unknown> | null = null
-  for (const k of keys) {
-    if (cache[k]) { status = cache[k]; break }
-  }
-  if (!status) return { label: t('common.unknown'), type: 'info', icon: 'InfoFilled' }
-  if (status.streamActive && status.hasVideo) {
-    return { label: t('common.online'), type: 'success', icon: 'VideoPlay' }
-  }
-  if (status.streamActive && !status.hasVideo) {
-    return { label: t('device.audioOnly'), type: 'warning', icon: 'Microphone' }
-  }
-  if (!status.streamActive && status.hasVideo === false) {
-    return { label: t('common.offline'), type: 'danger', icon: 'CloseBold' }
-  }
-  if (!status.streamActive && status.reason === 'no_active_stream') {
-    return { label: t('device.noActiveStream'), type: 'default', icon: 'VideoPlay' }
-  }
-  if (!status.streamActive) {
-    return { label: t('device.unknownStatus'), type: 'warning', icon: 'Warning' }
-  }
-  return { label: t('device.noStream'), type: 'info', icon: 'InfoFilled' }
-}
-
+// ━━ 预览可用性 ━━
+// FIX [2026-09-02]: 移除对 ZLM 流状态接口的依赖 —— 原逻辑在无活跃流时把
+// 「实时预览」按钮禁用并提示「离线」，与用户预期相悖（点播本来就会拉起流）。
+// 现在只要设备+通道在线即可发起预览；流是否就绪由播放器内的进度/重试反馈。
 const canPreviewChannel = (row: Record<string, unknown>) => {
   if (Number(row?.status) !== 1) return false
-  if (row?.hasVideo === false) return false
-  const ss = _lookupStreamStatus(row)
-  if (ss && ss.streamActive === false && ss.hasVideo === false) return false
+  if (row?.resource_type === 2 || row?.resource_type === 3) return false
   return true
 }
 
 const playTooltip = (row: Record<string, unknown>) => {
-  const ss = _lookupStreamStatus(row)
-  if (!ss) return t('device.streamStatusNotFetched')
-  if (ss.streamActive && ss.hasVideo) return t('device.channelLiveVideo')
-  if (ss.streamActive && !ss.hasVideo) return t('device.audioOnlyTip')
-  if (ss.hasVideo === false) return t('device.channelNoVideo')
-  if (ss.reason === 'zlm_unreachable') return t('device.mediaServerUnreachable')
-  if (ss.reason === 'stream_not_found_in_zlm') return t('device.channelNotFoundInMedia')
+  if (Number(row?.status) !== 1) return t('device.channelNoVideo')
+  if (row?.resource_type === 2 || row?.resource_type === 3) return t('device.channelNoVideo')
   return t('device.onlineChannelPreviewable')
 }
 
@@ -317,7 +265,11 @@ const loadChannelsDialog = async () => {
   channelsLoading.value = true
   try {
     const res = await api.get(`/api/v1/devices/${gbId}/channels`, { params: { limit: 10000 } })
-    const all = (await parseDeviceChannelsResponse(res.data)) as any
+    // API 直接返回通道数组（非 {channels: [...]} 包装），需要兼容两种格式
+    const responseData = res.data
+    const all: Record<string, unknown>[] = Array.isArray(responseData)
+      ? responseData
+      : Array.isArray(responseData?.channels) ? responseData.channels : []
     const keyword = String(channelFilters.value.keyword || '').trim().toLowerCase()
     const status = channelFilters.value.status
     const resourceType = channelFilters.value.resource_type
@@ -331,7 +283,7 @@ const loadChannelsDialog = async () => {
       if (resourceType !== undefined && resourceType !== null && Number(item?.resource_type) !== Number(resourceType)) return false
       return true
     })
-    recordChannelOptions.value = filtered
+    recordChannelOptions.value = filtered as Device[]
     if (recordDialogChannelGbId.value) {
       const matched = filtered.some((item: Record<string, unknown>) => String(item?.gb_id || item?.id || '').trim() === recordDialogChannelGbId.value)
       if (!matched) {
@@ -341,8 +293,7 @@ const loadChannelsDialog = async () => {
     channelTotal.value = filtered.length
     channelOnlineTotal.value = filtered.filter((item: Record<string, unknown>) => Number(item?.status) === 1).length
     const start = (Number(props.channelPage) - 1) * Number(props.channelPageSize)
-    channels.value = filtered.slice(start, start + Number(props.channelPageSize))
-    await loadChannelStreamStatus(channels.value)
+    channels.value = filtered.slice(start, start + Number(props.channelPageSize)) as Device[]
   } catch (e: unknown) {
     channels.value = []
     recordChannelOptions.value = []
@@ -414,40 +365,17 @@ const handleRecordPlay = (payload: Record<string, unknown>) => {
 
 // ━━ 播放流 ━━
 const playStream = async (row: Record<string, unknown>) => {
-  if (!row?.gb_id || !props.currentDevice?.gb_id) return
-  emit('update:currentChannel', row)
+  const devId = String(props.currentDevice?.gb_id || '').trim()
+  const chId = String(row?.gb_id || '').trim()
+  if (!chId || !devId) return
+  emit('update:currentChannel', row as Device)
   emit('update:playerVisible', true)
+  // 由 usePlayer 驱动完整播放流程（点播 API/进度/停止），供 AdvancedVideoPlayerDialog 展示
+  await wsPlayer.playStream({ device_id: devId, gb_id: chId })
 }
 
 const closePlayer = async () => {
-  playSeq.value += 1
-  playSessionId.value = ''
-  playRequest.value = null
-  if (playStreamId.value) {
-    try {
-      await api.post('/api/v1/stream/stop', { app: playApp.value || 'live', stream: playStreamId.value })
-    } catch { /* cleanup: ignore */ }
-  }
-  playUrl.value = ''
-  playCodec.value = ''
-  playUrls.webrtc = ''
-  playUrls.flv = ''
-  playUrls.hls = ''
-  playUrls.raw = ''
-  playApp.value = ''
-  playStreamId.value = ''
-  playDiag.zlm_probe_ok = false
-  playDiag.zlm_stream_ready = false
-  playDiag.invite_sdp_ip = ''
-  playDiag.invite_media_port = null
-  playDiag.invite_media_protocol = ''
-  playDiag.rtp_port_range = ''
-  playbackPaused.value = false
-  playbackSpeed.value = 1
-  playbackSeekAt.value = null
-  playbackActionLoading.value = false
-  playbackCursorSec.value = null
-  playMode.value = 'webrtc'
+  await wsPlayer.closePlayer()
   emit('update:playerVisible', false)
 }
 
@@ -605,7 +533,7 @@ const openRecordTab = async (row: Record<string, unknown>, tab: RecordTab) => {
       // ignore
     }
   }
-  emit('update:currentChannel', row)
+  emit('update:currentChannel', row as Device)
   if (!recordChannelOptions.value.length) {
     await loadChannelsDialog()
   }

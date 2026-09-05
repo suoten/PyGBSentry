@@ -58,7 +58,8 @@ class ReleaseCenterService:
             data = json.loads(legacy_raw)
             if isinstance(data, dict):
                 return data
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to parse legacy revision {revision} config JSON: {e}")
             return {}
         return {}
 

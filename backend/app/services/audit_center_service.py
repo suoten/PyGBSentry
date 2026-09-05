@@ -299,8 +299,14 @@ class AuditCenterService:
             status_code_val = (kv.get("status_code") or "").replace('"', '""')
             created = self._to_iso(row.created_at) if row.created_at else ""
             summary_esc = (row.summary or "").replace('"', '""')
+            # FIX: [2026-08-22 P2] module/action/operator/result 未做引号转义，
+            # operator 含双引号时破坏 CSV 结构（测试发现）。
+            module_esc = (row.module or "").replace('"', '""')
+            action_esc = (row.action or "").replace('"', '""')
+            operator_esc = (row.operator or "").replace('"', '""')
+            result_esc = (row.result or "").replace('"', '""')
             lines.append(
-                f'"{created}","{row.module or ""}","{row.action or ""}","{row.operator or ""}","{row.result or ""}",'
+                f'"{created}","{module_esc}","{action_esc}","{operator_esc}","{result_esc}",'
                 f'"{plugin_id_val}","{source_val}","{tenant_val}","{status_code_val}","{summary_esc}"'
             )
         return "\n".join(lines)

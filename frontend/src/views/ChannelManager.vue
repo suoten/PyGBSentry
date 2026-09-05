@@ -428,13 +428,21 @@
       </div>
     </div>
 
-        <ChannelPlayerDialog
-      v-model:visible="playerVisible"
+        <!-- FIX [2026-09-02]: 实时预览接入高级播放器（多播放内核 + 云台控制 + 语音对讲），
+             替换原先的简化版 ChannelPlayerDialog。本页已维护完整的 playUrls/playRequest 状态。 -->
+        <AdvancedVideoPlayerDialog
+      v-model="playerVisible"
       :device-id="currentDevice?.gb_id"
       :channel-id="currentChannel?.gb_id"
-      :device-name="currentDevice?.name"
-      :channel-name="currentChannel?.name"
       :device-status="currentDevice?.status"
+      :urls="playUrls"
+      :play-url="playUrl"
+      :codec="playCodec"
+      :app="playApp"
+      :stream="playStreamId"
+      :request="playRequest"
+      @refresh="() => playStream(currentChannel)"
+      @close="closePlayer"
     />
     
     <!-- 通道编辑对话框 -->
@@ -573,7 +581,7 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import ChannelPlayerDialog from '../components/channel/ChannelPlayerDialog.vue'
+import AdvancedVideoPlayerDialog from '../components/AdvancedVideoPlayerDialog.vue'
 import ChannelEditDialog from '../components/channel/ChannelEditDialog.vue'
 import AddChannelDialog from '../components/channel/AddChannelDialog.vue'
 import CreateDirectoryDialog from '../components/channel/CreateDirectoryDialog.vue'

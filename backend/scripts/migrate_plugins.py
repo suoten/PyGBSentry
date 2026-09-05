@@ -1,6 +1,5 @@
 import os
 import re
-import glob
 
 PLUGINS = [
     "record_schedule_executor.py",
@@ -33,48 +32,48 @@ for p in PLUGINS:
     if not os.path.exists(src):
         print(f"Skipping {p}, not found in plugins/")
         continue
-    
+
     with open(src, "r", encoding="utf-8") as f:
         content = f.read()
-    
+
     # Remove register function
     content = re.sub(r'def register\(.*?\):[\s\S]*?(?=\n\n|$)', '', content)
     # Remove HOOK_ON_STARTUP, HOOK_ON_SHUTDOWN imports
     content = re.sub(r'from app\.core\.plugin_manager import.*?\n', '', content)
-    
+
     # Rename on_startup to start
     content = re.sub(r'async def _?on_startup\(\):', 'async def start():', content)
     # Rename on_shutdown to stop
     content = re.sub(r'async def _?on_shutdown\(\):', 'async def stop():', content)
-    
+
     # Some files might not have a stop function, we can add a dummy one if it doesn't exist
     if 'async def stop():' not in content:
         content += '\n\nasync def stop():\n    pass\n'
-    
+
     # Some files might not have start function if it was called _on_startup
     if 'async def start():' not in content:
         # try without async def just in case
         pass
-        
+
     with open(dst, "w", encoding="utf-8") as f:
         f.write(content)
-    
+
     os.remove(src)
     print(f"Moved {p} to {dst}")
-    
+
 # Remove from marketplace.json if needed
 marketplace = os.path.join(plugins_dir, "marketplace.json")
 if os.path.exists(marketplace):
     import json
     with open(marketplace, "r", encoding="utf-8") as f:
         data = json.load(f)
-    
+
     new_plugins = []
     for plugin in data.get("plugins", []):
         plugin_id = plugin.get("id")
         if plugin_id + ".py" not in PLUGINS:
             new_plugins.append(plugin)
-            
+
     data["plugins"] = new_plugins
     with open(marketplace, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4, ensure_ascii=False)

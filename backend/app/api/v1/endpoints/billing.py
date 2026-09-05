@@ -622,10 +622,14 @@ async def list_my_licenses(
                     t = exp
                 else:
                     # 兼容 ISO 字符串
-                    t = datetime.fromisoformat(str(exp).replace("Z", "+00:00")).replace(tzinfo=None)
+                    t = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
             except Exception as e:
                 logger.debug(f"跳过: {e}")
                 continue
+            # FIX: [2026-08-22 PN] 统一时区：原实现将 t 强制转为 naive 与 aware 的
+            # now/threshold 比较 → TypeError → /licenses/me?expiring_within_days 500
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
             if t > now and t <= threshold:
                 filtered.append(r)
         rows = filtered

@@ -76,7 +76,7 @@ def extract_token_from_params(params: Any) -> str:
 
 def should_allow_no_token() -> bool:
     """Return True when the platform is configured to allow playback without a token."""
-    return settings.PLAY_ALLOW_NO_TOKEN
+    return bool(settings.PLAY_ALLOW_NO_TOKEN)
 
 
 def verify_play_token(token: str, app: str, stream: str) -> tuple[bool, str]:

@@ -1940,18 +1940,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # SECURITY: connect-src 收紧 — 移除通配的 http:/https:/ws:/wss:，
             # 仅允许 'self' + 自动推导的流媒体公网源 + CSP_CONNECT_SRC_DOMAINS 白名单。
             # img-src 修正通配符（CSP 用 * 而非 ?）并补充 OSM 瓦片源。
-            response.headers.setdefault(
-                "Content-Security-Policy",
+            # 直接赋值（而非 setdefault）— 确保后端 CSP 覆盖 nginx 可能设置的限制性 CSP。
+            # 当 nginx 已设置 CSP 时，setdefault 不会覆盖，导致浏览器同时执行两个 CSP
+            # 策略（取交集），限制更严格的那个生效。直接赋值确保后端 CSP 始终生效。
+            response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
-                "base-uri 'self'; "
-                "frame-ancestors 'none'; "
-                "img-src 'self' data: blob: tile: https://*.tianditu.gov.cn https://*.is.autonavi.com https://*.bdimg.com https://*.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
-                "media-src 'self' data: blob:; "
-                f"connect-src {' '.join(self._csp_connect_sources)}; "
-                f"script-src 'self' 'nonce-{_csp_nonce}'; "
-                f"style-src 'self' 'nonce-{_csp_nonce}'; "
-                "object-src 'none'; "
-                "worker-src 'self' blob:'",
+                + "base-uri 'self'; "
+                + "frame-ancestors 'none'; "
+                + "img-src 'self' data: blob: tile: https://*.tianditu.gov.cn https://*.is.autonavi.com https://*.bdimg.com https://*.arcgisonline.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org; "
+                + "media-src 'self' data: blob:; "
+                + f"connect-src {' '.join(self._csp_connect_sources)}; "
+                + f"script-src 'self' 'nonce-{_csp_nonce}'; "
+                + f"style-src 'self' 'nonce-{_csp_nonce}'; "
+                + "object-src 'none'; "
+                + "worker-src 'self' blob:'"
             )
 
         return response
@@ -2111,7 +2113,10 @@ init_rate_limiter(app)
 # Set all CORS enabled origins
 if settings.BACKEND_CORS_ORIGINS:
     _cors_env = (settings.APP_ENV or "dev").lower()
-    _cors_origins = [str(origin) for origin in settings.BACKEND_CORS_ORIGINS]
+    # FIX: [2026-08-22 P3] 规范化 Origin：浏览器 Origin 头按规范永不含尾部斜杠，
+    # 配置写成 "http://domain/" 时 Starlette 精确匹配永不命中 → CORS 全部拒绝
+    # （测试发现）。统一 rstrip("/") 消除该配置陷阱。
+    _cors_origins = [str(origin).rstrip("/") for origin in settings.BACKEND_CORS_ORIGINS]
     if _cors_env in {"prod", "production"}:
         # Exact hostname matching to prevent bypass (e.g., "mylocalhost.com")
         from urllib.parse import urlparse as _urlparse
@@ -2221,9 +2226,28 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
+def _sanitize_validation_error_value(value):
+    """递归清洗校验错误中的值，确保可 JSON 序列化。
+
+    FIX: [2026-08-22 P1] pydantic v2 中 @validator 抛出的 ValueError 等异常对象会
+    进入 error['ctx']（如 {'error': ValueError(...)}），原样放入 JSONResponse 的
+    content 触发 JSON 序列化失败 → 500。基本类型保留，dict/list 递归，其余转 str。
+    """
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, dict):
+        return {str(k): _sanitize_validation_error_value(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_sanitize_validation_error_value(v) for v in value]
+    return str(value)
+
+
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = exc.errors()
+    errors = [
+        _sanitize_validation_error_value(e) if isinstance(e, dict) else str(e)
+        for e in (exc.errors() or [])
+    ]
     detail = "Validation error"
     if errors:
         loc = errors[0].get("loc", [])

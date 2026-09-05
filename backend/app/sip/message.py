@@ -462,8 +462,13 @@ class SipMessage:
         msg = cls()
         if data is None:
             return msg
+
+        # GB28181 设备发送的 SIP body 可能使用 GB2312/GBK 编码（非 UTF-8）。
+        # 策略：先用 latin-1 解码原始数据（1:1 字节映射，不丢失数据），
+        # 分割出 header 和 body 后，根据 Content-Type charset 或 XML prolog
+        # 用正确编码重新解码 body。
         if isinstance(data, bytes):
-            text = data.decode("utf-8", errors="ignore")
+            text = data.decode("latin-1")
         else:
             text = str(data)
 
@@ -533,6 +538,58 @@ class SipMessage:
                 # FIX [2026-07-17 P2-3]: 原日志消息为 "swallowed_exception" 无法定位问题，
                 # 改为描述性消息记录 Content-Length 解析失败的具体值。
                 logger.warning(f"SipMessage.parse: invalid Content-Length '{cl_str}': {_cl_err}")
+
+        # GB28181 编码修复：body 可能是 GB2312/GBK 编码，需要重新解码
+        if isinstance(data, bytes):
+            # 获取 body 的原始字节
+            sep_bytes = b"\r\n\r\n"
+            body_start = data.find(sep_bytes)
+            if body_start >= 0:
+                body_start += len(sep_bytes)
+                # 按 Content-Length 截断原始字节
+                if cl_str:
+                    try:
+                        cl_val = int(cl_str.strip())
+                        if 0 <= cl_val <= len(data) - body_start:
+                            body_bytes = data[body_start:body_start + cl_val]
+                        else:
+                            body_bytes = data[body_start:]
+                    except ValueError:
+                        body_bytes = data[body_start:]
+                else:
+                    body_bytes = data[body_start:]
+
+                # 确定编码：优先 Content-Type charset，其次 XML prolog encoding
+                body_encoding = "utf-8"
+                ct_header = msg.get_header("Content-Type") or ""
+                if "charset=" in ct_header.lower():
+                    _charset_part = ct_header.lower().split("charset=")[-1].strip().split(";")[0].strip().strip('"').strip("'")
+                    if _charset_part:
+                        body_encoding = _charset_part
+                else:
+                    # 检测 XML prolog 中的 encoding 声明
+                    _prolog_enc = _detect_xml_encoding(body_text)
+                    if _prolog_enc:
+                        body_encoding = _prolog_enc
+
+                # GB2312 和 GBK 是超集关系，统一用 GBK 解码
+                _try_encodings = [body_encoding]
+                if body_encoding.lower() in ("gb2312", "gbk", "gb18030"):
+                    _try_encodings = ["gbk", "gb18030"]
+                elif body_encoding.lower() == "utf-8":
+                    _try_encodings = ["utf-8", "gbk"]
+                else:
+                    _try_encodings = [body_encoding, "utf-8", "gbk"]
+
+                for _enc in _try_encodings:
+                    try:
+                        body_text = body_bytes.decode(_enc)
+                        break
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                else:
+                    body_text = body_bytes.decode("utf-8", errors="replace")
+
         msg.body = body_text
         return msg
 

@@ -181,11 +181,19 @@ async def control_ptz(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
     sip_ptz = _require_sip_ptz()
     # N-09 添加PTZ命令限速，防止淹没设备
+    # FIX [2026-09-04 P1]: 1) stop/focus_stop/iris_stop 是安全指令，永不限流——原实现
+    #    把停止指令也按 200ms 窗口限流，429 丢弃后云台会持续转动停不下来；
+    # 2) 连续移动指令在节流窗口内时静默忽略（设备本就在执行上一次移动，丢弃冗余指令
+    #    是正确行为），但返回 200 而非 429——避免前端按住方向键时弹「云台控制失败」。
     now = time.monotonic()
     last_sent = _ptz_last_send.get(device_id, 0.0)
-    if now - last_sent < _PTZ_RATE_LIMIT_SECONDS:
-        raise HTTPException(status_code=429, detail="PTZ command rate limited, try again later")
-    _ptz_last_send[device_id] = now
+    _cmd = str(ptz.command or "").strip().lower()
+    _is_stop_cmd = _cmd in {"stop", "focus_stop", "iris_stop"}
+    _throttled = now - last_sent < _PTZ_RATE_LIMIT_SECONDS and not _is_stop_cmd
+    if not _throttled:
+        _ptz_last_send[device_id] = now
+    if _throttled:
+        return {"status": "ok", "action": "throttled", "command": ptz.command, "throttled": True}
     await sip_ptz.send_ptz(
         asset,
         resource,

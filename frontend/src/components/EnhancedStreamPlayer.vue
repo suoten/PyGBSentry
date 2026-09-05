@@ -38,7 +38,7 @@
       <div v-if="showReconnecting" class="reconnect-overlay absolute inset-0 flex flex-col items-center justify-center bg-black/70 z-15">
         <el-icon class="is-loading text-4xl text-yellow-400 mb-3"><RefreshRight /></el-icon>
         <div class="text-white text-sm font-medium">{{ t('enhancedPlayer.reconnecting') }}</div>
-        <div class="text-gray-400 text-xs mt-1">{{ reconnectCount }} / {{ maxReconnect }}</div>
+        <div class="text-gray-400 text-xs mt-1">{{ reconnectCount }} / {{ maxReconnectAttempts }}</div>
       </div>
 
       <!-- 统计信息浮层 -->
@@ -82,7 +82,7 @@
             <!-- 静音 -->
             <button class="control-btn" @click="toggleMute" :title="isMuted ? t('enhancedPlayer.unmute') : t('enhancedPlayer.mute')">
               <el-icon class="text-lg">
-                <Mute v-if="isMuted || volume === 0" />
+                <Mute v-if="isMuted || volumeValue === 0" />
                 <Headset v-else />
               </el-icon>
             </button>
@@ -163,6 +163,27 @@ interface StreamMetrics {
   latency: number
 }
 
+// window 上挂载的第三方播放器库的最小类型声明（按本组件实际用到的 API）
+type JessibucaPlayerInstance = {
+  on<T>(event: string, handler: (data: T) => void): void
+  destroy(): void
+  muted?: boolean
+  volume?: number
+}
+type HlsPlayerInstance = {
+  loadSource(url: string): void
+  attachMedia(media: HTMLVideoElement): void
+  on<E, D>(event: string, handler: (event: E, data: D) => void): void
+  recoverMediaError(): void
+  destroy(): void
+}
+type HlsStatic = {
+  isSupported(): boolean
+  new (config: Record<string, unknown>): HlsPlayerInstance
+  Events: Record<string, string>
+  ErrorTypes: Record<string, string>
+}
+
 const props = withDefaults(defineProps<{
   // 流地址
   videoUrl?: string
@@ -170,7 +191,9 @@ const props = withDefaults(defineProps<{
   flvUrl?: string
   webrtcUrl?: string
   candidates?: string[]
-  
+  preferredUrl?: string
+  urls?: Record<string, unknown>
+
   // 配置
   autoplay?: boolean
   muted?: boolean
@@ -179,12 +202,12 @@ const props = withDefaults(defineProps<{
   enableAutoReconnect?: boolean
   maxReconnectAttempts?: number
   reconnectInterval?: number
-  
+
   // 录像模式
   isPlayback?: boolean
   startTime?: number
   duration?: number
-  
+
   // 编码信息
   codec?: string
 }>(), {
@@ -264,8 +287,8 @@ let statsTimer: number | null = null
 let hideControlsTimer: number | null = null
 
 // Current player instance (jessibuca, hls, or native)
-let currentPlayer: Record<string, unknown> = null
-let jessibucaInstance: unknown = null
+let currentPlayer: Record<string, unknown> | null = null
+let jessibucaInstance: JessibucaPlayerInstance | null = null
 // FIX: [2026-07-17 P1] 使用 AbortController 统一管理 video 元素事件监听器，
 // destroyCurrentPlayer 时 abort 即可移除所有监听器，防止内存泄漏
 let _nativePlayerAbort: AbortController | null = null
@@ -323,7 +346,7 @@ async function initPlayer() {
  */
 function selectBestUrl(urls: string[]): string {
   // 如果有 preferredUrl（由后端根据流类型选择的最优协议），优先使用
-  const preferred = props.preferredUrl || (props.urls as Record<string, unknown>)?.preferredUrl
+  const preferred = props.preferredUrl || (props.urls as { preferredUrl?: string } | undefined)?.preferredUrl
   if (preferred && urls.includes(preferred)) {
     return preferred
   }
@@ -386,7 +409,7 @@ async function startPlaying(url: string) {
     }
     
   } catch (error: unknown) {
-    handleError('init_error', error.message || t('player.initFailed')) // FIXED: 国际化
+    handleError('init_error', (error as { message?: string }).message || t('player.initFailed')) // FIXED: 国际化
   }
 }
 
@@ -395,13 +418,16 @@ async function startPlaying(url: string) {
  */
 async function initFlvPlayer(url: string) {
   // 检查 jessibuca 是否已加载
-  if (typeof window !== 'undefined' && (window as Record<string, unknown>).jessibuca) {
+  const JessibucaCtor = typeof window !== 'undefined'
+    ? (window as unknown as { jessibuca?: new (options: Record<string, unknown>) => JessibucaPlayerInstance }).jessibuca
+    : undefined
+  if (JessibucaCtor) {
     loadingText.value = t('player.loadingDecoder') // FIXED: 国际化
-    
+
     const container = containerRef.value
     if (!container) return
-    
-    jessibucaInstance = new (window as Record<string, unknown>).jessibuca({
+
+    jessibucaInstance = new JessibucaCtor({
       url: url,
       container: container,
       // 稳定性优化配置
@@ -431,7 +457,7 @@ async function initFlvPlayer(url: string) {
     })
     
     jessibucaInstance.on('videoInfo', (info: Record<string, unknown>) => {
-      metrics.value.bitrate = info.bitrate || 0
+      metrics.value.bitrate = (info.bitrate as number) || 0
     })
     
     jessibucaInstance.on('fps', (fps: number) => {
@@ -468,10 +494,9 @@ async function initFlvPlayer(url: string) {
 async function initHlsPlayer(url: string) {
   const video = createVideoElement()
   if (!video) return
-  
-  if (typeof window !== 'undefined' && (window as Record<string, unknown>).Hls && (window as Record<string, unknown>).Hls.isSupported()) {
-    const Hls = (window as Record<string, unknown>).Hls
-    
+
+  const Hls = typeof window !== 'undefined' ? (window as unknown as { Hls?: HlsStatic }).Hls : undefined
+  if (Hls && Hls.isSupported()) {
     const hls = new Hls({
       // 稳定性优化
       enableWorker: true,
@@ -648,7 +673,8 @@ function onPlayerReady() {
  * 播放器错误
  */
 function onPlayerError(error: unknown) {
-  const message = error?.message || error?.info || t('player.playAbnormal') // FIXED: 国际化
+  const err = error as { message?: string; info?: string } | null | undefined
+  const message = err?.message || err?.info || t('player.playAbnormal') // FIXED: 国际化
   
   // 检查是否有备用线路
   if (currentLineIndex.value < alternateUrls.value.length - 1) {
@@ -753,12 +779,12 @@ async function switchLine(index: number) {
  */
 async function play() {
   if (playerState.value === 'error') return
-  
+
   isPlaying.value = true
   playerState.value = 'playing'
-  
+
   if (currentPlayer?.type === 'native') {
-    currentPlayer.element?.play().catch(() => { /* play() rejected: common on pause/destroy, safe to ignore */ })
+    ;(currentPlayer.element as HTMLVideoElement | undefined)?.play().catch(() => { /* play() rejected: common on pause/destroy, safe to ignore */ })
   }
 }
 
@@ -770,7 +796,7 @@ function pause() {
   playerState.value = 'paused'
   
   if (currentPlayer?.type === 'native') {
-    currentPlayer.element?.pause()
+    ;(currentPlayer.element as HTMLVideoElement | undefined)?.pause()
   } else if (jessibucaInstance) {
     // Jessibuca 不支持暂停
   }
@@ -793,9 +819,9 @@ function togglePlay() {
  */
 function toggleMute() {
   isMuted.value = !isMuted.value
-  
+
   if (currentPlayer?.type === 'native') {
-    currentPlayer.element.muted = isMuted.value
+    ;(currentPlayer.element as HTMLVideoElement).muted = isMuted.value
   } else if (jessibucaInstance) {
     jessibucaInstance.muted = isMuted.value
   }
@@ -804,14 +830,15 @@ function toggleMute() {
 /**
  * 设置音量
  */
-function setVolume(value: number) {
-  volumeValue.value = value
-  isMuted.value = value === 0
-  
+function setVolume(value: number | number[]) {
+  const val = Array.isArray(value) ? value[0] : value
+  volumeValue.value = val
+  isMuted.value = val === 0
+
   if (currentPlayer?.type === 'native') {
-    currentPlayer.element.volume = value
+    ;(currentPlayer.element as HTMLVideoElement).volume = val
   } else if (jessibucaInstance) {
-    jessibucaInstance.volume = value
+    jessibucaInstance.volume = val
   }
 }
 
@@ -882,9 +909,9 @@ async function toggleFullscreen() {
  */
 function getVideoElement(): HTMLVideoElement | null {
   if (currentPlayer?.type === 'native') {
-    return currentPlayer.element
+    return currentPlayer.element as HTMLVideoElement
   }
-  return containerRef.value?.querySelector('video')
+  return containerRef.value?.querySelector('video') ?? null
 }
 
 /**
@@ -988,16 +1015,16 @@ function destroyCurrentPlayer() {
   }
   
   if (currentPlayer?.type === 'native' && currentPlayer.element) {
-    currentPlayer.element.pause()
-    currentPlayer.element.src = ''
+    ;(currentPlayer.element as HTMLVideoElement).pause()
+    ;(currentPlayer.element as HTMLVideoElement).src = ''
   }
-  
+
   if (currentPlayer?.destroy) {
     try {
-      currentPlayer.destroy()
+      ;(currentPlayer.destroy as () => void)()
     } catch { /* cleanup: ignore */ }
   }
-  
+
   currentPlayer = null
 }
 

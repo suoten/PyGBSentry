@@ -32,14 +32,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 
 interface Props {
   modelValue: boolean
   title: string
   width?: string | number
   size?: 'small' | 'medium' | 'large' | 'xlarge'
-  icon?: string | { component: unknown }
+  icon?: string | Component
   iconColor?: 'primary' | 'success' | 'warning' | 'danger'
   closeOnClickModal?: boolean
 }

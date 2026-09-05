@@ -109,7 +109,7 @@ class MediaManager:
         try:
             parsed = urllib_parse.urlparse(text)
             return self._is_loopback_host(parsed.hostname)
-        except Exception:
+        except ValueError:
             return False
 
     @staticmethod
@@ -872,7 +872,8 @@ class MediaManager:
                 for _ in r.iter_content(chunk_size=1024):
                     break
             return time.time() - start_ts
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Mirror latency probe failed for {url}: {e}")
             return None
 
     def _pick_fastest_mirror(self, urls: list[str], timeout: float = 5.0) -> str:
@@ -1265,7 +1266,11 @@ class MediaManager:
         time.sleep 会阻塞线程池中的工作线程，影响其他 executor 任务。
         改为 async 后，事件循环在 asyncio.sleep 期间可处理其他协程。
         """
-        config = configparser.ConfigParser()
+        # FIX: [2026-08-22 P2] 默认 BasicInterpolation 对裸 % 抛 ValueError
+        # （invalid interpolation syntax）—— secret URL-encode 后（如 a%2Bb）含 %，
+        # 含特殊字符的 MEDIA_SERVER_SECRET 会使配置生成直接崩溃。
+        # ZLM config.ini 不需要插值，显式 interpolation=None。
+        config = configparser.ConfigParser(interpolation=None)
         # 强制保留配置项的大小写（ZLM 的 rtc.tcpPort 等项区分大小写）
         config.optionxform = str
 

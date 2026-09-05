@@ -5,6 +5,7 @@ import datetime
 import base64
 from loguru import logger
 from typing import Any
+from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from cryptography.hazmat.primitives import serialization
 from app.core.config import settings
@@ -56,7 +57,7 @@ def verify_ed25519_signature(data: dict[str, Any], signature: str, public_key_pe
         public_key = _load_public_key(public_key_pem)
         public_key.verify(_b64url_decode(signature), _canonical_payload(data).encode("utf-8"))
         return True
-    except Exception:
+    except (ValueError, TypeError, InvalidSignature):
         return False
 
 def sign_license_payload(license_data: dict[str, Any], private_key_pem: str | None) -> dict[str, Any]:
@@ -95,7 +96,7 @@ def parse_iso_datetime(value: str | None) -> datetime.datetime | None:
         if dt.tzinfo:
             return dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
         return dt
-    except Exception:
+    except (ValueError, TypeError):
         return None
 
 def _get_current_machine_code() -> str:
@@ -109,7 +110,8 @@ def _get_current_machine_code() -> str:
         hostname = platform.node()
         raw = f"{mac_str}@{hostname}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to get machine code for license validation: {e}")
         return ""
 
 
@@ -152,7 +154,11 @@ def _verify_license_payload_python(
     if isinstance(feature_codes, str):
         feature_codes = [item.strip() for item in feature_codes.split(",") if item.strip()]
     expires_at = parse_iso_datetime(payload.get("expires_at"))
-    now = datetime.datetime.now(datetime.timezone.utc) # utcnow() deprecated in Python 3.12+
+    # FIX: [2026-08-22 P0] parse_iso_datetime 返回 naive UTC datetime（见其实现：
+    # astimezone(utc).replace(tzinfo=None)），此处原用 aware now 比较 → TypeError，
+    # 任何带 expires_at 的许可证在 Python 验证路径下必抛异常、过期/宽限逻辑失效（测试发现）。
+    # 统一为 naive UTC 比较。
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     if bound_tenant and bound_tenant != tenant_id:
         return False, "tenant_mismatch"
     if bound_plugin and bound_plugin != plugin_id:

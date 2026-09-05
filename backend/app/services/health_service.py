@@ -753,6 +753,9 @@ class HealthService:
                 continue
             key, value = pair.split(":", 1)
             key = key.strip()
+            if not key:
+                # FIX: [2026-08-22 P3] 跳过空 key（如 ":7"），避免解析出 "" 键（测试发现）
+                continue
             try:
                 result[key] = max(int(value.strip()), 1)
             except Exception:

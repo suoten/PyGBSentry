@@ -339,6 +339,11 @@ const playbackDurationLabel = computed(() => {
   return `${current}s / ${total}s`
 })
 
+// 回放进度/跳转由服务端 API 控制（seek/pause/speed），本地播放器不做初始 seek；
+// 这里仅为模板引用补齐定义，取值保持与组件默认值一致（0），维持既有运行时行为
+const playbackStartTime = computed(() => 0)
+const playbackDuration = computed(() => 0)
+
 const downloadTargetLabel = computed(() => {
   if (!downloadTarget.value) return t('deviceRecordList.noRecordSelected')
   return `${formatTime(downloadTarget.value.startTime)} - ${formatTime(downloadTarget.value.endTime)}`

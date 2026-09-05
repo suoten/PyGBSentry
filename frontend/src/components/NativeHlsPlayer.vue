@@ -33,6 +33,25 @@
 import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElIcon } from 'element-plus'
 import { Loading, Warning } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
+// window 上挂载的 hls.js 最小类型声明（按本组件实际用到的 API）
+type HlsInstance = {
+  loadSource(url: string): void
+  attachMedia(media: HTMLVideoElement): void
+  on<E, D>(event: string, handler: (event: E, data: D) => void): void
+  startLoad(): void
+  recoverMediaError(): void
+  destroy(): void
+}
+type HlsStatic = {
+  isSupported(): boolean
+  new (config: Record<string, unknown>): HlsInstance
+  Events: Record<string, string>
+  ErrorTypes: Record<string, string>
+}
 
 const props = defineProps<{
   hlsUrl: string
@@ -49,7 +68,7 @@ const uiStatus = ref<'loading' | 'ready' | 'error'>('loading')
 const errorHint = ref('')
 const loadingText = ref('正在连接视频流…')
 
-let hls: Record<string, unknown> = null
+let hls: HlsInstance | null = null
 let initSeq = 0
 
 const loadHlsJs = () =>
@@ -135,7 +154,7 @@ const initPlayer = async () => {
       }
 
       if (seq !== initSeq) return
-      const Hls = (window as Record<string, unknown>).Hls
+      const Hls = (window as unknown as { Hls?: HlsStatic }).Hls
       if (Hls && typeof Hls.isSupported === 'function' && Hls.isSupported()) {
         hls = new Hls({
           enableWorker: true,

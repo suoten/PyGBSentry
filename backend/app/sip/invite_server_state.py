@@ -331,7 +331,10 @@ class InviteServerState:
         if not ctx.final_response or not self._sender:
             return
         try:
-            await self._sender(ctx.transport, ctx.proto, ctx.addr, ctx.final_response)
+            # FIX: [2026-08-22 PN] 原直接 await self._sender(...)，sync sender 返回
+            # None 时 await None 抛 TypeError 被捕获，重传失败且计数不增加；
+            # 改用 _do_send 兼容 sync/async sender。
+            await self._do_send(ctx.transport, ctx.proto, ctx.addr, ctx.final_response)
             ctx.retransmit_count += 1
             logger.debug(f"Retransmitted final response for call_id (count={ctx.retransmit_count})")
         except Exception as e:

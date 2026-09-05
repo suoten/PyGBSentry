@@ -8,6 +8,7 @@
 import asyncio
 import contextlib
 import errno
+import inspect
 from loguru import logger  # 统一使用 loguru 替代 logging
 import hashlib
 import secrets
@@ -586,7 +587,7 @@ class SipServer:
                         return dt_val.replace(tzinfo=datetime.timezone.utc)
                     return dt_val
                 devices_result = await session.execute(
-                    select(Asset.id, Asset.last_keepalive, Asset.expires, Asset.register_time)
+                    select(Asset.id, Asset.last_keepalive, Asset.expires, Asset.register_time, Asset.heartbeat_interval)
                     .where(
                         Asset.status == 1,
                     )
@@ -599,7 +600,14 @@ class SipServer:
                     # 之后: grace = expires * 1.5，上限由 DEVICE_OFFLINE_MAX_GRACE_SECONDS 控制
                     # FIX: [2026-07-03] getattr 默认值从 1800 改为 300，与 config.py 保持一致 [全栈工程师]
                     max_grace_seconds = settings.DEVICE_OFFLINE_MAX_GRACE_SECONDS
-                    grace = max(device_expires * 1.5, default_grace_seconds)
+                    # FIX [2026-09-04 P1]: 宽限期必须覆盖设备心跳间隔 —— 心跳入库被
+                    # should_skip_keepalive_db_update 节流为每设备每 60s 一次，加上 UDP
+                    # 丢包/网络抖动，DB 中的 last_keepalive 天然滞后于真实心跳。原实现只按
+                    # expires 计算，短 expires 设备（如 300s）的宽限期反而小于心跳节流周期，
+                    # 造成「通道慢慢离线、目录同步又恢复」的周期性误判。
+                    # 宽限期 = max(expires×1.5, 默认宽限, 3×心跳间隔)
+                    device_interval = int(getattr(row, "heartbeat_interval", 0) or 60)
+                    grace = max(device_expires * 1.5, default_grace_seconds, device_interval * 3)
                     grace = min(grace, max_grace_seconds)
                     cutoff = now - datetime.timedelta(seconds=grace)
                     # FIX: [2026-07-03] SQLite 返回 offset-naive datetime，与 offset-aware cutoff 比较会抛 TypeError [全栈工程师]
@@ -614,6 +622,54 @@ class SipServer:
                         if reg_time and reg_time < cutoff:
                             offline_ids.append(row.id)
                 count = 0
+                if offline_ids:
+                    # FIX [2026-09-04 P1]: 标离线前先主动探测 —— last_keepalive 因心跳入库
+                    # 节流（每设备 60s 一次）与 DB/Redis 延迟会滞后于真实心跳；health_service
+                    # 的探测日志（"probe succeeded, keeping online"）证明设备实际可达。两个
+                    # 循环判定打架导致通道被周期性误标离线。现在标离线前先发 DeviceStatus
+                    # 探测：有响应 → 刷新 last_keepalive 并恢复通道在线；确认无响应才标离线。
+                    from app.services.health_service import health_service as _hs
+                    candidates = (await session.execute(
+                        select(Asset).where(Asset.id.in_(offline_ids))
+                    )).scalars().all()
+                    _probe_sem = asyncio.Semaphore(5)
+
+                    async def _probe_one(dev):
+                        async with _probe_sem:
+                            try:
+                                return dev, await _hs._probe_device_before_offline(dev)
+                            except Exception:
+                                return dev, False
+
+                    recovered_ids: list = []
+                    confirmed_offline: list = []
+                    for dev, probe_ok in await asyncio.gather(
+                        *[_probe_one(d) for d in candidates], return_exceptions=True
+                    ):
+                        if isinstance(dev, Exception) or not isinstance(dev, Asset):
+                            continue
+                        if probe_ok:
+                            recovered_ids.append(dev.id)
+                        else:
+                            confirmed_offline.append(dev.id)
+
+                    if recovered_ids:
+                        await session.execute(
+                            update(Asset)
+                            .where(Asset.id.in_(recovered_ids))
+                            .values(last_keepalive=now, status=1)
+                        )
+                        await session.execute(
+                            update(Resource)
+                            .where(Resource.asset_id.in_(recovered_ids))
+                            .values(status=1)
+                        )
+                        logger.info(
+                            f"Device offline check: {len(recovered_ids)} device(s) responded to probe, "
+                            f"recovered online (channels restored)"
+                        )
+                    offline_ids = confirmed_offline
+
                 if offline_ids:
                     result = await session.execute(
                         update(Asset)
@@ -857,7 +913,12 @@ class SipServer:
                     logger.warning(f"tx_manager.resolve_from_response failed for Call-ID={_cid}: {tx_err}")
                 for handler in list(self.response_handlers):
                     try:
-                        await handler(msg, addr, proto, transport)
+                        # FIX [2026-09-01 P1]: 兼容同步 handler — 统一 await 同步函数
+                        # 会抛 "object bool can't be used in 'await' expression"，
+                        # 改为仅当返回值为 awaitable 时才 await。
+                        outcome = handler(msg, addr, proto, transport)
+                        if inspect.isawaitable(outcome):
+                            await outcome
                     except Exception as handler_err:
                         logger.error(f"Response handler {getattr(handler, '__name__', handler)} failed: {handler_err}")
 
@@ -879,14 +940,21 @@ class SipServer:
             from app.db.session import AsyncSessionLocal
             from app.models.ip_blacklist import IpBlacklist
             from sqlalchemy import select
+            from sqlalchemy.exc import IntegrityError
             async with AsyncSessionLocal() as session:
                 exist = await session.execute(select(IpBlacklist).where(IpBlacklist.ip == ip))
                 if not exist.scalars().first():
                     bl = IpBlacklist(ip=ip, reason=reason)
                     session.add(bl)
-                    await session.commit()
-                    self.ip_blacklist_cache.add(ip)
+                    try:
+                        await session.commit()
+                    except IntegrityError:
+                        # 并发插入竞态：另一个协程已先插入相同 IP，回滚即可
+                        await session.rollback()
                     logger.info(f"Dynamically blacklisted IP: {ip}")
+                # FIX: [2026-08-22 PN] 原 cache.add(ip) 位于 if not exist 分支内，
+                # IP 已在 DB 但不在本地缓存时缓存永不更新，导致后续每个包都重复查 DB。
+                self.ip_blacklist_cache.add(ip)
         except Exception as e:
             logger.error(f"Failed to auto blacklist IP {ip}: {e}")
 

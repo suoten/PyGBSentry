@@ -250,6 +250,296 @@ async def create_user(
     return user
 
 
+@router.get("/me", response_model=UserOut)
+async def read_user_me(
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """
+    Get current user.
+    """
+    return current_user
+
+
+@router.put("/me", response_model=UserOut)
+async def update_user_me(
+    payload: UserMeUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    if payload.email is not None:
+        current_user.email = (str(payload.email).strip() or None)
+    if payload.full_name is not None:
+        current_user.full_name = (str(payload.full_name).strip() or None)
+    await db.commit()
+    await db.refresh(current_user)
+    await safe_auth_audit(
+        db,
+        module="users",
+        action="update_profile",
+        source="self_service",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+    )
+    return current_user
+
+
+@router.post("/me/change-password")
+@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制密码修改频率
+async def change_user_password(
+    request: Request,
+    payload: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    old_pwd = (payload.current_password or "").strip()
+    new_pwd = (payload.new_password or "").strip()
+    if not old_pwd or not new_pwd:
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="change_password",
+            source="self_service",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="missing_password",
+        )
+        raise HTTPException(status_code=400, detail="Password cannot be empty")
+    if len(new_pwd) < 8:
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="change_password",
+            source="self_service",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="password_too_short",
+        )
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
+    if old_pwd == new_pwd:
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="change_password",
+            source="self_service",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="password_unchanged",
+        )
+        raise HTTPException(status_code=400, detail="New password cannot be same as current")
+    if not security.verify_password(old_pwd, current_user.hashed_password):
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="change_password",
+            source="self_service",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="invalid_current_password",
+        )
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current_user.hashed_password = security.get_password_hash(new_pwd)
+    await db.commit()
+    from app.core.redis import redis_client
+    if redis_client:
+        import time as _time
+        await redis_client.set(
+            f"user_token_revoked:{current_user.id}",
+            str(_time.time()),
+            ex=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        )
+    await safe_auth_audit(
+        db,
+        module="users",
+        action="change_password",
+        source="self_service",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+    )
+    return {"ok": True}
+
+
+# FIX: [2026-08-22 P1] 下方 2FA 三个端点（setup/enable/disable）的全部 safe_auth_audit
+# 调用缺少必填关键字参数 module → TypeError → 500，2FA 接口全面不可用。
+# （login.py 同类 bug 已于 2026-07-03 修复，此处漏改。）统一补 module="users"。
+@router.post("/me/2fa/setup", response_model=TotpSetupResponse)
+@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 设置频率
+async def setup_totp(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    """生成 TOTP secret（不直接启用，需 verify 后启用）。"""
+    secret = generate_base32_secret()
+    current_user.totp_secret = encrypt_totp_secret(secret)
+    current_user.totp_enabled = False
+    await db.commit()
+    issuer = "PyGBSentry"
+    label = f"{issuer}:{current_user.username}"
+    otpauth_uri = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits=6&period=30"
+    await safe_auth_audit(
+        db,
+        module="users",
+        action="totp_setup",
+        source="2fa",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+    )
+    return {"secret": secret, "otpauth_uri": otpauth_uri}
+
+
+@router.post("/me/2fa/enable")
+@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 启用频率
+async def enable_totp(
+    request: Request,
+    payload: EnableTotpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    encrypted_secret = getattr(current_user, "totp_secret", None)
+    if not encrypted_secret:
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="totp_enable",
+            source="2fa",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="setup_required",
+        )
+        raise HTTPException(status_code=400, detail="Please set up 2FA first")
+    try:
+        decrypted_secret = decrypt_totp_secret(encrypted_secret)
+    except ValueError:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during enable", getattr(current_user, "id", "unknown"))
+        raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
+    if not verify_totp(payload.code, decrypted_secret):
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="totp_enable",
+            source="2fa",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="invalid_otp",
+        )
+        raise HTTPException(status_code=400, detail="Verification code incorrect")
+    current_user.totp_enabled = True
+    await db.commit()
+    await safe_auth_audit(
+        db,
+        module="users",
+        action="totp_enable",
+        source="2fa",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+    )
+    return {"ok": True, "totp_enabled": True}
+
+
+@router.post("/me/2fa/disable")
+@limiter.limit("3/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 禁用频率（更严格）
+async def disable_totp(
+    request: Request,
+    payload: DisableTotpRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+) -> Any:
+    if not getattr(current_user, "totp_enabled", False):
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="totp_disable",
+            source="2fa",
+            operator=current_user.username or "unknown",
+            result="success",
+            tenant_id=_audit_tid(current_user),
+            status_code=200,
+            detail="already_disabled",
+        )
+        return {"ok": True, "totp_enabled": False}
+    encrypted_secret = getattr(current_user, "totp_secret", None)
+    if not encrypted_secret:
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="totp_disable",
+            source="2fa",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="invalid_otp",
+        )
+        raise HTTPException(status_code=400, detail="Verification code incorrect")
+    try:
+        decrypted_secret = decrypt_totp_secret(encrypted_secret)
+    except ValueError:
+        import logging as _logging
+        _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during disable", getattr(current_user, "id", "unknown"))
+        raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
+    if not verify_totp(payload.code, decrypted_secret):
+        await safe_auth_audit(
+            db,
+            module="users",
+            action="totp_disable",
+            source="2fa",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="invalid_otp",
+        )
+        raise HTTPException(status_code=400, detail="Verification code incorrect")
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    await db.commit()
+    await safe_auth_audit(
+        db,
+        module="users",
+        action="totp_disable",
+        source="2fa",
+        operator=current_user.username or "unknown",
+        result="success",
+        tenant_id=_audit_tid(current_user),
+        status_code=200,
+        detail="ok",
+    )
+    return {"ok": True, "totp_enabled": False}
+
+
+# ---------------------------------------------------------------------------
+# FIX: [2026-08-22 P1] 路由遮蔽修复：原 PUT/DELETE /{user_id} 在 PUT /me 之前注册，
+# FastAPI 按注册顺序匹配，PUT /api/v1/users/me 被 /{user_id} 抢先捕获
+# （user_id="me" → 查无此用户 → 404），个人资料自助更新不可用。
+# 参考 devices/__init__.py 的做法，把单段通配路由（/{user_id}）移到 /me 系列
+# 静态路由之后注册。多段路径 /{user_id}/unlock 不参与单段遮蔽竞争，位置不变。
+# ---------------------------------------------------------------------------
+
 @router.put("/{user_id}", response_model=UserOut)
 async def update_user(
     user_id: str,
@@ -380,276 +670,6 @@ async def delete_user(
         extra_summary=f"target_user_id={target_uid}; target_username={target_username}",
     )
     return {"ok": True}
-
-@router.get("/me", response_model=UserOut)
-async def read_user_me(
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    """
-    Get current user.
-    """
-    return current_user
-
-
-@router.put("/me", response_model=UserOut)
-async def update_user_me(
-    payload: UserMeUpdate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    if payload.email is not None:
-        current_user.email = (str(payload.email).strip() or None)
-    if payload.full_name is not None:
-        current_user.full_name = (str(payload.full_name).strip() or None)
-    await db.commit()
-    await db.refresh(current_user)
-    await safe_auth_audit(
-        db,
-        module="users",
-        action="update_profile",
-        source="self_service",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-    )
-    return current_user
-
-
-@router.post("/me/change-password")
-@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制密码修改频率
-async def change_user_password(
-    request: Request,
-    payload: ChangePasswordRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    old_pwd = (payload.current_password or "").strip()
-    new_pwd = (payload.new_password or "").strip()
-    if not old_pwd or not new_pwd:
-        await safe_auth_audit(
-            db,
-            module="users",
-            action="change_password",
-            source="self_service",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="missing_password",
-        )
-        raise HTTPException(status_code=400, detail="Password cannot be empty")
-    if len(new_pwd) < 8:
-        await safe_auth_audit(
-            db,
-            module="users",
-            action="change_password",
-            source="self_service",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="password_too_short",
-        )
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters")
-    if old_pwd == new_pwd:
-        await safe_auth_audit(
-            db,
-            module="users",
-            action="change_password",
-            source="self_service",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="password_unchanged",
-        )
-        raise HTTPException(status_code=400, detail="New password cannot be same as current")
-    if not security.verify_password(old_pwd, current_user.hashed_password):
-        await safe_auth_audit(
-            db,
-            module="users",
-            action="change_password",
-            source="self_service",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="invalid_current_password",
-        )
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
-    current_user.hashed_password = security.get_password_hash(new_pwd)
-    await db.commit()
-    from app.core.redis import redis_client
-    if redis_client:
-        import time as _time
-        await redis_client.set(
-            f"user_token_revoked:{current_user.id}",
-            str(_time.time()),
-            ex=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-        )
-    await safe_auth_audit(
-        db,
-        module="users",
-        action="change_password",
-        source="self_service",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-    )
-    return {"ok": True}
-
-
-@router.post("/me/2fa/setup", response_model=TotpSetupResponse)
-@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 设置频率
-async def setup_totp(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    """生成 TOTP secret（不直接启用，需 verify 后启用）。"""
-    secret = generate_base32_secret()
-    current_user.totp_secret = encrypt_totp_secret(secret)
-    current_user.totp_enabled = False
-    await db.commit()
-    issuer = "PyGBSentry"
-    label = f"{issuer}:{current_user.username}"
-    otpauth_uri = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&digits=6&period=30"
-    await safe_auth_audit(
-        db,
-        action="totp_setup",
-        source="2fa",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-    )
-    return {"secret": secret, "otpauth_uri": otpauth_uri}
-
-
-@router.post("/me/2fa/enable")
-@limiter.limit("5/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 启用频率
-async def enable_totp(
-    request: Request,
-    payload: EnableTotpRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    encrypted_secret = getattr(current_user, "totp_secret", None)
-    if not encrypted_secret:
-        await safe_auth_audit(
-            db,
-            action="totp_enable",
-            source="2fa",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="setup_required",
-        )
-        raise HTTPException(status_code=400, detail="Please set up 2FA first")
-    try:
-        decrypted_secret = decrypt_totp_secret(encrypted_secret)
-    except ValueError:
-        import logging as _logging
-        _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during enable", getattr(current_user, "id", "unknown"))
-        raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
-    if not verify_totp(payload.code, decrypted_secret):
-        await safe_auth_audit(
-            db,
-            action="totp_enable",
-            source="2fa",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="invalid_otp",
-        )
-        raise HTTPException(status_code=400, detail="Verification code incorrect")
-    current_user.totp_enabled = True
-    await db.commit()
-    await safe_auth_audit(
-        db,
-        action="totp_enable",
-        source="2fa",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-    )
-    return {"ok": True, "totp_enabled": True}
-
-
-@router.post("/me/2fa/disable")
-@limiter.limit("3/minute", key_func=get_tenant_remote_address)  # FIX: [2026-07-16 P1] 限制 2FA 禁用频率（更严格）
-async def disable_totp(
-    request: Request,
-    payload: DisableTotpRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user),
-) -> Any:
-    if not getattr(current_user, "totp_enabled", False):
-        await safe_auth_audit(
-            db,
-            action="totp_disable",
-            source="2fa",
-            operator=current_user.username or "unknown",
-            result="success",
-            tenant_id=_audit_tid(current_user),
-            status_code=200,
-            detail="already_disabled",
-        )
-        return {"ok": True, "totp_enabled": False}
-    encrypted_secret = getattr(current_user, "totp_secret", None)
-    if not encrypted_secret:
-        await safe_auth_audit(
-            db,
-            action="totp_disable",
-            source="2fa",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="invalid_otp",
-        )
-        raise HTTPException(status_code=400, detail="Verification code incorrect")
-    try:
-        decrypted_secret = decrypt_totp_secret(encrypted_secret)
-    except ValueError:
-        import logging as _logging
-        _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during disable", getattr(current_user, "id", "unknown"))
-        raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
-    if not verify_totp(payload.code, decrypted_secret):
-        await safe_auth_audit(
-            db,
-            action="totp_disable",
-            source="2fa",
-            operator=current_user.username or "unknown",
-            result="failed",
-            tenant_id=_audit_tid(current_user),
-            status_code=400,
-            detail="invalid_otp",
-        )
-        raise HTTPException(status_code=400, detail="Verification code incorrect")
-    current_user.totp_enabled = False
-    current_user.totp_secret = None
-    await db.commit()
-    await safe_auth_audit(
-        db,
-        action="totp_disable",
-        source="2fa",
-        operator=current_user.username or "unknown",
-        result="success",
-        tenant_id=_audit_tid(current_user),
-        status_code=200,
-        detail="ok",
-    )
-    return {"ok": True, "totp_enabled": False}
 
 
 @router.post("/{user_id}/unlock")

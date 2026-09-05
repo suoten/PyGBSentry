@@ -16,6 +16,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { Component } from 'vue'
 import {
   CircleCheckFilled,
   CircleCloseFilled,
@@ -24,6 +25,9 @@ import {
   InfoFilled,
   QuestionFilled,
 } from '@element-plus/icons-vue'
+
+/** Element Plus el-tag type 联合类型 */
+type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
 
 interface Props {
   /** 状态值 */
@@ -48,7 +52,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 /** 状态到 Element Plus tag type 的映射 */
-const STATUS_TAG_MAP: Record<string, string> = {
+const STATUS_TAG_MAP: Record<string, TagType> = {
   // 通用状态
   success: 'success',
   online: 'success',
@@ -106,7 +110,7 @@ const STATUS_TEXT_MAP: Record<string, string> = {
 }
 
 /** 状态到图标的映射 */
-const STATUS_ICON_MAP: Record<string, string> = {
+const STATUS_ICON_MAP: Record<string, Component> = {
   success: CircleCheckFilled,
   online: CircleCheckFilled,
   active: CircleCheckFilled,
@@ -135,9 +139,9 @@ const STATUS_ICON_MAP: Record<string, string> = {
   inactive: InfoFilled,
 }
 
-const tagType = computed(() => {
+const tagType = computed<TagType>(() => {
   const normalized = String(props.status || 'default').toLowerCase()
-  return (STATUS_TAG_MAP[normalized] as Record<string, unknown>) || 'info'
+  return STATUS_TAG_MAP[normalized] || 'info'
 })
 
 const displayText = computed(() => {

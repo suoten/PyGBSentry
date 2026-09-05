@@ -37,8 +37,8 @@ def run_l1(backend_dir: Path, strict: bool = False) -> dict:
     os.chdir(str(backend_dir))
 
     try:
-        from app.core.audit_l1_schema_consistency import run_l1_audit_sync
-        issues = run_l1_audit_sync()
+        from app.core.audit_l1_schema_consistency import run_l1_audit_sync_safe
+        issues = run_l1_audit_sync_safe()
     except Exception as e:
         return {"layer": "L1", "status": "error", "message": str(e), "issues": []}
 

@@ -1021,6 +1021,9 @@ async def stream_health_health(
     """
 
     tenant_id = (getattr(current_user, "tenant_id", None) or "default").strip() or "default"
+    # FIX: [2026-08-22 P1] 函数内对导入的模块级缓存变量赋值会使其局部化，读取时触发
+    # UnboundLocalError → 500。显式声明 global 以读写模块级缓存。
+    global _STREAM_HEALTH_CACHE_RAW, _STREAM_HEALTH_CACHE_META, _STREAM_HEALTH_CACHE_TS
     try:
         resource_gb_ids = (
             await db.execute(select(Resource.gb_id).where(Resource.tenant_id == tenant_id))
@@ -1033,7 +1036,7 @@ async def stream_health_health(
     now_ts = float(datetime.now(timezone.utc).timestamp())
     cache_ttl_sec = 5.0
     async with _STREAM_HEALTH_CACHE_LOCK:
-        if (now_ts - _STREAM_HEALTH_CACHE_TS) > cache_ttl_sec or not _STREAM_HEALTH_CACHE_RAW:  # noqa: F823
+        if (now_ts - _STREAM_HEALTH_CACHE_TS) > cache_ttl_sec or not _STREAM_HEALTH_CACHE_RAW:
             zlm_host, zlm_port, zlm_secret, zlm_node_id, select_reason = await resolve_zlm_api_target(db_session=db)
             url = f"http://{zlm_host}:{zlm_port}/index/api/getMediaList"
             try:

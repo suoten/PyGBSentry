@@ -146,9 +146,9 @@
             <div v-for="item in alarmStats" :key="item.name" class="flex items-center gap-4">
               <div class="w-32 text-right truncate" style="color: var(--el-text-color-regular)" :title="item.name">{{ item.name }}</div>
               <div class="flex-1">
-                <el-progress 
-                  :percentage="getPercentage(item.value)" 
-                  :format="() => item.value" 
+                <el-progress
+                  :percentage="getPercentage(item.value)"
+                  :format="() => String(item.value)"
                   :stroke-width="18"
                   text-inside
                 />
@@ -162,7 +162,7 @@
         <div class="space-y-4">
           <div class="flex flex-wrap justify-between items-center gap-2">
             <span class="text-lg font-semibold" style="color: var(--el-text-color-regular)">{{ t('reportPage.traffic24hTitle') }}</span>
-            <el-button type="primary" size="small" @click="exportCsv('traffic')" :loading="exportLoading">{{ t('reportPage.exportTraffic') }}</el-button>
+            <el-button type="primary" size="small" @click="exportCsv('traffic')" :loading="!!exportLoading">{{ t('reportPage.exportTraffic') }}</el-button>
           </div>
           <div v-if="trafficLoading" class="flex justify-center py-8">
             <el-icon class="is-loading" :size="32"><Loading /></el-icon>
@@ -576,7 +576,28 @@ import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import { getFriendlyError } from '../utils/errorMessage'
 import AppDialog from '../components/common/AppDialog.vue'
-import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, Maintenance, StructuredEvent, PluginConfig } from '@/types/models'
+import type { Device, Channel, TreeNode, Alarm, VideoRecord, PluginRuntimeRow, BillingPlan, Subscription, Order, License, CascadePlatform, StreamProxy, StreamPush, ScheduleItem, TvWallScreen, ConferenceSession, DiagResult, AuditLog, ApiKey, WorkOrder, AssetLedger, StructuredEvent, PluginConfig } from '@/types/models'
+
+// 结项治理看板汇总（closeout-governance-dashboard/summary 响应，按实际使用字段定义）
+interface CloseoutSummaryLatest {
+  policy_env?: string
+  dashboard?: {
+    latest?: {
+      alert?: {
+        closeout_reason_code?: string
+      }
+    }
+  }
+}
+
+interface CloseoutSummary {
+  window_days?: number
+  total?: number
+  by_reason_code?: Record<string, number>
+  by_closeout_reason_code?: Record<string, number>
+  trend_by_day?: Record<string, number>
+  latest?: CloseoutSummaryLatest | null
+}
 import { logger } from '@/utils/logger'
 
 use([CanvasRenderer, BarChart, LineChart, GridComponent, TooltipComponent, LegendComponent])
@@ -632,7 +653,7 @@ const closeoutQuickDayOrderStorageKey = 'closeout_dashboard_quick_day_order_v1'
 const closeoutQuickDayPreset = ref<'oncall' | 'handover' | 'review' | 'custom'>('oncall')
 const closeoutQuickDayCount = ref(5)
 const closeoutQuickDayOrder = ref<'asc' | 'desc'>('desc')
-const closeoutSummary = ref<Alarm>({
+const closeoutSummary = ref<CloseoutSummary>({
   window_days: 14,
   total: 0,
   by_reason_code: {},
@@ -670,7 +691,7 @@ const trafficStreamsOption = computed(() => ({
 }))
 
 const trafficBandwidthOption = computed(() => ({
-  tooltip: { trigger: 'axis' as const, formatter: (params: Record<string, unknown>) => `${params[0].axisValue}<br/>${formatKbps(params[0].value)}` },
+  tooltip: { trigger: 'axis' as const, formatter: (params: Array<{ axisValue: string; value: number }>) => `${params[0].axisValue}<br/>${formatKbps(params[0].value)}` },
   xAxis: { type: 'category' as const, data: trafficBandwidthData.value.map(p => p.t.slice(11, 16)), axisLabel: { rotate: 30 } },
   yAxis: { type: 'value' as const, name: 'Kbps' },
   series: [{ type: 'line', data: trafficBandwidthData.value.map(p => p.value_kbps), smooth: true, areaStyle: { opacity: 0.15 }, itemStyle: { color: '#67C23A' } }],

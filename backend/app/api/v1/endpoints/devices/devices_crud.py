@@ -8,8 +8,11 @@ from app.db.session import get_db
 import io
 import csv
 import json as _json
+from pydantic import BaseModel
 from app.models.asset import Asset
 from app.models.resource import Resource
+from app.models.record import Record
+from app.models.asset_maintenance import AssetMaintenance
 from app.models.organization import Organization
 from app.models.asset_stream_policy import AssetStreamPolicy
 from app.models.asset_stream_health import AssetStreamHealth  # FIX: [2026-07-13] 级联删除流健康度记录
@@ -48,13 +51,73 @@ from . _common import (
 router = APIRouter()
 
 
+class DeviceItem(BaseModel):
+    """设备列表项响应模型（GET /api/v1/devices）。
+
+    与列表端点的序列化 dict 字段一一对应，作为前后端契约的
+    单一事实来源（frontend/src/types/models.ts Device 接口）。
+    """
+
+    id: str
+    gb_id: str
+    name: str | None = None
+    organization_id: str | None = None
+    transport: str | None = None
+    ip_addr: str | None = None
+    port: int | None = None
+    manufacturer: str | None = None
+    model: str | None = None
+    firmware: str | None = None
+    status: int | None = None
+    is_online: bool
+    last_keepalive: datetime | None = None
+    register_time: datetime | None = None
+    expires: int | None = None
+    domain: str | None = None
+    charset: str | None = None
+    ssrc_check: bool | None = None
+    geo_coord_sys: str | None = None
+    as_message_channel: bool | None = None
+    heartbeat_interval: int | None = None
+    heartbeat_count: int | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    stream_mode: str
+    catalog_sync_runtime: dict[str, Any] = {}
+    channel_count: int
+    catalog_subscribe_enabled: bool
+    catalog_subscribe_cycle_seconds: int
+    catalog_subscribe_last_sync_at: datetime | None = None
+    catalog_subscribe_last_sync_ok: int
+    catalog_subscribe_last_sync_error: str
+    mobile_position_subscribe_enabled: bool
+    mobile_position_interval_seconds: int
+    mobile_position_last_subscribe_at: datetime | None = None
+    mobile_position_last_subscribe_ok: int
+    mobile_position_last_subscribe_error: str
+
+
+class DeviceStats(BaseModel):
+    total: int
+    online: int
+    offline: int
+
+
+class DeviceListResponse(BaseModel):
+    items: list[DeviceItem]
+    total: int
+    skip: int
+    limit: int
+    stats: DeviceStats
+
+
 def _escape_ilike(val: str) -> str:
     return val.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # 导出端点全量加载无限制 → 添加 max_rows 限制
 _EXPORT_MAX_ROWS = 10000
-@router.get("")
+@router.get("", response_model=DeviceListResponse)
 async def get_devices(
     organization_id: str | None = None,
     keyword: str = "",
@@ -176,7 +239,7 @@ async def get_devices(
             "heartbeat_count": asset.heartbeat_count,
             "created_at": asset.created_at,
             "updated_at": asset.updated_at,
-            "stream_mode": policy_map.get(asset.id, "GLOBAL"),
+            "stream_mode": policy_map.get(asset.id) or "GLOBAL",
             "catalog_sync_runtime": runtime,
             "channel_count": channel_count_map.get(str(asset.id), 0),
             "catalog_subscribe_enabled": bool(cycle > 0),
@@ -239,7 +302,8 @@ async def update_catalog_subscription(
 ):
     if DeviceSubscription is None:
         raise HTTPException(status_code=501, detail="Device subscription feature not enabled: DeviceSubscription model missing")  # i18n
-    cycle = int(payload.cycle_seconds or 0)
+    # enabled=False 显式关闭订阅（cycle 归零）；否则采用请求的周期（0-86400s）
+    cycle = int(payload.cycle_seconds or 0) if payload.enabled else 0
     cycle = max(0, min(cycle, 24 * 60 * 60))
     asset_result = await db.execute(select(Asset).where(Asset.gb_id == device_id))
     asset = get_or_404(asset_result, detail="Asset not found")  # ORM查询结果空值判断
@@ -428,26 +492,31 @@ async def create_device(
     if transport not in {"UDP", "TCP"}:
         raise HTTPException(status_code=400, detail="Transport protocol must be UDP or TCP")  # i18n
 
-    asset = Asset(
-        gb_id=gb_id,
-        name=name,
-        decrypted_password=payload.password.strip() if payload.password else None,
-        ip_addr=payload.ip_addr.strip() if payload.ip_addr else None,
-        port=payload.port,
-        transport=transport,
-        manufacturer=payload.manufacturer.strip() if payload.manufacturer else None,
-        model=payload.model.strip() if payload.model else None,
-        firmware=payload.firmware.strip() if payload.firmware else None,
-        domain=payload.domain.strip() if payload.domain and hasattr(Asset, "domain") else None,  # FIX: [2026-07-03] Asset 模型无 domain 列，条件赋值 [全栈工程师]
-        charset=payload.charset,
-        ssrc_check=payload.ssrc_check,
-        geo_coord_sys=payload.geo_coord_sys,
-        as_message_channel=payload.as_message_channel,
-        heartbeat_interval=payload.heartbeat_interval,
-        heartbeat_count=payload.heartbeat_count,
-        status=0,
-        tenant_id=tenant_id,
-    )
+    # FIX: [2026-08-22 P0] Asset 模型无 domain 列 — 原写法把 hasattr 守卫放在值表达式里，
+    # domain kwarg 仍被无条件传入 Asset() → TypeError → POST /devices 必 500（测试发现）。
+    # 修复：仅当模型真正声明该列时才追加 kwarg。
+    asset_kwargs: dict = {
+        "gb_id": gb_id,
+        "name": name,
+        "decrypted_password": payload.password.strip() if payload.password else None,
+        "ip_addr": payload.ip_addr.strip() if payload.ip_addr else None,
+        "port": payload.port,
+        "transport": transport,
+        "manufacturer": payload.manufacturer.strip() if payload.manufacturer else None,
+        "model": payload.model.strip() if payload.model else None,
+        "firmware": payload.firmware.strip() if payload.firmware else None,
+        "charset": payload.charset,
+        "ssrc_check": payload.ssrc_check,
+        "geo_coord_sys": payload.geo_coord_sys,
+        "as_message_channel": payload.as_message_channel,
+        "heartbeat_interval": payload.heartbeat_interval,
+        "heartbeat_count": payload.heartbeat_count,
+        "status": 0,
+        "tenant_id": tenant_id,
+    }
+    if hasattr(Asset, "domain") and payload.domain:
+        asset_kwargs["domain"] = payload.domain.strip()
+    asset = Asset(**asset_kwargs)
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
@@ -521,8 +590,15 @@ async def delete_device(
 
     # FIX: [2026-07-13] 级联删除关联记录，避免 ForeignKeyViolationError。
     # FIX: [2026-07-14] 补充 AssetStreamPolicy 级联删除，日志确认 asset_stream_policies_asset_id_fkey 约束违反导致删除 500。
+    # FIX [2026-09-03 P1]: 补充 records（录像记录）级联删除 —— records.resource_id/assets_id
+    # 双外键引用，PostgreSQL/MySQL 上删除设备报 records_resource_id_fkey 违反（SQLite 默认
+    # 不启用外键强制因此本地不报，服务器上报）。
+    await db.execute(delete(Record).where(Record.asset_id == asset.id))
+    await db.execute(delete(AssetMaintenance).where(AssetMaintenance.asset_id == asset.id))
     await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == asset.id))
     await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id == asset.id))
+    # 子资源（有 parent_id，如目录/子目录）先删，再删其余，兼容 MySQL 逐行外键检查
+    await db.execute(delete(Resource).where(Resource.asset_id == asset.id).where(Resource.parent_id.isnot(None)))
     await db.execute(delete(Resource).where(Resource.asset_id == asset.id))
     await db.delete(asset)
     await db.commit()
@@ -552,8 +628,12 @@ async def batch_delete_devices(
     # 会发起 3N+1 次 DB 往返。NVR 共 IP 场景下删除 100+ 路设备会耗尽连接池。
     # 改为批量 IN 查询，将 3N+1 次往返降为 4 次。
     asset_ids = [asset.id for asset in assets]
+    # FIX [2026-09-03 P1]: 级联删除录像记录（records 对 asset/resource 均有外键）
+    await db.execute(delete(Record).where(Record.asset_id.in_(asset_ids)))
+    await db.execute(delete(AssetMaintenance).where(AssetMaintenance.asset_id.in_(asset_ids)))
     await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id.in_(asset_ids)))
     await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id.in_(asset_ids)))
+    await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)).where(Resource.parent_id.isnot(None)))
     await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)))
     # 批量删除 Asset
     await db.execute(delete(Asset).where(Asset.id.in_(asset_ids)))
@@ -622,8 +702,12 @@ async def blacklist_device(
         # FIX: [2026-07-16 P0] 批量 IN 删除替代循环内逐条删除
         if assets:
             asset_ids = [a.id for a in assets]
+            # FIX [2026-09-03 P1]: 级联删除录像记录（records 对 asset/resource 均有外键）
+            await db.execute(delete(Record).where(Record.asset_id.in_(asset_ids)))
+            await db.execute(delete(AssetMaintenance).where(AssetMaintenance.asset_id.in_(asset_ids)))
             await db.execute(delete(AssetStreamPolicy).where(AssetStreamPolicy.asset_id.in_(asset_ids)))
             await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id.in_(asset_ids)))
+            await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)).where(Resource.parent_id.isnot(None)))
             await db.execute(delete(Resource).where(Resource.asset_id.in_(asset_ids)))
             await db.execute(delete(Asset).where(Asset.id.in_(asset_ids)))
         await db.commit()
@@ -636,7 +720,11 @@ async def blacklist_device(
         asset = res.scalars().first()
         if asset:
             # FIX: [2026-07-13] 级联删除 AssetStreamHealth，避免外键约束违反
+            # FIX [2026-09-03 P1]: 级联删除录像记录（records 外键）
+            await db.execute(delete(Record).where(Record.asset_id == asset.id))
+            await db.execute(delete(AssetMaintenance).where(AssetMaintenance.asset_id == asset.id))
             await db.execute(delete(AssetStreamHealth).where(AssetStreamHealth.asset_id == asset.id))
+            await db.execute(delete(Resource).where(Resource.asset_id == asset.id).where(Resource.parent_id.isnot(None)))
             await db.execute(delete(Resource).where(Resource.asset_id == asset.id))
             await db.execute(delete(Asset).where(Asset.id == asset.id))
             await db.commit()

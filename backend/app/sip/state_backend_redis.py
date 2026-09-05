@@ -114,7 +114,7 @@ class RedisSipStateBackend:
         try:
             from app.core.redis import redis_client
             return redis_client
-        except Exception:
+        except ImportError:
             return None
 
     # -------------------------------------------------------------------
@@ -139,6 +139,12 @@ class RedisSipStateBackend:
 
         用 BLPOP 实现：notify 端 LPUSH 消息，wait 端 BLPOP 消费。
         超时返回 False，收到消息返回 True。
+
+        FIX [2026-09-01 P0]: 单次 BLPOP 的阻塞秒数若超过 redis 客户端的
+        socket_timeout（默认 3s，见 app/core/redis.py），redis-py 会在
+        3s 时抛出 "Timeout reading from ..." 异常，导致等待必然失败、
+        GB28181 点播永远走轮询兜底并误判 UDP 失败。改为 ≤1s 的分片
+        BLPOP 轮询，总时长仍由 timeout 控制。
         """
         key = str(ssrc or "").strip()
         if not key:
@@ -147,14 +153,21 @@ class RedisSipStateBackend:
         if not client:
             return False
         notify_key = f"{self._ssrc_notify_prefix}{key}"
-        # BLPOP 的 timeout 参数：Redis 协议要求整数秒。
-        # 用 max(1, ceil(timeout)) 确保至少 1 秒等待，且覆盖 float 精度。
-        blpop_timeout = max(1, int(math.ceil(timeout)))
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + max(0.0, float(timeout))
         try:
-            result = await client.blpop(notify_key, timeout=blpop_timeout)
-            return result is not None
-        except asyncio.TimeoutError:
-            return False
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    return False
+                # 分片 ≤1s，保证单次阻塞读小于 redis socket_timeout（≥3s）
+                blpop_timeout = max(1, min(1, int(math.ceil(remaining))))
+                try:
+                    result = await client.blpop(notify_key, timeout=blpop_timeout)
+                except asyncio.TimeoutError:
+                    result = None
+                if result is not None:
+                    return True
         except Exception as e:
             logger.warning(f"RedisSipStateBackend.wait_ssrc_stream error: {e}")
             return False

@@ -14,7 +14,7 @@
           <el-option :label="t('channelToolbar.mounted')" value="on_node" />
         </el-select>
         <el-select v-model="localFilters.status" :placeholder="t('channelToolbar.onlineStatus')" clearable style="width: 112px" size="small" @change="emit('quickStatusChange')">
-          <el-option :label="t('channelToolbar.all')" :value="undefined" />
+          <el-option :label="t('channelToolbar.all')" :value="undefined as unknown as number" />
           <el-option :label="t('channelToolbar.online')" :value="1" />
           <el-option :label="t('channelToolbar.offline')" :value="0" />
         </el-select>
@@ -86,7 +86,7 @@
             <el-button size="small" :disabled="!localFilters.listBusinessParentGbId" @click="emit('clearListBusinessFilter')">{{ t('channelToolbar.clear') }}</el-button>
           </div>
           <el-select v-model="localFilters.resource_type" :placeholder="t('channelToolbar.channelType')" clearable style="width: 140px" size="small">
-            <el-option :label="t('channelToolbar.all')" :value="undefined" />
+            <el-option :label="t('channelToolbar.all')" :value="undefined as unknown as number" />
             <el-option :label="t('channelToolbar.camera')" :value="1" />
             <el-option :label="t('channelToolbar.alarm')" :value="2" />
             <el-option :label="t('channelToolbar.audio')" :value="3" />

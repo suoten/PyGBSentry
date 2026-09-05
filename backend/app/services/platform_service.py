@@ -3,7 +3,6 @@ from loguru import logger
 import json
 from app.db.session import AsyncSessionLocal
 from app.models.platform import ParentPlatform
-from app.api.deps import get_or_404
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 
@@ -760,11 +759,22 @@ class PlatformService:
                 stmt = select(Resource).where(Resource.tenant_id == (p.tenant_id or "default"))
                 if scope_ids:
                     stmt = stmt.where(Resource.id.in_(scope_ids))
-                # S-18 使用partitions分批加载，避免list()全量物化Resource表导致OOM
-                result = await session.execute(stmt.execution_options(yield_per=500))
+                # FIX: [2026-08-22 P0] AsyncSession.execute 不支持 yield_per / server-side
+                # cursor（SQLAlchemy 2.x 需 stream()），原 execution_options(yield_per=500)
+                # 在真实 DB 会话下必然抛异常进入 push_catalog_failed 分支（S-18 引入回归）。
+                # 改用 limit/offset 分页循环加载，保持分批加载语义。
                 resources = []
-                for partition in result.scalars().partitions(500):
-                    resources.extend(partition)
+                _page_size = 500
+                _offset = 0
+                while True:
+                    page = (await session.execute(
+                        stmt.offset(_offset).limit(_page_size))).scalars().all()
+                    if not page:
+                        break
+                    resources.extend(page)
+                    if len(page) < _page_size:
+                        break
+                    _offset += _page_size
                 if not resources:
                     await self._runtime_patch(p.tenant_id or "default", platform_id, {
                         "catalog.last_push_started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -797,6 +807,10 @@ class PlatformService:
                 })
                 async with self._state_lock:
                     self._catalog_ack_counter[(p.tenant_id or "default", platform_id)] = {"total": len(batches), "ok": 0, "last_status_code": None}
+
+                # FIX: [2026-08-22 P1] 批次推送成功标志位：批次非 200/超时 break 后，
+                # 循环后的收尾 runtime patch 原先无条件写 last_push_ok=True，掩盖失败。
+                push_ok = True
 
                 # Push administrative divisions as catalog items before channel items
                 try:
@@ -951,12 +965,14 @@ class PlatformService:
                                 "catalog.last_push_ok": False,
                                 "catalog.last_push_error": f"catalog_batch_failed status={int(resp.status_code or 0)}",
                             })
+                            push_ok = False
                             break
                     except asyncio.TimeoutError as e:
                         await self._runtime_patch(p.tenant_id or "default", platform_id, {
                             "catalog.last_push_ok": False,
                             "catalog.last_push_error": f"catalog_batch_timeout: {e}",
                         })
+                        push_ok = False
                         break
                     await self._runtime_patch(p.tenant_id or "default", platform_id, {
                         "catalog.last_batch_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -977,11 +993,15 @@ class PlatformService:
                     if len(batches) > 1:
                         await asyncio.sleep(0.2)
                 logger.info(f"Pushed catalog ({len(resources)} items in {len(batches)} batch/batches) to platform {p.name}")
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
+                # FIX: [2026-08-22 P1] 收尾写入由 push_ok 决定：失败（非 200/超时 break）
+                # 时保留失败状态与错误信息，不再无条件覆盖为成功。
+                finished_patch = {
                     "catalog.last_push_finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "catalog.last_push_ok": True,
-                    "catalog.last_push_error": "",
-                })
+                }
+                if push_ok:
+                    finished_patch["catalog.last_push_ok"] = True
+                    finished_patch["catalog.last_push_error"] = ""
+                await self._runtime_patch(p.tenant_id or "default", platform_id, finished_patch)
         except Exception as e:
             try:
                 async with AsyncSessionLocal() as session:
@@ -1025,8 +1045,30 @@ class PlatformService:
         """
         try:
             async with AsyncSessionLocal() as session:
-                p = await get_or_404(session, ParentPlatform, platform_id)
-                if not p.is_online or not p.catalog_subscribed:
+                # FIX: [2026-08-22 P1] get_or_404 签名为 (result, detail)，原
+                # get_or_404(session, ParentPlatform, platform_id) 必抛 TypeError
+                # 被吞掉（方法从未真正执行过）。改为直接查询。
+                p = (await session.execute(
+                    select(ParentPlatform).where(ParentPlatform.id == platform_id)
+                )).scalars().first()
+                if not p:
+                    return
+                if not p.is_online:
+                    return
+                # FIX: [2026-08-22 P1] ParentPlatform 无 catalog_subscribed 列（原代码
+                # 读取该属性必抛 AttributeError 被吞掉，增量推送永远不发送）。
+                # 目录订阅状态实际存于 PlatformSubscription 表（event="catalog" 且未过期），
+                # 按模型真实字段重写订阅条件。
+                from app.models.platform_subscription import PlatformSubscription
+                sub = (await session.execute(
+                    select(PlatformSubscription).where(
+                        PlatformSubscription.platform_id == platform_id,
+                        PlatformSubscription.event == "catalog",
+                        PlatformSubscription.expires_at.is_not(None),
+                        PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
+                    )
+                )).scalars().first()
+                if not sub:
                     return
                 from app.core.config import settings, sip_host_for_contact, sip_via_host
                 from app.sip.send import send_sip_bytes
@@ -1034,7 +1076,8 @@ class PlatformService:
                 from xml.sax.saxutils import escape as _xml_escape
 
                 addr = (p.server_ip, p.server_port or 5060)
-                proto = p.transport_protocol or "UDP"
+                # FIX: [2026-08-22 P1] ParentPlatform 传输协议列为 transport（无 transport_protocol 列）
+                proto = p.transport or "UDP"
                 transport = sip_server.get_transport(addr[0], addr[1], proto) if sip_server else None
                 if not transport:
                     return
@@ -1115,7 +1158,14 @@ class PlatformService:
         """
         try:
             async with AsyncSessionLocal() as session:
-                p = await get_or_404(session, ParentPlatform, platform_id)
+                # FIX: [2026-08-22 P1] get_or_404 签名为 (result, detail)，原
+                # get_or_404(session, ParentPlatform, platform_id) 必抛 TypeError
+                # 被吞掉（TimeSync 从未真正发送过）。改为直接查询。
+                p = (await session.execute(
+                    select(ParentPlatform).where(ParentPlatform.id == platform_id)
+                )).scalars().first()
+                if not p:
+                    return
                 if not p.is_online:
                     return
                 from app.core.config import settings, sip_via_host
@@ -1124,7 +1174,8 @@ class PlatformService:
                 from datetime import datetime, timezone, timedelta
 
                 addr = (p.server_ip, p.server_port or 5060)
-                proto = p.transport_protocol or "UDP"
+                # FIX: [2026-08-22 P1] ParentPlatform 传输协议列为 transport（无 transport_protocol 列）
+                proto = p.transport or "UDP"
                 transport = sip_server.get_transport(addr[0], addr[1], proto) if sip_server else None
                 if not transport:
                     return
@@ -1586,10 +1637,13 @@ class PlatformService:
             from app.models.platform_subscription import PlatformSubscription
             from sqlalchemy import select as _sel
             async with AsyncSessionLocal() as _chk_session:
+                # FIX: [2026-08-22 P1] PlatformSubscription 实际列名为 event
+                # （原查询 event_type 不存在的列，必抛 AttributeError 被吞掉，
+                # 导致无论有无 Alarm 订阅都会继续发送告警）
                 _sub = (await _chk_session.execute(
                     _sel(PlatformSubscription).where(
                         PlatformSubscription.platform_id == platform.id,
-                        PlatformSubscription.event_type == "Alarm",
+                        PlatformSubscription.event == "Alarm",
                         PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
                     )
                 )).scalars().first()
@@ -1818,7 +1872,9 @@ class PlatformService:
                 logger.warning(f"[PlatformService] Cannot forward DeviceControl: asset {asset_id} not found")
                 return False
             device_gb_id = asset.gb_id
-            device_ip = getattr(asset, "ip", None) or ""
+            # FIX: [2026-08-22 P1] Asset 列名为 ip_addr（无 ip 列），参考 config_download
+            # 的回退写法，否则 device_ip 恒为空导致 DeviceControl 永远无法转发
+            device_ip = getattr(asset, "ip", None) or getattr(asset, "ip_addr", None) or ""
             device_port = getattr(asset, "port", None) or 5060
             device_proto = getattr(asset, "transport", None) or "UDP"
             if not device_ip:
@@ -1992,7 +2048,9 @@ class PlatformService:
         original_sn = query_info["original_sn"]
         original_channel_id = query_info["original_channel_id"]
         async with AsyncSessionLocal() as session:
-            platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == int(platform_id)))).scalars().first()
+            # FIX: [2026-08-22 P1] 平台 ID 为 UUID hex 字符串（ParentPlatform.id 为
+            # String(32)），原 int(platform_id) 必抛 ValueError。直接按字符串比较。
+            platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
             if not platform:
                 logger.warning(f"[PlatformService] Cannot forward RecordInfo response: platform {platform_id} not found")
                 return
@@ -2117,7 +2175,9 @@ class PlatformService:
                 logger.warning(f"[PlatformService] Cannot forward Broadcast: asset {asset_id} not found")
                 return False
             device_gb_id = asset.gb_id
-            device_ip = getattr(asset, "ip", None) or ""
+            # FIX: [2026-08-22 P1] Asset 列名为 ip_addr（无 ip 列），参考 config_download
+            # 的回退写法，否则 device_ip 恒为空导致 Broadcast 永远无法转发
+            device_ip = getattr(asset, "ip", None) or getattr(asset, "ip_addr", None) or ""
             device_port = getattr(asset, "port", None) or 5060
             device_proto = getattr(asset, "transport", None) or "UDP"
             if not device_ip:

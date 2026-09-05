@@ -1,6 +1,7 @@
 """stream 子模块共享的工具函数、全局变量和常量。"""
 
 import logging
+from urllib.parse import urlsplit, urlunsplit
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -385,17 +386,48 @@ async def _validate_play_urls(
     # RTC/WHEP 端点需要用 POST 探测，不能用 HEAD
     rtc_keys = {"rtc", "rtcs"}
 
+    def _internal_probe_url(target_url: str) -> str | None:
+        """把公网/域名播放地址改写为 ZLM 内网地址，供服务侧可用性探测。
+
+        FIX [2026-09-03 P1]: 原实现直接对公网/域名地址逐个 HEAD/POST 探测（约 22 个
+        地址串行、每个超时 2s）。当 STREAM_PUBLIC_HOST 指向域名而服务器无法快速回环
+        访问自己的公网地址（云平台 hairpin 限制）时，整体耗时远超 30s，点播接口被
+        前端超时掐断；且每个探测都会触发 ZLM on_play 钩子回打后端数据库，造成连接池
+        耗尽与通道状态抖动。改写为 ZLM 内网地址后探测：毫秒级返回，语义不变
+        （验证同一份流在 ZLM 上是否存在）。
+        注意：ZLM 内网端点是 plain HTTP（TLS 由 nginx 对外终结），所以统一改写为
+        http:// —— 若按 https:// 探测内网 http 端口必然失败，会把 https 族地址的
+        可用性错误标记为 False。
+        """
+        try:
+            parts = urlsplit(target_url)
+            return urlunsplit(("http", f"{node_host}:{int(node_http_port)}", parts.path, parts.query, ""))
+        except Exception:
+            return None
+
+    # 按去重后的 ZLM 端点分组：flv/https_flv/ws_flv/wss_flv 等指向同一端点，只探测一次
+    probe_groups: dict[str, list[str]] = {}
     for key, url in urls.items():
         if not url:
             validated[key] = False
             continue
-        if key in rtc_keys:
-            # RTC 端点：POST 探测，返回非 404/401 即认为可用
-            # P1-fix [2026-07-17]: 1) 添加 secret 参数 2) 区分 401（鉴权失败）与 404（接口缺失）
-            #   3) 移除重复 app/stream 参数（URL 已含）和 WHEP 不支持的 type 参数
-            try:
-                client = await _get_zlm_client()
-                # SDP o= line hardcoded 127.0.0.1 → use MEDIA_SERVER_HOST from settings
+        if key not in http_keys and key not in rtc_keys:
+            # 非 HTTP 协议（rtmp/rtsp/rtsps 等）不做主动探测
+            validated[key] = None
+            continue
+        probe_url = _internal_probe_url(url)
+        if not probe_url:
+            validated[key] = None
+            continue
+        probe_groups.setdefault(probe_url, []).append(key)
+
+    client = await _get_zlm_client()
+    for probe_url, group_keys in probe_groups.items():
+        try:
+            if group_keys[0] in rtc_keys:
+                # RTC 端点：POST 探测，返回非 404/401 即认为可用
+                # P1-fix [2026-07-17]: 1) 添加 secret 参数 2) 区分 401（鉴权失败）与 404（接口缺失）
+                #   3) 移除重复 app/stream 参数（URL 已含）和 WHEP 不支持的 type 参数
                 _sdp_ip = str(settings.MEDIA_SERVER_HOST or "")  # I3 回退值不再硬编码127.0.0.1
                 placeholder_sdp = (
                     "v=0\r\n"
@@ -407,36 +439,26 @@ async def _validate_play_urls(
                 if secret:
                     _probe_params["secret"] = secret
                 r = await client.post(
-                    url,
+                    probe_url,
                     params=_probe_params,
                     content=placeholder_sdp.encode("utf-8"),
                     headers={"Content-Type": "text/plain;charset=utf-8"},
                     timeout=timeout,
                 )
                 # 401 = ZLM 启用鉴权但探测未正确传 secret；404 = 接口缺失
+                ok = r.status_code not in (401, 404)
                 if r.status_code == 401:
-                    logger.warning(f"[Validate] {key} returned 401 for {url}: ZLM auth enabled but probe secret invalid")
-                    validated[key] = False
-                elif r.status_code == 404:
-                    validated[key] = False
-                else:
-                    validated[key] = True
-            except Exception:
-                validated[key] = False
-            continue
-        if key not in http_keys:
-            # 非 HTTP 协议（rtmp/rtsp/rtsps 等）不做主动探测
-            validated[key] = None
-            continue
-        # HTTP/HTTPS/WS/WSS 端点：HEAD 探测
-        try:
-            client = await _get_zlm_client()
-            r = await client.head(url, timeout=timeout, follow_redirects=True)
-            # 2xx 或 3xx 重定向都认为端点存在
-            validated[key] = 200 <= r.status_code < 400
+                    logger.warning(f"[Validate] {group_keys[0]} returned 401 for {probe_url}: ZLM auth enabled but probe secret invalid")
+            else:
+                # HTTP/HTTPS/WS/WSS 端点：HEAD 探测（已改写为 ZLM 内网地址）
+                r = await client.head(probe_url, timeout=timeout, follow_redirects=True)
+                # 2xx 或 3xx 重定向都认为端点存在
+                ok = 200 <= r.status_code < 400
         except Exception as exc:
-            logger.debug(f"[Validate] {key} HEAD failed for {url}: {exc}")
-            validated[key] = False
+            logger.debug(f"[Validate] probe {probe_url} failed: {exc}")
+            ok = False
+        for key in group_keys:
+            validated[key] = ok
 
     return validated
 
@@ -1669,5 +1691,6 @@ async def _find_zlm_media_item(node_host: str, node_http_port: int, secret: str,
             if str(item.get("app") or "") == str(app) and str(item.get("stream") or "") == str(stream):
                 return item
         return None
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"Failed to query ZLM media list on {node_host}:{node_http_port} for {app}/{stream}: {exc}")
         return None

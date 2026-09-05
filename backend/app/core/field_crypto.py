@@ -45,7 +45,7 @@ def _looks_like_ciphertext(s: str) -> bool:
         # 尝试 base64 解码，检查解码后长度是否 >= 28 字节（12 nonce + 16 tag）
         decoded = base64.b64decode(s, validate=True)
         return len(decoded) >= 28
-    except Exception:
+    except (ValueError, TypeError):
         return False
 
 

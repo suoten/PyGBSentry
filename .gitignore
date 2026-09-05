@@ -157,3 +157,14 @@ target/
 *.exe
 *.bin
 .convergeloop/
+
+# =============================================================================
+# 2026-09-04 仓库瘦身：mobile 移动端、测试/联调文件、密钥衍生配置不再入库
+# =============================================================================
+mobile/
+backend/tests/
+deploy/zlm-test/
+backend/.env.centos-production
+backend/.env.production.bak2
+backend/.env*.bak*
+backend/app/core/audit_l1_schema_consistency.py

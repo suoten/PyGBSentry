@@ -255,9 +255,10 @@ class StreamQualityMonitor:
 
     def _analyze_sample(self, sample: StreamQualitySample) -> StreamQualitySample:
         """分析采样数据"""
-        # 计算丢帧率
-        if sample.total_frames > 0:
-            sample.dropped_frames = max(0, sample.dropped_frames)
+        # FIX: [2026-08-22 P0] StreamQualitySample 没有 total_frames 字段，
+        # 原代码引用 sample.total_frames 必然 AttributeError，导致 add_sample
+        # 每次调用崩溃。丢帧数直接钳制为非负即可（无总帧数字段可算丢帧率）。
+        sample.dropped_frames = max(0, sample.dropped_frames)
 
         # 判断缓冲状态
         if sample.buffer_ms >= 2000:

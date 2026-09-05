@@ -37,7 +37,7 @@ export const useAlarmStore = defineStore('alarm', () => {
       unreadCount.value = res.data?.unread_count ?? res.data?.count ?? 0  // FIXED: 字段名与后端对齐(unread_count)
     } catch (e) {
       // FIXED: 静默设为0改为不重置，避免用户误认为无未读告警
-      logger.warning('Failed to fetch unread alarm count', e)  // FIXED: 日志中文→英文
+      logger.warn('Failed to fetch unread alarm count', e)  // FIXED: 日志中文→英文
     }
   }
 

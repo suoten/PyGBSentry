@@ -76,6 +76,20 @@ function addRefreshSubscriber(resolve: (token: string) => void, reject: (err: un
   _refreshSubscribers.push({ resolve, reject })
 }
 
+let _lastNetworkToastTs = 0
+const NETWORK_TOAST_COOLDOWN_MS = 5000
+const NETWORK_RETRY_MAX = 2
+const NETWORK_RETRYABLE_METHODS = ['get', 'head', 'options']
+
+function toastNetworkErrorOnce() {
+  // FIX [2026-09-02 P2]: 后端重启/网络抖动时多个并发请求同时失败会刷屏，
+  // 5 秒内只提示一次。
+  const now = Date.now()
+  if (now - _lastNetworkToastTs < NETWORK_TOAST_COOLDOWN_MS) return
+  _lastNetworkToastTs = now
+  ElMessage.error(i18n.global.t('common.networkError'))
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
@@ -84,12 +98,19 @@ api.interceptors.response.use(
       return Promise.reject(error)
     }
     if (!error.response) {
-      const code = error.code || ''
-      if (['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ERR_NETWORK'].includes(code)) {
-        ElMessage.error(i18n.global.t('common.networkError'))  // FIXED: 国际化
-      } else {
-        ElMessage.error(i18n.global.t('common.networkError'))  // FIXED: 国际化
+      // FIX [2026-09-02 P2]: 后端重启/网络抖动的容错 ——
+      // 1) 幂等请求（GET/HEAD/OPTIONS）自动重试最多 2 次（指数退避），
+      //    避免后端重启窗口内页面数据请求全部失败；
+      // 2) 重试仍失败才提示，且 5 秒内只提示一次，防止并发请求刷屏。
+      const config = error.config || {}
+      const method = String(config.method || 'get').toLowerCase()
+      const retries = Number(config.__networkRetries || 0)
+      if (NETWORK_RETRYABLE_METHODS.includes(method) && retries < NETWORK_RETRY_MAX) {
+        config.__networkRetries = retries + 1
+        await new Promise((r) => setTimeout(r, 600 * retries + 400))
+        return api(config)
       }
+      toastNetworkErrorOnce()
       return Promise.reject(error)
     }
     const status = error.response.status
@@ -139,7 +160,18 @@ api.interceptors.response.use(
           return api(originalRequest)
         }
         throw new Error('No token in refresh response')
-      } catch {
+      } catch (refreshError) {
+        // FIX [2026-09-02 P2]: 区分刷新失败的类型 ——
+        // 后端重启/网络抖动时 refresh 请求本身发不出去（无 response），
+        // 此时 access token 仍然有效（JWT 无状态），不应清除登录态强制登出；
+        // 只有服务端明确拒绝刷新（有 response）才视为会话失效。
+        const hasServerResponse = !!(refreshError as { response?: unknown })?.response
+        if (!hasServerResponse) {
+          toastNetworkErrorOnce()
+          onRefreshFailed(error)
+          _refreshSubscribers = []
+          return Promise.reject(error)
+        }
         safeSSRemove('token')
         safeSSRemove('refresh_token')
         invalidateTokenCache()
