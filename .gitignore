@@ -168,3 +168,4 @@ backend/.env.centos-production
 backend/.env.production.bak2
 backend/.env*.bak*
 backend/app/core/audit_l1_schema_consistency.py
+README_EN.md.bak-oldstructure
