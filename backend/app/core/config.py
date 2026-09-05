@@ -345,6 +345,10 @@ class Settings(BaseSettings):
     PLAY_START_STREAM_READY_MAX_ATTEMPTS: int = 20  # 最大探测次数
     PLAY_START_STREAM_READY_INTERVAL: float = 0.25  # 探测间隔（秒）
 
+    # FIX [2026-09-05 P1]: 部分 NVR 固件把未点播通道在目录里全部报 OFF（点播时才报 ON），
+    # 平台照单全收导致「在线通道慢慢变少、同步又恢复」。开启后目录/通知中的 OFF 视为
+    # 状态未知，不翻转通道在线状态；设备可达性以注册/心跳为准。
+    CATALOG_IGNORE_OFF_STATUS: bool = True
     GB28181_SSRC_POLICY: str = "adaptive"
     GB28181_SSRC_RETRY_ON_NOT_READY: bool = True
     GB28181_SSRC_RETRY_ORDER: str = "strict,off"

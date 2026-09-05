@@ -627,7 +627,17 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                     ptz_type = None
                     if ptz_type_str and ptz_type_str.isdigit():
                         ptz_type = int(ptz_type_str)
-                    is_online = 1 if str(status).upper().strip() in ("ON", "ONLINE", "OK", "1", "TRUE") else 0
+                    # FIX [2026-09-05 P1]: 部分 NVR 固件在目录响应里把未点播的通道全部
+                    # 报为 <Status>OFF</Status>（实测同一通道点播期间报 ON、空闲时报 OFF），
+                    # 平台照单全收导致「在线通道慢慢变少、手动同步又恢复」。提供
+                    # CATALOG_IGNORE_OFF_STATUS 开关：开启后目录里的 OFF 视为「状态未知」，
+                    # 不翻转通道在线状态（is_online=None）；通道可达性以设备注册/心跳为准
+                    # （心跳停了看门狗仍会将设备与通道正确标离线）。
+                    _status_upper = str(status).upper().strip()
+                    if settings.CATALOG_IGNORE_OFF_STATUS and _status_upper in ("OFF", "OFFLINE", "0", "FALSE"):
+                        is_online = None  # 状态未知：保留现有状态
+                    else:
+                        is_online = 1 if _status_upper in ("ON", "ONLINE", "OK", "1", "TRUE") else 0
 
                     if channel_type == 0:
                         node_type = "directory"
@@ -678,12 +688,13 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                             )
                             continue
                         effective_parent = item.get("parent_gb_id") or None
+                        # is_online=None（状态未知）时新通道默认在线——设备能上报目录即设备可达
                         resource = Resource(
                             tenant_id=asset.tenant_id or "default",
                             asset_id=asset.id,
                             gb_id=channel_id,
                             name=name,
-                            status=is_online,
+                            status=1 if is_online is None else is_online,
                             parent_gb_id=effective_parent,
                             civil_code=civil_code,
                             ptz_type=ptz_type if ptz_type is not None else 0,
@@ -700,7 +711,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                     else:
                         resource.asset_id = asset.id
                         resource.name = name
-                        resource.status = is_online
+                        # is_online=None（状态未知）时保留现有状态，不翻转
+                        if is_online is not None:
+                            resource.status = is_online
                         if civil_code:
                             resource.civil_code = civil_code
                         if ptz_type is not None:

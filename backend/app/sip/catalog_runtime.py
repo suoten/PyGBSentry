@@ -5,6 +5,7 @@ from loguru import logger
 
 # P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
 from app.core.async_utils import fire_and_forget
+from app.core.config import settings
 
 
 _RUNTIME_STATE: dict[str, dict] = {}
@@ -173,7 +174,9 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
                         # 更新已有 Resource
                         if name:
                             resource.name = name
-                        resource.status = is_online
+                        # FIX [2026-09-05 P1]: 开关开启时不因 OFF 状态翻转在线状态
+                        if not (settings.CATALOG_IGNORE_OFF_STATUS and is_online == 0):
+                            resource.status = is_online
                         # 确保关联到正确的父设备
                         resource.asset_id = parent_asset.id
                     elif event_type == "ADD":
@@ -200,6 +203,10 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
                             await session.execute(_del(_Rec).where(_Rec.resource_id == resource.id))
                             await session.delete(resource)
                             existing_resources.pop(item_id, None)
+                        elif settings.CATALOG_IGNORE_OFF_STATUS:
+                            # FIX [2026-09-05 P1]: NVR 状态上报不可信（见 config 注释），
+                            # OFF/VLOST 视为状态未知，不翻转通道在线状态
+                            pass
                         else:
                             # OFF / VLOST: 标记离线
                             resource.status = 0
