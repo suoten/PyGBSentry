@@ -13,6 +13,7 @@ from app.services.auth_audit import safe_auth_audit
 from collections import defaultdict
 from typing import Any
 import time
+import asyncio
 from loguru import logger
 
 from . _common import (
@@ -1323,3 +1324,112 @@ async def get_next_directory_gb_id(
             return {"gb_id": gb_id}
 
     raise HTTPException(status_code=500, detail=f"Available sequence numbers under region code {base6} are exhausted, please fill in manually")  # i18n
+
+
+@router.post("/probe-online")
+async def probe_channels_online(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"])),
+):
+    """批量探测通道真实在线状态（通道级 DeviceStatus 查询）。
+
+    FIX [2026-09-05 P1]: 部分 NVR 的目录状态上报不可信（未点播的通道报 OFF、
+    有时又全部报 ON），目录状态无法作为通道在线依据。本接口对指定通道逐个
+    发送通道级 DeviceStatus 查询，NVR 会应答每个通道的真实状态：
+    - 应答 Online=ON      → 标在线
+    - 应答 Online=OFF     → 标离线（可信：NVR 明确知道该通道不存在/离线）
+    - 超时无应答          → 保持现有状态（设备可达但通道状态未知）
+    """
+    device_id = str(payload.get("device_id") or "").strip()
+    if not device_id:
+        raise HTTPException(status_code=400, detail="device_id is required")
+    channel_gb_ids = [str(c).strip() for c in (payload.get("channel_gb_ids") or []) if str(c).strip()]
+    timeout = min(float(payload.get("timeout_seconds") or 6.0), 15.0)
+
+    asset = (await db.execute(
+        select(Asset).where(Asset.gb_id == device_id)
+    )).scalars().first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Device not found")
+    if int(asset.status or 0) != 1:
+        raise HTTPException(status_code=409, detail="Device is offline")
+
+    from app.sip.server import sip_server
+    from app.sip.commander import sip_commander
+    transport_info = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
+    if transport_info is None:
+        raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
+
+    from app.sip.catalog_data_manager import catalog_data_manager
+
+    targets = channel_gb_ids
+    if not targets:
+        targets = [
+            row[0] for row in (await db.execute(
+                select(Resource.gb_id).where(
+                    Resource.asset_id == asset.id,
+                    Resource.node_type == "channel",
+                )
+            )).all()
+        ]
+    if not targets:
+        return {"probed": 0, "online": [], "offline": [], "unknown": 0}
+
+    sem = asyncio.Semaphore(5)
+
+    async def _probe_one(ch_gb_id: str) -> tuple[str, str]:
+        """返回 (channel_gb_id, result)；result ∈ online/offline/unknown"""
+        async with sem:
+            try:
+                sn = await sip_commander.send_channel_status_query(
+                    asset, transport_info, channel_id=ch_gb_id
+                )
+                if not sn:
+                    return ch_gb_id, "unknown"
+                body = await catalog_data_manager.wait_for(device_id, "DeviceStatus", timeout=timeout)
+                if not body:
+                    return ch_gb_id, "unknown"
+                from app.core.xml_utils import parse_xml, get_xml_text
+                root = parse_xml(body)
+                if root is None:
+                    return ch_gb_id, "unknown"
+                online_text = (get_xml_text(root, "Online") or "").strip().upper()
+                if online_text in ("ON", "ONLINE", "TRUE", "1"):
+                    return ch_gb_id, "online"
+                if online_text in ("OFF", "OFFLINE", "FALSE", "0"):
+                    return ch_gb_id, "offline"
+                return ch_gb_id, "unknown"
+            except Exception as e:
+                logger.warning(f"[probe-online] {ch_gb_id} failed: {e}")
+                return ch_gb_id, "unknown"
+
+    results = await asyncio.gather(*[_probe_one(c) for c in targets])
+
+    online_list = [c for c, r in results if r == "online"]
+    offline_list = [c for c, r in results if r == "offline"]
+    unknown_cnt = sum(1 for _, r in results if r == "unknown")
+
+    # 只翻转有可信结论的通道；unknown 保持现状
+    if online_list:
+        await db.execute(update(Resource).where(Resource.gb_id.in_(online_list)).values(status=1))
+    if offline_list:
+        await db.execute(update(Resource).where(Resource.gb_id.in_(offline_list)).values(status=0))
+    await db.commit()
+
+    await safe_auth_audit(
+        db,
+        module="devices",
+        action="probe_channels_online",
+        result="success",
+        source="devices_channels",
+        operator=current_user.username or "unknown",
+        tenant_id=_tenant_id_for_user(current_user),
+        extra_summary=f"device_id={device_id}; online={len(online_list)}; offline={len(offline_list)}; unknown={unknown_cnt}",
+    )
+    return {
+        "probed": len(targets),
+        "online": online_list,
+        "offline": offline_list,
+        "unknown": unknown_cnt,
+    }

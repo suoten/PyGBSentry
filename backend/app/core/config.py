@@ -345,10 +345,11 @@ class Settings(BaseSettings):
     PLAY_START_STREAM_READY_MAX_ATTEMPTS: int = 20  # 最大探测次数
     PLAY_START_STREAM_READY_INTERVAL: float = 0.25  # 探测间隔（秒）
 
-    # FIX [2026-09-05 P1]: 部分 NVR 固件把未点播通道在目录里全部报 OFF（点播时才报 ON），
-    # 平台照单全收导致「在线通道慢慢变少、同步又恢复」。开启后目录/通知中的 OFF 视为
-    # 状态未知，不翻转通道在线状态；设备可达性以注册/心跳为准。
-    CATALOG_IGNORE_OFF_STATUS: bool = True
+    # FIX [2026-09-05 P1]: NVR 的目录状态上报不可信（实测同一通道摇摆 ON/OFF，且
+    # 部分 NVR 把未点播通道全部报 OFF）。默认 false：以 NVR 目录状态为基础。
+    # 通道真实在线状态用通道级 DeviceStatus 探测接口 /devices/probe-online 获取；
+    # 若部署方确认自己的设备目录状态可信、希望 OFF 不翻转通道离线，可改为 true。
+    CATALOG_IGNORE_OFF_STATUS: bool = False
     GB28181_SSRC_POLICY: str = "adaptive"
     GB28181_SSRC_RETRY_ON_NOT_READY: bool = True
     GB28181_SSRC_RETRY_ORDER: str = "strict,off"

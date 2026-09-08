@@ -1158,6 +1158,53 @@ class SipCommander:
             logger.warning(f"Failed to send SIP DeviceStatus to {addr}: {e}")
             return None
         logger.info(f"Sent DeviceStatus Query to {device_id}")
+    async def send_channel_status_query(self, asset, transport_info, channel_id: str):
+        """发送通道级状态查询 (CmdType=DeviceStatus, DeviceID=通道国标ID)。
+
+        FIX [2026-09-05 P1]: NVR 目录状态不可信（未点播通道报 OFF），通道在线状态
+        需通过通道级 DeviceStatus 查询向 NVR 逐个确认。响应经 catalog_data_manager
+        分发（key=设备国标ID），由调用方 wait_for 等待。
+
+        Returns:
+            str: SN；发送失败返回 None
+        """
+        addr, proto, transport = transport_info
+        device_gb_id = asset.gb_id
+        sn = _next_sn()
+        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Query>
+<CmdType>DeviceStatus</CmdType>
+<SN>{sn}</SN>
+<DeviceID>{_xml_escape(channel_id)}</DeviceID>
+</Query>
+"""
+        req = SipMessage()
+        req.method = "MESSAGE"
+        req.uri = f"sip:{device_gb_id}@{addr[0]}:{addr[1]}"
+        req.version = "SIP/2.0"
+
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
+        req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Call-ID"] = _make_call_id('cs')
+        req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
+        req.headers["Content-Type"] = "Application/MANSCDP+xml"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        _attach_trace_header(req)
+        _attach_common_headers(req)
+
+        req.body = xml_body
+        fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))
+        try:
+            await send_sip_bytes(proto, transport, addr, req.to_bytes())
+        except Exception as e:
+            logger.warning(f"Failed to send channel DeviceStatus to {addr}: {e}")
+            return None
+        logger.info(f"Sent channel DeviceStatus Query to {channel_id} via {device_gb_id}")
+        return str(sn)
+
+
         _sip_trace_log(
             "device_status_query_sent",
             trace_id=req.get_header("Call-ID") or "",
