@@ -680,7 +680,17 @@ async def lifespan(app: FastAPI):
         )
         raise
 
-    # FIX: [2026-07-16] FIELD_ENCRYPTION_KEY 变更检测 —
+    # FIX [2026-09-18 P1]: 回加载配置中心「国标播放配置」保存的运行时覆盖
+    # （默认码流/传输模式/INVITE超时/学习开关等），保证重启后配置仍生效
+    logger.info("Startup step: load gb28181 play runtime overrides...")
+    try:
+        from app.api.v1.endpoints.system_config import load_gb28181_play_runtime_overrides
+        from app.db.session import AsyncSessionLocal as _PlayCfgSession
+        async with _PlayCfgSession() as _play_cfg_sess:
+            await load_gb28181_play_runtime_overrides(_play_cfg_sess)
+        logger.info("Startup step: load gb28181 play runtime overrides done.")
+    except Exception as _play_cfg_err:
+        logger.warning(f"Startup step: load gb28181 play runtime overrides failed: {_play_cfg_err}, continue with env defaults.")
     # 密钥非空但与加密数据不匹配时，所有 media_secret/sip_password 解密将静默失败，
     # 导致 SIP 认证失败、ZLM API 调用失败等隐蔽故障。启动时主动检测并发出显著警告。
     try:

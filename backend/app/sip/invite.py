@@ -2231,9 +2231,15 @@ class SipInvite:
             elif ":" in stream_type:
                 subject_header = f"{channel_id}:{ssrc},{settings.SIP_ID}:{stream_type}"
             else:
-                stream_type_code = "0"
+                # FIX [2026-09-18 P1]: stream_type=auto 时使用配置中心「国标播放配置-默认码流类型」
+                # 作为最终回退（此前 auto 一律按主码流处理，全局配置无消费点）
+                if st_lower == "auto" and str(getattr(settings, "GB28181_DEFAULT_STREAM_TYPE", "main") or "main").strip().lower() == "sub":
+                    stream_type_code = "1"
+                    normalized_stream_type = "sub"
+                else:
+                    stream_type_code = "0"
+                    normalized_stream_type = "main"
                 subject_header = f"{channel_id}:{ssrc},{settings.SIP_ID}:{stream_type_code}"
-                normalized_stream_type = "main"
 
         # 缓存：让 ZLM on_stream_changed 回调能通过 ssrc 反推主/辅码流，并补齐 channel/asset 上下文
         try:

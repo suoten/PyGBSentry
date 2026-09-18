@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy import text as sql_text
@@ -60,6 +60,99 @@ class Gb28181PlayConfigPayload(BaseModel):
     auto_ensure_embedded_media_node: bool | None = None
     bootstrap_templates: list[dict[str, Any]] | None = None
     bootstrap_learning_weights: dict[str, float] | None = None
+    # FIX [2026-09-18 P1]: 前端表单此前一直在提交这 5 个字段但后端 extra="forbid" 全部拒绝，
+    # 导致「国标播放配置」保存必报 400（Parameter 'default_stream_type' validation failed）。
+    # 现正式承接：持久化到 SystemSetting 并运行时生效（见 _apply_play_runtime_overrides）。
+    default_stream_type: str | None = None
+    transport: str | None = None
+    invite_timeout: int | None = None
+    learning_enabled: bool | None = None
+    learning_min_samples: int | None = None
+
+    @field_validator("default_stream_type")
+    @classmethod
+    def _validate_stream_type(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        s = str(v).strip().lower()
+        if s not in {"main", "sub", "auto"}:
+            raise ValueError("must be one of: main, sub, auto")
+        return s
+
+    @field_validator("transport")
+    @classmethod
+    def _validate_transport(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        s = str(v).strip().lower()
+        if s not in {"udp", "tcp_passive", "tcp_active"}:
+            raise ValueError("must be one of: udp, tcp_passive, tcp_active")
+        return s
+
+    @field_validator("invite_timeout")
+    @classmethod
+    def _validate_invite_timeout(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not (1 <= int(v) <= 60):
+            raise ValueError("must be between 1 and 60")
+        return int(v)
+
+    @field_validator("learning_min_samples")
+    @classmethod
+    def _validate_min_samples(cls, v: int | None) -> int | None:
+        if v is None:
+            return v
+        if not (1 <= int(v) <= 100):
+            raise ValueError("must be between 1 and 100")
+        return int(v)
+
+
+# ---- FIX [2026-09-18 P1]: 国标播放配置运行时生效辅助 ----
+
+_PLAY_RUNTIME_SETTING_KEYS = [
+    "gb28181.default_stream_type",
+    "gb28181.transport",
+    "gb28181.invite_timeout",
+    "gb28181.learning_enabled",
+    "gb28181.learning_min_samples",
+]
+
+_MEDIA_MODE_MAP = {"udp": "UDP", "tcp_passive": "TCP_PASSIVE", "tcp_active": "TCP_ACTIVE"}
+
+
+def _apply_play_runtime_overrides(cfg: dict[str, str]) -> None:
+    """把保存的播放配置应用到内存 settings，立即生效（无需重启）。"""
+    v = (cfg.get("gb28181.default_stream_type") or "").strip().lower()
+    if v in {"main", "sub", "auto"}:
+        # INVITE 层 auto 表示跟随通道 caps；全局缺省只在 main/sub 间选择
+        settings.GB28181_DEFAULT_STREAM_TYPE = v if v in {"main", "sub"} else "main"
+    v = (cfg.get("gb28181.transport") or "").strip().lower()
+    if v in _MEDIA_MODE_MAP:
+        # 全局媒体传输回退：invite._resolve_media_mode 在策略为 GLOBAL 时读取此项
+        settings.MEDIA_SERVER_RTP_STREAM_MODE = _MEDIA_MODE_MAP[v]
+    v = (cfg.get("gb28181.invite_timeout") or "").strip()
+    if v.isdigit() and 1 <= int(v) <= 60:
+        settings.SIP_INVITE_TIMEOUT_SECONDS = int(v)
+    v = (cfg.get("gb28181.learning_enabled") or "").strip().lower()
+    if v in {"0", "1", "true", "false", "yes", "no", "on", "off"}:
+        settings.GB28181_PLAY_LEARNING_ENABLED = v in {"1", "true", "yes", "on"}
+    v = (cfg.get("gb28181.learning_min_samples") or "").strip()
+    if v.isdigit() and 1 <= int(v) <= 100:
+        settings.GB28181_PLAY_LEARNING_MIN_SAMPLES = int(v)
+
+
+async def load_gb28181_play_runtime_overrides(db: AsyncSession) -> None:
+    """启动时从 DB 回加载播放配置覆盖内存 settings，保证重启后仍生效。"""
+    try:
+        result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.in_(_PLAY_RUNTIME_SETTING_KEYS)))
+        values = {item.setting_key: item.setting_value for item in result.scalars().all()}
+        if values:
+            _apply_play_runtime_overrides(values)
+    except Exception as e:
+        # 非关键步骤：加载失败仅告警，沿用 env 默认值
+        import logging
+        logging.getLogger(__name__).warning(f"load_gb28181_play_runtime_overrides failed: {e}")
 
 
 @router.get("/sip-trace-events")
@@ -366,6 +459,11 @@ async def get_gb28181_play_config(
         "gb28181.auto_ensure_embedded_media_node",
         "gb28181.bootstrap_templates",
         "gb28181.bootstrap_learning_weights",
+        "gb28181.default_stream_type",
+        "gb28181.transport",
+        "gb28181.invite_timeout",
+        "gb28181.learning_enabled",
+        "gb28181.learning_min_samples",
     ]
     result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.in_(keys)))
     values = _to_map(result.scalars().all())
@@ -382,6 +480,12 @@ async def get_gb28181_play_config(
         "auto_ensure_embedded_media_node": (values.get("gb28181.auto_ensure_embedded_media_node") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.auto_ensure_embedded_media_node" in values else settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE,
         "bootstrap_templates": bootstrap_templates,
         "bootstrap_learning_weights": bootstrap_learning_weights,
+        # FIX [2026-09-18 P1]: 补齐前端表单的 5 个字段（DB 优先，回退当前运行时/env 值）
+        "default_stream_type": (values.get("gb28181.default_stream_type") or "").strip().lower() if (values.get("gb28181.default_stream_type") or "").strip().lower() in {"main", "sub", "auto"} else str(getattr(settings, "GB28181_DEFAULT_STREAM_TYPE", "main") or "main"),
+        "transport": (values.get("gb28181.transport") or "").strip().lower() if (values.get("gb28181.transport") or "").strip().lower() in {"udp", "tcp_passive", "tcp_active"} else str(settings.MEDIA_SERVER_RTP_STREAM_MODE or "udp").strip().lower().replace("-", "_"),
+        "invite_timeout": _safe_int(values.get("gb28181.invite_timeout"), int(settings.SIP_INVITE_TIMEOUT_SECONDS or 20)),
+        "learning_enabled": (values.get("gb28181.learning_enabled") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.learning_enabled" in values else bool(getattr(settings, "GB28181_PLAY_LEARNING_ENABLED", True)),
+        "learning_min_samples": _safe_int(values.get("gb28181.learning_min_samples"), int(getattr(settings, "GB28181_PLAY_LEARNING_MIN_SAMPLES", 5) or 5)),
     }
 
 
@@ -420,6 +524,17 @@ async def save_gb28181_play_config(
     if payload.bootstrap_learning_weights is not None:
         normalized_weights = _normalize_bootstrap_weights(payload.bootstrap_learning_weights)
         values["gb28181.bootstrap_learning_weights"] = json.dumps(normalized_weights, ensure_ascii=False, separators=(",", ":"))
+    # FIX [2026-09-18 P1]: 承接前端表单 5 字段 — 持久化并立即运行时生效
+    if payload.default_stream_type is not None:
+        values["gb28181.default_stream_type"] = str(payload.default_stream_type).strip().lower()
+    if payload.transport is not None:
+        values["gb28181.transport"] = str(payload.transport).strip().lower()
+    if payload.invite_timeout is not None:
+        values["gb28181.invite_timeout"] = str(int(payload.invite_timeout))
+    if payload.learning_enabled is not None:
+        values["gb28181.learning_enabled"] = "1" if bool(payload.learning_enabled) else "0"
+    if payload.learning_min_samples is not None:
+        values["gb28181.learning_min_samples"] = str(int(payload.learning_min_samples))
     if not values:
         return {"status": "ok"}
     result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.in_(list(values.keys()))))
@@ -430,6 +545,9 @@ async def save_gb28181_play_config(
         else:
             db.add(SystemSetting(setting_key=key, setting_value=value))
     await db.commit()
+    # 保存后立即应用到内存 settings（transport→MEDIA_SERVER_RTP_STREAM_MODE、
+    # invite_timeout→SIP_INVITE_TIMEOUT_SECONDS 等），无需重启
+    _apply_play_runtime_overrides(values)
     await safe_auth_audit(
         db,
         module="system_config",
@@ -458,12 +576,16 @@ async def get_gb28181_learning_state(
     profiles = state.get("profiles") or {}
 
     report = []
+    total_samples = 0
+    devices_learned = 0
     for p_key, data in profiles.items():
         modes = {}
+        profile_samples = 0
         for m in ("UDP", "TCP_PASSIVE", "TCP_ACTIVE"):
             stat = data.get(m) or {"s": 0, "f": 0}
             s = int(stat.get("s") or 0)
             f = int(stat.get("f") or 0)
+            profile_samples += s + f
             # 贝叶斯平滑评分
             score = (float(s) + 1.0) / (float(s + f) + 2.0)
             modes[m] = {
@@ -472,13 +594,18 @@ async def get_gb28181_learning_state(
                 "score": round(score, 4),
                 "preference": "high" if score > 0.6 else ("low" if score < 0.4 else "neutral")
             }
+        total_samples += profile_samples
+        if profile_samples > 0:
+            devices_learned += 1
         report.append({
             "profile": p_key,
             "updated_at": data.get("updated_at"),
             "modes": modes
         })
 
-    return {"profiles": report}
+    # FIX [2026-09-18 P1]: 前端读取 total_samples/devices_learned，原响应只有 profiles 导致
+    # 学习状态永远显示 0。补齐聚合字段（保留 profiles 不破坏潜在消费方）。
+    return {"profiles": report, "total_samples": total_samples, "devices_learned": devices_learned}
 
 
 @router.delete("/gb28181/learning-state")

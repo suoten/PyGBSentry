@@ -724,15 +724,32 @@ async def stream_diagnose(
         db_node = result.scalar_one_or_none()
         hook_url = _build_hook_base_url(db_node)
         from app.services.zlm_stream_control import _get_zlm_client
+        from urllib.parse import urlsplit, urlunsplit
         client = await _get_zlm_client()
         r = await client.head(hook_url, timeout=3.0)
         hook_ok = r.status_code < 500
+        probe_note = ""
+        # FIX [2026-09-18 P2]: hook URL 是给 ZLM 容器回打用的（如 http://host.docker.internal:8000），
+        # 宿主机自己解析该别名往往 502/超时（Docker Desktop 网关代理），不代表 hook 链路故障。
+        # 宿主机别名探测失败时改用 127.0.0.1 复测同一 backend 端口：通了即证明 hook 端点本身健康。
+        if not hook_ok:
+            parts = urlsplit(str(hook_url))
+            if parts.hostname and parts.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                local_netloc = f"127.0.0.1:{parts.port}" if parts.port else "127.0.0.1"
+                local_url = urlunsplit((parts.scheme, local_netloc, parts.path or "/api/v1/hook", parts.query, parts.fragment))
+                try:
+                    r2 = await client.head(local_url, timeout=3.0)
+                    if r2.status_code < 500:
+                        hook_ok = True
+                        probe_note = f" (host alias unreachable from backend host, verified via {local_url}: HTTP {r2.status_code})"
+                except Exception:
+                    pass
         items.append({
             "step": "hook_callback",
             "key": "hook_check",
             "ok": hook_ok,
             "title": "Hook Callback URL Reachability",  # i18n
-            "detail": f"Callback URL: {hook_url}\nTest result: HTTP {r.status_code} {'OK' if hook_ok else 'Failed'}",  # i18n
+            "detail": f"Callback URL: {hook_url}\nTest result: HTTP {r.status_code} {'OK' if hook_ok else 'Failed'}{probe_note}",  # i18n
             "suggestion": "If 404/502 returned, check backend /api/v1/hook is working, ZLM hook URL must be accessible by this backend" if not hook_ok else None,  # i18n
         })
     except Exception as e:

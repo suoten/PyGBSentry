@@ -279,6 +279,51 @@
                 <el-input-number v-model="gbPlayForm.learning_min_samples" :min="1" :max="100" />
                 <span class="text-xs ml-2" style="color: var(--el-text-color-secondary)">{{ t('configCenter.minLearningSamplesHint') }}</span>
               </el-form-item>
+              <!-- FIXED: [2026-09-18 P1] 补齐后端一直支持但前端从未展示的 SSRC/引导模板高级配置 -->
+              <el-divider content-position="left">{{ t('configCenter.advancedSection') }}</el-divider>
+              <el-form-item :label="t('configCenter.ssrcPolicy')">
+                <el-radio-group v-model="gbPlayForm.ssrc_policy">
+                  <el-radio-button value="adaptive">{{ t('configCenter.ssrcPolicyAdaptive') }}</el-radio-button>
+                  <el-radio-button value="strict">{{ t('configCenter.ssrcPolicyStrict') }}</el-radio-button>
+                  <el-radio-button value="off">{{ t('configCenter.ssrcPolicyOff') }}</el-radio-button>
+                </el-radio-group>
+                <span class="text-xs ml-2" style="color: var(--el-text-color-secondary)">{{ t('configCenter.ssrcPolicyHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('configCenter.ssrcRetryOnNotReady')">
+                <el-switch v-model="gbPlayForm.ssrc_retry_on_not_ready" />
+                <span class="text-xs ml-2" style="color: var(--el-text-color-secondary)">{{ t('configCenter.ssrcRetryHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('configCenter.ssrcRetryOrder')">
+                <el-select v-model="gbPlayForm.ssrc_retry_order" style="width: 240px">
+                  <el-option label="strict → off" value="strict,off" />
+                  <el-option label="off → strict" value="off,strict" />
+                  <el-option label="strict" value="strict" />
+                  <el-option label="off" value="off" />
+                </el-select>
+                <span class="text-xs ml-2" style="color: var(--el-text-color-secondary)">{{ t('configCenter.ssrcRetryOrderHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('configCenter.autoEnsureEmbedded')">
+                <el-switch v-model="gbPlayForm.auto_ensure_embedded_media_node" />
+                <span class="text-xs ml-2" style="color: var(--el-text-color-secondary)">{{ t('configCenter.autoEnsureEmbeddedHint') }}</span>
+              </el-form-item>
+              <el-form-item :label="t('configCenter.bootstrapTemplates')">
+                <el-input
+                  v-model="gbPlayForm.bootstrap_templates_json"
+                  type="textarea"
+                  :rows="6"
+                  class="font-mono"
+                  :placeholder="t('configCenter.bootstrapTemplatesPlaceholder')"
+                />
+              </el-form-item>
+              <el-form-item :label="t('configCenter.bootstrapWeights')">
+                <el-input
+                  v-model="gbPlayForm.bootstrap_learning_weights_json"
+                  type="textarea"
+                  :rows="3"
+                  class="font-mono"
+                  :placeholder="t('configCenter.bootstrapWeightsPlaceholder')"
+                />
+              </el-form-item>
             </el-form>
             <el-divider />
             <div class="flex items-center justify-between">
@@ -447,12 +492,20 @@ const savingBasic = ref(false)
 const saving = computed(() => savingBasic.value || savingDb.value || savingStorage.value || savingStorageNodes.value || savingGbPlay.value)
 
 // 国标播放配置
+// FIXED: [2026-09-18 P1] 原 5 字段后端 extra="forbid" 全部拒绝 → 保存必报 400。
+// 后端已承接这 5 字段；此处补齐后端一直在返回但前端从未展示的 ssrc/引导模板高级配置。
 const gbPlayForm = ref({
   default_stream_type: 'auto',
   transport: 'udp',
   invite_timeout: 10,
   learning_enabled: true,
-  learning_min_samples: 5
+  learning_min_samples: 5,
+  ssrc_policy: 'adaptive',
+  ssrc_retry_on_not_ready: true,
+  ssrc_retry_order: 'strict,off',
+  auto_ensure_embedded_media_node: true,
+  bootstrap_templates_json: '[]',
+  bootstrap_learning_weights_json: '{}'
 })
 const loadingGbPlay = ref(false)
 const savingGbPlay = ref(false)
@@ -472,7 +525,13 @@ const loadGbPlayConfig = async () => {
         transport: d.transport || 'udp',
         invite_timeout: d.invite_timeout ?? 10,
         learning_enabled: d.learning_enabled !== false,
-        learning_min_samples: d.learning_min_samples ?? 5
+        learning_min_samples: d.learning_min_samples ?? 5,
+        ssrc_policy: d.ssrc_policy || 'adaptive',
+        ssrc_retry_on_not_ready: d.ssrc_retry_on_not_ready !== false,
+        ssrc_retry_order: d.ssrc_retry_order || 'strict,off',
+        auto_ensure_embedded_media_node: d.auto_ensure_embedded_media_node !== false,
+        bootstrap_templates_json: JSON.stringify(d.bootstrap_templates ?? [], null, 2),
+        bootstrap_learning_weights_json: JSON.stringify(d.bootstrap_learning_weights ?? {}, null, 2)
       }
     }
     if (stateRes.status === 'fulfilled' && stateRes.value.data) {
@@ -486,10 +545,32 @@ const loadGbPlayConfig = async () => {
 }
 
 const saveGbPlayConfig = async () => {
+  // 高级区 JSON 预校验，避免把非法 JSON 发给后端
+  let bootstrapTemplates: unknown
+  let bootstrapWeights: unknown
+  try {
+    bootstrapTemplates = JSON.parse(gbPlayForm.value.bootstrap_templates_json || '[]')
+    bootstrapWeights = JSON.parse(gbPlayForm.value.bootstrap_learning_weights_json || '{}')
+  } catch {
+    ElMessage.error(t('configCenter.advancedJsonInvalid'))
+    return
+  }
   savingGbPlay.value = true
   const prev = { ...gbPlayForm.value }
   try {
-    await api.put('/api/v1/system-config/gb28181/play-config', gbPlayForm.value)
+    await api.put('/api/v1/system-config/gb28181/play-config', {
+      default_stream_type: gbPlayForm.value.default_stream_type,
+      transport: gbPlayForm.value.transport,
+      invite_timeout: gbPlayForm.value.invite_timeout,
+      learning_enabled: gbPlayForm.value.learning_enabled,
+      learning_min_samples: gbPlayForm.value.learning_min_samples,
+      ssrc_policy: gbPlayForm.value.ssrc_policy,
+      ssrc_retry_on_not_ready: gbPlayForm.value.ssrc_retry_on_not_ready,
+      ssrc_retry_order: gbPlayForm.value.ssrc_retry_order,
+      auto_ensure_embedded_media_node: gbPlayForm.value.auto_ensure_embedded_media_node,
+      bootstrap_templates: bootstrapTemplates,
+      bootstrap_learning_weights: bootstrapWeights
+    })
     ElMessage.success(t('configCenter.gbPlaybackConfigSaved')) // FIXED: 硬编码中文→英文
   } catch (e: unknown) {
     gbPlayForm.value = prev

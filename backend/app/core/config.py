@@ -354,6 +354,12 @@ class Settings(BaseSettings):
     GB28181_SSRC_RETRY_ON_NOT_READY: bool = True
     GB28181_SSRC_RETRY_ORDER: str = "strict,off"
     GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE: bool = True
+    # FIX [2026-09-18 P1]: 配置中心「国标播放配置」表单此前提交的 5 个字段后端完全不承接
+    # （Gb28181PlayConfigPayload extra=forbid → 保存必报 400）。以下字段为承接它们的运行时配置：
+    # 保存时写 SystemSetting 并同步覆盖内存 settings；启动时从 DB 回加载，重启后仍生效。
+    GB28181_DEFAULT_STREAM_TYPE: str = "main"  # 全局默认码流(main/sub)；INVITE stream_type=auto 时的最终回退
+    GB28181_PLAY_LEARNING_ENABLED: bool = True  # 传输模式自适应学习开关
+    GB28181_PLAY_LEARNING_MIN_SAMPLES: int = 5  # 学习最小样本数，低于该值学习结果不计入
     GB28181_VERSION: str = "2016"  # GB28181协议版本(2016/2022)，影响SDP a=track行等
     GB28181_STREAM_SWITCH_USE_TRACK_SUBJECT: bool = True  # 默认开启GB28181-2022码流切换track标识，与wvp对齐
     GB28181_PLAYBACK_SDP_TIME_FORMAT: str = "iso"  # 回放SDP时间格式(iso/epoch)

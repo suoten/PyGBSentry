@@ -311,11 +311,30 @@ async def _load_bootstrap_runtime_config(db: AsyncSession) -> dict[str, Any]:
 
 
 def _resolve_learning_rate_map(learning_state: dict[str, Any], profile_key: str) -> dict[str, float]:
+    out = {"UDP": 0.5, "TCP_PASSIVE": 0.5, "TCP_ACTIVE": 0.5}
+    # FIX [2026-09-18 P1]: 配置中心「自适应学习开关/最小样本数」此前无任何消费点。
+    # 关闭学习或画像样本数低于最小样本阈值时返回中性评分（0.5），学习结果不计入模式选择。
+    try:
+        if not bool(getattr(settings, "GB28181_PLAY_LEARNING_ENABLED", True)):
+            return out
+    except Exception:
+        pass
     profiles = (learning_state or {}).get("profiles") if isinstance(learning_state, dict) else {}
     profile = (profiles or {}).get(profile_key) if isinstance(profiles, dict) else {}
-    out = {"UDP": 0.5, "TCP_PASSIVE": 0.5, "TCP_ACTIVE": 0.5}
     if not isinstance(profile, dict):
         return out
+    try:
+        min_samples = int(getattr(settings, "GB28181_PLAY_LEARNING_MIN_SAMPLES", 5) or 0)
+    except Exception:
+        min_samples = 5
+    if min_samples > 0:
+        seen = 0
+        for mode_key in ("UDP", "TCP_PASSIVE", "TCP_ACTIVE"):
+            stat = profile.get(mode_key)
+            if isinstance(stat, dict):
+                seen += max(0, int(_safe_float(stat.get("s"), 0.0))) + max(0, int(_safe_float(stat.get("f"), 0.0)))
+        if seen < min_samples:
+            return out
     for mode_key in ("UDP", "TCP_PASSIVE", "TCP_ACTIVE"):
         stat = profile.get(mode_key)
         if not isinstance(stat, dict):
