@@ -301,6 +301,7 @@
       v-model="previewDialogVisible"
       :title="t('cloudRecord.previewTitle')"
       width="60%"
+      :close-on-click-modal="false"
       top="15vh"
       :destroy-on-close="true"
     >
@@ -319,6 +320,7 @@
       v-model="shareDialogVisible"
       :title="t('cloudRecord.shareTitle')"
       width="500px"
+      :close-on-click-modal="false"
     >
       <el-form label-width="80px">
         <el-form-item :label="t('cloudRecord.shareType')">
@@ -354,6 +356,7 @@
       v-model="clipDialogVisible"
       :title="t('cloudRecord.clipTitle')"
       width="70%"
+      :close-on-click-modal="false"
       top="5vh"
       :destroy-on-close="true"
     >
