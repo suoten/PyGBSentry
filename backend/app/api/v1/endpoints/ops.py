@@ -435,10 +435,12 @@ async def create_backup(
         "roles", "push_channels", "platforms", "system_settings",
     ]
 
-    sensitive_fields = {
-        "users": {"hashed_password", "totp_secret"},
-    }
-
+    # FIX [2026-09-19 P0]: 此前这里把 users.hashed_password/totp_secret 脱敏成
+    # "***REDACTED***" 再落盘，导致恢复任何备份会把所有用户密码/2FA 秘钥毁掉
+    # （恢复端原样写回）。备份文件必须完整可还原——hashed_password 本就是单向哈希、
+    # totp_secret 是还原 2FA 的必要数据，二者都不得在备份中脱敏。
+    # 真正需要脱敏的场景是 /ops/diagnostics/export（脱敏诊断包），与备份是两回事。
+    # 恢复端另有防线：restore 遇到历史遗留的 "***REDACTED***" 值会保留库中现值。
     backup_data = {}
     for table in tables_to_backup:
         try:
@@ -452,13 +454,9 @@ async def create_backup(
             backup_data[table] = []
 
     for key in backup_data:
-        redact_fields = sensitive_fields.get(key, set())
         for row in backup_data[key]:
-            for k in list(row.keys()):
-                v = row[k]
-                if k in redact_fields:
-                    row[k] = "***REDACTED***"
-                elif isinstance(v, (datetime.datetime, datetime.date)):
+            for k, v in list(row.items()):
+                if isinstance(v, (datetime.datetime, datetime.date)):
                     row[k] = v.isoformat()
                 elif isinstance(v, bytes):
                     row[k] = v.hex()
@@ -567,6 +565,29 @@ async def restore_backup(
             if table_name not in ALLOWED_RESTORE_TABLES:
                 continue
             safe_table = table_name.replace('"', '""')
+            # FIX [2026-09-19 P0]: 旧版备份会把 hashed_password/totp_secret 等敏感字段
+            # 写成 "***REDACTED***"。恢复时若原样写入会把库中真实值毁掉（曾导致恢复
+            # 备份后所有用户无法登录）。此处先收集各行的脱敏列，DELETE 前把库中现值
+            # 暂存，插入时回填；库中无对应行时置 None。
+            _REDACT_MARKER = "***REDACTED***"
+            redacted_cols: dict[str, set] = {}
+            for row in rows:
+                for c, v in row.items():
+                    if v == _REDACT_MARKER:
+                        redacted_cols.setdefault(c, set())
+            preserved: dict[str, dict[str, object]] = {}
+            if redacted_cols and "id" in rows[0]:
+                id_list = [r["id"] for r in rows if isinstance(r.get("id"), (str, int))]
+                if id_list:
+                    col_sel = ", ".join(sorted(redacted_cols.keys()))
+                    id_ph = ", ".join([f":rid{i}" for i in range(len(id_list))])
+                    bind = {f"rid{i}": v for i, v in enumerate(id_list)}
+                    result = await db.execute(
+                        text(f'SELECT id, {col_sel} FROM "{safe_table}" WHERE id IN ({id_ph})'),
+                        bind,
+                    )
+                    for r in result.mappings().all():
+                        preserved[str(r["id"])] = dict(r)
             await db.execute(text(f'DELETE FROM "{safe_table}"'))
             columns = list(rows[0].keys())
             if not all(_SAFE_COL_RE.match(c) for c in columns):
@@ -576,6 +597,13 @@ async def restore_backup(
             placeholders = ", ".join([f":{c}" for c in columns])
             insert_sql = f'INSERT INTO "{safe_table}" ({col_list}) VALUES ({placeholders})'
             for row in rows:
+                if redacted_cols:
+                    row = dict(row)
+                    for c in redacted_cols:
+                        if row.get(c) == _REDACT_MARKER:
+                            old = preserved.get(str(row.get("id")), {})
+                            row[c] = old.get(c)
+                    # placeholder 参数里不能有 None 缺失，dict 已含全部列
                 await db.execute(text(insert_sql), row)
             restored_tables.append(table_name)
         except Exception as e:

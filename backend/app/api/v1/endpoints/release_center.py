@@ -34,7 +34,26 @@ async def publish_draft(
 ):
     # 凭证痕迹 — confirm_token 从环境变量读取而非硬编码
     _expected_token = settings.RELEASE_CONFIRM_TOKEN or os.environ.get("RELEASE_CONFIRM_TOKEN", "")
-    if not _expected_token or payload.confirm_token != _expected_token:
+    # FIX [2026-09-19 P2]: 未配置 RELEASE_CONFIRM_TOKEN 时报错只说 "confirm_token invalid"，
+    # 用户无从得知需要在服务器配置环境变量。区分两种失败并给出可行动的提示。
+    if not _expected_token:
+        await safe_auth_audit(
+            db,
+            module="release-center",
+            action="publish",
+            source="release_center",
+            operator=current_user.username or "unknown",
+            result="failed",
+            tenant_id=_audit_tid(current_user),
+            status_code=400,
+            detail="confirm_token_not_configured",
+            extra_summary=f"draft_id={payload.draft_id}",
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="发布确认令牌未配置：请在服务器环境变量 RELEASE_CONFIRM_TOKEN 中设置后重启服务，再输入该令牌发布",
+        )
+    if payload.confirm_token != _expected_token:
         await safe_auth_audit(
             db,
             module="release-center",

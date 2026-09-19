@@ -119,7 +119,10 @@ async def open_rtp_receive(
 
     try:
         from app.services.zlm_rtp_server_service import open_rtp_server
-        allocated_port = await open_rtp_server(
+        # FIX [2026-09-19 P1]: open_rtp_server 返回 ZLM 响应 dict（{"code":0,"port":...}），
+        # 原代码直接 int(allocated_port) 把 dict 转数字 → 必然 TypeError 500。
+        # 从响应中取 port 字段；ZLM 未返回时回退请求端口（单端口模式）。
+        zlm_resp = await open_rtp_server(
             host=str(getattr(node, "host", "") or ""),
             http_port=int(getattr(node, "http_port", 0) or 0),
             secret=str(getattr(node, "secret", "") or ""),
@@ -130,8 +133,9 @@ async def open_rtp_receive(
             ssrc=(payload.ssrc or "").strip() or None,
             re_use_port=(getattr(node, "rtp_port_mode", "single") == "single"),
         )
-        task.port = int(allocated_port)
-        port = int(allocated_port)
+        allocated_port = int((zlm_resp or {}).get("port") or port or 0)
+        task.port = allocated_port
+        port = allocated_port
         await db.commit()
     except Exception as zlm_err:
         # FIX: [2026-08-22 PN] 原 except 块内 `from fastapi import HTTPException` 使

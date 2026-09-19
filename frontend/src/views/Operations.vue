@@ -1975,7 +1975,13 @@ const restoreBackup = async (filename: string) => {
   } catch { return }
   try {
     const res = await api.post('/api/v1/ops/restore', null, { params: { filename } })
-    ElMessage.success(t('ops.restoreSuccess', { tables: res.data?.tables_restored || 0 }))
+    // FIXED: [2026-09-19 UX] 恢复会整表替换 users 等数据，当前登录会话可能失效。
+    // 引导用户刷新并重新登录，避免恢复后接口批量报错让人误以为恢复失败。
+    await ElMessageBox.alert(
+      t('ops.restoreSuccessHint', { tables: res.data?.tables_restored || 0 }),
+      t('ops.restoreSuccessTitle'),
+      { type: 'success', confirmButtonText: t('common.confirm') }
+    ).catch(() => {})
     await loadBackupList()
   } catch (e: unknown) {
     ElMessage.error(getFriendlyError(e).message)

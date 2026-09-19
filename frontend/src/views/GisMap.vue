@@ -5,6 +5,21 @@
     <div class="flex-1 relative overflow-hidden rounded-2xl" style="border: 1px solid var(--el-border-color-lighter); background: #0b1220">
       <div id="map" class="absolute inset-0"></div>
 
+      <!-- FIX [2026-09-19 UX]: 未配置 API Key 时底图为纯黑，看起来像页面坏了。
+           在地图中央给出明确的覆盖提示与快捷入口，替代仅侧栏小字提示。 -->
+      <div
+        v-if="showApiKeyAlert"
+        class="absolute inset-0 z-20 flex items-center justify-center"
+        style="background: rgba(11, 18, 32, 0.72); backdrop-filter: blur(2px)"
+      >
+        <div class="text-center px-8 py-6 rounded-xl" style="background: rgba(255,255,255,.95); max-width: 420px">
+          <div class="text-4xl mb-3">🗺️</div>
+          <div class="font-semibold mb-2" style="color: var(--el-text-color-primary)">{{ t('gis.overlayKeyMissingTitle') }}</div>
+          <div class="text-sm mb-4" style="color: var(--el-text-color-secondary)">{{ t('gis.overlayKeyMissingDesc') }}</div>
+          <el-button type="primary" @click="goMapConfig">{{ t('gis.goMapConfig') }}</el-button>
+        </div>
+      </div>
+
       <div v-if="thinnedHint" class="absolute bottom-14 left-4 px-2 py-1 rounded text-sm z-10" style="background: #fef3c7; color: #92400e">
         {{ thinnedHint }}
       </div>

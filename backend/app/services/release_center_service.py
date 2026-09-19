@@ -161,9 +161,18 @@ class ReleaseCenterService:
         }
 
     async def rollback(self, db: AsyncSession, target_revision: int, operator: str, reason: str | None) -> dict:
-        target_modules = await self._get_revision_content(db, target_revision)
-        if not target_modules:
+        # FIX [2026-09-19 P2]: 原实现用 `if not target_modules` 判定版本存在性，
+        # 把「版本内容为空 dict」（0 差异发布的合法版本）误判为「版本不存在」，
+        # 导致回滚到任何空内容版本必报 "Target version does not exist"。
+        # 改为先查 ConfigRevision 记录是否存在，再取内容（空 dict 是合法回滚目标）。
+        stmt = select(ConfigRevision).where(ConfigRevision.revision == target_revision).order_by(ConfigRevision.created_at.desc())
+        result = await db.execute(stmt)
+        record = result.scalars().first()
+        if not record:
             raise ValueError("Target version does not exist")
+        target_modules = await self._get_revision_content(db, target_revision)
+        if target_modules is None:
+            target_modules = {}
         raw_revision = await self._get_setting(db, self._revision_key)
         try:
             current_revision = int(raw_revision or "0")

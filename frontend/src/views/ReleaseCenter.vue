@@ -244,9 +244,26 @@ const publishNow = async () => {
   } catch {
     return
   }
+  // FIXED: [2026-09-19 P1] 后端要求 RELEASE_CONFIRM_TOKEN 双人复核令牌，原实现从不
+  // 向用户索要也不随请求发送 → 「执行确认发布」在 UI 上永远失败（confirm_token invalid）。
+  let confirmToken = ''
+  try {
+    const { value } = await ElMessageBox.prompt(
+      t('releaseCenter.confirmTokenPrompt'),
+      t('releaseCenter.confirmTokenTitle'),
+      {
+        type: 'warning',
+        inputPlaceholder: t('releaseCenter.confirmTokenPlaceholder'),
+        inputValidator: (v: string) => !!String(v || '').trim() || t('releaseCenter.confirmTokenRequired')
+      }
+    )
+    confirmToken = String(value || '').trim()
+  } catch {
+    return
+  }
   publishing.value = true
   try {
-    const result = await publishDraft(publishForm.value.draftId)
+    const result = await publishDraft(publishForm.value.draftId, confirmToken)
     ElMessage.success(buildSuccessMessage(t('releaseCenter.publishAction'), t('releaseCenter.revisionLabel', { revision: result.revision })))
     rollbackForm.value.targetRevision = result.revision
     await loadDiff()
