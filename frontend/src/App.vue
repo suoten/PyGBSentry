@@ -1,4 +1,5 @@
 <template>
+  <el-config-provider :locale="elPlusLocale">
   <div v-if="!showLayout && !route.matched.length" class="app-boot-splash">
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="app-boot-splash__logo">
       <rect width="32" height="32" rx="10" fill="#0a0f1a"/>
@@ -165,6 +166,7 @@
     </el-container>
   </div>
   <AppErrorBoundary v-if="!showLayout"><router-view></router-view></AppErrorBoundary>
+  </el-config-provider>
 </template>
 
 <script setup lang="ts">
@@ -174,6 +176,8 @@ import { useRoute, useRouter } from 'vue-router'
 import AppErrorBoundary from './components/AppErrorBoundary.vue'
 import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
+import zhCn from 'element-plus/es/locale/lang/zh-cn'
+import enUs from 'element-plus/es/locale/lang/en'
 import { Odometer, VideoCamera, Monitor, User, Setting, MapLocation, DataLine, TrendCharts, Shop, Box, Promotion, Connection, Bell, Folder, Calendar, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
 import TopBar from './components/TopBar.vue'
 import TagsView from './components/TagsView.vue'
@@ -187,7 +191,11 @@ import { startSessionTimeout, stopSessionTimeout } from '@/utils/sessionTimeout'
 import { useUserStore } from './stores/user'  // FIX: [build warning] 改静态导入消除 dynamic/static 导入冲突警告（TopBar/Login 已静态导入，user store 必然在主 chunk，动态导入优化失效）
 
 const route = useRoute()
-const { t } = useI18n()  // FIXED: 国际化
+const { t, locale } = useI18n()  // FIXED: 国际化
+
+// FIX [2026-09-19 UX]: Element Plus 组件内置文案（表格空数据/日期选择器/气泡确认按钮等）
+// 此前一直是英文默认 locale，与界面语言不一致。现在跟随顶栏语言切换实时变化。
+const elPlusLocale = computed(() => (locale.value === 'zh-CN' ? zhCn : enUs))
 const router = useRouter()
 const activeRoute = computed(() => route.path)
 const isServerEdition = (import.meta.env.VITE_APP_EDITION || 'oss') === 'server'

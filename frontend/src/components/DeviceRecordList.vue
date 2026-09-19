@@ -83,7 +83,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="playbackVisible" :title="t('deviceRecordList.playbackTitle')" width="74%" :destroy-on-close="false" @close="closePlayback">
+    <el-dialog v-model="playbackVisible" :close-on-click-modal="false" :title="t('deviceRecordList.playbackTitle')" width="74%" :destroy-on-close="false" @close="closePlayback">
       <div v-if="playbackUrl">
         <div class="flex items-center justify-between gap-2 mb-2 flex-wrap">
           <div class="text-xs" style="color: var(--el-text-color-secondary)">
@@ -133,7 +133,7 @@
       <div v-else class="text-sm" style="color: var(--el-text-color-secondary)">{{ t('deviceRecordList.noPlaybackUrl') }}</div>
     </el-dialog>
 
-    <el-dialog v-model="downloadDialogVisible" :title="t('deviceRecordList.downloadTitle')" width="560px">
+    <el-dialog v-model="downloadDialogVisible" :close-on-click-modal="false" :title="t('deviceRecordList.downloadTitle')" width="560px">
       <div class="text-sm mb-3" style="color: var(--el-text-color-secondary)">
         {{ downloadTargetLabel }}
       </div>

@@ -1,5 +1,5 @@
 <template>
-  <el-dialog v-model="dialogVisible" width="88%" class="record-workspace-dialog" destroy-on-close>
+  <el-dialog v-model="dialogVisible" width="88%" :close-on-click-modal="false" class="record-workspace-dialog" destroy-on-close>
     <template #header>
       <div class="title-wrap">
         <div class="title">{{ t('cloudRecordWs.title') }}</div>

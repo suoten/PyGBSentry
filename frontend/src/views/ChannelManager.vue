@@ -464,7 +464,7 @@
       @success="loadTree"
     />
 
-    <el-dialog v-model="renameDirectoryDialogVisible" :title="t('channel.manager.renameNode')" width="420px" class="cm-rename-dialog" destroy-on-close>  <!-- FIXED: i18n -->
+    <el-dialog v-model="renameDirectoryDialogVisible" :close-on-click-modal="false" :title="t('channel.manager.renameNode')" width="420px" class="cm-rename-dialog" destroy-on-close>  <!-- FIXED: i18n -->
       <el-form :model="renameDirectoryForm" label-width="90px">
         <el-form-item :label="t('channel.manager.nodeName')">  <!-- FIXED: i18n -->
           <el-input v-model="renameDirectoryForm.name" :placeholder="t('channel.manager.enterNodeName')" />  <!-- FIXED: i18n -->
@@ -482,7 +482,7 @@
       @success="loadChannels"
     />
 
-    <el-dialog v-model="civilCodeDialogVisible" :title="civilCodeDialogTitle" width="520px" class="cm-civil-code-dialog" destroy-on-close>
+    <el-dialog v-model="civilCodeDialogVisible" :close-on-click-modal="false" :title="civilCodeDialogTitle" width="520px" class="cm-civil-code-dialog" destroy-on-close>
       <el-form :model="civilCodeForm" label-width="100px">
         <el-form-item :label="t('channel.manager.province')">  <!-- FIXED: i18n -->
           <el-select v-model="civilCodeForm.province" filterable :placeholder="t('channel.manager.selectProvinceCode')" style="width: 100%">  <!-- FIXED: i18n -->
@@ -521,7 +521,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="listBusinessFilterDialogVisible" :title="t('channel.manager.filterBusinessGroup')" width="420px" class="cm-business-filter-dialog" destroy-on-close>  <!-- FIXED: i18n -->
+    <el-dialog v-model="listBusinessFilterDialogVisible" :close-on-click-modal="false" :title="t('channel.manager.filterBusinessGroup')" width="420px" class="cm-business-filter-dialog" destroy-on-close>  <!-- FIXED: i18n -->
       <div v-if="loadingBusinessPickerTree" class="py-6 flex justify-center">
         <el-icon class="animate-spin text-2xl text-sky-500"><Loading /></el-icon>
       </div>
@@ -541,7 +541,7 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="batchBusinessDialogVisible" :title="t('channel.manager.batchSetBusinessGroup')" width="420px" class="cm-batch-business-dialog" destroy-on-close>  <!-- FIXED: i18n -->
+    <el-dialog v-model="batchBusinessDialogVisible" :close-on-click-modal="false" :title="t('channel.manager.batchSetBusinessGroup')" width="420px" class="cm-batch-business-dialog" destroy-on-close>  <!-- FIXED: i18n -->
       <div v-if="loadingBusinessPickerTree" class="py-6 flex justify-center">
         <el-icon class="animate-spin text-2xl text-sky-500"><Loading /></el-icon>
       </div>

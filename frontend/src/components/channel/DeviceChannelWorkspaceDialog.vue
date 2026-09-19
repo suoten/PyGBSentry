@@ -4,6 +4,7 @@
     width="88%"
     class="channels-dialog"
     destroy-on-close
+    :close-on-click-modal="false"
     @update:model-value="emit('update:modelValue', $event)"
     @closed="onClosed"
   >

@@ -28,7 +28,7 @@
         </el-scrollbar>
       </div>
 
-      <el-dialog v-model="regionDialogVisible" :title="regionDialogMode === 'add' ? t('channelRegion.addRegionTitle') : t('channelRegion.editRegionTitle')" width="440px">
+      <el-dialog v-model="regionDialogVisible" :close-on-click-modal="false" :title="regionDialogMode === 'add' ? t('channelRegion.addRegionTitle') : t('channelRegion.editRegionTitle')" width="440px">
         <el-form :model="regionForm" label-width="80px" size="default">
           <el-form-item :label="t('channelRegion.regionCode')" v-if="regionDialogMode === 'add'">
             <el-input v-model="regionForm.code" :placeholder="t('channelRegion.regionCodePlaceholder')" />
