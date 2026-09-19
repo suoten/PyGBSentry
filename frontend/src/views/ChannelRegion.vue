@@ -152,7 +152,7 @@
           <el-table-column type="selection" width="45" />
           <el-table-column prop="gbDeviceId" :label="t('channelRegion.colChannelCode')" width="160" />
           <el-table-column prop="gbName" :label="t('channelRegion.colName')" />
-          <el-table-column prop="deviceId" :label="t('channelRegion.colDevice')" width="140" / show-overflow-tooltip />
+          <el-table-column prop="deviceId" :label="t('channelRegion.colDevice')" width="140" show-overflow-tooltip />
         </el-table>
       </div>
 

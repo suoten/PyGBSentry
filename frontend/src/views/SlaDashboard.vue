@@ -47,7 +47,7 @@
             {{ formatDate(scope.row.time) }}
           </template>
         </el-table-column>
-        <el-table-column prop="device_id" :label="t('slaPage.deviceCol')" width="170" / show-overflow-tooltip />
+        <el-table-column prop="device_id" :label="t('slaPage.deviceCol')" width="170" show-overflow-tooltip />
         <el-table-column prop="description" :label="t('slaPage.descriptionCol')" min-width="220" show-overflow-tooltip />
         <el-table-column prop="priority" :label="t('slaPage.priorityCol')" width="90">
           <template #default="scope">

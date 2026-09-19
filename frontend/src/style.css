@@ -400,6 +400,24 @@
       font-size: 13px;
     }
 
+    /* FIX [2026-09-19 UX]: 行背景透明时，fixed 固定列（sticky）也是透明的——
+       横向滚动时下层单元格内容会透过固定列显示出来（云端录像"操作"列文字重叠）。
+       固定列必须不透明：亮/暗色各取卡片表面色，hover 行取悬浮色保持一致。 */
+    .el-table .el-table-fixed-column--left,
+    .el-table .el-table-fixed-column--right {
+      background: var(--el-card-bg-color, var(--el-bg-color, #ffffff));
+    }
+    .el-table .el-table__row:hover .el-table-fixed-column--left,
+    .el-table .el-table__row:hover .el-table-fixed-column--right,
+    .el-table .el-table__row.hover-row .el-table-fixed-column--left,
+    .el-table .el-table__row.hover-row .el-table-fixed-column--right {
+      background: var(--el-table-row-hover-bg-color);
+    }
+    .el-table .el-table-fixed-column--left.is-first-column::before,
+    .el-table .el-table-fixed-column--right.is-last-column::before {
+      pointer-events: none;
+    }
+
     /* 优化表格滚动条 - 更细更美观 */
     .el-table__body-wrapper,
     .el-table__header-wrapper {

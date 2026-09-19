@@ -26,11 +26,14 @@ defineProps<{
   padding: 12px 16px;
   border-bottom: 1px solid var(--el-border-color-lighter);
   background: #ffffff;
+  /* FIX [2026-09-19 UX]: 操作按钮过多时（如设备列表 9 个按钮）会把左侧标题/描述
+     挤成一条窄竖排文字。允许整行换行，左侧保证最小可读宽度，按钮组整体落到下一行。 */
+  flex-wrap: wrap;
 }
 
 .page-header__left {
   min-width: 0;
-  flex: 1;
+  flex: 1 1 320px;
 }
 
 .page-header__title {

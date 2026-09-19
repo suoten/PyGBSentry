@@ -56,7 +56,7 @@
         <template #header><div class="font-medium">{{ t('visualCommand.recentAlarmHandling') }}</div></template>
         <el-table :data="alarms" v-loading="loading" stripe>
           <el-table-column prop="time" :label="t('common.time')" width="180" />
-          <el-table-column prop="device_id" :label="t('common.device')" width="180" / show-overflow-tooltip />
+          <el-table-column prop="device_id" :label="t('common.device')" width="180" show-overflow-tooltip />
           <el-table-column prop="channel_id" :label="t('common.channel')" width="180" />
           <el-table-column prop="description" :label="t('common.description')" min-width="220" show-overflow-tooltip />
           <el-table-column :label="t('common.action')" width="260" fixed="right">

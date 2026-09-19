@@ -70,7 +70,7 @@
         <el-table v-loading="loading" :data="items" stripe class="w-full" row-key="id">
           <el-table-column prop="event_type" :label="t('structuredEvent.typeColumn')" width="100" />
           <el-table-column prop="source_plugin" :label="t('structuredEvent.sourcePluginColumn')" width="150" />
-          <el-table-column prop="device_id" :label="t('structuredEvent.deviceIdColumn')" width="140" / show-overflow-tooltip />
+          <el-table-column prop="device_id" :label="t('structuredEvent.deviceIdColumn')" width="140" show-overflow-tooltip />
           <el-table-column prop="channel_id" :label="t('structuredEvent.channelIdColumn')" width="140" />
           <el-table-column prop="event_time" :label="t('structuredEvent.eventTimeColumn')" width="190" />
           <el-table-column prop="payload_text" :label="t('structuredEvent.eventContentColumn')" min-width="220" show-overflow-tooltip />

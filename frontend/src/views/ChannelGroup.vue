@@ -120,7 +120,7 @@
           <el-table-column type="selection" width="45" />
           <el-table-column prop="gbDeviceId" :label="t('channelGroup.colChannelCode')" width="160" />
           <el-table-column prop="gbName" :label="t('channelGroup.colName')" />
-          <el-table-column prop="deviceId" :label="t('channelGroup.colDevice')" width="140" / show-overflow-tooltip />
+          <el-table-column prop="deviceId" :label="t('channelGroup.colDevice')" width="140" show-overflow-tooltip />
         </el-table>
       </div>
 

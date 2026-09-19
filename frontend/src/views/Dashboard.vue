@@ -891,7 +891,12 @@ const fetchAlarms = async () => {
   alarmsLoading.value = true
   try {
     const res = await api.get('/api/v1/alarms?limit=50')
-    alarms.value = Array.isArray(res.data) ? res.data : []
+    const data = res.data
+    // FIX [2026-09-19 P2]: 接口返回分页对象 {items,total}，旧代码按数组解析导致
+    // 工作台「未处理告警」数字与实时告警列表恒为空。兼容两种形状。
+    alarms.value = Array.isArray(data)
+      ? data
+      : (Array.isArray(data?.items) ? data.items : [])
   } catch (e: unknown) {
     alarms.value = []
     alarmsEmptyText.value = t('dashboard.loadAlarmsFailed')
