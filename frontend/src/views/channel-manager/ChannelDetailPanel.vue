@@ -56,7 +56,7 @@
         </el-table-column>
         <el-table-column type="selection" width="45" :selectable="rowSelectable" />
         <el-table-column v-if="isColumnVisible('device')" prop="device_name" :label="t('channelDetail.colDevice')" width="130" show-overflow-tooltip />
-        <el-table-column v-if="isColumnVisible('gbId')" prop="gb_id" :label="t('channelDetail.colGbId')" width="160">
+        <el-table-column v-if="isColumnVisible('gbId')" prop="gb_id" :label="t('channelDetail.colGbId')" width="160" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="text-xs font-mono text-slate-500">{{ row.gb_id }}</span>
           </template>

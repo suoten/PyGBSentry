@@ -122,7 +122,7 @@
     <TableCard>
       <el-table :data="paginatedHealthData" style="width: 100%" v-loading="loading" stripe border row-key="device_id" @selection-change="onSelectionChange" :empty-text="t('healthPage.noHealthData')">
         <el-table-column type="selection" width="44" />
-        <el-table-column prop="device_id" :label="t('healthPage.deviceIdCol')" width="180" sortable />
+        <el-table-column prop="device_id" :label="t('healthPage.deviceIdCol')" width="180" sortable / show-overflow-tooltip />
         <el-table-column prop="device_name" :label="t('common.name')" min-width="140" />
 
         <el-table-column prop="last_mode" :label="t('healthPage.lastModeCol')" width="120">

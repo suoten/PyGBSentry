@@ -286,7 +286,7 @@
               </el-table-column>
             <el-table-column type="selection" width="45" :selectable="rowSelectable" />
             <el-table-column v-if="isColumnVisible('device')" prop="device_name" :label="t('channel.manager.colDevice')" width="130" show-overflow-tooltip />  <!-- FIXED: i18n -->
-            <el-table-column v-if="isColumnVisible('gbId')" prop="gb_id" :label="t('channel.manager.colGbId')" width="160">  <!-- FIXED: i18n -->
+            <el-table-column v-if="isColumnVisible('gbId')" prop="gb_id" :label="t('channel.manager.colGbId')" width="160" show-overflow-tooltip>  <!-- FIXED: i18n -->
               <template #default="{ row }">
                 <span class="text-xs font-mono text-slate-500">{{ row.gb_id }}</span>
               </template>

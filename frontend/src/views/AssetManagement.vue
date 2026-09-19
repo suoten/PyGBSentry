@@ -29,7 +29,7 @@
               </div>
             </template>
             <el-table :data="paginatedLedger" v-loading="loadingLedger">
-              <el-table-column prop="gb_id" :label="t('assetPage.colGbId')" width="160" />
+              <el-table-column prop="gb_id" :label="t('assetPage.colGbId')" width="160" / show-overflow-tooltip />
               <el-table-column prop="name" :label="t('common.name')" min-width="120" />
               <el-table-column prop="manufacturer" :label="t('assetPage.colManufacturer')" width="100" />
               <el-table-column prop="model" :label="t('assetPage.colModel')" width="100" />

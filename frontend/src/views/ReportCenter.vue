@@ -228,7 +228,7 @@
               <div class="font-medium mb-2">{{ t('reportPage.riskSessionsTop10') }}</div>
               <el-table :data="trafficRiskSessions" size="small" stripe>
                 <el-table-column prop="session_id" label="Session ID" min-width="200" />
-                <el-table-column prop="device_id" :label="t('reportPage.deviceIdLabel')" min-width="140" />
+                <el-table-column prop="device_id" :label="t('reportPage.deviceIdLabel')" min-width="140" / show-overflow-tooltip />
                 <el-table-column prop="channel_id" :label="t('reportPage.channelIdLabel')" min-width="140" />
                 <el-table-column prop="health_score" :label="t('reportPage.healthScoreLabel')" width="100" />
                 <el-table-column prop="health_level" :label="t('reportPage.levelLabel')" width="120" />

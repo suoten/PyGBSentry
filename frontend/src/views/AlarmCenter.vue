@@ -136,7 +136,7 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column prop="device_id" :label="t('alarm.deviceId')" width="170">
+          <el-table-column prop="device_id" :label="t('alarm.deviceId')" width="170" show-overflow-tooltip>
             <template #header>
               <div class="flex items-center gap-1">
                 <el-icon class="text-slate-400"><Monitor /></el-icon>

@@ -32,7 +32,7 @@
         </EmptyStateWithAction>
       </template>
       <el-table-column type="selection" width="50" align="center" />
-      <el-table-column v-if="isColVisible('gb_id')" prop="gb_id" width="180">
+      <el-table-column v-if="isColVisible('gb_id')" prop="gb_id" width="180" show-overflow-tooltip>
         <template #header><div class="flex items-center gap-1"><span>{{ t('device.table.colGbId') }}</span><el-tooltip :content="t('device.table.colGbIdTip')" placement="top"><el-icon class="cursor-help text-slate-400 hover:text-slate-600 transition-colors"><InfoFilled /></el-icon></el-tooltip></div></template>
         <template #default="scope"><span class="font-mono text-xs text-slate-500">{{ scope.row.gb_id }}</span></template>
       </el-table-column>
@@ -57,7 +57,7 @@
           </div>
         </template>
       </el-table-column>
-      <el-table-column v-if="isColVisible('ip_addr')" prop="ip_addr" :label="t('device.table.colIp')" width="130">
+      <el-table-column v-if="isColVisible('ip_addr')" prop="ip_addr" :label="t('device.table.colIp')" width="130" show-overflow-tooltip>
         <template #default="scope"><div class="ip-cell"><el-tag size="small" type="info" effect="plain" v-if="scope.row.ip_addr" class="font-mono text-[10px]">{{ scope.row.ip_addr }}</el-tag><span v-else class="text-slate-400 text-xs">—</span></div></template>
       </el-table-column>
       <el-table-column v-if="isColVisible('channel_count')" :label="t('device.table.colChannelCount')" width="100" align="center">

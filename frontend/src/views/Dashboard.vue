@@ -265,7 +265,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="device_id" :label="t('dashboard.deviceId')" width="200">
+        <el-table-column prop="device_id" :label="t('dashboard.deviceId')" width="200" show-overflow-tooltip>
           <template #default="scope">
             <div class="device-cell">
               <el-tag size="small" type="info" effect="plain">{{ scope.row.device_id }}</el-tag>

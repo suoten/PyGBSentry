@@ -119,7 +119,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="device_id" :label="t('alarmNotif.deviceColumn')" width="160" />
+        <el-table-column prop="device_id" :label="t('alarmNotif.deviceColumn')" width="160" / show-overflow-tooltip />
         <el-table-column prop="channel_id" :label="t('alarmNotif.passageColumn')" width="160" />
         <el-table-column prop="description" :label="t('alarmNotif.descriptionColumn')" />
         <el-table-column prop="error_message" :label="t('alarmNotif.errorMessageColumn')" width="220" show-overflow-tooltip />

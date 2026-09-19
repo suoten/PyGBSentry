@@ -133,7 +133,7 @@
       fit
       v-loading="channelsLoading"
     >
-      <el-table-column prop="gb_id" :label="t('deviceChannelWs.colChannelGbId')" width="180">
+      <el-table-column prop="gb_id" :label="t('deviceChannelWs.colChannelGbId')" width="180" show-overflow-tooltip>
         <template #default="scope">
           <div class="channel-id-cell">
             <el-tag size="small" type="info" effect="plain">{{ scope.row.gb_id }}</el-tag>
