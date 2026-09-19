@@ -402,10 +402,11 @@
 
     /* FIX [2026-09-19 UX]: 行背景透明时，fixed 固定列（sticky）也是透明的——
        横向滚动时下层单元格内容会透过固定列显示出来（云端录像"操作"列文字重叠）。
-       固定列必须不透明：亮/暗色各取卡片表面色，hover 行取悬浮色保持一致。 */
+       注意不能用 --el-card-bg-color：全局把它定义成了空值，var 链会整体失效退化透明。
+       直接用 --el-bg-color（暗色模式下自动变 #141414）。 */
     .el-table .el-table-fixed-column--left,
     .el-table .el-table-fixed-column--right {
-      background: var(--el-card-bg-color, var(--el-bg-color, #ffffff));
+      background: var(--el-bg-color, #ffffff);
     }
     .el-table .el-table__row:hover .el-table-fixed-column--left,
     .el-table .el-table__row:hover .el-table-fixed-column--right,
