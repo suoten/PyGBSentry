@@ -937,6 +937,13 @@ const initWebSocket = async () => {
   ws.onmessage = (event) => {
     try {
       const alarm = JSON.parse(event.data)
+      // FIX [2026-09-19 P1]: 后端 WS 每 30s 发 {"type":"ping"} 心跳。此处原来不做消息
+      // 校验，每次心跳都被当成"新告警"——弹错误通知并往实时告警列表插垃圾行
+      // （用户看到"一直弹新告警但告警中心没有告警"）。与 notification store 对齐：
+      // 非对象、心跳、缺 id 的消息一律忽略。
+      if (!alarm || typeof alarm !== 'object') return
+      if (alarm.type === 'ping' || alarm.type === 'pong') return
+      if (!alarm.id) return
       alarms.value.unshift(alarm)
       if (alarms.value.length > 50) alarms.value.pop()
 

@@ -12,7 +12,7 @@
         class="absolute inset-0 z-20 flex items-center justify-center"
         style="background: rgba(11, 18, 32, 0.72); backdrop-filter: blur(2px)"
       >
-        <div class="text-center px-8 py-6 rounded-xl" style="background: rgba(255,255,255,.95); max-width: 420px">
+        <div class="text-center px-8 py-6 rounded-xl" style="background: var(--el-bg-color, rgba(255,255,255,.95)); max-width: 420px">
           <div class="text-4xl mb-3">🗺️</div>
           <div class="font-semibold mb-2" style="color: var(--el-text-color-primary)">{{ t('gis.overlayKeyMissingTitle') }}</div>
           <div class="text-sm mb-4" style="color: var(--el-text-color-secondary)">{{ t('gis.overlayKeyMissingDesc') }}</div>
@@ -27,7 +27,7 @@
     <!-- 图层控制 -->
     <div
       class="absolute bottom-4 left-4 px-3 py-2 z-10 flex flex-col gap-1 rounded-lg shadow-lg"
-      style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
+      style="background: var(--el-bg-color, rgba(255,255,255,.92)); border: 1px solid var(--el-border-color-lighter)"
     >
       <span class="text-xs font-semibold" style="color: var(--el-text-color-secondary)">{{ t('gis.layerControl') }}</span>
       <el-checkbox v-model="layerVisible.base" @change="toggleBaseLayer" size="small">{{ t('gis.baseMap') }}</el-checkbox>
@@ -37,7 +37,7 @@
     <!-- 测距工具 -->
     <div
       class="absolute top-4 left-4 px-3 py-2 z-10 flex gap-2 items-center rounded-lg shadow-lg"
-      style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
+      style="background: var(--el-bg-color, rgba(255,255,255,.92)); border: 1px solid var(--el-border-color-lighter)"
     >
       <el-button-group size="small">
         <el-button :type="measureMode === 'line' ? 'primary' : 'default'" @click="toggleMeasure('line')">{{ t('gis.measureDistance') }}</el-button>
@@ -50,7 +50,7 @@
     <!-- Map Config Panel -->
     <div
       class="absolute top-4 right-4 p-4 z-10 w-80 rounded-lg shadow-lg"
-      style="background: rgba(255,255,255,.92); border: 1px solid var(--el-border-color-lighter)"
+      style="background: var(--el-bg-color, rgba(255,255,255,.92)); border: 1px solid var(--el-border-color-lighter)"
     >
       <div class="flex justify-between items-center mb-3">
         <h3 class="font-semibold" style="color: var(--el-text-color-regular)">{{ t('gis.mapSettings') }}</h3>
@@ -125,12 +125,12 @@
     <div id="popup" class="ol-popup" v-show="popupVisible">
       <div
         class="popup-header flex justify-between items-center px-3 py-2 rounded-t-lg"
-        style="background: rgba(255,255,255,.94); color: var(--el-text-color-regular); border-bottom: 1px solid var(--el-border-color-lighter)"
+        style="background: var(--el-bg-color, rgba(255,255,255,.94)); color: var(--el-text-color-regular); border-bottom: 1px solid var(--el-border-color-lighter)"
       >
         <span class="font-bold truncate max-w-[240px]">{{ popupData.name }}</span>
         <el-icon class="cursor-pointer transition-colors" @click="closePopup"><Close /></el-icon>
       </div>
-      <div class="px-3 py-2 flex items-center justify-between gap-2" style="background: rgba(255,255,255,.94); border-bottom: 1px solid var(--el-border-color-lighter)">
+      <div class="px-3 py-2 flex items-center justify-between gap-2" style="background: var(--el-bg-color, rgba(255,255,255,.94)); border-bottom: 1px solid var(--el-border-color-lighter)">
         <div class="flex items-center gap-2 flex-wrap">
           <el-button size="small" :loading="popupData.actionLoading" @click="popupSubscribePosition">{{ t('gis.subscribeLocation') }}</el-button>
           <el-button size="small" type="primary" :loading="trajectoryLoading" @click="popupQueryTrajectory">{{ t('gis.trajectoryQuery') }}</el-button>
@@ -156,7 +156,7 @@
           {{ popupMeta }}
         </div>
       </div>
-      <div v-if="popupOpsDetail" class="px-3 py-2 text-xs whitespace-pre-wrap" style="background: rgba(255,255,255,.94); border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-secondary)">
+      <div v-if="popupOpsDetail" class="px-3 py-2 text-xs whitespace-pre-wrap" style="background: var(--el-bg-color, rgba(255,255,255,.94)); border-bottom: 1px solid var(--el-border-color-lighter); color: var(--el-text-color-secondary)">
         {{ popupOpsDetail }}
       </div>
       <div class="popup-content w-[520px] h-[292px] bg-black rounded-b-lg overflow-hidden relative">

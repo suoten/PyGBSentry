@@ -52,7 +52,7 @@
     --el-fill-color-lighter: #fafbfd;
     --el-fill-color-extra-light: #fcfdff;
 
-    --el-border-color: #d9e1ec;
+    --el-border-color: var(--el-border-color, #d9e1ec);
     --el-border-color-light: #e6ebf2;
     --el-border-color-lighter: #eef2f7;
     --el-border-color-extra-light: #f5f7fb;
@@ -152,13 +152,13 @@
     /* ── 按钮文字颜色 ── */
     --el-button-text-color: #1f2d3d;
     --el-button-default-text-color: #1f2d3d;
-    --el-button-default-border-color: #d9e1ec;
+    --el-button-default-border-color: var(--el-border-color, #d9e1ec);
     --el-button-default-bg-color: #ffffff;
     --el-button-default-hover-text-color: #409eff;
     --el-button-default-hover-border-color: #409eff;
     --el-button-default-hover-bg-color: #ecf5ff;
     --el-button-default-disabled-text-color: #a0c8ff;
-    --el-button-default-disabled-border-color: #d9e1ec;
+    --el-button-default-disabled-border-color: var(--el-border-color, #d9e1ec);
     --el-button-default-disabled-bg-color: #f4f4f5;
 
     /* Transition */
@@ -192,6 +192,17 @@
        ============================================================ */
     .dark .bg-white {
       background-color: var(--el-bg-color, #141414);
+    }
+    /* Tailwind 带透明度的变体（bg-white/90 等）是独立的类名，需单独覆盖 */
+    .dark .bg-white\/90,
+    .dark .bg-white\/80,
+    .dark .bg-white\/70 {
+      background-color: rgba(20, 20, 20, 0.92);
+    }
+    .dark .bg-slate-50\/80,
+    .dark .bg-slate-50\/70,
+    .dark .bg-slate-50\/50 {
+      background-color: rgba(26, 26, 26, 0.85);
     }
     .dark .bg-slate-50,
     .dark .bg-gray-50 {
@@ -240,6 +251,32 @@
       background-color: #262626;
       border-color: #585858;
       color: #f3f4f6;
+    }
+    .dark .el-button--default.is-disabled,
+    .dark .el-button--default.is-disabled:hover,
+    .dark .el-button--default.is-disabled:focus {
+      background-color: #1a1a1a;
+      border-color: #333333;
+      color: #5c5c5c;
+    }
+    /* 无 type 的 plain 按钮（class 只有 el-button is-plain）走 --el-fill-color-blank，
+       该变量不随暗色翻转 → 白底。统一给暗色表面。 */
+    .dark .el-button.is-plain {
+      background-color: #1f1f1f;
+      border-color: #434343;
+      color: #d1d5db;
+    }
+    .dark .el-button.is-plain:hover,
+    .dark .el-button.is-plain:focus {
+      background-color: #262626;
+      border-color: #585858;
+      color: #f3f4f6;
+    }
+    .dark .el-button.is-plain.is-disabled,
+    .dark .el-button.is-plain.is-disabled:hover {
+      background-color: #1a1a1a;
+      border-color: #333333;
+      color: #5c5c5c;
     }
     .dark .el-input__wrapper,
     .dark .el-input__wrapper:hover {
@@ -657,8 +694,8 @@
       height: 32px;
       padding: 8px 16px;
       font-size: 13px;
-      background-color: #ffffff;
-      border-color: #d9e1ec;
+      background-color: var(--el-bg-color, #ffffff);
+      border-color: var(--el-border-color, #d9e1ec);
       color: var(--el-text-color-regular);
     }
 
@@ -730,13 +767,13 @@
       padding: 0;
       margin-right: 0;
       border-bottom: 1px solid var(--el-border-color-lighter);
-      background: #ffffff;
+      background: var(--el-bg-color, #ffffff);
       cursor: move;
     }
 
     .stream-player-dialog .el-dialog__body {
       padding: 16px;
-      background: #ffffff;
+      background: var(--el-bg-color, #ffffff);
     }
 
     .el-drawer {
@@ -1075,13 +1112,13 @@
     .el-input__wrapper {
       border-radius: 6px;
       box-shadow: 0 0 0 1px var(--el-border-color) inset;
-      background: #ffffff;
+      background: var(--el-bg-color, #ffffff);
       transition: box-shadow var(--transition-time-02), background-color var(--transition-time-02);
     }
 
     .el-input__wrapper:hover {
       box-shadow: 0 0 0 1px var(--el-border-color-hover) inset;
-      background: #ffffff;
+      background: var(--el-bg-color, #ffffff);
     }
 
     .el-input__wrapper.is-focus {
