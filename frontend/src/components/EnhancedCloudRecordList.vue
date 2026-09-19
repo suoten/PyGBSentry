@@ -1139,7 +1139,7 @@ watch(() => [props.deviceId, props.channelId], () => {
 /* 时间轴 */
 .timeline-section {
   padding: 16px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
@@ -1219,7 +1219,7 @@ watch(() => [props.deviceId, props.channelId], () => {
 
 /* 表格 */
 .record-table-wrapper {
-  background: #fff;
+  background: var(--el-bg-color, #fff);
 }
 
 :deep(.el-table) {

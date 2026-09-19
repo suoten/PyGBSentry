@@ -889,7 +889,7 @@ watch(
   left: 21%;
   width: 58%;
   height: 58%;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   border-radius: 100%;
 }
 

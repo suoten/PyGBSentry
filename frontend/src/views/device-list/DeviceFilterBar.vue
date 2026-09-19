@@ -137,7 +137,7 @@ defineExpose({
 .filter-summary-chip strong { color: var(--el-text-color-primary); font-weight: 700; }
 .filter-summary-chip--accent { border-color: var(--el-color-primary-light-7); background: var(--el-color-primary-light-9); color: var(--el-color-primary); }
 .device-stats-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.stats-card { border: 1px solid rgba(226, 232, 240, 0.88); border-radius: 6px; background: #ffffff; min-height: 48px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; box-shadow: none; transition: transform var(--transition-time-02), box-shadow var(--transition-time-02), border-color var(--transition-time-02), background-color var(--transition-time-02); }
+.stats-card { border: 1px solid rgba(226, 232, 240, 0.88); border-radius: 6px; background: var(--el-bg-color, #ffffff); min-height: 48px; padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; box-shadow: none; transition: transform var(--transition-time-02), box-shadow var(--transition-time-02), border-color var(--transition-time-02), background-color var(--transition-time-02); }
 .stats-card:hover { border-color: var(--el-color-primary-light-7); transform: none; box-shadow: none; }
 .stats-card.active { border-color: var(--el-color-primary-light-5); background: var(--el-color-primary-light-9); box-shadow: none; }
 .stats-card:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: 1px; box-shadow: none; }

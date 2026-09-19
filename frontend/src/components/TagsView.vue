@@ -138,7 +138,7 @@ function onCommand(cmd: string) {
   width: 6px;
   height: 6px;
   margin-right: 2px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   border-radius: 50%;
 }
 

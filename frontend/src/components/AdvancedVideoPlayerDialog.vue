@@ -1057,7 +1057,7 @@ watch(
   padding: 0 12px;
   border-radius: 6px;
   border: 1px solid #e2e8f0;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   color: #475569;
   font-size: 12px;
   font-weight: 600;
@@ -1170,7 +1170,7 @@ watch(
 .tabs-card {
   border: 1px solid #dbe2ea;
   border-radius: 12px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   overflow: hidden;
   box-shadow: 0 10px 32px rgba(15, 23, 42, 0.06);
 }
@@ -1222,7 +1222,7 @@ watch(
   padding: 0 14px;
   border: 1px solid #dbe2ea;
   border-radius: 9999px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   color: #475569;
   font-size: 12px;
   font-weight: 600;
@@ -1498,7 +1498,7 @@ watch(
   padding: 14px;
   border: 1px dashed #cbd5e1;
   border-radius: 14px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
 }
 
 .line-item {

@@ -25,7 +25,8 @@ defineProps<{
   gap: 16px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--el-border-color-lighter);
-  background: #ffffff;
+  /* FIX [2026-09-19]: 硬编码 #ffffff 不随暗色模式翻转，改用主题表面色 */
+  background: var(--el-bg-color, #ffffff);
   /* FIX [2026-09-19 UX]: 操作按钮过多时（如设备列表 9 个按钮）会把左侧标题/描述
      挤成一条窄竖排文字。允许整行换行，左侧保证最小可读宽度，按钮组整体落到下一行。 */
   flex-wrap: wrap;

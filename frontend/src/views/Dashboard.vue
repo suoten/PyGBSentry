@@ -1170,7 +1170,7 @@ const copyAllSystemInfo = () => {
 .wvp-kpi-card {
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 .wvp-kpi-label {
   font-size: 11px;
@@ -1210,7 +1210,7 @@ const copyAllSystemInfo = () => {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
   box-shadow: none;
   transition: transform var(--transition-time-02), box-shadow var(--transition-time-02), border-color var(--transition-time-02);
 }

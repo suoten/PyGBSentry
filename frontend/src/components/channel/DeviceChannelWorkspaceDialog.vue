@@ -460,7 +460,7 @@ const onClosed = () => {
   padding: 0 12px;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   color: #64748b;
   font-size: 12px;
 }
@@ -555,11 +555,11 @@ const onClosed = () => {
 }
 .channels-table :deep(.el-table__fixed-right),
 .channels-table :deep(.el-table__fixed) {
-  background-color: #fff;
+  background-color: var(--el-bg-color, #fff);
 }
 .channels-table :deep(.el-table__fixed-right .el-table__cell),
 .channels-table :deep(.el-table__fixed .el-table__cell) {
-  background-color: #fff;
+  background-color: var(--el-bg-color, #fff);
 }
 .channels-table-header-row :deep(.el-table__cell) {
   background-color: #f8fafc;
@@ -616,7 +616,7 @@ const onClosed = () => {
   padding: 0 8px;
   border-radius: 6px;
   border-color: #e2e8f0;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   color: #334155;
   font-weight: 600;
   transition: all 0.18s ease;

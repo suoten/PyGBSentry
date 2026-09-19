@@ -55,7 +55,9 @@
       <TableCard>
         <template #header><div class="font-medium">{{ t('visualCommand.recentAlarmHandling') }}</div></template>
         <el-table :data="alarms" v-loading="loading" stripe>
-          <el-table-column prop="time" :label="t('common.time')" width="180" />
+          <el-table-column prop="time" :label="t('common.time')" width="180">
+            <template #default="{ row }">{{ formatDateTime(row.time) }}</template>
+          </el-table-column>
           <el-table-column prop="device_id" :label="t('common.device')" width="180" show-overflow-tooltip />
           <el-table-column prop="channel_id" :label="t('common.channel')" width="180" />
           <el-table-column prop="description" :label="t('common.description')" min-width="220" show-overflow-tooltip />
@@ -86,7 +88,8 @@ import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'
 import { getFriendlyError } from '../utils/errorMessage'
-import { useI18n } from 'vue-i18n' // FIXED: 国际化
+import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '@/utils/time' // FIXED: 国际化
 
 const { t } = useI18n() // FIXED: 国际化
 

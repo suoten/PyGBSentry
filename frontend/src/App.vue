@@ -737,7 +737,7 @@ onMounted(() => {
 
 .header-wrapper {
   flex-shrink: 0;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 
 .main-content {

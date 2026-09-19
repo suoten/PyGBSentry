@@ -72,7 +72,9 @@
           <el-table-column prop="source_plugin" :label="t('structuredEvent.sourcePluginColumn')" width="150" />
           <el-table-column prop="device_id" :label="t('structuredEvent.deviceIdColumn')" width="140" show-overflow-tooltip />
           <el-table-column prop="channel_id" :label="t('structuredEvent.channelIdColumn')" width="140" />
-          <el-table-column prop="event_time" :label="t('structuredEvent.eventTimeColumn')" width="190" />
+          <el-table-column prop="event_time" :label="t('structuredEvent.eventTimeColumn')" width="190">
+            <template #default="{ row }">{{ formatDateTime(row.event_time) }}</template>
+          </el-table-column>
           <el-table-column prop="payload_text" :label="t('structuredEvent.eventContentColumn')" min-width="220" show-overflow-tooltip />
           <el-table-column :label="t('structuredEvent.operationColumn')" width="320" fixed="right">
             <template #default="{ row }">
@@ -125,7 +127,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useI18n } from 'vue-i18n'  // FIXED: 国际化
+import { useI18n } from 'vue-i18n'
+import { formatDateTime } from '@/utils/time'  // FIXED: 国际化
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'
 import TableCard from '../components/TableCard.vue'

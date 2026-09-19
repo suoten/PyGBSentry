@@ -297,7 +297,7 @@ onMounted(() => {
 .login-page {
   position: relative;
   min-height: 100vh;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 
 .login-wrapper {
@@ -385,7 +385,7 @@ onMounted(() => {
   justify-content: center;
   align-items: center;
   padding: 40px 48px;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 
 .login-form-wrapper {
@@ -430,12 +430,12 @@ onMounted(() => {
 
 .login-form :deep(.el-input__wrapper:hover) {
   box-shadow: 0 0 0 1px var(--el-border-color-hover) inset;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 
 .login-form :deep(.el-input__wrapper.is-focus) {
   box-shadow: 0 0 0 1px var(--el-color-primary) inset;
-  background: #ffffff;
+  background: var(--el-bg-color, #ffffff);
 }
 
 .login-form :deep(.el-input__prefix) {

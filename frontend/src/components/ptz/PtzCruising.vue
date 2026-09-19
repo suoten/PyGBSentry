@@ -183,7 +183,7 @@ const onSelectPreset = (value: string | number | undefined) => {
   padding: 0 10px;
   border: 1px solid #e4e7ed;
   border-radius: 4px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   color: #303133;
   font-size: 12px;
 }
@@ -200,7 +200,7 @@ const onSelectPreset = (value: string | number | undefined) => {
   border: 1px dashed #dcdfe6;
   border-radius: 6px;
   padding: 8px 10px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
 }
 
 .points-title {

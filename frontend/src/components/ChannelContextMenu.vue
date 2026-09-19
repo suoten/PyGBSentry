@@ -83,7 +83,7 @@ defineEmits<{
 .tree-context-menu {
   position: fixed;
   z-index: 9999;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   border: 1px solid #e4e7ed;
   border-radius: 6px;
   box-shadow: 0 4px 16px rgba(0,0,0,.12);

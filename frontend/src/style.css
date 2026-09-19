@@ -179,6 +179,79 @@
       --top-header-hover-color: #1f1f1f;
       --tags-view-bg-color: #141414;
       --tags-view-border-color: #303030;
+      /* FIX [2026-09-19]: 表头背景此前无暗色值（恒 #f8fafc 亮色），暗色下表头白块 */
+      --el-table-header-bg: #1d1d1d;
+    }
+
+    /* ============================================================
+       FIX [2026-09-19]: 暗色模式补完整 —— 视图模板大量直接使用 Tailwind
+       表面类（bg-white ×20 / bg-slate-50 ×9 / border-slate-200 ×20 /
+       text-slate-600/700 等），这些类不随 html.dark 翻转，导致暗色下
+       卡片/面板/表头仍是白块。以下按"表面变暗、文字变亮、边框变灰"统一覆盖。
+       亮色模式零影响（全部挂在 .dark 前缀下）。
+       ============================================================ */
+    .dark .bg-white {
+      background-color: var(--el-bg-color, #141414);
+    }
+    .dark .bg-slate-50,
+    .dark .bg-gray-50 {
+      background-color: #1a1a1a;
+    }
+    .dark .bg-slate-100,
+    .dark .bg-gray-100 {
+      background-color: #222222;
+    }
+    .dark .border-slate-100 {
+      border-color: #2b2b2b;
+    }
+    .dark .border-slate-200,
+    .dark .border-gray-200 {
+      border-color: #333333;
+    }
+    .dark .border-slate-300,
+    .dark .border-gray-300 {
+      border-color: #434343;
+    }
+    .dark .text-slate-800 {
+      color: #e5e7eb;
+    }
+    .dark .text-slate-700 {
+      color: #d1d5db;
+    }
+    .dark .text-slate-600,
+    .dark .text-gray-600 {
+      color: #b8bfc9;
+    }
+    .dark .hover\:text-slate-900:hover {
+      color: #f3f4f6;
+    }
+
+    /* 暗色下硬编码白底的组件表面 */
+    .dark .page-header {
+      background: var(--el-bg-color, #141414);
+    }
+    .dark .el-button--default {
+      background-color: #1f1f1f;
+      border-color: #434343;
+      color: #d1d5db;
+    }
+    .dark .el-button--default:hover,
+    .dark .el-button--default:focus {
+      background-color: #262626;
+      border-color: #585858;
+      color: #f3f4f6;
+    }
+    .dark .el-input__wrapper,
+    .dark .el-input__wrapper:hover {
+      background: #1a1a1a;
+    }
+    .dark .el-textarea__inner {
+      background: #1a1a1a;
+      color: #e5e7eb;
+    }
+    .dark .stream-player-dialog .el-dialog__header,
+    .dark .stream-player-dialog .el-dialog__body {
+      background: var(--el-bg-color, #141414);
     }
 
     html,

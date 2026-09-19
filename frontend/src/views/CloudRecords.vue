@@ -86,8 +86,13 @@
         <div class="flex-1 overflow-auto p-3">
           <el-table :data="filteredRows" border size="small" v-loading="loading" :empty-text="t('cloudRecordPage.noRecords')" row-key="id" @selection-change="onSelectionChange" class="h-full">
             <el-table-column type="selection" width="50" />
-            <el-table-column prop="start_time" :label="t('cloudRecordPage.startTimeColumn')" width="160" />
-            <el-table-column prop="end_time" :label="t('cloudRecordPage.endTimeColumn')" width="160" />
+            <el-table-column prop="start_time" :label="t('cloudRecordPage.startTimeColumn')" width="160">
+              <!-- FIX [2026-09-19 UX]: 此前直接显示原始 ISO 串（2026-09-18T15:51:35），改为本地化格式 -->
+              <template #default="{ row }">{{ formatDateTime(row.start_time) }}</template>
+            </el-table-column>
+            <el-table-column prop="end_time" :label="t('cloudRecordPage.endTimeColumn')" width="160">
+              <template #default="{ row }">{{ formatDateTime(row.end_time) }}</template>
+            </el-table-column>
             <el-table-column :label="t('cloudRecordPage.durationColumn')" width="100">
               <template #default="{ row }">
                 {{ formatDuration(row.duration) }}
@@ -182,6 +187,7 @@ import api from '@/utils/http'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'  // FIXED: 国际化
 import { getFriendlyError } from '../utils/errorMessage'
+import { formatDateTime } from '@/utils/time'
 import { VideoCamera, Refresh, Loading, ArrowDown } from '@element-plus/icons-vue'
 import PageContainer from '../components/PageContainer.vue'
 import PageHeader from '../components/PageHeader.vue'

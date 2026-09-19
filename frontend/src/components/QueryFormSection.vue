@@ -74,7 +74,7 @@ const toggleCollapse = () => {
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: #fff;
+  background: var(--el-bg-color, #fff);
   border-radius: 6px;
   border: 1px solid var(--el-border-color-lighter);
   cursor: pointer;
