@@ -274,7 +274,7 @@ watch(playerVisible, (pv) => {
 .cpd-codec-tag {
   font-size: 12px;
   color: #64748b;
-  background: #f1f5f9;
+  background: var(--el-fill-color-light, #f1f5f9);
   padding: 2px 8px;
   border-radius: 4px;
   font-family: monospace;

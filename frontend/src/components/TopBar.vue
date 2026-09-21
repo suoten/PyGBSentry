@@ -183,7 +183,7 @@ async function handleCommand(command: string) {
   height: 32px;
   padding: 0;
   border: 1px solid var(--el-border-color-lighter);
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: var(--el-text-color-primary);
   cursor: pointer;
   border-radius: 6px;
@@ -239,7 +239,7 @@ async function handleCommand(command: string) {
   height: 32px;
   padding: 0;
   border: 1px solid var(--el-border-color-lighter);
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: var(--el-text-color-primary);
   cursor: pointer;
   border-radius: 6px;
@@ -260,7 +260,7 @@ async function handleCommand(command: string) {
   cursor: pointer;
   border-radius: 16px;
   border: 1px solid var(--el-border-color-lighter);
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   transition: all var(--transition-time-02);
 }
 

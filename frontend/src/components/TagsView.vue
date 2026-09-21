@@ -111,7 +111,7 @@ function onCommand(cmd: string) {
   padding: 0 10px;
   font-size: 12px;
   color: var(--el-text-color-regular);
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 4px;
   cursor: pointer;
@@ -178,7 +178,7 @@ function onCommand(cmd: string) {
   height: 24px;
   padding: 0;
   border: 1px solid var(--el-border-color-lighter);
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: var(--el-text-color-secondary);
   border-radius: 4px;
   transition: all var(--transition-time-02);

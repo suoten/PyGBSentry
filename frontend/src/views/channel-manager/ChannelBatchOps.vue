@@ -295,7 +295,7 @@ const civilCodeNamePreview = computed(() => `${selectedProvinceName.value} / ${s
 .cm-business-filter-dialog :deep(.el-dialog__header),
 .cm-batch-business-dialog :deep(.el-dialog__header) {
   padding: 14px 18px 12px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 .cm-rename-dialog :deep(.el-dialog__body),
 .cm-civil-code-dialog :deep(.el-dialog__body),

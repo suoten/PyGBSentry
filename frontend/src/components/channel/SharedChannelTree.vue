@@ -256,7 +256,7 @@ defineExpose({
   border-color: #fecaca;
 }
 .tree-stats-badge--muted {
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: #64748b;
   border-color: #e2e8f0;
 }

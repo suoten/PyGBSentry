@@ -424,7 +424,7 @@ onMounted(() => {
   border-radius: var(--el-border-radius-base);
   box-shadow: 0 0 0 1px var(--el-border-color) inset;
   min-height: 42px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   transition: all var(--transition-time-02);
 }
 

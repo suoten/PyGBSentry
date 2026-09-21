@@ -154,7 +154,7 @@ const switchChannel = (step: number) => {
   padding: 10px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 .channel-select { width: 360px; }
 .window-select { width: 130px; }

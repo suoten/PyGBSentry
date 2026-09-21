@@ -998,12 +998,12 @@ watch(
 .player-dialog :deep(.el-dialog__header) {
   padding: 14px 18px 12px;
   border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 
 .player-dialog :deep(.el-dialog__body) {
   padding: 14px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 
 .dialog-header {
@@ -1124,7 +1124,7 @@ watch(
   padding: 12px 14px;
   border-radius: 8px;
   border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 
 .request-banner--error {
@@ -1356,7 +1356,7 @@ watch(
   min-height: 28px;
   padding: 0 10px;
   border-radius: 9999px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: #475569;
   font-size: 12px;
   font-weight: 600;
@@ -1368,7 +1368,7 @@ watch(
 }
 
 .stage-pill--muted {
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   color: #94a3b8;
 }
 
@@ -1438,7 +1438,7 @@ watch(
 
 .source-card--disabled {
   border-color: #e2e8f0;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 
 .source-card__header {

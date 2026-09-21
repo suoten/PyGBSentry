@@ -474,7 +474,7 @@ const onClosed = () => {
 .channels-dialog :deep(.el-dialog__header) {
   padding: 14px 18px 12px;
   border-bottom: 1px solid #e2e8f0;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 .channels-dialog :deep(.el-dialog__body) {
   padding: 14px 18px 16px;
@@ -490,7 +490,7 @@ const onClosed = () => {
   padding: 10px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   box-shadow: none;
 }
 .channel-context-info,
@@ -586,7 +586,7 @@ const onClosed = () => {
   padding: 10px 12px;
   border: 1px solid #e2e8f0;
   border-radius: 10px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
 }
 .dialog-toolbar-title {
   font-size: 12px;

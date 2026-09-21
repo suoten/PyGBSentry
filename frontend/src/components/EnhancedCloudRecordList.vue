@@ -1114,7 +1114,7 @@ watch(() => [props.deviceId, props.channelId], () => {
   display: flex;
   gap: 24px;
   padding: 12px 16px;
-  background: #f8fafc;
+  background: var(--el-fill-color-light, #f8fafc);
   border: 1px solid #e2e8f0;
   border-radius: 8px;
 }
@@ -1155,7 +1155,7 @@ watch(() => [props.deviceId, props.channelId], () => {
 .timeline-track {
   position: relative;
   height: 28px;
-  background: #f1f5f9;
+  background: var(--el-fill-color-light, #f1f5f9);
   border-radius: 6px;
   overflow: hidden;
 }
