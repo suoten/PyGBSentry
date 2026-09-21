@@ -3,6 +3,7 @@
 A single reusable :class:`httpx.AsyncClient` is lazily created per process so
 connection pooling is effective. Callers obtain it via ``await get_http_client()``.
 """
+
 from __future__ import annotations
 
 from typing import Optional

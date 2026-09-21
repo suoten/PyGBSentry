@@ -13,7 +13,6 @@ import importlib
 from app.models.system_setting import SystemSetting
 
 
-
 _task: asyncio.Task | None = None
 
 PLUGIN_ID = "timelapse"
@@ -39,9 +38,7 @@ async def _get_runtime_cfg() -> dict:
         return _cfg_cache
 
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
     merged = dict(_DEFAULT_BASE_CONFIG)
@@ -80,6 +77,7 @@ async def _get_runtime_cfg() -> dict:
     _cfg_ts = now
     return _cfg_cache
 
+
 async def capture_snapshots():
     """
     Periodically capture snapshots from active streams
@@ -113,6 +111,7 @@ async def capture_snapshots():
 
         await asyncio.sleep(snap_interval)
 
+
 async def _snap(stream, output_dir: str, zlm_flv_base: str):
     asset_id = getattr(stream, "asset_id", None)
     if not asset_id:
@@ -120,10 +119,7 @@ async def _snap(stream, output_dir: str, zlm_flv_base: str):
     if zlm_flv_base:
         stream_url = f"{zlm_flv_base.rstrip('/')}/live/{stream.stream}.live.flv"
     else:
-        stream_url = (
-            f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}"
-            f"/live/{stream.stream}.live.flv"
-        )
+        stream_url = f"http://{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}/live/{stream.stream}.live.flv"
     device_dir = os.path.join(output_dir, str(asset_id))
     if not os.path.exists(device_dir):
         os.makedirs(device_dir)
@@ -145,13 +141,12 @@ async def _snap(stream, output_dir: str, zlm_flv_base: str):
             app_v = str(getattr(stream, "app", "") or "").strip()
             stream_v = str(getattr(stream, "stream", "") or "").strip()
             asset_v = str(getattr(stream, "asset_id", "") or "").strip()
-            line = (
-                f"[{timestamp}] app={app_v} stream={stream_v} asset_id={asset_v} file={rel}\n"
-            )
+            line = f"[{timestamp}] app={app_v} stream={stream_v} asset_id={asset_v} file={rel}\n"
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(line)
         except Exception as e:
             logger.warning(f"Error: {e}")
+
 
 def _cv_snap(url, path):
     try:
@@ -171,6 +166,7 @@ def _cv_snap(url, path):
         return os.path.exists(path)
     except (OSError, ValueError):
         return False
+
 
 async def start():
     global _task

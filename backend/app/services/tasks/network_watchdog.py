@@ -13,7 +13,6 @@ import datetime
 from app.models.system_setting import SystemSetting
 
 
-
 _task: asyncio.Task | None = None
 
 PLUGIN_ID = "network_watchdog"
@@ -38,9 +37,7 @@ async def _get_runtime_cfg() -> dict:
 
     # 多租户兼容：取第一个 enabled=true 的配置（check_interval 不敏感可全局取最大）
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
     merged = dict(_DEFAULT_BASE_CONFIG)
@@ -70,17 +67,19 @@ async def _get_runtime_cfg() -> dict:
     _cfg_ts = now
     return _cfg_cache
 
+
 def ping(host):
     """
     Returns True if host (str) responds to a ping request.
     """
-    param = '-n' if platform.system().lower() == 'windows' else '-c'
-    command = ['ping', param, '1', host]
+    param = "-n" if platform.system().lower() == "windows" else "-c"
+    command = ["ping", param, "1", host]
     try:
         # 防止命令不存在时watchdog崩溃
         return subprocess.call(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0
     except (OSError, FileNotFoundError):
         return False
+
 
 async def watchdog():
     while True:
@@ -127,6 +126,7 @@ async def watchdog():
             logger.error(f"[NetworkWatchdog] Error: {e}")
 
         await asyncio.sleep(check_interval)
+
 
 async def start():
     global _task

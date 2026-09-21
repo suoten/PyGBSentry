@@ -1,4 +1,5 @@
 """设备维保记录：设备台账、维保记录、生命周期管理。"""
+
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -9,8 +10,10 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
+
 
 class AssetMaintenance(Base):
     __tablename__ = "asset_maintenances"

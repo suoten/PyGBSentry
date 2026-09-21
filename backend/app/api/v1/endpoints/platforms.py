@@ -1,4 +1,5 @@
 """上级平台（级联）CRUD API；级联目录推送范围（直播推流转发可选通道）。"""
+
 from fastapi import Query, APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -32,6 +33,7 @@ def _escape_ilike(val: str) -> str:
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 
+
 @router.get("/server_config")
 async def get_platform_server_config(
     current_user: User = Depends(deps.require_roles(["owner", "admin"])),
@@ -61,6 +63,7 @@ async def platform_exist_check(
         stmt = stmt.where(ParentPlatform.tenant_id == (current_user.tenant_id or "default"))
     row = (await db.execute(stmt)).scalars().first()
     return {"exists": bool(row is not None), "server_gb_id": gb_id}
+
 
 def _load_runtime_dict(rt: PlatformRuntime | None) -> dict:
     if not rt or not rt.data:
@@ -98,13 +101,27 @@ async def list_platform_shareable_channels_flat(
     if t == 0:
         stmt = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id).where(Resource.node_type == "channel")
         if kw:
-            stmt = stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), Asset.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Asset.name.ilike(f"%{_escape_ilike(kw)}%")))
+            stmt = stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    Asset.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Asset.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             stmt = stmt.where(Asset.tenant_id == tenant_id)
         # C-15 分页total应返回总条数而非当前页条数
         count_stmt = select(func.count()).select_from(Resource).join(Asset, Asset.id == Resource.asset_id).where(Resource.node_type == "channel")
         if kw:
-            count_stmt = count_stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), Asset.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Asset.name.ilike(f"%{_escape_ilike(kw)}%")))
+            count_stmt = count_stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    Asset.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Asset.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             count_stmt = count_stmt.where(Asset.tenant_id == tenant_id)
         total = (await db.execute(count_stmt)).scalar() or 0
@@ -132,7 +149,13 @@ async def list_platform_shareable_channels_flat(
             .where(PushChannel.gb_enabled)
         )
         if kw:
-            stmt = stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
+            stmt = stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    AccessSource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             stmt = stmt.where(PushChannel.tenant_id == tenant_id)
         # C-15 分页total应返回总条数而非当前页条数
@@ -144,7 +167,13 @@ async def list_platform_shareable_channels_flat(
             .where(PushChannel.gb_enabled)
         )
         if kw:
-            count_stmt = count_stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
+            count_stmt = count_stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    AccessSource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             count_stmt = count_stmt.where(PushChannel.tenant_id == tenant_id)
         total = (await db.execute(count_stmt)).scalar() or 0
@@ -173,7 +202,13 @@ async def list_platform_shareable_channels_flat(
             .where(AccessSource.protocol.in_(["RTSP", "ONVIF", "SDK"]))
         )
         if kw:
-            stmt = stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
+            stmt = stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    AccessSource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             stmt = stmt.where(AccessSource.tenant_id == tenant_id)
         # C-15 分页total应返回总条数而非当前页条数
@@ -185,7 +220,13 @@ async def list_platform_shareable_channels_flat(
             .where(AccessSource.protocol.in_(["RTSP", "ONVIF", "SDK"]))
         )
         if kw:
-            count_stmt = count_stmt.where(or_(Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"), Resource.name.ilike(f"%{_escape_ilike(kw)}%"), AccessSource.name.ilike(f"%{_escape_ilike(kw)}%")))
+            count_stmt = count_stmt.where(
+                or_(
+                    Resource.gb_id.ilike(f"%{_escape_ilike(kw)}%"),
+                    Resource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                    AccessSource.name.ilike(f"%{_escape_ilike(kw)}%"),
+                )
+            )
         if not current_user.is_superuser:
             count_stmt = count_stmt.where(AccessSource.tenant_id == tenant_id)
         total = (await db.execute(count_stmt)).scalar() or 0
@@ -230,7 +271,9 @@ def _build_diagnosis(p: ParentPlatform, runtime: dict) -> dict:  # N-15 诊断�
 
     last_register_code = str(runtime.get("register.last_status_code") or "").strip()
     last_register_error = str(runtime.get("register.last_error") or "").strip()
-    last_register_at = str(runtime.get("register.last_ok_at") or runtime.get("register.last_failed_at") or runtime.get("register.last_sent_at") or "").strip()
+    last_register_at = str(
+        runtime.get("register.last_ok_at") or runtime.get("register.last_failed_at") or runtime.get("register.last_sent_at") or ""
+    ).strip()
 
     last_catalog_ok = runtime.get("catalog.last_push_ok")
     last_catalog_error = str(runtime.get("catalog.last_push_error") or "").strip()
@@ -504,6 +547,7 @@ async def list_platforms(
         for (p, rt) in rows
     ]
 
+
 @router.get("/{platform_id}/runtime")
 async def get_platform_runtime(
     platform_id: str,
@@ -603,23 +647,25 @@ async def get_inbound_cascade_diagnosis(
         keepalive_addr = inbound_data.get("keepalive.last_addr") or ""
         if not reg_ok_at and not reg_addr:
             continue
-        inbound_platforms.append({
-            "platform_id": rt.platform_id,
-            "register": {
-                "last_ok_at": reg_ok_at,
-                "last_addr": reg_addr,
-                "last_transport": reg_transport,
-                "auth": reg_auth,
-                "last_contact": reg_contact,
-                "resp_contact": reg_resp_contact,
-                "last_gb_id": reg_gb_id,
-            },
-            "keepalive": {"last_at": keepalive_at, "last_addr": keepalive_addr},
-            "catalog": {
-                "query_received_at": data.get("inbound.catalog.query_received_at") or "",
-                "query_sn": data.get("inbound.catalog.query_sn") or "",
-            },
-        })
+        inbound_platforms.append(
+            {
+                "platform_id": rt.platform_id,
+                "register": {
+                    "last_ok_at": reg_ok_at,
+                    "last_addr": reg_addr,
+                    "last_transport": reg_transport,
+                    "auth": reg_auth,
+                    "last_contact": reg_contact,
+                    "resp_contact": reg_resp_contact,
+                    "last_gb_id": reg_gb_id,
+                },
+                "keepalive": {"last_at": keepalive_at, "last_addr": keepalive_addr},
+                "catalog": {
+                    "query_received_at": data.get("inbound.catalog.query_received_at") or "",
+                    "query_sn": data.get("inbound.catalog.query_sn") or "",
+                },
+            }
+        )
 
     # 3. 按 trace_id 分组
     trace_by_trace_id = {}
@@ -631,31 +677,37 @@ async def get_inbound_cascade_diagnosis(
             payload = json.loads(evt.payload) if evt.payload else {}
         except Exception:
             payload = {}
-        trace_by_trace_id[tid].append({
-            "event": evt.event,
-            "created_at": str(evt.created_at) if evt.created_at else "",
-            "payload": payload,
-        })
+        trace_by_trace_id[tid].append(
+            {
+                "event": evt.event,
+                "created_at": str(evt.created_at) if evt.created_at else "",
+                "payload": payload,
+            }
+        )
 
     # 4. 生成诊断结论
     diagnostics = []
 
     if not inbound_platforms:
-        diagnostics.append({
-            "level": "error",
-            "key": "no_inbound_register",
-            "title": "No inbound registrations detected",  # i18n
-            "detail": "No subordinate platform has registered recently. Possible causes: 1) Subordinate platform not sending REGISTER; 2) SIP link blocked (firewall/port); 3) REGISTER not reaching this side.",  # i18n
-            "suggestion": "On the subordinate platform: a) Verify target IP/port points to this side; b) Ensure SIP port (5060) is open in firewall; c) Run tcpdump on this server: tcpdump -i any -n 'port 5060'.",  # i18n
-        })
+        diagnostics.append(
+            {
+                "level": "error",
+                "key": "no_inbound_register",
+                "title": "No inbound registrations detected",  # i18n
+                "detail": "No subordinate platform has registered recently. Possible causes: 1) Subordinate platform not sending REGISTER; 2) SIP link blocked (firewall/port); 3) REGISTER not reaching this side.",  # i18n
+                "suggestion": "On the subordinate platform: a) Verify target IP/port points to this side; b) Ensure SIP port (5060) is open in firewall; c) Run tcpdump on this server: tcpdump -i any -n 'port 5060'.",  # i18n
+            }
+        )
     else:
-        diagnostics.append({
-            "level": "info",
-            "key": "inbound_register_seen",
-            "title": f"{len(inbound_platforms)} inbound registration(s) detected",  # W-13 hardcoded Chinese→English
-            "detail": "A subordinate platform has registered to this side.",  # W-13 hardcoded Chinese→English
-            "suggestion": "Check the 'Inbound Platform List' below to confirm whether registration succeeded.",  # W-13 hardcoded Chinese→English
-        })
+        diagnostics.append(
+            {
+                "level": "info",
+                "key": "inbound_register_seen",
+                "title": f"{len(inbound_platforms)} inbound registration(s) detected",  # W-13 hardcoded Chinese→English
+                "detail": "A subordinate platform has registered to this side.",  # W-13 hardcoded Chinese→English
+                "suggestion": "Check the 'Inbound Platform List' below to confirm whether registration succeeded.",  # W-13 hardcoded Chinese→English
+            }
+        )
 
     failed_events = [e for e in register_events if e.event == "register_auth_failed"]
     if failed_events:
@@ -663,25 +715,29 @@ async def get_inbound_cascade_diagnosis(
             latest_fail = json.loads(failed_events[0].payload) if failed_events[0].payload else {}
         except Exception:
             latest_fail = {}
-        diagnostics.append({
-            "level": "error",
-            "key": "register_auth_failed",
-            "title": f"{len(failed_events)} registration auth failure(s) detected",  # W-13 hardcoded Chinese→English
-            "detail": f"Latest failure: {failed_events[0].created_at}, reason: {latest_fail.get('reason', 'unknown')}",  # W-13 hardcoded Chinese→English
-            "suggestion": "Common causes: 1) Password mismatch; 2) Realm mismatch; 3) Username/GB ID mismatch.",  # W-13 hardcoded Chinese→English
-        })
+        diagnostics.append(
+            {
+                "level": "error",
+                "key": "register_auth_failed",
+                "title": f"{len(failed_events)} registration auth failure(s) detected",  # W-13 hardcoded Chinese→English
+                "detail": f"Latest failure: {failed_events[0].created_at}, reason: {latest_fail.get('reason', 'unknown')}",  # W-13 hardcoded Chinese→English
+                "suggestion": "Common causes: 1) Password mismatch; 2) Realm mismatch; 3) Username/GB ID mismatch.",  # W-13 hardcoded Chinese→English
+            }
+        )
 
     ok_events = [e for e in register_events if e.event in ("register_ok_platform", "register_ok_device")]
     received_count = len([e for e in register_events if e.event == "register_received"])
     challenge_count = len([e for e in register_events if e.event == "register_401_challenge"])
     if received_count > 0 and len(ok_events) == 0:
-        diagnostics.append({
-            "level": "error",
-            "key": "no_200_ok",
-            "title": "REGISTER Received but No 200 OK Returned",
-            "detail": f"Received {received_count} REGISTER(s), {challenge_count} 401 challenge(s), but no successful registration record.",
-            "suggestion": "Check if the subordinate GB ID exists in the ParentPlatform table (server_gb_id or client_gb_id field), and whether the platform is enabled (enable=true).",
-        })
+        diagnostics.append(
+            {
+                "level": "error",
+                "key": "no_200_ok",
+                "title": "REGISTER Received but No 200 OK Returned",
+                "detail": f"Received {received_count} REGISTER(s), {challenge_count} 401 challenge(s), but no successful registration record.",
+                "suggestion": "Check if the subordinate GB ID exists in the ParentPlatform table (server_gb_id or client_gb_id field), and whether the platform is enabled (enable=true).",
+            }
+        )
 
     sip_ip = settings.SIP_IP
     sip_port = settings.SIP_PORT
@@ -689,22 +745,26 @@ async def get_inbound_cascade_diagnosis(
     sip_id = settings.SIP_ID
 
     if sip_ip in ("0.0.0.0", "") or not sip_ip:
-        diagnostics.append({
-            "level": "warn",
-            "key": "sip_ip_not_public",
-            "title": "SIP_IP is configured as 0.0.0.0",  # W-13 hardcoded Chinese→English
-            "detail": "SIP_IP=0.0.0.0 means listening on all addresses, but the subordinate platform must use the actual reachable address of this side.",  # W-13 hardcoded Chinese→English
-            "suggestion": "If the subordinate platform is not on the same internal network, ensure this side has a public IP or correct NAT mapping.",  # W-13 hardcoded Chinese→English
-        })
+        diagnostics.append(
+            {
+                "level": "warn",
+                "key": "sip_ip_not_public",
+                "title": "SIP_IP is configured as 0.0.0.0",  # W-13 hardcoded Chinese→English
+                "detail": "SIP_IP=0.0.0.0 means listening on all addresses, but the subordinate platform must use the actual reachable address of this side.",  # W-13 hardcoded Chinese→English
+                "suggestion": "If the subordinate platform is not on the same internal network, ensure this side has a public IP or correct NAT mapping.",  # W-13 hardcoded Chinese→English
+            }
+        )
 
     if not sip_domain:
-        diagnostics.append({
-            "level": "warn",
-            "key": "sip_domain_empty",
-            "title": "SIP_DOMAIN is empty",  # W-13 hardcoded Chinese→English
-            "detail": "SIP_DOMAIN is the realm for Digest Auth and must not be empty.",  # W-13 hardcoded Chinese→English
-            "suggestion": "Set SIP_DOMAIN in .env (usually the area code), and ensure the subordinate platform's realm config matches.",  # W-13 hardcoded Chinese→English
-        })
+        diagnostics.append(
+            {
+                "level": "warn",
+                "key": "sip_domain_empty",
+                "title": "SIP_DOMAIN is empty",  # W-13 hardcoded Chinese→English
+                "detail": "SIP_DOMAIN is the realm for Digest Auth and must not be empty.",  # W-13 hardcoded Chinese→English
+                "suggestion": "Set SIP_DOMAIN in .env (usually the area code), and ensure the subordinate platform's realm config matches.",  # W-13 hardcoded Chinese→English
+            }
+        )
 
     return {
         "sip_config": {
@@ -772,13 +832,17 @@ async def trigger_platform_register(
 ):
     tenant_id = current_user.tenant_id or "default"
     p = (
-        await db.execute(
-            select(ParentPlatform).where(
-                ParentPlatform.id == platform_id,
-                ParentPlatform.tenant_id == tenant_id,
+        (
+            await db.execute(
+                select(ParentPlatform).where(
+                    ParentPlatform.id == platform_id,
+                    ParentPlatform.tenant_id == tenant_id,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not p:
         await safe_auth_audit(
             db,
@@ -846,13 +910,17 @@ async def trigger_platform_push_catalog(
 ):
     tenant_id = current_user.tenant_id or "default"
     p = (
-        await db.execute(
-            select(ParentPlatform).where(
-                ParentPlatform.id == platform_id,
-                ParentPlatform.tenant_id == tenant_id,
+        (
+            await db.execute(
+                select(ParentPlatform).where(
+                    ParentPlatform.id == platform_id,
+                    ParentPlatform.tenant_id == tenant_id,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not p:
         await safe_auth_audit(
             db,
@@ -911,6 +979,7 @@ async def trigger_platform_push_catalog(
     )
     return {"ok": True}
 
+
 @router.post("")
 async def create_platform(
     payload: PlatformCreate,
@@ -919,10 +988,7 @@ async def create_platform(
 ):
     tenant_id = current_user.tenant_id or "default"
     existing = await db.execute(
-        select(ParentPlatform).where(
-            ParentPlatform.tenant_id == tenant_id,
-            ParentPlatform.server_gb_id == payload.server_gb_id.strip()
-        )
+        select(ParentPlatform).where(ParentPlatform.tenant_id == tenant_id, ParentPlatform.server_gb_id == payload.server_gb_id.strip())
     )
     if existing.scalars().first():
         await safe_auth_audit(
@@ -946,7 +1012,9 @@ async def create_platform(
         server_port=payload.server_port,
         transport=_normalize_transport(payload.transport),
         client_gb_id=payload.client_gb_id.strip(),
-        password=(payload.password.strip() if payload.password and payload.password.strip() else (settings.SIP_DEFAULT_PASSWORD or "")),  # 移除弱密码回退"12345678"
+        password=(
+            payload.password.strip() if payload.password and payload.password.strip() else (settings.SIP_DEFAULT_PASSWORD or "")
+        ),  # 移除弱密码回退"12345678"
         register_interval=payload.register_interval,
         keepalive_interval=payload.keepalive_interval,
         enable=payload.enable,
@@ -971,18 +1039,13 @@ async def create_platform(
 
 @router.put("/{platform_id}")
 async def update_platform(
-  platform_id: str,
-  payload: PlatformUpdate,
-  db: AsyncSession = Depends(get_db),
-  current_user: User = Depends(deps.require_permission("devices.manage")),  # 角色检查→权限码检查
+    platform_id: str,
+    payload: PlatformUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.require_permission("devices.manage")),  # 角色检查→权限码检查
 ):
     tenant_id = current_user.tenant_id or "default"
-    result = await db.execute(
-        select(ParentPlatform).where(
-            ParentPlatform.id == platform_id,
-            ParentPlatform.tenant_id == tenant_id
-        )
-    )
+    result = await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id, ParentPlatform.tenant_id == tenant_id))
     p = result.scalars().first()
     if not p:
         await safe_auth_audit(
@@ -1065,17 +1128,12 @@ async def update_platform(
 
 @router.delete("/{platform_id}")
 async def delete_platform(
-  platform_id: str,
-  db: AsyncSession = Depends(get_db),
-  current_user: User = Depends(deps.require_permission("devices.manage")),  # 角色检查→权限码检查
+    platform_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.require_permission("devices.manage")),  # 角色检查→权限码检查
 ):
     tenant_id = current_user.tenant_id or "default"
-    result = await db.execute(
-        select(ParentPlatform).where(
-            ParentPlatform.id == platform_id,
-            ParentPlatform.tenant_id == tenant_id
-        )
-    )
+    result = await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id, ParentPlatform.tenant_id == tenant_id))
     p = result.scalars().first()
     if not p:
         await safe_auth_audit(
@@ -1098,6 +1156,7 @@ async def delete_platform(
     # C-27 删除平台时清理_catalog_ack_counter残留条目
     try:
         from app.services.platform_service import platform_service
+
         if platform_service:
             platform_service._catalog_ack_counter.pop((tenant_id, platform_id), None)
     except Exception as _cleanup_err:
@@ -1124,9 +1183,11 @@ class CatalogResourceMapping(BaseModel):
     virtual_name: str | None = None
     virtual_parent_id: str | None = None
 
+
 class CatalogResourcesPayload(BaseModel):
-    resource_ids: list[str] = [] # Legacy support
+    resource_ids: list[str] = []  # Legacy support
     mappings: list[CatalogResourceMapping] | None = None
+
 
 @router.get("/{platform_id}/catalog-resources")
 async def get_platform_catalog_resources(
@@ -1137,35 +1198,26 @@ async def get_platform_catalog_resources(
     """获取该上级平台的目录推送通道列表；空表示推全部通道。"""
     tenant_id = current_user.tenant_id or "default"
     get_or_404(
-        await db.execute(
-            select(ParentPlatform).where(
-                ParentPlatform.id == platform_id,
-                ParentPlatform.tenant_id == tenant_id
-            )
-        ),
-        detail="ParentPlatform not found"
+        await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id, ParentPlatform.tenant_id == tenant_id)),
+        detail="ParentPlatform not found",
     )  # ORM查询结果空值判断
-    r = await db.execute(
-        select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id)
-    )
+    r = await db.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id))
     mappings = r.scalars().all()
 
     result_mappings = []
     resource_ids = []
     for m in mappings:
         resource_ids.append(m.resource_id)
-        result_mappings.append({
-            "resource_id": m.resource_id,
-            "virtual_gb_id": m.virtual_gb_id,
-            "virtual_name": m.virtual_name,
-            "virtual_parent_id": m.virtual_parent_id,
-        })
+        result_mappings.append(
+            {
+                "resource_id": m.resource_id,
+                "virtual_gb_id": m.virtual_gb_id,
+                "virtual_name": m.virtual_name,
+                "virtual_parent_id": m.virtual_parent_id,
+            }
+        )
 
-    return {
-        "platform_id": platform_id,
-        "resource_ids": resource_ids,
-        "mappings": result_mappings
-    }
+    return {"platform_id": platform_id, "resource_ids": resource_ids, "mappings": result_mappings}
 
 
 @router.put("/{platform_id}/catalog-resources")
@@ -1177,14 +1229,7 @@ async def set_platform_catalog_resources(
 ):
     """设置该上级平台仅接收的通道列表及其虚拟映射规则；空列表表示推全部。"""
     tenant_id = current_user.tenant_id or "default"
-    p = (
-        await db.execute(
-            select(ParentPlatform).where(
-                ParentPlatform.id == platform_id,
-                ParentPlatform.tenant_id == tenant_id
-            )
-        )
-    ).scalars().first()
+    p = (await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id, ParentPlatform.tenant_id == tenant_id))).scalars().first()
     if not p:
         await safe_auth_audit(
             db,
@@ -1211,34 +1256,22 @@ async def set_platform_catalog_resources(
             if not rid or rid in inserted_ids:
                 continue
 
-            existing = (
-                await db.execute(
-                    select(Resource).where(
-                        Resource.id == rid,
-                        Resource.tenant_id == tenant_id
+            existing = (await db.execute(select(Resource).where(Resource.id == rid, Resource.tenant_id == tenant_id))).scalars().first()
+            if existing:
+                db.add(
+                    PlatformCatalogResource(
+                        platform_id=platform_id,
+                        resource_id=rid,
+                        virtual_gb_id=m.virtual_gb_id.strip() if m.virtual_gb_id else None,
+                        virtual_name=m.virtual_name.strip() if m.virtual_name else None,
+                        virtual_parent_id=m.virtual_parent_id.strip() if m.virtual_parent_id else None,
                     )
                 )
-            ).scalars().first()
-            if existing:
-                db.add(PlatformCatalogResource(
-                    platform_id=platform_id,
-                    resource_id=rid,
-                    virtual_gb_id=m.virtual_gb_id.strip() if m.virtual_gb_id else None,
-                    virtual_name=m.virtual_name.strip() if m.virtual_name else None,
-                    virtual_parent_id=m.virtual_parent_id.strip() if m.virtual_parent_id else None
-                ))
                 inserted_ids.add(rid)
     else:
         ids = list(dict.fromkeys([x.strip() for x in (payload.resource_ids or []) if x and x.strip()]))
         for rid in ids:
-            existing = (
-                await db.execute(
-                    select(Resource).where(
-                        Resource.id == rid,
-                        Resource.tenant_id == tenant_id
-                    )
-                )
-            ).scalars().first()
+            existing = (await db.execute(select(Resource).where(Resource.id == rid, Resource.tenant_id == tenant_id))).scalars().first()
             if existing:
                 db.add(PlatformCatalogResource(platform_id=platform_id, resource_id=rid))
                 inserted_ids.add(rid)
@@ -1255,9 +1288,6 @@ async def set_platform_catalog_resources(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"platform_id={platform_id}; mode={mode}; "
-            f"resource_count={len(inserted_ids)}"
-        ),
+        extra_summary=(f"platform_id={platform_id}; mode={mode}; resource_count={len(inserted_ids)}"),
     )
     return {"platform_id": platform_id, "resource_ids": list(inserted_ids)}

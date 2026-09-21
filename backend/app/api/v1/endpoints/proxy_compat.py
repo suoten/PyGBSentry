@@ -7,13 +7,17 @@ from app.api import deps
 from app.db.session import get_db
 from app.models.user import User
 from app.utils.stream_name import normalize_stream_name
+
 # FIX: [2026-07-03] list_streams 从 stream 包导入，但 stream 包缺少 __init__.py 导致导入失败。
 #      根因：stream 包结构不完整。修复：改为可选导入，缺失时返回空列表。 [全栈工程师]
 try:
     from app.api.v1.endpoints.stream import list_streams
 except ImportError:
+
     async def list_streams(db=None, current_user=None):
         return []
+
+
 from app.api.v1.endpoints.integrations import (
     AccessSourcePayload,
     DesiredStatePayload,
@@ -27,6 +31,7 @@ from app.api.v1.endpoints.integrations import (
 from app.services.auth_audit import safe_auth_audit
 
 router = APIRouter()
+
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
@@ -63,6 +68,7 @@ class ProxySavePayload(BaseModel):
     通过 model_validator(before) 归一化字段名变体（如 srcUrl/src_url/url），
     归一化后使用 extra='forbid' 拒绝未知字段。
     """
+
     model_config = ConfigDict(extra="forbid")
 
     # 所有已知字段（Optional 以兼容部分提交）
@@ -237,7 +243,9 @@ async def proxy_list(
                 continue
         raw_stream = str(r.get("stream_name") or r.get("name") or r.get("id") or "")
         stream_name = normalize_stream_name(raw_stream, fallback=str(r.get("id") or ""))
-        is_running = stream_name in running_set if running_set else (str((r.get("extra") or {}).get("runtime.proxy.is_running") or "").lower() == "true")
+        is_running = (
+            stream_name in running_set if running_set else (str((r.get("extra") or {}).get("runtime.proxy.is_running") or "").lower() == "true")
+        )
         if pulling is True and not is_running:
             continue
         if pulling is False and is_running:
@@ -303,8 +311,10 @@ async def proxy_update(
 async def proxy_start(
     id: str = Body(..., embed=True),  # FIXED-P1: 添加 Body 注解，使 POST JSON body 中的 id 能被正确解析
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"]),
-)):
+    current_user: User = Depends(
+        deps.require_roles(["owner", "admin", "operator"]),
+    ),
+):
     return await set_access_source_desired_state(
         source_id=str(id),
         payload=DesiredStatePayload(state="running", enforce=True),
@@ -318,8 +328,10 @@ async def proxy_start(
 async def proxy_stop(
     id: str = Body(..., embed=True),  # FIXED-P1: 添加 Body 注解，使 POST JSON body 中的 id 能被正确解析
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"]),
-)):
+    current_user: User = Depends(
+        deps.require_roles(["owner", "admin", "operator"]),
+    ),
+):
     return await set_access_source_desired_state(
         source_id=str(id),
         payload=DesiredStatePayload(state="stopped", enforce=True),

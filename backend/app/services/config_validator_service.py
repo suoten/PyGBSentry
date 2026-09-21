@@ -22,6 +22,7 @@
     * 整数值接受 int 或可解析为 int 的字符串。
     * 未知模块仅产生 warning，不阻断。
 """
+
 from __future__ import annotations
 
 import re
@@ -35,12 +36,35 @@ _MODULE_NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_\-]{0,63}$")
 _SENSITIVE_KEY_TOKENS = ("password", "secret", "token", "apikey", "api_key", "private_key")
 
 # 已知模块白名单（仅用于产生 warning，不阻断校验）
-_KNOWN_MODULES = frozenset({
-    "sip", "media", "zlm", "redis", "database", "auth", "jwt",
-    "ssl", "log", "alarm", "record", "ptz", "talk", "map",
-    "billing", "license", "plugin", "ai", "vision", "otp",
-    "firewall", "tracing", "cdn", "hls", "webrtc",
-})
+_KNOWN_MODULES = frozenset(
+    {
+        "sip",
+        "media",
+        "zlm",
+        "redis",
+        "database",
+        "auth",
+        "jwt",
+        "ssl",
+        "log",
+        "alarm",
+        "record",
+        "ptz",
+        "talk",
+        "map",
+        "billing",
+        "license",
+        "plugin",
+        "ai",
+        "vision",
+        "otp",
+        "firewall",
+        "tracing",
+        "cdn",
+        "hls",
+        "webrtc",
+    }
+)
 
 
 class ConfigValidatorService:
@@ -71,25 +95,31 @@ class ConfigValidatorService:
 
             # 模块名校验
             if not isinstance(module_name, str) or not _MODULE_NAME_RE.match(module_name):
-                errors.append({
-                    "field": field_prefix,
-                    "message": f"模块名 '{module_name}' 不合法（需以字母开头，仅含字母/数字/_/-，1-64字符）",
-                })
+                errors.append(
+                    {
+                        "field": field_prefix,
+                        "message": f"模块名 '{module_name}' 不合法（需以字母开头，仅含字母/数字/_/-，1-64字符）",
+                    }
+                )
                 continue
 
             # 未知模块警告
             if module_name.lower() not in _KNOWN_MODULES:
-                warnings.append({
-                    "field": field_prefix,
-                    "message": f"模块 '{module_name}' 不在已知模块列表中，请确认拼写",
-                })
+                warnings.append(
+                    {
+                        "field": field_prefix,
+                        "message": f"模块 '{module_name}' 不在已知模块列表中，请确认拼写",
+                    }
+                )
 
             # 模块配置必须是字典
             if not isinstance(module_config, dict):
-                errors.append({
-                    "field": field_prefix,
-                    "message": f"模块 '{module_name}' 的配置必须是字典类型",
-                })
+                errors.append(
+                    {
+                        "field": field_prefix,
+                        "message": f"模块 '{module_name}' 的配置必须是字典类型",
+                    }
+                )
                 continue
 
             # 逐键校验
@@ -119,10 +149,12 @@ class ConfigValidatorService:
         key_lower = str(key).lower()
         if any(tok in key_lower for tok in _SENSITIVE_KEY_TOKENS):
             if value and not isinstance(value, str):
-                warnings.append({
-                    "field": field,
-                    "message": f"敏感键 '{key}' 的值应为字符串类型",
-                })
+                warnings.append(
+                    {
+                        "field": field,
+                        "message": f"敏感键 '{key}' 的值应为字符串类型",
+                    }
+                )
             return
 
         # 空值跳过
@@ -136,23 +168,29 @@ class ConfigValidatorService:
         if isinstance(value, (list, tuple)):
             for i, item in enumerate(value):
                 if not isinstance(item, (bool, int, float, str)):
-                    warnings.append({
-                        "field": f"{field}[{i}]",
-                        "message": f"列表元素类型 {type(item).__name__} 可能不被支持",
-                    })
+                    warnings.append(
+                        {
+                            "field": f"{field}[{i}]",
+                            "message": f"列表元素类型 {type(item).__name__} 可能不被支持",
+                        }
+                    )
             return
 
         if isinstance(value, dict):
-            hints.append({
-                "field": field,
-                "message": f"键 '{key}' 的值为嵌套字典，部分前端可能不支持编辑",
-            })
+            hints.append(
+                {
+                    "field": field,
+                    "message": f"键 '{key}' 的值为嵌套字典，部分前端可能不支持编辑",
+                }
+            )
             return
 
-        warnings.append({
-            "field": field,
-            "message": f"键 '{key}' 的值类型 {type(value).__name__} 不被支持",
-        })
+        warnings.append(
+            {
+                "field": field,
+                "message": f"键 '{key}' 的值类型 {type(value).__name__} 不被支持",
+            }
+        )
 
 
 # 进程级单例

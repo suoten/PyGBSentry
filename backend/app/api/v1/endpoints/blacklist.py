@@ -14,6 +14,7 @@ router = APIRouter()
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 
+
 @router.get("")
 async def get_blacklists(
     db: AsyncSession = Depends(get_db),
@@ -23,6 +24,7 @@ async def get_blacklists(
     res = await db.execute(stmt)
     items = res.scalars().all()
     return [{"ip": i.ip, "reason": i.reason, "created_at": i.created_at} for i in items]
+
 
 @router.delete("/{ip}")
 async def remove_blacklist(
@@ -66,35 +68,43 @@ async def remove_blacklist(
         # 失败一次就会立即触发 fail_count >= 5 再次拉黑，形成恶性循环。
         try:
             from app.sip.state_backend import get_sip_state_backend
+
             backend = get_sip_state_backend()
             if hasattr(backend, "clear_auth_failure"):
                 await backend.clear_auth_failure(ip)
         except Exception as e:
             from loguru import logger
+
             logger.warning(f"clear_auth_failure for {ip} after blacklist removal failed: {e}")
 
         # FIX: [2026-07-16] 也清除 handlers.py 中的 _digest_fail_tracker 和 _digest_locked
         try:
             from app.sip.handlers import _clear_auth_failures_by_ip
+
             await _clear_auth_failures_by_ip(ip)
         except Exception as e:
             from loguru import logger
+
             logger.warning(f"_clear_auth_failures_by_ip failed for {ip}: {e}")
 
         from app.sip.server import sip_server
 
         if hasattr(sip_server, "reload_ip_blacklist"):
+
             async def _reload_with_catch():
                 try:
                     await sip_server.reload_ip_blacklist()
                 except Exception as e:
                     from loguru import logger
+
                     logger.warning(f"reload_ip_blacklist failed: {e}")
+
             fire_and_forget(_reload_with_catch())  # P0-16: 保存引用防 GC + 异常日志
 
     # FIX: [2026-08-22 P3] IP 不在黑名单时返回 404 而非 200 "Success"
     # （原实现审计记 failed 但响应成功，语义不一致；测试发现）
     if rc <= 0:
         from fastapi import HTTPException as _HTTPException
+
         raise _HTTPException(status_code=404, detail="IP not in blacklist")  # i18n
     return {"message": "Success"}

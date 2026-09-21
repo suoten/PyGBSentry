@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -24,4 +25,3 @@ class FfmpegCmd(Base):
 
     created_at = Column(DateTime, default=func.now(), index=True)
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), index=True)
-

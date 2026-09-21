@@ -22,6 +22,7 @@ GB28181 协议规定 SSRC（同步源标识）为 10 位十进制数字，编码
 ``pygbsentry:ssrc:allocated``，若已存在则重试下一个序号；``release`` 同步 ``SREM``。
 Redis 不可用时 fail-open 到本地 ``asyncio.Lock``（与单节点行为一致）。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -106,6 +107,7 @@ class SsrcManager:
         """
         try:
             from app.core.redis import redis_client
+
             if redis_client is None:
                 return True
             # SADD 返回新增元素数：1=成功新增，0=已存在
@@ -120,6 +122,7 @@ class SsrcManager:
         """FIX: [2026-07-16 P0] 从 Redis 集合中移除 SSRC。"""
         try:
             from app.core.redis import redis_client
+
             if redis_client is None:
                 return
             await redis_client.srem(_REDIS_ALLOCATED_KEY, ssrc)
@@ -195,13 +198,11 @@ class SsrcManager:
             10 位 SSRC 字符串；序号空间耗尽时返回空串（调用方需容忍并报错）。
         """
         import time as _time
+
         async with self._lock:
             serial = await self._next_serial_redis_aware(is_playback)
             if serial < 0:
-                logger.error(
-                    f"SSRC allocation exhausted: is_playback={is_playback}, "
-                    f"allocated={len(self._bucket(is_playback))}"
-                )
+                logger.error(f"SSRC allocation exhausted: is_playback={is_playback}, allocated={len(self._bucket(is_playback))}")
                 return ""
             ssrc = self._assemble(serial, is_playback)
             self._bucket(is_playback).add(ssrc)
@@ -218,9 +219,10 @@ class SsrcManager:
             logger.warning(f"allocate_specific_ssrc: invalid SSRC '{ssrc}'")
             return False
         import time as _time
+
         async with self._lock:
             # 校验流类型一致性：若显式传入的 is_playback 与 SSRC 首位不符，按 SSRC 首位归桶
-            inferred = (_ssrc_stream_type(ssrc) == 1)
+            inferred = _ssrc_stream_type(ssrc) == 1
             bucket = self._bucket(inferred)
             other = self._bucket(not inferred)
             if ssrc in bucket or ssrc in other:
@@ -319,13 +321,14 @@ class SsrcManager:
 
         async with self._lock:
             import time as _time
+
             now = _time.monotonic()
             redis_ssrcs: list[str] = []
             for row in rows:
                 stream_session_id, stream_name, ssrc = row
                 if not _is_valid_ssrc(ssrc):
                     continue
-                inferred = (_ssrc_stream_type(ssrc) == 1)
+                inferred = _ssrc_stream_type(ssrc) == 1
                 bucket = self._bucket(inferred)
                 bucket.add(ssrc)
                 self._alloc_time[ssrc] = now
@@ -343,6 +346,7 @@ class SsrcManager:
         if redis_ssrcs:
             try:
                 from app.core.redis import redis_client
+
                 if redis_client is not None:
                     # SADD 一次性写入所有 SSRC
                     await redis_client.sadd(_REDIS_ALLOCATED_KEY, *redis_ssrcs)
@@ -403,6 +407,7 @@ class SsrcManager:
     async def _cleanup_once(self) -> int:
         """执行一次清理，返回清理的 SSRC 数量。"""
         import time as _time
+
         released = 0
         async with self._lock:
             now = _time.monotonic()

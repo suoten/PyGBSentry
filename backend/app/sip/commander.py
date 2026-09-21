@@ -1,6 +1,7 @@
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
 from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.core.plugin_manager import plugin_manager, HOOK_ON_SIP_SEND
@@ -12,11 +13,14 @@ from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任�
 
 _cseq_counter = itertools.count(1)
 
+
 def _next_cseq() -> int:
     return next(_cseq_counter)
 
+
 # SN序列号使用递增计数器替代随机数
 _sn_counter = itertools.count(10001)
+
 
 def _next_sn() -> int:
     return next(_sn_counter)
@@ -100,6 +104,7 @@ def _attach_common_headers(req: SipMessage, device_id: str = "") -> None:
     if not req.get_header("Allow"):
         req.headers["Allow"] = _SIP_ALLOW_HEADER
 
+
 class SipCommander:
     def __init__(self, sip_server):
         self.sip_server = sip_server
@@ -156,7 +161,7 @@ class SipCommander:
         try:
             _req_dump = data.decode("utf-8", errors="replace")
             _body_start = data.find(b"\r\n\r\n")
-            _body_bytes = data[_body_start + 4:] if _body_start >= 0 else b""
+            _body_bytes = data[_body_start + 4 :] if _body_start >= 0 else b""
             _cl_header = req.get_header("Content-Length") or "?"
             _hex_preview = _body_bytes[:60].hex(" ")
             logger.info(
@@ -169,6 +174,7 @@ class SipCommander:
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
+
             resp, meta = await tx_manager.send_and_wait(
                 request=req,
                 send_once=lambda: send_sip_bytes(proto, transport, addr, data),
@@ -242,7 +248,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{_from_to_host}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{platform_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('plat_cat')
+        req.headers["Call-ID"] = _make_call_id("plat_cat")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -279,7 +285,9 @@ class SipCommander:
             sn=sn,
         )
 
-    async def send_mobile_position_subscribe(self, device_id: str, transport_info: tuple, expires: int = 3600, interval: int = 60, wait_response: bool = False):
+    async def send_mobile_position_subscribe(
+        self, device_id: str, transport_info: tuple, expires: int = 3600, interval: int = 60, wait_response: bool = False
+    ):
         """Send mobile position subscribe."""
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
@@ -301,7 +309,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('sub')
+        req.headers["Call-ID"] = _make_call_id("sub")
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "MobilePosition"
         req.headers["Expires"] = str(expires)
@@ -316,6 +324,7 @@ class SipCommander:
         fire_and_forget(plugin_manager.emit(HOOK_ON_SIP_SEND, req, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
         if wait_response:
             from app.sip.transactions import tx_manager
+
             resp, meta = await tx_manager.send_and_wait(
                 request=req,
                 send_once=lambda: send_sip_bytes(proto, transport, addr, data),
@@ -354,9 +363,9 @@ class SipCommander:
         )
 
     async def send_time_sync(self, device_id: str, transport_info: tuple):
-        """
-        """
+        """ """
         from app.core.timezone import now_in_app_timezone
+
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
         # FIX: [2026-07-17 P1] 统一使用应用时区，与 send_platform_time_sync 保持一致
@@ -379,7 +388,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('ts')
+        req.headers["Call-ID"] = _make_call_id("ts")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -405,8 +414,17 @@ class SipCommander:
             time=time_str,
         )
 
-    async def send_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple,
-                           left_right: int, up_down: int, in_out: int, move_speed: int = 127, zoom_speed: int = 16) -> bool:
+    async def send_ptz_cmd(
+        self,
+        device_id: str,
+        channel_id: str,
+        transport_info: tuple,
+        left_right: int,
+        up_down: int,
+        in_out: int,
+        move_speed: int = 127,
+        zoom_speed: int = 16,
+    ) -> bool:
         """R24-03: 返回 bool 表示 SIP 发送是否成功，避免静默丢失 PTZ 命令。"""
         move_speed = max(0, min(255, int(move_speed or 0)))
         zoom_speed = max(0, min(255, int(zoom_speed or 0)))
@@ -465,7 +483,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('ptz')
+        req.headers["Call-ID"] = _make_call_id("ptz")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -529,7 +547,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('absptz')
+        req.headers["Call-ID"] = _make_call_id("absptz")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -560,8 +578,7 @@ class SipCommander:
         return True
 
     async def send_raw_ptz_cmd(self, device_id: str, channel_id: str, transport_info: tuple, ptz_cmd: str) -> bool:
-        """
-        """
+        """ """
         addr, proto, transport = transport_info
         sn = _next_sn()  # SN序列号使用递增计数器替代随机数
 
@@ -585,7 +602,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('ptz')
+        req.headers["Call-ID"] = _make_call_id("ptz")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -604,8 +621,16 @@ class SipCommander:
         logger.info(f"Sent Raw PTZ Cmd to {channel_id} (device: {device_id}), PTZ={ptz_cmd}")
         return True
 
-    async def send_record_info_query(self, device_id: str, channel_id: str, transport_info: tuple,
-                                     start_time: str, end_time: str, record_type: str = "all", wait_response: bool = False):
+    async def send_record_info_query(
+        self,
+        device_id: str,
+        channel_id: str,
+        transport_info: tuple,
+        start_time: str,
+        end_time: str,
+        record_type: str = "all",
+        wait_response: bool = False,
+    ):
         """
         发送录像文件查?(RecordInfo)
         """
@@ -647,6 +672,7 @@ class SipCommander:
 
         if wait_response:
             from app.sip.transactions import tx_manager
+
             resp, meta = await tx_manager.send_and_wait(
                 request=req,
                 send_once=lambda: send_sip_bytes(proto, transport, addr, data),
@@ -685,8 +711,9 @@ class SipCommander:
         )
         return str(sn)
 
-    async def send_stream_control(self, device_id: str, channel_id: str, transport_info: tuple,
-                                  action: str, stream_session: dict, speed: float = 1.0, seek_time: int = 0):
+    async def send_stream_control(
+        self, device_id: str, channel_id: str, transport_info: tuple, action: str, stream_session: dict, speed: float = 1.0, seek_time: int = 0
+    ):
         """
         发?INFO 录像流控指令: action IN (PAUSE, PLAY, TEARDOWN)
         """
@@ -779,7 +806,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('bc')
+        req.headers["Call-ID"] = _make_call_id("bc")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"  # FIX R23-SEVERE: 使用 _next_cseq() 替代硬编码 CSeq
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -821,7 +848,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('sub')
+        req.headers["Call-ID"] = _make_call_id("sub")
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "catalog"
         req.headers["Expires"] = str(expires)
@@ -885,7 +912,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{sip_id}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('alarm')
+        req.headers["Call-ID"] = _make_call_id("alarm")
         req.headers["CSeq"] = f"{_next_cseq()} SUBSCRIBE"
         req.headers["Event"] = "Alarm"
         req.headers["Expires"] = str(expires)
@@ -919,10 +946,13 @@ class SipCommander:
         """发送设备配置设置/下发 (ConfigUpload)"""
         # 实现ConfigUpload设备配置设置/下发
         from app.sip.device_control import device_control
+
         if device_control:
             return await device_control.send_config_upload(
-                device_id=device_id, channel_id=channel_id,
-                transport_info=transport_info, config_type=config_type,
+                device_id=device_id,
+                channel_id=channel_id,
+                transport_info=transport_info,
+                config_type=config_type,
                 config_data=config_data,
             )
 
@@ -930,19 +960,24 @@ class SipCommander:
         """发送配置下载查询"""
         # 实现 GB28181-2022 配置下载查询
         from app.sip.device_control import device_control
+
         if device_control:
             return await device_control.send_config_download(
-                device_id=device_id, channel_id=channel_id,
-                transport_info=transport_info, config_type=config_type,
+                device_id=device_id,
+                channel_id=channel_id,
+                transport_info=transport_info,
+                config_type=config_type,
             )
 
     async def send_preset_query(self, device_id, channel_id, transport_info):
         """发送预置位查询"""
         # 预置位查询桥接，与wvp对齐
         from app.sip.device_control import device_control
+
         if device_control:
             return await device_control.send_preset_query(
-                device_id=device_id, channel_id=channel_id,
+                device_id=device_id,
+                channel_id=channel_id,
                 transport_info=transport_info,
             )
 
@@ -950,10 +985,13 @@ class SipCommander:
         """发送配置设置命令"""
         # 实现 GB28181-2022 配置设置
         from app.sip.device_control import device_control
+
         if device_control:
             return await device_control.send_config_set(
-                device_id=device_id, channel_id=channel_id,
-                transport_info=transport_info, config_type=config_type,
+                device_id=device_id,
+                channel_id=channel_id,
+                transport_info=transport_info,
+                config_type=config_type,
                 config_params=config_params,
             )
 
@@ -978,7 +1016,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('di')
+        req.headers["Call-ID"] = _make_call_id("di")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1005,8 +1043,9 @@ class SipCommander:
         )
         return str(sn)
 
-    async def send_directory_query(self, device_id: str, transport_info: tuple,
-                                   parent_directory_id: str = "", begin_time: str = "", end_time: str = ""):
+    async def send_directory_query(
+        self, device_id: str, transport_info: tuple, parent_directory_id: str = "", begin_time: str = "", end_time: str = ""
+    ):
         """
         # GB28181-2022 文件目录检索
         发送文件目录检索查询 (CmdType=QueryDirectory)
@@ -1037,7 +1076,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('dir')
+        req.headers["Call-ID"] = _make_call_id("dir")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1140,7 +1179,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('ds')
+        req.headers["Call-ID"] = _make_call_id("ds")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1158,6 +1197,7 @@ class SipCommander:
             logger.warning(f"Failed to send SIP DeviceStatus to {addr}: {e}")
             return None
         logger.info(f"Sent DeviceStatus Query to {device_id}")
+
     async def send_channel_status_query(self, asset, transport_info, channel_id: str):
         """发送通道级状态查询 (CmdType=DeviceStatus, DeviceID=通道国标ID)。
 
@@ -1186,7 +1226,7 @@ class SipCommander:
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_make_branch()}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={_make_tag()}"
         req.headers["To"] = f"<sip:{channel_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _make_call_id('cs')
+        req.headers["Call-ID"] = _make_call_id("cs")
         req.headers["CSeq"] = f"{_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -1202,13 +1242,12 @@ class SipCommander:
             logger.warning(f"Failed to send channel DeviceStatus to {addr}: {e}")
             return None
         logger.info(f"Sent channel DeviceStatus Query to {channel_id} via {device_gb_id}")
-        return str(sn)
-
-
+        # FIX [2026-09-21]: 追踪日志此前被落在 return 之后成为死代码（且引用了不存在的
+        # device_id 导致 F821），恢复其本意：发送前记录 SIP 追踪。
         _sip_trace_log(
             "device_status_query_sent",
             trace_id=req.get_header("Call-ID") or "",
-            device_id=device_id,
+            device_id=device_gb_id,
             proto=proto,
             addr=str(addr),
         )
@@ -1218,6 +1257,7 @@ class SipCommander:
         """GB28181 TimeSync — 向设备发送时间同步请求"""
         # GB28181协议 — 实现平台间时间同步
         from app.core.timezone import now_in_app_timezone
+
         addr, proto, transport = transport_info
         # FIX: [2026-07-17 P1] 统一使用应用时区，与 send_time_sync 保持一致
         now = now_in_app_timezone()
@@ -1265,6 +1305,7 @@ class SipCommander:
             time=time_str,
         )
         return True
+
 
 # Singleton will be initialized in main.py
 sip_commander = None

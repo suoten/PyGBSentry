@@ -200,8 +200,7 @@ def _classify_open_rtp_server_error(data) -> ZlmApiError:
             status_code=502,
         )
     if any(keyword in lower for keyword in ("端口", "port")) and any(
-        keyword in lower
-        for keyword in ("占用", "耗尽", "不足", "already in use", "address already in use", "busy", "used", "exhaust", "range")
+        keyword in lower for keyword in ("占用", "耗尽", "不足", "already in use", "address already in use", "busy", "used", "exhaust", "range")
     ):
         return ZlmApiError(
             "Media node RTP port exhausted",  # i18n
@@ -392,6 +391,7 @@ async def open_rtp_server(
         "rtp_time_out": int(rtp_time_out),
     }
     try:
+
         async def _do_call():
             # FIX [2026-07-19]: 通过 _zlm_post 走 get_http_client（共享 HTTP 客户端），
             # secret 在 POST body 传递。原 _call_zlm_with_breaker 路径使测试
@@ -407,6 +407,7 @@ async def open_rtp_server(
                 operation="openRtpServer",
                 timeout=timeout_s,
             )
+
         data = await _retry_zlm_call(_do_call)
     except ZlmApiError:
         raise
@@ -486,6 +487,7 @@ async def close_rtp_server(
     if app:
         params["app"] = str(app)
     try:
+
         async def _do_call():
             return await _zlm_post(
                 host=host,
@@ -496,6 +498,7 @@ async def close_rtp_server(
                 operation="closeRtpServer",
                 timeout=timeout_s,
             )
+
         data = await _retry_zlm_call(_do_call)
     except ZlmApiError:
         raise
@@ -589,6 +592,7 @@ async def update_rtp_server_ssrc(
         "ssrc": str(ssrc),
     }
     try:
+
         async def _do_call():
             if node_id:
                 client = await get_node_client(host, http_port, node_id)
@@ -596,26 +600,81 @@ async def update_rtp_server_ssrc(
                 client = await get_shared_zlm_client()
             res = await client.post(url, data=params, timeout=5.0)
             return res.json()
+
         data = await _retry_zlm_call(_do_call)
     except ZlmApiError:
         raise
     except httpx.ConnectError as e:
-        raise ZlmApiError(f"updateRtpServerSSRC connect failed: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_node_unreachable", retryable=True, status_code=503, hint="Media node unreachable, please check node status", data={"error": str(e)}) from e  # i18n
+        raise ZlmApiError(
+            f"updateRtpServerSSRC connect failed: {host}:{http_port} - {e}",
+            operation="updateRtpServerSSRC",
+            category="media_node_unreachable",
+            retryable=True,
+            status_code=503,
+            hint="Media node unreachable, please check node status",
+            data={"error": str(e)},
+        ) from e  # i18n
     except httpx.TimeoutException as e:
-        raise ZlmApiError(f"updateRtpServerSSRC timeout: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_node_timeout", retryable=True, status_code=503, hint="Media node response timeout, please check node load", data={"error": str(e)}) from e  # i18n
+        raise ZlmApiError(
+            f"updateRtpServerSSRC timeout: {host}:{http_port} - {e}",
+            operation="updateRtpServerSSRC",
+            category="media_node_timeout",
+            retryable=True,
+            status_code=503,
+            hint="Media node response timeout, please check node load",
+            data={"error": str(e)},
+        ) from e  # i18n
     except httpx.HTTPError as e:
-        raise ZlmApiError(f"updateRtpServerSSRC HTTP error: {host}:{http_port} - {e}", operation="updateRtpServerSSRC", category="media_service_error", retryable=True, status_code=503, data={"error": str(e)}) from e
+        raise ZlmApiError(
+            f"updateRtpServerSSRC HTTP error: {host}:{http_port} - {e}",
+            operation="updateRtpServerSSRC",
+            category="media_service_error",
+            retryable=True,
+            status_code=503,
+            data={"error": str(e)},
+        ) from e
     except Exception as e:
-        raise ZlmApiError(f"updateRtpServerSSRC unexpected error: {e}", operation="updateRtpServerSSRC", category="media_service_error", retryable=False, status_code=500, data={"error": str(e)}) from e
+        raise ZlmApiError(
+            f"updateRtpServerSSRC unexpected error: {e}",
+            operation="updateRtpServerSSRC",
+            category="media_service_error",
+            retryable=False,
+            status_code=500,
+            data={"error": str(e)},
+        ) from e
     if not isinstance(data, dict) or data.get("code") not in (0, "0"):
         code_val = data.get("code") if isinstance(data, dict) else None
         msg_val = data.get("msg", "") if isinstance(data, dict) else ""
         if code_val in (-300, "-300") or "not found" in str(msg_val).lower():
-            raise ZlmApiError(f"updateRtpServerSSRC session not found: {data}", operation="updateRtpServerSSRC", category="media_session_not_found", retryable=False, status_code=404, hint="RTP session not found, may have been released due to timeout", data=data)  # i18n
+            raise ZlmApiError(
+                f"updateRtpServerSSRC session not found: {data}",
+                operation="updateRtpServerSSRC",
+                category="media_session_not_found",
+                retryable=False,
+                status_code=404,
+                hint="RTP session not found, may have been released due to timeout",
+                data=data,
+            )  # i18n
         if code_val in (-100, "-100") or "secret" in str(msg_val).lower():
-            raise ZlmApiError(f"updateRtpServerSSRC auth failed: {data}", operation="updateRtpServerSSRC", category="media_secret_invalid", retryable=False, status_code=502, hint="ZLM authentication failed, please check secret configuration", data=data)  # i18n
-        raise ZlmApiError(f"updateRtpServerSSRC failed: {data}", operation="updateRtpServerSSRC", category="media_service_error", retryable=True, status_code=503, data=data)
+            raise ZlmApiError(
+                f"updateRtpServerSSRC auth failed: {data}",
+                operation="updateRtpServerSSRC",
+                category="media_secret_invalid",
+                retryable=False,
+                status_code=502,
+                hint="ZLM authentication failed, please check secret configuration",
+                data=data,
+            )  # i18n
+        raise ZlmApiError(
+            f"updateRtpServerSSRC failed: {data}",
+            operation="updateRtpServerSSRC",
+            category="media_service_error",
+            retryable=True,
+            status_code=503,
+            data=data,
+        )
     return data
+
 
 async def connect_rtp_server(
     *,
@@ -637,6 +696,7 @@ async def connect_rtp_server(
         "stream_id": str(stream_id),
     }
     try:
+
         async def _do_call():
             if node_id:
                 client = await get_node_client(host, http_port, node_id)
@@ -644,25 +704,87 @@ async def connect_rtp_server(
                 client = await get_shared_zlm_client()
             res = await client.post(url, data=params, timeout=5.0)
             return res.json()
+
         data = await _retry_zlm_call(_do_call)
     except ZlmApiError:
         raise
     except httpx.ConnectError as e:
-        raise ZlmApiError(f"connectRtpServer connect failed: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_node_unreachable", retryable=True, status_code=503, hint="Media node unreachable, please check node status", data={"error": str(e)}) from e  # i18n
+        raise ZlmApiError(
+            f"connectRtpServer connect failed: {host}:{http_port} - {e}",
+            operation="connectRtpServer",
+            category="media_node_unreachable",
+            retryable=True,
+            status_code=503,
+            hint="Media node unreachable, please check node status",
+            data={"error": str(e)},
+        ) from e  # i18n
     except httpx.TimeoutException as e:
-        raise ZlmApiError(f"connectRtpServer timeout: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_node_timeout", retryable=True, status_code=503, hint="Media node response timeout, please check node load", data={"error": str(e)}) from e  # i18n
+        raise ZlmApiError(
+            f"connectRtpServer timeout: {host}:{http_port} - {e}",
+            operation="connectRtpServer",
+            category="media_node_timeout",
+            retryable=True,
+            status_code=503,
+            hint="Media node response timeout, please check node load",
+            data={"error": str(e)},
+        ) from e  # i18n
     except httpx.HTTPError as e:
-        raise ZlmApiError(f"connectRtpServer HTTP error: {host}:{http_port} - {e}", operation="connectRtpServer", category="media_service_error", retryable=True, status_code=503, data={"error": str(e)}) from e
+        raise ZlmApiError(
+            f"connectRtpServer HTTP error: {host}:{http_port} - {e}",
+            operation="connectRtpServer",
+            category="media_service_error",
+            retryable=True,
+            status_code=503,
+            data={"error": str(e)},
+        ) from e
     except Exception as e:
-        raise ZlmApiError(f"connectRtpServer unexpected error: {e}", operation="connectRtpServer", category="media_service_error", retryable=False, status_code=500, data={"error": str(e)}) from e
+        raise ZlmApiError(
+            f"connectRtpServer unexpected error: {e}",
+            operation="connectRtpServer",
+            category="media_service_error",
+            retryable=False,
+            status_code=500,
+            data={"error": str(e)},
+        ) from e
     if not isinstance(data, dict) or data.get("code") not in (0, "0"):
         code_val = data.get("code") if isinstance(data, dict) else None
         msg_val = data.get("msg", "") if isinstance(data, dict) else ""
         if code_val in (-300, "-300") or "not found" in str(msg_val).lower():
-            raise ZlmApiError(f"connectRtpServer session not found: {data}", operation="connectRtpServer", category="media_session_not_found", retryable=False, status_code=404, hint="RTP session not found, may have been released due to timeout", data=data)  # i18n
+            raise ZlmApiError(
+                f"connectRtpServer session not found: {data}",
+                operation="connectRtpServer",
+                category="media_session_not_found",
+                retryable=False,
+                status_code=404,
+                hint="RTP session not found, may have been released due to timeout",
+                data=data,
+            )  # i18n
         if code_val in (-100, "-100") or "secret" in str(msg_val).lower():
-            raise ZlmApiError(f"connectRtpServer auth failed: {data}", operation="connectRtpServer", category="media_secret_invalid", retryable=False, status_code=502, hint="ZLM authentication failed, please check secret configuration", data=data)  # i18n
+            raise ZlmApiError(
+                f"connectRtpServer auth failed: {data}",
+                operation="connectRtpServer",
+                category="media_secret_invalid",
+                retryable=False,
+                status_code=502,
+                hint="ZLM authentication failed, please check secret configuration",
+                data=data,
+            )  # i18n
         if "refused" in str(msg_val).lower() or "unreachable" in str(msg_val).lower():
-            raise ZlmApiError(f"connectRtpServer dest unreachable: {data}", operation="connectRtpServer", category="media_rtp_dest_unreachable", retryable=True, status_code=503, hint="RTP destination unreachable, please check destination address and port", data=data)  # i18n
-        raise ZlmApiError(f"connectRtpServer failed: {data}", operation="connectRtpServer", category="media_service_error", retryable=True, status_code=503, data=data)
+            raise ZlmApiError(
+                f"connectRtpServer dest unreachable: {data}",
+                operation="connectRtpServer",
+                category="media_rtp_dest_unreachable",
+                retryable=True,
+                status_code=503,
+                hint="RTP destination unreachable, please check destination address and port",
+                data=data,
+            )  # i18n
+        raise ZlmApiError(
+            f"connectRtpServer failed: {data}",
+            operation="connectRtpServer",
+            category="media_service_error",
+            retryable=True,
+            status_code=503,
+            data=data,
+        )
     return data

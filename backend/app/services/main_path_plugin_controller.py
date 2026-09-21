@@ -14,6 +14,7 @@ from app.models.asset import Asset
 from app.models.resource import Resource
 from app.services.plugin_runtime_config_helper import load_plugin_runtime_config
 from app.models.stream_session import StreamSession
+
 # P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
 from app.core.async_utils import fire_and_forget
 from app.services.plugin_stream_helper import (
@@ -25,8 +26,6 @@ from app.services.plugin_stream_helper import (
 StreamPolicy = Literal["auto", "main", "sub", "both"]
 StreamType = Literal["main", "sub"]
 StartMode = Literal["passive_only", "fallback_start"]
-
-
 
 
 @dataclass(frozen=True)
@@ -114,12 +113,7 @@ class MainPathPluginController:
         cached = self._tenant_by_channel_cache.get(channel_gb_id)
         if cached:
             return cached
-        stmt = (
-            select(Asset.tenant_id)
-            .select_from(Resource)
-            .join(Asset, Asset.id == Resource.asset_id)
-            .where(Resource.gb_id == channel_gb_id)
-        )
+        stmt = select(Asset.tenant_id).select_from(Resource).join(Asset, Asset.id == Resource.asset_id).where(Resource.gb_id == channel_gb_id)
         tenant_id = (await db.execute(stmt)).scalars().first() or "default"
         tenant_id = str(tenant_id).strip() or "default"
         self._tenant_by_channel_cache[channel_gb_id] = tenant_id
@@ -536,4 +530,3 @@ class MainPathPluginController:
             task.cancel()
         with contextlib.suppress(Exception):
             await asyncio.gather(*(t for _, (t, _) in tasks), return_exceptions=True)
-

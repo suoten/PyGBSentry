@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -25,9 +26,7 @@ class Role(Base):
 
     # FIX: [2026-07-17 P1] 添加复合唯一约束，防止同租户下角色 code 重复
     # 否则 RBAC 权限判断可能因多条同 code 记录而混乱
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "code", name="uq_role_tenant_code"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_role_tenant_code"),)
 
     id = Column(String(32), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), default="default", index=True)

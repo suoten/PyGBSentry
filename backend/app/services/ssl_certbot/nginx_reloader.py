@@ -4,8 +4,6 @@ from loguru import logger
 from app.services.ssl_certbot.certbot_config import CertbotSettings
 
 
-
-
 async def reload_nginx(cfg: CertbotSettings) -> bool:
     if sys.platform != "linux":
         logger.debug("nginx reload skipped: not Linux platform")

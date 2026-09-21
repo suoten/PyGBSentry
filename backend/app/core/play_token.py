@@ -5,6 +5,7 @@ requests to play a stream. ZLM forwards it back via the ``on_play`` hook so
 the backend can authorise the viewer. Tokens are HMAC-SHA256 signed with the
 platform SECRET_KEY and bind the (app, stream) pair.
 """
+
 from __future__ import annotations
 
 import base64

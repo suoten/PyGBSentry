@@ -13,6 +13,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from loguru import logger
 
+
 async def init_db():
     # 先注册全部模型，保证 Base.metadata.create_all 能建出 system_settings 等全部表
     ensure_model_registry_loaded()
@@ -37,6 +38,7 @@ async def init_db():
         _admin_password = ""
         try:
             from app.core.config import settings as _settings
+
             _admin_password = getattr(_settings, "ADMIN_INITIAL_PASSWORD", "") or ""
         except Exception as e:
             logger.warning(f"Failed to read ADMIN_INITIAL_PASSWORD from settings: {e}")
@@ -49,6 +51,7 @@ async def init_db():
         _force_reset = False
         try:
             from app.core.config import settings as _settings
+
             _force_reset = getattr(_settings, "ADMIN_FORCE_RESET_PASSWORD", False)
         except Exception as e:
             logger.warning(f"Failed to read ADMIN_FORCE_RESET_PASSWORD from settings: {e}")
@@ -67,7 +70,7 @@ async def init_db():
                 is_active=True,
                 full_name="Administrator",
                 tenant_id="default",
-                role="owner"
+                role="owner",
             )
             session.add(user)
             await session.commit()
@@ -79,6 +82,7 @@ async def init_db():
             if not _admin_pwd_from_env:
                 try:
                     import os as _os
+
                     _data_dir = _os.path.join(_os.getcwd(), "data")
                     _os.makedirs(_data_dir, exist_ok=True)
                     _pwd_file = _os.path.join(_data_dir, ".admin_initial_password")
@@ -141,10 +145,12 @@ async def init_db():
             trial_days = 0
             try:
                 import httpx
+
                 base_url = (settings.PLUGIN_MARKETPLACE_BASE_URL or "").rstrip("/")
                 record_url = (settings.PLUGIN_SERVER_RECORD_URL or "").strip()
                 if record_url:
                     from urllib.parse import urlparse
+
                     parsed = urlparse(record_url)
                     if parsed.netloc:
                         base_url = f"{parsed.scheme}://{parsed.netloc}"

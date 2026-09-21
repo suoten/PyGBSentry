@@ -8,7 +8,6 @@ from app.db.session import AsyncSessionLocal
 from app.services.plugin_runtime_config_helper import load_plugin_runtime_config
 
 
-
 ConfigHook = Callable[[dict[str, Any]], Awaitable[None]]
 
 
@@ -61,4 +60,3 @@ def register_config_plugin(
 
     pm.register_hook(HOOK_ON_STARTUP, on_startup)
     pm.register_hook(HOOK_ON_SHUTDOWN, on_shutdown)
-

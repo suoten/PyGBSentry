@@ -36,12 +36,12 @@ class SipTraceManager:
             except (RuntimeError, ConnectionError, OSError):
                 dead_connections.append(connection)
         if dead_connections:
-            self.active_connections = [
-                (ws, tid) for ws, tid in self.active_connections if ws not in dead_connections
-            ]
+            self.active_connections = [(ws, tid) for ws, tid in self.active_connections if ws not in dead_connections]
             logger.debug(f"Cleaned up {len(dead_connections)} dead SIP trace WebSocket connections")
 
+
 sip_trace_manager = SipTraceManager()
+
 
 @router.websocket("/ws/sip-trace")
 async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
@@ -50,6 +50,7 @@ async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
         await websocket.close(code=4001, reason="Missing ticket")
         return
     from app.core.ws_ticket import consume_ws_ticket
+
     payload = await consume_ws_ticket(ticket)
     if not payload or not payload.get("sub"):
         await websocket.close(code=4001, reason="Invalid or expired ticket")
@@ -65,6 +66,7 @@ async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
 
     await sip_trace_manager.connect(websocket, tenant_id)
     try:
+
         async def _heartbeat():
             while True:
                 await asyncio.sleep(30)
@@ -74,6 +76,7 @@ async def websocket_sip_trace(websocket: WebSocket, ticket: str = ""):
                     # P2-fix: 记录心跳停止原因，便于排查半开连接
                     logger.debug(f"sip_trace_ws: heartbeat stopped: {_hb_err}")
                     break
+
         # P2-fix: 添加 name 参数便于 asyncio.all_tasks() 排查
         heartbeat_task = asyncio.create_task(_heartbeat(), name="sip_trace_ws_heartbeat")
         try:

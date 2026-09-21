@@ -13,6 +13,7 @@
 
 幂等、永不抛异常。
 """
+
 from __future__ import annotations
 
 import re
@@ -35,8 +36,7 @@ async def ensure_split_region_directory_parents(db: AsyncSession) -> int:
     try:
         stmt = select(Resource).where(
             Resource.node_type == "directory",
-            (Resource.region_parent_gb_id.is_(None))
-            | (Resource.region_parent_gb_id == ""),
+            (Resource.region_parent_gb_id.is_(None)) | (Resource.region_parent_gb_id == ""),
             Resource.parent_gb_id.isnot(None),
             Resource.parent_gb_id != "",
         )

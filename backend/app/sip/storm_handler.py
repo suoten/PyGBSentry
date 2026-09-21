@@ -10,12 +10,12 @@ from app.models.platform import ParentPlatform
 from app.models.resource import Resource
 
 
-
 _keepalive_cache = {}  # {gb_id: (last_update_time, ip, port)}
 KEEPALIVE_DB_INTERVAL = 60  # seconds
 
 # Asynchronous queue for DB updates to smooth out storms
 _db_update_queue = asyncio.Queue(maxsize=10000)
+
 
 async def should_skip_keepalive_db_update(gb_id: str, ip: str, port: int) -> bool:
     """
@@ -43,6 +43,7 @@ async def should_skip_keepalive_db_update(gb_id: str, ip: str, port: int) -> boo
             # Windows Redis 3.0 会抛 "wrong number of arguments"，导致心跳平滑
             # 失效、每次心跳都直查 DB。改用兼容函数逐字段写入。
             from app.core.redis import hset_mapping
+
             await hset_mapping(
                 redis_client,
                 key,
@@ -80,15 +81,9 @@ async def should_skip_keepalive_db_update(gb_id: str, ip: str, port: int) -> boo
 
     return False
 
+
 def enqueue_keepalive_update(gb_id: str, ip: str, port: int, proto: str):
-    item = {
-        "type": "keepalive",
-        "gb_id": gb_id,
-        "ip": ip,
-        "port": port,
-        "proto": proto,
-        "time": datetime.datetime.now(datetime.timezone.utc)
-    }
+    item = {"type": "keepalive", "gb_id": gb_id, "ip": ip, "port": port, "proto": proto, "time": datetime.datetime.now(datetime.timezone.utc)}
     try:
         _db_update_queue.put_nowait(item)
     except asyncio.QueueFull:
@@ -110,13 +105,11 @@ def enqueue_keepalive_update(gb_id: str, ip: str, port: int, proto: str):
             # fire-and-forget 紧急 DB 更新，避免阻塞 SIP 处理协程
             try:
                 from app.core.async_utils import fire_and_forget
+
                 fire_and_forget(_emergency_keepalive_update(gb_id, item["time"]))
             except Exception as e:
                 logger.warning(f"Failed to dispatch emergency keepalive update for {gb_id}: {e}")
-        logger.warning(
-            f"Storm handler queue full, dispatched emergency DB update for {gb_id} "
-            f"(emergency={needs_emergency_update})"
-        )
+        logger.warning(f"Storm handler queue full, dispatched emergency DB update for {gb_id} (emergency={needs_emergency_update})")
 
 
 async def _emergency_keepalive_update(gb_id: str, keepalive_time):
@@ -127,34 +120,44 @@ async def _emergency_keepalive_update(gb_id: str, keepalive_time):
     """
     try:
         async with AsyncSessionLocal() as session:
-            stmt = update(Asset).where(Asset.gb_id == gb_id).values(
-                last_keepalive=keepalive_time,
-                status=1,
+            stmt = (
+                update(Asset)
+                .where(Asset.gb_id == gb_id)
+                .values(
+                    last_keepalive=keepalive_time,
+                    status=1,
+                )
             )
             await session.execute(stmt)
-            platform_stmt = update(ParentPlatform).where(
-                (ParentPlatform.server_gb_id == gb_id) | (ParentPlatform.client_gb_id == gb_id)
-            ).values(
-                last_keepalive=keepalive_time,
+            platform_stmt = (
+                update(ParentPlatform)
+                .where((ParentPlatform.server_gb_id == gb_id) | (ParentPlatform.client_gb_id == gb_id))
+                .values(
+                    last_keepalive=keepalive_time,
+                )
             )
             await session.execute(platform_stmt)
             await session.commit()
     except Exception as e:
         logger.warning(f"Emergency keepalive update failed for {gb_id}: {e}")
 
+
 def enqueue_register_update(gb_id: str, ip: str, port: int, proto: str, expires: int):
     try:
-        _db_update_queue.put_nowait({
-            "type": "register",
-            "gb_id": gb_id,
-            "ip": ip,
-            "port": port,
-            "proto": proto,
-            "expires": expires,
-            "time": datetime.datetime.now(datetime.timezone.utc)
-        })
+        _db_update_queue.put_nowait(
+            {
+                "type": "register",
+                "gb_id": gb_id,
+                "ip": ip,
+                "port": port,
+                "proto": proto,
+                "expires": expires,
+                "time": datetime.datetime.now(datetime.timezone.utc),
+            }
+        )
     except asyncio.QueueFull:
         logger.warning(f"Storm handler queue full, dropping register update for {gb_id}")
+
 
 async def _db_updater_worker():
     """
@@ -183,6 +186,7 @@ async def _db_updater_worker():
             logger.error(f"Error in DB updater worker: {e}")
             await asyncio.sleep(1)
 
+
 async def _process_batch(batch: list):
     if not batch:
         return
@@ -205,28 +209,28 @@ async def _process_batch(batch: list):
                         # 除恢复设备状态外，同时恢复其通道 status（个别真实离线通道由目录
                         # 刷新校正）。否则看门狗误标后，通道要等最长 30 分钟的目录刷新才恢复，
                         # 表现为「通道慢慢离线、同步才回来」。
-                        _arow = (
-                            await session.execute(
-                                select(Asset.id, Asset.status).where(Asset.gb_id == item["gb_id"])
-                            )
-                        ).first()
+                        _arow = (await session.execute(select(Asset.id, Asset.status).where(Asset.gb_id == item["gb_id"]))).first()
                         if _arow is None:
                             continue
                         _was_offline = (_arow.status or 0) == 0
-                        stmt = update(Asset).where(Asset.id == _arow.id).values(
-                            last_keepalive=item["time"],
-                            status=1,
+                        stmt = (
+                            update(Asset)
+                            .where(Asset.id == _arow.id)
+                            .values(
+                                last_keepalive=item["time"],
+                                status=1,
+                            )
                         )
                         await session.execute(stmt)
                         if _was_offline:
-                            await session.execute(
-                                update(Resource).where(Resource.asset_id == _arow.id).values(status=1)
-                            )
+                            await session.execute(update(Resource).where(Resource.asset_id == _arow.id).values(status=1))
 
-                        platform_stmt = update(ParentPlatform).where(
-                            (ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"])
-                        ).values(
-                            last_keepalive=item["time"],
+                        platform_stmt = (
+                            update(ParentPlatform)
+                            .where((ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"]))
+                            .values(
+                                last_keepalive=item["time"],
+                            )
                         )
                         await session.execute(platform_stmt)
 
@@ -236,13 +240,17 @@ async def _process_batch(batch: list):
                         # 原实现只更新 register_time，重启后 _check_device_offline 在
                         # 「注册完成→首个心跳到达」的窗口内读到过期的 last_keepalive，
                         # 把刚上线的设备连同通道误标离线，监控中心无法上屏。
-                        stmt = update(Asset).where(Asset.gb_id == item["gb_id"]).values(
-                            register_time=item["time"],
-                            last_keepalive=item["time"],
-                            status=1 if is_online else 0,
-                            ip_addr=item["ip"],
-                            port=item["port"],
-                            transport=item["proto"]
+                        stmt = (
+                            update(Asset)
+                            .where(Asset.gb_id == item["gb_id"])
+                            .values(
+                                register_time=item["time"],
+                                last_keepalive=item["time"],
+                                status=1 if is_online else 0,
+                                ip_addr=item["ip"],
+                                port=item["port"],
+                                transport=item["proto"],
+                            )
                         )
                         await session.execute(stmt)
 
@@ -250,23 +258,16 @@ async def _process_batch(batch: list):
                             # 设备重新上线时恢复其通道状态（个别真实离线通道由目录刷新校正）。
                             # 两步查询（先取 asset id 再按 asset_id 更新），
                             # 避免在 UPDATE 的 WHERE 中使用子查询引发的方言兼容问题。
-                            _asset_id_row = await session.execute(
-                                select(Asset.id).where(Asset.gb_id == item["gb_id"])
-                            )
+                            _asset_id_row = await session.execute(select(Asset.id).where(Asset.gb_id == item["gb_id"]))
                             _asset_id = _asset_id_row.scalar()
                             if _asset_id:
-                                restore_stmt = update(Resource).where(
-                                    Resource.asset_id == _asset_id
-                                ).values(status=1)
+                                restore_stmt = update(Resource).where(Resource.asset_id == _asset_id).values(status=1)
                                 await session.execute(restore_stmt)
 
-                        platform_stmt = update(ParentPlatform).where(
-                            (ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"])
-                        ).values(
-                            last_keepalive=item["time"],
-                            is_online=is_online,
-                            server_ip=item["ip"],
-                            server_port=item["port"]
+                        platform_stmt = (
+                            update(ParentPlatform)
+                            .where((ParentPlatform.server_gb_id == item["gb_id"]) | (ParentPlatform.client_gb_id == item["gb_id"]))
+                            .values(last_keepalive=item["time"], is_online=is_online, server_ip=item["ip"], server_port=item["port"])
                         )
                         await session.execute(platform_stmt)
 
@@ -295,17 +296,21 @@ async def _process_batch(batch: list):
             else:
                 logger.error(f"Max retries exceeded for {item.get('gb_id', '?')}, dropping")
 
+
 _worker_task = None
+
 
 def start_storm_handler():
     global _worker_task
     if _worker_task is None:
         # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
         from app.core.async_utils import fire_and_forget
+
         _worker_task = fire_and_forget(
             _db_updater_worker(),
             name="storm_handler_db_updater_worker",
         )
+
 
 def stop_storm_handler():
     global _worker_task

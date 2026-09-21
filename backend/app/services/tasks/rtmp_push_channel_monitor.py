@@ -97,18 +97,22 @@ async def _run_loop():
                     source_ids.append(s.id)
 
                 pc_rows = (
-                    await session.execute(
-                        select(PushChannel).where(
-                            PushChannel.id.in_(source_ids),
-                            PushChannel.gb_enabled,
+                    (
+                        await session.execute(
+                            select(PushChannel).where(
+                                PushChannel.id.in_(source_ids),
+                                PushChannel.gb_enabled,
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 pc_by_id = {p.id: p for p in pc_rows}
 
                 media_list = await asyncio.to_thread(get_all_media_from_nodes)
                 running = {}
-                for item in (media_list or []):
+                for item in media_list or []:
                     try:
                         if str(item.get("app") or "") != "live":
                             continue
@@ -183,13 +187,17 @@ async def _run_loop():
                     pc = pc_by_id.get(source.id)
                     if pc and pc.gb_resource_id:
                         res = (
-                            await session.execute(
-                                select(Resource).where(
-                                    Resource.id == pc.gb_resource_id,
-                                    Resource.tenant_id == (source.tenant_id or "default"),
+                            (
+                                await session.execute(
+                                    select(Resource).where(
+                                        Resource.id == pc.gb_resource_id,
+                                        Resource.tenant_id == (source.tenant_id or "default"),
+                                    )
                                 )
                             )
-                        ).scalars().first()
+                            .scalars()
+                            .first()
+                        )
                         if res:
                             next_status = 1 if is_running else 0
                             if int(getattr(res, "status", 0) or 0) != next_status:
@@ -231,5 +239,3 @@ async def stop():
     except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
         logger.warning("(asyncio.CancelledError, asyncio.TimeoutError, Exception) occurred")
     _task = None
-
-

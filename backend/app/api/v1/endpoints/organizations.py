@@ -1,4 +1,5 @@
 """组织 API：树形管理，用于分级分权与资产归属。"""
+
 from fastapi import Query, APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -51,14 +52,16 @@ async def get_organization_tree(
     by_parent: dict = defaultdict(list)
     for o in all_orgs:
         pid = o.parent_id or "__root__"
-        by_parent[pid].append({
-            "id": o.id,
-            "name": o.name,
-            "parent_id": o.parent_id,
-            "tenant_id": o.tenant_id,
-            "sort_order": o.sort_order,
-            "children": [],
-        })
+        by_parent[pid].append(
+            {
+                "id": o.id,
+                "name": o.name,
+                "parent_id": o.parent_id,
+                "tenant_id": o.tenant_id,
+                "sort_order": o.sort_order,
+                "children": [],
+            }
+        )
 
     def build(node: dict) -> dict:
         node["children"] = sorted(
@@ -88,10 +91,7 @@ async def list_organizations(
     stmt = stmt.order_by(Organization.sort_order, Organization.name).offset(skip).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
-    return [
-        {"id": r.id, "name": r.name, "parent_id": r.parent_id, "tenant_id": r.tenant_id, "sort_order": r.sort_order}
-        for r in rows
-    ]
+    return [{"id": r.id, "name": r.name, "parent_id": r.parent_id, "tenant_id": r.tenant_id, "sort_order": r.sort_order} for r in rows]
 
 
 @router.post("", status_code=201)

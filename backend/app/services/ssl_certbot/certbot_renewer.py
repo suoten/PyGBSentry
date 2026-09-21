@@ -6,7 +6,6 @@ from app.services.ssl_certbot.cert_checker import CertStatus
 from app.services.ssl_certbot.certbot_manager import force_renew, get_status
 
 
-
 _task: asyncio.Task | None = None
 
 
@@ -47,8 +46,12 @@ async def start() -> None:
     if not cfg.is_effective:
         return
     _task = asyncio.create_task(_renew_loop())
-    logger.info("SSL certbot renewer: background task started (check every %dh, window %d-%dh)",
-                cfg.renew_check_interval_hours, cfg.renew_window_start_hour, cfg.renew_window_end_hour)
+    logger.info(
+        "SSL certbot renewer: background task started (check every %dh, window %d-%dh)",
+        cfg.renew_check_interval_hours,
+        cfg.renew_window_start_hour,
+        cfg.renew_window_end_hour,
+    )
 
 
 async def stop() -> None:

@@ -128,14 +128,13 @@ async def _execute_stream_switch(session_id: str, target_mode: str, reason: str)
         from sqlalchemy import select
 
         async with AsyncSessionLocal() as session:
-            ss = (await session.execute(
-                select(StreamSession).where(StreamSession.id == session_id)
-            )).scalars().first()
+            ss = (await session.execute(select(StreamSession).where(StreamSession.id == session_id))).scalars().first()
             if not ss or not ss.call_id:
                 return False
 
             # 调用已有的码流切换API
             from app.sip.invite import sip_invite
+
             if sip_invite is None:
                 return False
 
@@ -150,6 +149,7 @@ async def _execute_stream_switch(session_id: str, target_mode: str, reason: str)
             # 触发 Re-INVITE（如果流活跃）
             try:
                 from app.api.v1.endpoints.stream.stream_play import _do_stream_switch
+
                 await _do_stream_switch(str(ss.id), target_mode)
             except Exception as switch_err:
                 logger.warning(f"[AutoStreamSwitch] Re-INVITE failed for session {session_id}: {switch_err}")
@@ -158,6 +158,7 @@ async def _execute_stream_switch(session_id: str, target_mode: str, reason: str)
             return True
     except Exception as e:
         from loguru import logger
+
         logger.error(f"[AutoStreamSwitch] Failed to execute switch for session {session_id}: {e}")
         return False
 
@@ -184,6 +185,7 @@ class StreamStrategy:
 
         # Get quality metrics from StreamQualityMonitor
         from app.services.stream_quality_monitor import stream_quality_monitor
+
         health = await stream_quality_monitor.get_session_health(stream_session_id)
         if not health:
             return False
@@ -206,6 +208,7 @@ class StreamStrategy:
         """Switch from main stream to sub stream by sending new INVITE with stream_type=sub"""
         try:
             from app.services.stream_session_service import release_stream_session
+
             # R-04 码流自适应切换使用正确的invite函数引用
             import app.sip.invite as sip_invite_module
             from app.sip.server import sip_server
@@ -234,6 +237,7 @@ class StreamStrategy:
         """Switch from sub stream to main stream"""
         try:
             from app.services.stream_session_service import release_stream_session
+
             # R-04 码流自适应切换使用正确的invite函数引用
             import app.sip.invite as sip_invite_module
             from app.sip.server import sip_server

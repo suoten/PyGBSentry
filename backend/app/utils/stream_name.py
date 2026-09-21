@@ -1,4 +1,5 @@
 """Stream-name normalisation for proxy-compat and push flows."""
+
 from __future__ import annotations
 
 import re

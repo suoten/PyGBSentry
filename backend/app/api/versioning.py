@@ -19,6 +19,7 @@ Usage in ``main.py``::
     from app.api.versioning import APIVersionMiddleware
     app.add_middleware(APIVersionMiddleware)
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -65,7 +66,7 @@ def negotiate_version(request: Request) -> str:
     # 1. URL path
     path = request.url.path
     if path.startswith(API_PATH_PREFIX):
-        remainder = path[len(API_PATH_PREFIX):]
+        remainder = path[len(API_PATH_PREFIX) :]
         for v in ACTIVE_VERSIONS:
             if remainder.startswith(v + "/") or remainder == v:
                 return v

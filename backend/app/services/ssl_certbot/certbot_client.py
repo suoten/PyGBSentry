@@ -4,7 +4,6 @@ from loguru import logger
 from app.services.ssl_certbot.certbot_config import CertbotSettings
 
 
-
 _lock = asyncio.Lock()
 
 
@@ -45,10 +44,15 @@ async def certbot_certonly(cfg: CertbotSettings) -> tuple[int, str]:
 async def certbot_renew(cfg: CertbotSettings) -> tuple[int, str]:
     async with _lock:
         args = [
-            "certbot", "renew", "--quiet",
-            "--config-dir", cfg.config_dir,
-            "--work-dir", cfg.work_dir,
-            "--logs-dir", cfg.logs_dir,
+            "certbot",
+            "renew",
+            "--quiet",
+            "--config-dir",
+            cfg.config_dir,
+            "--work-dir",
+            cfg.work_dir,
+            "--logs-dir",
+            cfg.logs_dir,
         ]
         logger.info("Running certbot renew")
         try:
@@ -78,14 +82,20 @@ async def certbot_renew(cfg: CertbotSettings) -> tuple[int, str]:
 
 def _build_certonly_args(cfg: CertbotSettings) -> list[str]:
     args = [
-        "certbot", "certonly",
+        "certbot",
+        "certonly",
         "--non-interactive",
         "--agree-tos",
-        "--email", cfg.email,
-        "-d", cfg.domain,
-        "--config-dir", cfg.config_dir,
-        "--work-dir", cfg.work_dir,
-        "--logs-dir", cfg.logs_dir,
+        "--email",
+        cfg.email,
+        "-d",
+        cfg.domain,
+        "--config-dir",
+        cfg.config_dir,
+        "--work-dir",
+        cfg.work_dir,
+        "--logs-dir",
+        cfg.logs_dir,
     ]
     if cfg.mode == "webroot":
         os.makedirs(cfg.webroot_path, exist_ok=True)
@@ -98,7 +108,9 @@ def _build_certonly_args(cfg: CertbotSettings) -> list[str]:
 async def _stop_nginx() -> None:
     try:
         proc = await asyncio.create_subprocess_exec(
-            "nginx", "-s", "stop",
+            "nginx",
+            "-s",
+            "stop",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

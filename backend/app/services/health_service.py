@@ -19,6 +19,7 @@ from app.services.media_manager import media_manager
 from app.services.stream_strategy import should_probe_back_to_tcp_passive, recommend_stream_mode, normalize_stream_mode
 from app.services.commercial_guard import is_subscription_near_expiry
 from app.services.notification_template_service import render_webhook_payload, render_email
+
 # FIX: [2026-07-03] 引入 plugin_manager 用于磁盘空间告警事件发射 [可靠性工程师]
 from app.core.plugin_manager import plugin_manager
 from app.models.media_node import MediaNode
@@ -39,10 +40,12 @@ from app.core.timezone import now_in_app_timezone
 # 探测循环（默认 30s 一次）持续刷屏。
 _decrypt_fail_log_ts: dict[str, float] = {}
 
+
 def _ensure_aware(dt: datetime.datetime) -> datetime.datetime:
     if dt.tzinfo is None:
         return dt.replace(tzinfo=datetime.timezone.utc)
     return dt
+
 
 class HealthService:
     def __init__(self):
@@ -127,9 +130,11 @@ class HealthService:
             try:
                 # FIX: [2026-07-03] DB 连接健康检查，断开时指数退避重连 [可靠性工程师]
                 from app.db.session import _db_health_check_failed
+
                 _db_ok = not _db_health_check_failed
                 if _db_health_check_failed:
                     from app.db.session import ensure_db_connection_with_retry
+
                     reconnected = await ensure_db_connection_with_retry()
                     if reconnected:
                         self.clear_degraded("db_disconnected")
@@ -141,6 +146,7 @@ class HealthService:
                 # 原 metrics.py 定义了但从未调用 .set()，导致 DB 故障告警永不触发
                 try:
                     from app.core.metrics import health_check as _health_gauge
+
                     _health_gauge.labels(check="db").set(1 if _db_ok else 0)
                 except Exception as _metric_err:
                     # FIX [2026-07-17 P3-21]: 描述性日志替代静默吞异常，便于发现指标注册问题
@@ -148,6 +154,7 @@ class HealthService:
                 # FIX: [2026-07-16 P0] Redis 连接健康检查指标
                 try:
                     from app.core.redis import get_redis
+
                     _redis = await get_redis()
                     _redis_ok = _redis is not None and await _redis.ping()
                     _health_gauge.labels(check="redis").set(1 if _redis_ok else 0)
@@ -178,6 +185,7 @@ class HealthService:
                 # FIX: [2026-07-04] 清理已关闭的 per-node HTTP 客户端，防止媒体节点移除后客户端残留 [可靠性工程师]
                 try:
                     from app.services.zlm_rtp_server_service import cleanup_stale_node_clients
+
                     await cleanup_stale_node_clients()
                 except Exception as e:
                     logger.debug(f"Stale node clients cleanup error: {e}")
@@ -205,7 +213,7 @@ class HealthService:
         async with tx_manager._lock:
             stale_tx = []
             for key, tx in tx_manager._tx.items():
-                if now - tx.created_at > 60: # Force clean after 60s
+                if now - tx.created_at > 60:  # Force clean after 60s
                     stale_tx.append(key)
             for key in stale_tx:
                 tx = tx_manager._tx.pop(key, None)
@@ -218,6 +226,7 @@ class HealthService:
     async def _cleanup_stale_media_port_leases(self):
         """自动在后台清理孤儿租约和无效的绑定租约，避免端口长期占用无法分配"""
         from app.core.media_nodes_db import cleanup_stale_leases, cleanup_invalid_bound_leases
+
         try:
             async with AsyncSessionLocal() as session:
                 # FIX: [2026-07-03] 孤儿租约清理延迟从 300s 降至 120s，避免端口假性耗尽 [全栈工程师]
@@ -267,9 +276,7 @@ class HealthService:
         async with AsyncSessionLocal() as session:
             cutoff = now - datetime.timedelta(seconds=zombie_age)
             # N-10 添加LIMIT防止全量加载
-            rows = (await session.execute(
-                select(StreamSession).where(StreamSession.start_time <= cutoff).limit(500)
-            )).scalars().all()
+            rows = (await session.execute(select(StreamSession).where(StreamSession.start_time <= cutoff).limit(500))).scalars().all()
             for ss in rows:
                 app = str(getattr(ss, "app", "") or "")
                 stream = str(getattr(ss, "stream", "") or "")
@@ -283,7 +290,9 @@ class HealthService:
                 for ss in zombie_sessions:
                     try:
                         merged = await session.merge(ss)
-                        logger.warning(f"Active probe detected zombie session: app={getattr(ss, 'app', '')}, stream={getattr(ss, 'stream', '')}. Force cleaning.")
+                        logger.warning(
+                            f"Active probe detected zombie session: app={getattr(ss, 'app', '')}, stream={getattr(ss, 'stream', '')}. Force cleaning."
+                        )
                         await release_stream_session(session, merged, reason="zombie_session_cleanup")
                         cleaned += 1
                     except Exception:
@@ -373,6 +382,7 @@ class HealthService:
                 try:
                     url = f"http://{host}:{port}/index/api/getServerConfig"
                     from app.core.http_client import get_http_client
+
                     client = await get_http_client()
                     # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
                     r = await client.post(url, data={"secret": secret}, timeout=2.0)
@@ -453,15 +463,14 @@ class HealthService:
                     dev.status = 0
                     changed += 1
                     # 级联更新该设备下的所有通道（Resource）状态为离线
-                    await session.execute(
-                        update(Resource).where(Resource.asset_id == dev.id).values(status=0)
-                    )
+                    await session.execute(update(Resource).where(Resource.asset_id == dev.id).values(status=0))
 
             if changed > 0:
                 await session.commit()
                 logger.info(f"Marked {changed} expired devices as offline (strict keepalive policy applied)")
                 try:
                     from app.sip.subscribe_manager import subscribe_manager
+
                     for dev in devices:
                         if dev.status == 0 and dev.gb_id:
                             await subscribe_manager.remove_all_for_device(dev.gb_id)
@@ -469,6 +478,7 @@ class HealthService:
                     logger.warning(f"Failed to cleanup subscriptions for offline devices: {e}")
                 try:
                     from app.core.plugin_manager import plugin_manager, HOOK_ON_DEVICE_OFFLINE
+
                     for dev in devices:
                         if dev.status == 0 and dev.gb_id:
                             fire_and_forget(plugin_manager.emit(HOOK_ON_DEVICE_OFFLINE, dev.gb_id))  # P0-16: 保存引用防 GC + 异常日志
@@ -484,9 +494,7 @@ class HealthService:
         changed = 0
         offline_ids: list[tuple[str, str]] = []
         async with AsyncSessionLocal() as session:
-            rows = (await session.execute(
-                select(ParentPlatform).where(ParentPlatform.is_online)
-            )).scalars().all()
+            rows = (await session.execute(select(ParentPlatform).where(ParentPlatform.is_online))).scalars().all()
             for p in rows:
                 last = getattr(p, "last_keepalive", None)
                 if not last:
@@ -503,6 +511,7 @@ class HealthService:
                 logger.info(f"Marked {changed} expired parent platforms as offline")
         if offline_ids:
             import app.services.platform_service as platform_service_mod
+
             svc = getattr(platform_service_mod, "platform_service", None)
             if svc and getattr(svc, "running", False):
                 for pid, _ in offline_ids:
@@ -525,7 +534,7 @@ class HealthService:
 
             domain = str(settings.SIP_DOMAIN)
             device_id = str(device.gb_id or "")
-            sn = int(time.time() * 1000) % 100000 # __import__ 反模式改为标准 import
+            sn = int(time.time() * 1000) % 100000  # __import__ 反模式改为标准 import
 
             xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Query>
@@ -559,9 +568,7 @@ class HealthService:
             await asyncio.sleep(1.5)
 
             async with AsyncSessionLocal() as session:
-                fresh = (await session.execute(
-                    select(Asset).where(Asset.id == device.id)
-                )).scalars().first()
+                fresh = (await session.execute(select(Asset).where(Asset.id == device.id))).scalars().first()
                 if fresh and fresh.status == 1:
                     return True
             return False
@@ -577,9 +584,7 @@ class HealthService:
         if self._started_at:
             _elapsed = (datetime.datetime.now(datetime.timezone.utc) - self._started_at).total_seconds()
             if _elapsed < self._zlm_grace_period_seconds:
-                logger.debug(
-                    f"ZLM health check skipped (startup grace period: {_elapsed:.0f}s < {self._zlm_grace_period_seconds}s)"
-                )
+                logger.debug(f"ZLM health check skipped (startup grace period: {_elapsed:.0f}s < {self._zlm_grace_period_seconds}s)")
                 return
         # 生产体验：若用户选择外置/禁用内置 ZLM，则不应反复尝试拉起内置进程
         try:
@@ -624,9 +629,11 @@ class HealthService:
         if not settings.STREAM_SELF_HEAL_PROBE_ENABLED:
             return
         async with AsyncSessionLocal() as session:
-            stmt = select(AssetStreamPolicy, AssetStreamHealth).join(
-                AssetStreamHealth, AssetStreamPolicy.asset_id == AssetStreamHealth.asset_id
-            ).where(AssetStreamPolicy.stream_mode == "UDP")
+            stmt = (
+                select(AssetStreamPolicy, AssetStreamHealth)
+                .join(AssetStreamHealth, AssetStreamPolicy.asset_id == AssetStreamHealth.asset_id)
+                .where(AssetStreamPolicy.stream_mode == "UDP")
+            )
             result = await session.execute(stmt)
             rows = result.all()
             switched = 0
@@ -655,9 +662,7 @@ class HealthService:
         if not settings.HEALTH_ALERT_WEBHOOK_URL:
             return
         async with AsyncSessionLocal() as session:
-            stmt = select(AssetStreamHealth, AssetStreamPolicy).outerjoin(
-                AssetStreamPolicy, AssetStreamHealth.asset_id == AssetStreamPolicy.asset_id
-            )
+            stmt = select(AssetStreamHealth, AssetStreamPolicy).outerjoin(AssetStreamPolicy, AssetStreamHealth.asset_id == AssetStreamPolicy.asset_id)
             result = await session.execute(stmt)
             rows = result.all()
             high_risk = 0
@@ -701,6 +706,7 @@ class HealthService:
         }
         try:
             from app.core.http_client import get_http_client
+
             client = await get_http_client()
             await client.post(settings.HEALTH_ALERT_WEBHOOK_URL, json=payload, timeout=3.0)
             logger.warning(f"Health high-risk alert pushed to webhook: high_risk={high_risk}")
@@ -712,11 +718,13 @@ class HealthService:
             return
         now = datetime.datetime.now(datetime.timezone.utc)
         async with AsyncSessionLocal() as session:
-            stmt = select(Alarm, AlarmEscalation).join(
-                AlarmEscalation, Alarm.id == AlarmEscalation.alarm_id
-            ).where(
-                Alarm.status == 0,
-                AlarmEscalation.state != "acknowledged",
+            stmt = (
+                select(Alarm, AlarmEscalation)
+                .join(AlarmEscalation, Alarm.id == AlarmEscalation.alarm_id)
+                .where(
+                    Alarm.status == 0,
+                    AlarmEscalation.state != "acknowledged",
+                )
             )
             result = await session.execute(stmt)
             rows = result.all()
@@ -768,12 +776,14 @@ class HealthService:
         if not url:
             return
         import asyncio
+
         send_payload = render_webhook_payload(event, platform, payload)
         last_err = None
         for attempt in range(max_retries + 1):
             try:
                 from app.core.http_client import get_http_client
                 from loguru import logger
+
                 client = await get_http_client()
                 await client.post(url, json=send_payload, timeout=5.0)
                 return
@@ -794,6 +804,7 @@ class HealthService:
         msg.set_content(body)
         port = int(settings.SMTP_PORT or 25)
         use_tls = bool(settings.SMTP_USE_TLS)
+
         def _send():
             if use_tls:
                 with smtplib.SMTP(settings.SMTP_HOST, port, timeout=8) as smtp:
@@ -806,14 +817,15 @@ class HealthService:
                     if settings.SMTP_USERNAME:
                         smtp.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD or "")
                     smtp.send_message(msg)
+
         await asyncio.to_thread(_send)
 
     async def _build_daily_summary(self) -> dict:
         async with AsyncSessionLocal() as session:
-            stmt = select(Asset, AssetStreamHealth, AssetStreamPolicy).outerjoin(
-                AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id
-            ).outerjoin(
-                AssetStreamPolicy, Asset.id == AssetStreamPolicy.asset_id
+            stmt = (
+                select(Asset, AssetStreamHealth, AssetStreamPolicy)
+                .outerjoin(AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id)
+                .outerjoin(AssetStreamPolicy, Asset.id == AssetStreamPolicy.asset_id)
             )
             result = await session.execute(stmt)
             rows = result.all()
@@ -850,8 +862,7 @@ class HealthService:
             risky_rows.append((asset.gb_id, risk_level, failure_rate, consecutive_failures))
         risky_rows.sort(key=lambda item: ((item[1] == "high"), item[2], item[3]), reverse=True)
         top_risky = [
-            {"device_id": item[0], "risk_level": item[1], "failure_rate": item[2], "consecutive_failures": item[3]}
-            for item in risky_rows[:10]
+            {"device_id": item[0], "risk_level": item[1], "failure_rate": item[2], "consecutive_failures": item[3]} for item in risky_rows[:10]
         ]
         summary = {
             "event": "daily_health_report",
@@ -891,12 +902,14 @@ class HealthService:
         if not settings.SLA_BREACH_NOTIFY_ENABLED:
             return
         async with AsyncSessionLocal() as session:
-            stmt = select(Alarm, AlarmEscalation).join(
-                AlarmEscalation, Alarm.id == AlarmEscalation.alarm_id
-            ).where(
-                Alarm.status == 0,
-                AlarmEscalation.state != "acknowledged",
-                AlarmEscalation.escalation_level >= max(settings.ALARM_ESCALATION_MAX_LEVEL - 1, 1),
+            stmt = (
+                select(Alarm, AlarmEscalation)
+                .join(AlarmEscalation, Alarm.id == AlarmEscalation.alarm_id)
+                .where(
+                    Alarm.status == 0,
+                    AlarmEscalation.state != "acknowledged",
+                    AlarmEscalation.escalation_level >= max(settings.ALARM_ESCALATION_MAX_LEVEL - 1, 1),
+                )
             )
             result = await session.execute(stmt)
             rows = result.all()
@@ -994,10 +1007,21 @@ class HealthService:
 
         async with AsyncSessionLocal() as db:
             tables_to_backup = [
-                "users", "assets", "resources", "alarms", "regions",
-                "organizations", "media_nodes", "billing_plans",
-                "tenant_subscriptions", "tenant_branding", "plugin_orders",
-                "roles", "push_channels", "platforms", "system_settings",
+                "users",
+                "assets",
+                "resources",
+                "alarms",
+                "regions",
+                "organizations",
+                "media_nodes",
+                "billing_plans",
+                "tenant_subscriptions",
+                "tenant_branding",
+                "plugin_orders",
+                "roles",
+                "push_channels",
+                "platforms",
+                "system_settings",
             ]
             sensitive_fields = {"users": {"hashed_password", "totp_secret"}}
             backup_data = {}
@@ -1035,22 +1059,27 @@ class HealthService:
             encrypt_backups = settings.BACKUP_ENCRYPTION_ENABLED
             if encrypt_backups:
                 encrypted = encrypt_field(raw_json, purpose="backup")
+
                 # FIX: [2026-07-17 P1] 同步文件 I/O 通过 asyncio.to_thread 包装，避免阻塞事件循环
                 def _write_encrypted():
                     with open(backup_path, "w", encoding="utf-8") as f:
                         f.write(encrypted)
+
                 await asyncio.to_thread(_write_encrypted)
                 logger.info(f"Auto backup created (encrypted): {backup_filename}")
             else:
+
                 def _write_plaintext():
                     with open(backup_path, "w", encoding="utf-8") as f:
                         f.write(raw_json)
+
                 await asyncio.to_thread(_write_plaintext)
                 logger.info(f"Auto backup created (plaintext): {backup_filename}")
 
     async def _cleanup_old_backups(self):
         """清理超过保留天数的自动备份文件"""
         import os as _os
+
         retention_days = settings.AUTO_BACKUP_RETENTION_DAYS
         backup_dir = _os.path.join(_os.getcwd(), "data", "backups")
         if not _os.path.isdir(backup_dir):
@@ -1082,6 +1111,7 @@ class HealthService:
         """
         try:
             import psutil
+
             process = psutil.Process(os.getpid())
             mem_mb = round(process.memory_info().rss / 1024 / 1024, 1)
         except Exception:
@@ -1107,18 +1137,21 @@ class HealthService:
             # 清理各模块缓存
             try:
                 from app.core.settings_cache import invalidate as invalidate_settings_cache
+
                 invalidate_settings_cache()
             except Exception as e:
                 logger.warning(f"Memory cleanup: settings cache invalidation failed: {e}")
             try:
                 from app.sip.catalog_data_manager import catalog_data_manager
-                if hasattr(catalog_data_manager, '_cache'):
+
+                if hasattr(catalog_data_manager, "_cache"):
                     catalog_data_manager._cache.clear()
             except Exception as e:
                 logger.warning(f"Memory cleanup: catalog data cache clear failed: {e}")
             try:
                 from app.sip.sip_trace_store import sip_trace_store
-                if hasattr(sip_trace_store, 'clear'):
+
+                if hasattr(sip_trace_store, "clear"):
                     sip_trace_store.clear()
             except Exception as e:
                 logger.warning(f"Memory cleanup: sip trace store clear failed: {e}")
@@ -1152,6 +1185,7 @@ class HealthService:
             async with AsyncSessionLocal() as session:
                 from app.models.system_setting import SystemSetting
                 from sqlalchemy import select as _sel
+
                 result = await session.execute(_sel(SystemSetting).where(SystemSetting.setting_key == "record_storage_root"))
                 row = result.scalars().first()
                 record_path = (row.setting_value if row else "").strip()
@@ -1178,18 +1212,20 @@ class HealthService:
         if used_percent >= critical_threshold:
             if not self._disk_recording_stopped:
                 logger.error(
-                    f"Disk space critical: {used_percent:.1f}% used (threshold={critical_threshold}%). "
-                    f"Stopping recording to prevent disk full."
+                    f"Disk space critical: {used_percent:.1f}% used (threshold={critical_threshold}%). Stopping recording to prevent disk full."
                 )
                 self._disk_recording_stopped = True
                 self.mark_degraded("disk_space_critical")
                 # 通过插件事件通知录像模块停止
                 fire_and_forget(
-                    plugin_manager.emit("ON_DISK_SPACE_CRITICAL", {
-                        "path": record_path,
-                        "used_percent": round(used_percent, 1),
-                        "action": "stop_recording",
-                    })
+                    plugin_manager.emit(
+                        "ON_DISK_SPACE_CRITICAL",
+                        {
+                            "path": record_path,
+                            "used_percent": round(used_percent, 1),
+                            "action": "stop_recording",
+                        },
+                    )
                 )
             # 告警冷却 30 分钟
             if not self._disk_alert_cooldown_until or now > self._disk_alert_cooldown_until:
@@ -1208,24 +1244,23 @@ class HealthService:
         elif used_percent >= warning_threshold:
             if not self._disk_alert_cooldown_until or now > self._disk_alert_cooldown_until:
                 self._disk_alert_cooldown_until = now + datetime.timedelta(minutes=30)
-                logger.warning(
-                    f"Disk space warning: {used_percent:.1f}% used (threshold={warning_threshold}%)"
-                )
+                logger.warning(f"Disk space warning: {used_percent:.1f}% used (threshold={warning_threshold}%)")
         else:
             # 恢复
             if self._disk_recording_stopped and used_percent < recovery_threshold:
-                logger.info(
-                    f"Disk space recovered: {used_percent:.1f}% used (below recovery threshold {recovery_threshold}%). "
-                    f"Resuming recording."
-                )
+                logger.info(f"Disk space recovered: {used_percent:.1f}% used (below recovery threshold {recovery_threshold}%). Resuming recording.")
                 self._disk_recording_stopped = False
                 self.clear_degraded("disk_space_critical")
                 fire_and_forget(
-                    plugin_manager.emit("ON_DISK_SPACE_RECOVERED", {
-                        "path": record_path,
-                        "used_percent": round(used_percent, 1),
-                        "action": "resume_recording",
-                    })
+                    plugin_manager.emit(
+                        "ON_DISK_SPACE_RECOVERED",
+                        {
+                            "path": record_path,
+                            "used_percent": round(used_percent, 1),
+                            "action": "resume_recording",
+                        },
+                    )
                 )
+
 
 health_service = HealthService()

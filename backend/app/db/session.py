@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from loguru import logger
 
-_SAFE_TABLE_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_SAFE_TABLE_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 engine_kwargs: dict = {
     "echo": False,
@@ -183,6 +183,7 @@ engine = create_async_engine(settings.SQLALCHEMY_DATABASE_URI, **engine_kwargs)
 def _strip_tzinfo(value):
     """递归去除 datetime 的 tzinfo，将 aware datetime 转为 naive datetime"""
     from datetime import datetime as _dt
+
     if isinstance(value, _dt) and value.tzinfo is not None:
         return value.replace(tzinfo=None)
     if isinstance(value, (list, tuple)):
@@ -208,6 +209,7 @@ def _before_cursor_execute_strip_tzinfo(conn, cursor, statement, parameters, con
 def _after_cursor_execute_slow_query_monitor(conn, cursor, statement, parameters, context, executemany):
     """SQL 执行后检查耗时，超过 SLOW_QUERY_THRESHOLD_SECONDS 则记录慢查询日志。"""
     import time as _time
+
     start_time = getattr(context, "_query_start_time", None)
     if start_time is None:
         return
@@ -216,11 +218,11 @@ def _after_cursor_execute_slow_query_monitor(conn, cursor, statement, parameters
     if elapsed > threshold:
         # 截断 SQL 语句，避免日志过长
         stmt_preview = str(statement)[:300].replace("\n", " ")
-        logger.warning(
-            f"Slow query ({elapsed:.3f}s, threshold={threshold}s): {stmt_preview}"
-        )
+        logger.warning(f"Slow query ({elapsed:.3f}s, threshold={threshold}s): {stmt_preview}")
+
 
 if is_sqlite:
+
     @event.listens_for(engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
@@ -233,9 +235,8 @@ if is_sqlite:
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
-AsyncSessionLocal = sessionmaker(
-    engine, class_=AsyncSession, expire_on_commit=False
-)
+
+AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
 # FIX: [2026-07-03] 数据库连接健康检查与指数退避重连机制 [可靠性工程师]
@@ -308,6 +309,7 @@ async def get_db():
             try:
                 from sqlalchemy.exc import DBAPIError as _DBAPIError
                 from sqlalchemy.exc import OperationalError as _SAOperationalError
+
                 _is_connection_failure = isinstance(exc_value, (_DBAPIError, _SAOperationalError))
             except Exception:
                 _is_connection_failure = True

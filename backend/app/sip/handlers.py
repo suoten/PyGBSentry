@@ -22,13 +22,25 @@ from app.models.alarm import Alarm
 from app.models.alarm_escalation import AlarmEscalation
 from app.models.alarm_link_rule import AlarmLinkRule
 import app.sip.commander as sip_commander_module
-from app.sip.commander import _make_branch as _sip_make_branch, _make_call_id as _sip_make_call_id  # P1-fix [2026-07-17]: 复用 commander 的 64 位随机生成器
+from app.sip.commander import (
+    _make_branch as _sip_make_branch,
+    _make_call_id as _sip_make_call_id,
+)  # P1-fix [2026-07-17]: 复用 commander 的 64 位随机生成器
 from app.sip.catalog import handle_catalog_response
 from app.sip.response_handler import handle_invite_response
 from app.sip.record_handler import handle_record_info_response
 from app.api.v1.endpoints.alarms import alarm_manager
 from app.services.notification_service import notification_service
-from app.core.plugin_manager import plugin_manager, HOOK_ON_DEVICE_REGISTER, HOOK_ON_ALARM, HOOK_ON_DEVICE_ALARM, HOOK_ON_SIP_RECEIVE, HOOK_ON_SIP_SEND, HOOK_ALARM_RECORD_LINK, HOOK_ON_MOBILE_POSITION
+from app.core.plugin_manager import (
+    plugin_manager,
+    HOOK_ON_DEVICE_REGISTER,
+    HOOK_ON_ALARM,
+    HOOK_ON_DEVICE_ALARM,
+    HOOK_ON_SIP_RECEIVE,
+    HOOK_ON_SIP_SEND,
+    HOOK_ALARM_RECORD_LINK,
+    HOOK_ON_MOBILE_POSITION,
+)
 from app.models.stream_session import StreamSession
 from app.models.device_position import DevicePosition
 from app.services.commercial_guard import check_device_quota
@@ -105,7 +117,7 @@ def _record_keepalive_sn(gb_id: str, sn: int) -> None:
     _recent.append(sn)
     if len(_keepalive_last_sn) > _KEEPALIVE_LAST_SN_MAX:
         # 清理最旧的一半（dict 按插入顺序，Python 3.7+ 保证）
-        _keys_to_drop = list(_keepalive_last_sn.keys())[:len(_keepalive_last_sn) // 4]
+        _keys_to_drop = list(_keepalive_last_sn.keys())[: len(_keepalive_last_sn) // 4]
         for _k in _keys_to_drop:
             _keepalive_last_sn.pop(_k, None)
             _keepalive_recent_sn.pop(_k, None)
@@ -122,6 +134,7 @@ def get_device_last_seen_addr(gb_id: str) -> tuple[str, int, str] | None:
         (ip, port, proto) 或 None
     """
     return _device_last_seen_addr.get(gb_id)
+
 
 # 信令路由循环防护 — 重复请求检测缓存
 # FIX-LEAK: 添加 asyncio.Lock 保护并发读写，防止数据竞争
@@ -248,6 +261,7 @@ async def _cleanup_device_resources_inner(gb_id: str) -> None:
     # REGISTER expires=0 should clean up subscriptions, stream sessions, and SSRC
     try:
         from app.sip.subscribe_manager import subscribe_manager
+
         await subscribe_manager.remove_all_for_device(gb_id)
     except Exception as e:
         logger.warning(f"Failed to remove subscriptions for deregistered device {gb_id}: {e}")
@@ -259,10 +273,9 @@ async def _cleanup_device_resources_inner(gb_id: str) -> None:
             from app.models.stream_session import StreamSession
             from app.models.asset import Asset
             from app.services.stream_session_service import release_stream_session
+
             # S-01 每个session使用独立DB会话，避免commit后ORM对象detached导致后续会话跳过清理
-            result = await session.execute(
-                select(StreamSession).join(Asset, StreamSession.asset_id == Asset.id).where(Asset.gb_id == gb_id)
-            )
+            result = await session.execute(select(StreamSession).join(Asset, StreamSession.asset_id == Asset.id).where(Asset.gb_id == gb_id))
             sessions = result.scalars().all()
             session_ids = [str(ss.id) for ss in sessions]
         for sid in session_ids:
@@ -285,12 +298,11 @@ async def _cleanup_device_resources_inner(gb_id: str) -> None:
         async with AsyncSessionLocal() as session:
             from app.models.stream_session import StreamSession
             from app.models.asset import Asset
+
             asset_result = await session.execute(select(Asset).where(Asset.gb_id == gb_id))
             asset = asset_result.scalars().first()
             if asset:
-                sessions_result = await session.execute(
-                    select(StreamSession).where(StreamSession.asset_id == asset.id)
-                )
+                sessions_result = await session.execute(select(StreamSession).where(StreamSession.asset_id == asset.id))
                 for ss in sessions_result.scalars().all():
                     if str(ss.id) not in _released_session_ids:
                         await session.delete(ss)
@@ -300,6 +312,7 @@ async def _cleanup_device_resources_inner(gb_id: str) -> None:
     # W-04 设备注销时清理DialogManager中关联的Dialog条目
     try:
         from app.sip.dialog_manager import dialog_manager
+
         await dialog_manager.terminate_dialogs_by_device(gb_id)
     except Exception as e:
         logger.warning(f"Failed to cleanup dialogs for device {gb_id}: {e}")
@@ -401,12 +414,13 @@ async def _validate_digest_replay(auth_params: dict, fallback_user: str) -> tupl
 
 
 async def send_response(transport, proto: str, addr: tuple, response: SipMessage):
-    if transport is None or getattr(transport, 'is_closing', lambda: False)():
+    if transport is None or getattr(transport, "is_closing", lambda: False)():
         return
     _bg_create_task(plugin_manager.emit(HOOK_ON_SIP_SEND, response, addr, proto))
     try:
         from app.sip.server import sip_server
         from app.sip.transactions import tx_key_from_response, server_tx_manager
+
         await sip_server.cache_response(response)
         key = tx_key_from_response(response)
         await server_tx_manager.update_state(key, response)
@@ -459,6 +473,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
     # 适应后端可能因外部进程管理器重启导致的短生命周期场景。
     # UDP 传输易丢 Catalog Query/Response 包，递增间隔可在丢包后快速重发。
     retry_delays = [2, 3, 5]
+
     # FIX [2026-08-11 P1]: 每次重试前从 _device_last_seen_addr 获取设备最新地址，
     # 解决 NAT 环境下设备 IP:Port 变更后 catalog query 发送到旧地址的问题。
     # Keepalive 的源地址是 NAT 映射后的公网地址，比 REGISTER 时的地址更可靠。
@@ -467,6 +482,7 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         if _latest and len(_latest) >= 3:
             return ((_latest[0], _latest[1]), _latest[2], original[2])
         return original
+
     # FIX [2026-07-22 P0]: 添加无条件 INFO 日志（不依赖 SIP_DEBUG_TRACE_ENABLED）
     _addr_info = transport_info[0] if transport_info else ("?", "?")
     logger.info(f"[CATALOG_SYNC] Starting catalog sync for device {device_id} addr={_addr_info}")
@@ -543,15 +559,13 @@ async def _schedule_device_catalog_retry(device_id: str, transport_info: tuple) 
         _sip_debug_log("device_catalog_retry_success", None, {"device_id": device_id, "attempts": runtime.get("catalog.retry_attempts", 0)})
     else:
         # FIX: [2026-07-10] 最终超时需 WARNING（所有重试后仍无响应） [全栈工程师]
-        logger.warning(
-            f"[CATALOG_SYNC] Catalog response timeout for device {device_id} after "
-            f"{runtime.get('catalog.retry_attempts', 0)} attempts"
-        )
+        logger.warning(f"[CATALOG_SYNC] Catalog response timeout for device {device_id} after {runtime.get('catalog.retry_attempts', 0)} attempts")
         await patch_device_catalog_runtime(
             device_id,
             {"catalog.last_error": "catalog_response_timeout", "catalog.sync_state": "query_timeout", "catalog.progress": 100},
         )
         _sip_debug_log("device_catalog_retry_timeout", None, {"device_id": device_id, "attempts": runtime.get("catalog.retry_attempts", 0)})
+
 
 def create_response(request: SipMessage, status_code: int, reason: str = None, received_addr: tuple = None) -> SipMessage:
     resp = SipMessage()
@@ -673,8 +687,8 @@ from app.sip.sip_trace import sip_trace_should_log as _sip_trace_should_log
 # 设备认证失败锁定机制（对齐 hard constraint：锁定期满自动解锁就地清零失败计数，
 # 禁止"下次失败即重锁"缺陷）
 # ---------------------------------------------------------------------------
-_digest_fail_tracker: dict[str, list[float]] = {}   # gb_id -> 失败时间戳列表（滑动窗口）
-_digest_locked: dict[str, float] = {}                # gb_id -> 锁定到期 monotonic 时刻
+_digest_fail_tracker: dict[str, list[float]] = {}  # gb_id -> 失败时间戳列表（滑动窗口）
+_digest_locked: dict[str, float] = {}  # gb_id -> 锁定到期 monotonic 时刻
 # P0-fix [2026-07-17]: 全局 dict 无上限，攻击者可用大量不同 gb_id 发起 REGISTER
 # 导致内存耗尽。添加硬上限和惰性清理。
 _DIGEST_FAIL_TRACKER_MAX_SIZE = settings.SIP_DIGEST_FAIL_TRACKER_MAX_SIZE
@@ -708,17 +722,11 @@ def _prune_digest_fail_tracker() -> None:
     # 硬上限保护：超限则批量淘汰最早条目
     if len(_digest_fail_tracker) > _DIGEST_FAIL_TRACKER_MAX_SIZE:
         _drop_count = len(_digest_fail_tracker) // 4
-        _sorted_keys = sorted(
-            _digest_fail_tracker.keys(),
-            key=lambda k: _digest_fail_tracker[k][0] if _digest_fail_tracker[k] else 0
-        )
+        _sorted_keys = sorted(_digest_fail_tracker.keys(), key=lambda k: _digest_fail_tracker[k][0] if _digest_fail_tracker[k] else 0)
         for _k in _sorted_keys[:_drop_count]:
             _digest_fail_tracker.pop(_k, None)
             _digest_locked.pop(_k, None)
-        logger.info(
-            f"[digest_fail] pruned {_drop_count} stale entries, "
-            f"size={len(_digest_fail_tracker)}"
-        )
+        logger.info(f"[digest_fail] pruned {_drop_count} stale entries, size={len(_digest_fail_tracker)}")
 
 
 async def _record_auth_failure(gb_id: str) -> None:
@@ -733,7 +741,7 @@ async def _record_auth_failure(gb_id: str) -> None:
     max_attempts = settings.SIP_DIGEST_FAIL_MAX_ATTEMPTS
     lock_dur = settings.SIP_DIGEST_FAIL_LOCK_DURATION
     lst = _digest_fail_tracker.setdefault(gb_id, [])
-    lst[:] = [t for t in lst if now - t < window]   # 滑动窗口
+    lst[:] = [t for t in lst if now - t < window]  # 滑动窗口
     lst.append(now)
     if len(lst) >= max_attempts:
         _digest_locked[gb_id] = now + lock_dur
@@ -787,7 +795,7 @@ def _sanitize_sip_header_value(name: str, value: str) -> str:
         for field in ["nonce", "response", "cnonce", "opaque"]:
             masked = re.sub(
                 rf'({field}=")([^"]*)(")',
-                lambda m: f'{m.group(1)}{_mask_sensitive_value(m.group(2))}{m.group(3)}',
+                lambda m: f"{m.group(1)}{_mask_sensitive_value(m.group(2))}{m.group(3)}",
                 masked,
                 flags=re.IGNORECASE,
             )
@@ -918,25 +926,12 @@ async def _send_register_401(message: SipMessage, transport, proto: str, addr: t
     # 否则客户端按 challenge 中的 realm 计算 Digest，但服务器内部若使用不同 realm
     # 验证（如级联客户端调用 build_challenge 时），将导致永远认证失败。
     # 解析顺序：SIP_REALM > SIP_DOMAIN > PROJECT_NAME > "PyGBSentry"
-    realm = (
-        settings.SIP_REALM
-        or settings.SIP_DOMAIN
-        or settings.PROJECT_NAME
-        or "PyGBSentry"
-    )
+    realm = settings.SIP_REALM or settings.SIP_DOMAIN or settings.PROJECT_NAME or "PyGBSentry"
     # FIX: [2026-07-16 P0] 通告 qop="auth,auth-int" 以启用完整性保护（GB/T 28181-2022 §9）。
     # 原仅通告 qop="auth"，设备无法选择 auth-int，REGISTER 请求体可被中间人篡改（如修改 Expires）。
     # 验证侧（DigestAuth.verify）已支持 auth-int 的 HA2 计算，此处仅需在 challenge 中通告。
-    auth_header_sha256 = (
-        f'Digest realm="{realm}", nonce="{nonce}", '
-        f'algorithm=SHA-256, qop="auth,auth-int", '
-        f'stale={stale_str}'
-    )
-    auth_header_md5 = (
-        f'Digest realm="{realm}", nonce="{nonce}", '
-        f'algorithm=MD5, qop="auth,auth-int", '
-        f'stale={stale_str}'
-    )
+    auth_header_sha256 = f'Digest realm="{realm}", nonce="{nonce}", algorithm=SHA-256, qop="auth,auth-int", stale={stale_str}'
+    auth_header_md5 = f'Digest realm="{realm}", nonce="{nonce}", algorithm=MD5, qop="auth,auth-int", stale={stale_str}'
     # S-04 RFC 8760要求多个认证方案使用同名WWW-Authenticate头，非标准WWW-Authenticate-2
     resp.headers["WWW-Authenticate"] = auth_header_sha256
     resp.headers.add("WWW-Authenticate", auth_header_md5)
@@ -944,6 +939,7 @@ async def _send_register_401(message: SipMessage, transport, proto: str, addr: t
     resp.headers["Server"] = settings.PROJECT_NAME
     _sip_debug_log("register_401_challenge", message, {"proto": proto, "addr": str(addr), "stale": stale})
     await send_response(transport, proto, addr, resp)
+
 
 async def _push_catalog_to_platform(
     *,
@@ -965,9 +961,7 @@ async def _push_catalog_to_platform(
     支持虚拟目录与 ID 重映射。
     """
     async with AsyncSessionLocal() as session:
-        scope_stmt = select(PlatformCatalogResource).where(
-            PlatformCatalogResource.platform_id == platform_id
-        )
+        scope_stmt = select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id)
         scope_result = await session.execute(scope_stmt)
         scope_mappings = {m.resource_id: m for m in scope_result.scalars().all()}
 
@@ -982,9 +976,7 @@ async def _push_catalog_to_platform(
 
     if not resources:
         return
-    logger.info(
-        f"Platform REGISTER matched, pushing Catalog to platform_id={platform_id}, resources={len(resources)}, proto={proto}"
-    )
+    logger.info(f"Platform REGISTER matched, pushing Catalog to platform_id={platform_id}, resources={len(resources)}, proto={proto}")
     _sip_debug_log(
         "catalog_push_start",
         None,
@@ -1001,7 +993,7 @@ async def _push_catalog_to_platform(
     if batch_size <= 0:
         # 级联目录推送默认分批（100条/批），避免大目录产生巨型XML报文
         batch_size = min(len(resources), 100)
-    batches = [resources[i:i + batch_size] for i in range(0, len(resources), batch_size)]
+    batches = [resources[i : i + batch_size] for i in range(0, len(resources), batch_size)]
 
     # 注册方的 REGISTER 协议栈（TCP/UDP）由外层 handle_register 决定
     via_transport = "TCP" if proto == "TCP" else "UDP"
@@ -1069,7 +1061,7 @@ async def _push_catalog_to_platform(
         req.headers["Via"] = f"SIP/2.0/{via_transport} {sip_via_host()}:{settings.SIP_PORT};rport;branch={_sip_make_branch()}"
         req.headers["From"] = f"<sip:{client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
         req.headers["To"] = f"<sip:{server_gb_id}@{settings.SIP_DOMAIN}>"
-        req.headers["Call-ID"] = _sip_make_call_id(f'cat{batch_idx}')
+        req.headers["Call-ID"] = _sip_make_call_id(f"cat{batch_idx}")
         req.headers["CSeq"] = f"{sn} MESSAGE"
         req.headers["Max-Forwards"] = str(_SIP_MAX_FORWARDS_DEFAULT)
         req.headers["User-Agent"] = settings.PROJECT_NAME
@@ -1087,6 +1079,7 @@ async def _push_catalog_to_platform(
 
         if len(batches) > 1:
             await asyncio.sleep(0.2)
+
 
 async def handle_alarm_notify(xml_body: str, device_id: str):
     """
@@ -1111,7 +1104,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
         latitude_str = get_xml_text(root, "Latitude", "")
         # 通道ID：优先从 XML 中获取 ChannelID，若无则使用 device_id
         alarm_channel_id = get_xml_text(root, "ChannelID", "") or device_id
-            # FIX: [2026-07-04] AlarmTime 解析不支持带时区偏移的时间戳（如 +08:00），改用 fromisoformat [全栈工程师]
+        # FIX: [2026-07-04] AlarmTime 解析不支持带时区偏移的时间戳（如 +08:00），改用 fromisoformat [全栈工程师]
         try:
             alarm_time = datetime.datetime.fromisoformat(alarm_time_str) if alarm_time_str else datetime.datetime.now(datetime.timezone.utc)
         except Exception:
@@ -1148,6 +1141,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
     # 根因：存储本地时间 + 查询 UTC 时间 = 时区不一致。修复：naive 视为应用时区，统一转 UTC 入库。 [全栈工程师]
     if alarm_time.tzinfo is None:
         from app.core.timezone import get_app_timezone
+
         alarm_time = alarm_time.replace(tzinfo=get_app_timezone())
     alarm_time = alarm_time.astimezone(datetime.timezone.utc)
 
@@ -1173,7 +1167,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
                 # FIX: [2026-07-04] 存储经纬度，移动设备报警定位可落库 [全栈工程师]
                 longitude=_alarm_longitude,
                 latitude=_alarm_latitude,
-                status=0
+                status=0,
             )
             session.add(alarm)
             await session.flush()
@@ -1192,7 +1186,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
                 "longitude": _alarm_longitude,
                 "latitude": _alarm_latitude,
                 "escalation_level": 0,
-                "escalation_state": "open"
+                "escalation_state": "open",
             }
             # FIX: [2026-07-03] broadcast_alarm 缺少 tenant_id 参数导致 TypeError [全栈工程师]
             _bg_create_task(alarm_manager.broadcast_alarm(alarm_data, _alarm_tenant_id))
@@ -1205,12 +1199,17 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
             # 轨迹闭环：若该通道在 Resource 中有经纬度，写入一条 DevicePosition，供可视化指挥 GET /map/trajectory 展示
             try:
                 ch_id = alarm.channel_id or device_id
-                res_stmt = select(Resource).join(Asset, Resource.asset_id == Asset.id).where(
-                    Asset.gb_id == device_id,
-                    Resource.gb_id.in_([ch_id, device_id]),
-                    Resource.longitude.isnot(None),
-                    Resource.latitude.isnot(None),
-                ).limit(1)
+                res_stmt = (
+                    select(Resource)
+                    .join(Asset, Resource.asset_id == Asset.id)
+                    .where(
+                        Asset.gb_id == device_id,
+                        Resource.gb_id.in_([ch_id, device_id]),
+                        Resource.longitude.isnot(None),
+                        Resource.latitude.isnot(None),
+                    )
+                    .limit(1)
+                )
                 res_row = (await session.execute(res_stmt)).scalars().first()
                 if res_row and res_row.longitude is not None and res_row.latitude is not None:
                     pos = DevicePosition(
@@ -1259,9 +1258,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
                         if rule.days:
                             try:
                                 day = alarm_time.weekday()  # 0=周一
-                                allowed_days = {
-                                    int(x) for x in str(rule.days).split(",") if x.strip()
-                                }
+                                allowed_days = {int(x) for x in str(rule.days).split(",") if x.strip()}
                                 if allowed_days and day not in allowed_days:
                                     return False
                             except Exception as e:
@@ -1285,9 +1282,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
 
                     if any_record:
                         channel_id = alarm.channel_id or device_id
-                        _bg_create_task(
-                            plugin_manager.emit(HOOK_ALARM_RECORD_LINK, device_id, channel_id)
-                        )
+                        _bg_create_task(plugin_manager.emit(HOOK_ALARM_RECORD_LINK, device_id, channel_id))
             except Exception as e:
                 logger.warning(f"Failed to process alarm record link: {e}")
             logger.warning(f"Received Alarm from {device_id}: {alarm_desc}")
@@ -1296,6 +1291,7 @@ async def handle_alarm_notify(xml_body: str, device_id: str):
         # FIX: [2026-07-04] 原 except 消息为 "Error parsing Alarm XML"，但此 try 仅覆盖
         # DB 持久化/广播/联动，XML 解析已在前一 try 完成。改为准确描述并附带栈回溯。 [全栈工程师]
         logger.error(f"Failed to process alarm (DB/broadcast/linkage) for device {device_id}: {e}", exc_info=True)
+
 
 async def handle_register(message: SipMessage, addr: tuple, proto: str, transport):
     # Emit SIP Receive Hook
@@ -1309,9 +1305,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
     _reg_from = message.from_header or ""
     _reg_contact = (message.get_header("Contact") or message.get_header("m") or "").strip()
     logger.info(
-        f"[REGISTER_RECV] from={addr[0]}:{addr[1]} proto={proto} "
-        f"from_header={_reg_from[:80]} has_auth={bool(_reg_auth)} "
-        f"contact={_reg_contact[:80]}"
+        f"[REGISTER_RECV] from={addr[0]}:{addr[1]} proto={proto} from_header={_reg_from[:80]} has_auth={bool(_reg_auth)} contact={_reg_contact[:80]}"
     )
 
     # P2-fix [2026-07-17]: 解析 GB28181 扩展头域 X-GB-Ver（协议版本协商）
@@ -1377,7 +1371,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             # 尝试用 From header 中的完整 URI 来匹配
             from_header = message.get_header("From") or ""
             if from_header:
-                uri_gb_match = re.search(r':([0-9]{20})@', from_header)
+                uri_gb_match = re.search(r":([0-9]{20})@", from_header)
                 if uri_gb_match:
                     uri_gb_id = uri_gb_match.group(1)
                     if uri_gb_id != gb_id:
@@ -1414,22 +1408,24 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     logger.warning(
                         "SECURITY WARNING: SIP_DEFAULT_PASSWORD is empty, auth SKIPPED for loopback device %s. "
                         "NEVER expose this to public networks! Set SIP_DEFAULT_PASSWORD in .env.",
-                        gb_id
+                        gb_id,
                     )
                     sip_default_password = None
                     skip_auth = True
                 else:
-                    _log_with_trace("error", f"SIP register rejected for {gb_id}: SIP_DEFAULT_PASSWORD is empty and source is not loopback ({src_ip})", message)
+                    _log_with_trace(
+                        "error", f"SIP register rejected for {gb_id}: SIP_DEFAULT_PASSWORD is empty and source is not loopback ({src_ip})", message
+                    )
                     await _send_register_401(message, transport, proto, addr)
                     return
         candidate_passwords: list[str] = []
         # FIX: [2026-07-14] 认证诊断上下文，用于失败时输出详细根因（无敏感信息）
         _auth_diag = {
-            "pf_client_match": False,      # ParentPlatform.client_gb_id 命中
-            "pf_client_decrypt_ok": False, # 该记录密码解密成功
-            "pf_server_match": False,      # ParentPlatform.server_gb_id 命中
+            "pf_client_match": False,  # ParentPlatform.client_gb_id 命中
+            "pf_client_decrypt_ok": False,  # 该记录密码解密成功
+            "pf_server_match": False,  # ParentPlatform.server_gb_id 命中
             "pf_server_decrypt_ok": False,
-            "asset_match": False,          # Asset.gb_id 命中
+            "asset_match": False,  # Asset.gb_id 命中
             "asset_decrypt_ok": False,
         }
 
@@ -1439,9 +1435,10 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         pf = pf_result.scalars().first()
         if pf and pf.password:
             _auth_diag["pf_client_match"] = True
-            _pf_pw = getattr(pf, 'decrypted_password', None)
+            _pf_pw = getattr(pf, "decrypted_password", None)
             if _pf_pw is None:
                 from app.core.field_crypto import decrypt_field
+
                 _pf_pw = decrypt_field(pf.password, purpose="sip_password")
             # FIX: [2026-07-14] 解密失败时不回退到密文（密文永远无法匹配 Digest Response），
             # 与 Asset 逻辑保持一致。原代码 `append(_pf_pw or pf.password)` 在解密失败时
@@ -1450,10 +1447,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 _auth_diag["pf_client_decrypt_ok"] = True
                 candidate_passwords.append(_pf_pw)
             else:
-                logger.warning(
-                    f"ParentPlatform(client_gb_id={gb_id}) password decryption failed, "
-                    f"skipping as candidate. Check FIELD_ENCRYPTION_KEY."
-                )
+                logger.warning(f"ParentPlatform(client_gb_id={gb_id}) password decryption failed, skipping as candidate. Check FIELD_ENCRYPTION_KEY.")
 
         # 2) parent_platforms：server_gb_id（兼容字段语义反置：上级平台国标ID匹配）
         if not candidate_passwords:
@@ -1462,9 +1456,10 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             pf2 = pf_result2.scalars().first()
             if pf2 and pf2.password:
                 _auth_diag["pf_server_match"] = True
-                _pf2_pw = getattr(pf2, 'decrypted_password', None)
+                _pf2_pw = getattr(pf2, "decrypted_password", None)
                 if _pf2_pw is None:
                     from app.core.field_crypto import decrypt_field
+
                     _pf2_pw = decrypt_field(pf2.password, purpose="sip_password")
                 # FIX: [2026-07-14] 同上，解密失败时不回退到密文
                 if _pf2_pw:
@@ -1472,8 +1467,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     candidate_passwords.append(_pf2_pw)
                 else:
                     logger.warning(
-                        f"ParentPlatform(server_gb_id={gb_id}) password decryption failed, "
-                        f"skipping as candidate. Check FIELD_ENCRYPTION_KEY."
+                        f"ParentPlatform(server_gb_id={gb_id}) password decryption failed, skipping as candidate. Check FIELD_ENCRYPTION_KEY."
                     )
 
         # 3) assets：设备密码（兜底候选之一）
@@ -1502,11 +1496,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         # 才追加默认密码。原代码无条件追加 sip_default_password，导致已知设备可被
         # 默认密码冒充（攻击者只需知道 gb_id 和默认密码即可通过 Digest 认证）。
         # 已知设备必须使用其配置密码认证；解密失败不回退默认密码（fail-close）。
-        _has_db_record = bool(
-            _auth_diag.get("pf_client_match")
-            or _auth_diag.get("pf_server_match")
-            or _auth_diag.get("asset_match")
-        )
+        _has_db_record = bool(_auth_diag.get("pf_client_match") or _auth_diag.get("pf_server_match") or _auth_diag.get("asset_match"))
         if not _has_db_record:
             candidate_passwords.append(sip_default_password)
         else:
@@ -1549,12 +1539,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         # 修复策略：当 auth_params.realm 为空时，同时尝试用 [client_realm, server_realm]
         # 计算 expected_response。任一匹配即视为认证成功，并记录 INFO 日志说明该设备
         # 使用了非标准 realm 行为（便于运维识别非合规客户端）。
-        _server_realm = (
-            settings.SIP_REALM
-            or settings.SIP_DOMAIN
-            or settings.PROJECT_NAME
-            or "PyGBSentry"
-        )
+        _server_realm = settings.SIP_REALM or settings.SIP_DOMAIN or settings.PROJECT_NAME or "PyGBSentry"
         _client_realm = auth_params.get("realm") or ""
         if _client_realm and _client_realm != _server_realm:
             # 标准 RFC 2617 客户端：回送的 realm 与服务器通告的一致或非空，按标准路径验证
@@ -1586,7 +1571,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 )
                 if auth_response and hmac.compare_digest(str(auth_response), str(expected_resp)):
                     password_used = pw
-                    _fallback_realm_used = (_try_realm != _client_realm)
+                    _fallback_realm_used = _try_realm != _client_realm
                     if _fallback_realm_used:
                         _log_with_trace(
                             "info",
@@ -1611,8 +1596,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     else:
                         _log_with_trace(
                             "info",
-                            f"Auth success for {gb_id} using configured password "
-                            f"(attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}).",
+                            f"Auth success for {gb_id} using configured password (attempt {_attempt_count}/{MAX_PASSWORD_ATTEMPTS}).",
                             message,
                         )
                     break
@@ -1672,10 +1656,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                         algorithm=auth_algorithm,
                         entity_body=message.body or "",
                     )
-                    _expected_match = bool(
-                        auth_response
-                        and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default))
-                    )
+                    _expected_match = bool(auth_response and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default)))
                     # FIX: [2026-07-21 P0+] 同时用 server_realm 计算 expected_response
                     # 用于诊断非标准 SIP 客户端（如 EasyGBS）— 它们在 Authorization 头中
                     # 回送空 realm，但用 server challenge 通告的 realm 计算 Response
@@ -1694,8 +1675,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                             entity_body=message.body or "",
                         )
                         _expected_match_server_realm = bool(
-                            auth_response
-                            and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default_server_realm))
+                            auth_response and hmac.compare_digest(str(auth_response), str(_expected_resp_with_default_server_realm))
                         )
                 except Exception as _calc_err:
                     _expected_resp_with_default = f"<calc_error: {_calc_err}>"
@@ -1755,9 +1735,9 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 # 否则形成恶性循环：解密失败 → 认证失败 ×5 → 自动拉黑 → 删黑名单后又拉黑。
                 # diag 中 *_match=True 但 *_decrypt_ok=False 即为解密失败。
                 _is_decrypt_failure = (
-                    (_auth_diag.get("pf_client_match") and not _auth_diag.get("pf_client_decrypt_ok")) or
-                    (_auth_diag.get("pf_server_match") and not _auth_diag.get("pf_server_decrypt_ok")) or
-                    (_auth_diag.get("asset_match") and not _auth_diag.get("asset_decrypt_ok"))
+                    (_auth_diag.get("pf_client_match") and not _auth_diag.get("pf_client_decrypt_ok"))
+                    or (_auth_diag.get("pf_server_match") and not _auth_diag.get("pf_server_decrypt_ok"))
+                    or (_auth_diag.get("asset_match") and not _auth_diag.get("asset_decrypt_ok"))
                 )
                 if _is_decrypt_failure:
                     logger.error(
@@ -1778,11 +1758,13 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                 if fail_count >= 5:
                     _log_with_trace("warning", f"IP {real_ip} auth failed {fail_count} times in 5 minutes, auto-blacklisting.", message)
                     from app.models.ip_blacklist import IpBlacklist
+
                     exist_bl = await session.scalar(select(IpBlacklist).where(IpBlacklist.ip == real_ip))
                     if not exist_bl:
                         session.add(IpBlacklist(ip=real_ip, reason="Auto-blocked: 5+ auth failures within 5 minutes"))  # 国际化
                         await session.commit()
                         from app.sip.server import sip_server
+
                         if hasattr(sip_server, "reload_ip_blacklist"):
                             _bg_create_task(sip_server.reload_ip_blacklist())
                     try:
@@ -1791,7 +1773,6 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                         logger.warning(f"Failed to clear auth failure count: {e}")
 
                 return
-
 
         now = datetime.datetime.now(datetime.timezone.utc)
         expires = message.get_header("Expires")
@@ -1821,12 +1802,18 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                         if platform and platform.enable:
                             try:
                                 async with AsyncSessionLocal() as renew_session:
-                                    pf = (await renew_session.execute(select(ParentPlatform).where(ParentPlatform.id == platform.id))).scalars().first()
+                                    pf = (
+                                        (await renew_session.execute(select(ParentPlatform).where(ParentPlatform.id == platform.id)))
+                                        .scalars()
+                                        .first()
+                                    )
                                     if pf and expires_int > 0:
                                         pf.last_keepalive = now
                                         await renew_session.commit()
                             except Exception as renew_err:
-                                logger.warning(f"Renewal expires update failed: {renew_err}")  # 续注册时keepalive/IP更新失败仅debug日志，提升为warning
+                                logger.warning(
+                                    f"Renewal expires update failed: {renew_err}"
+                                )  # 续注册时keepalive/IP更新失败仅debug日志，提升为warning
                             resp = create_response(message, 200, received_addr=addr)
                             resp.headers["Date"] = _sip_date_gmt(now)
                             resp.headers["Expires"] = str(expires_int)
@@ -1838,6 +1825,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                             return
                         if asset:
                             from app.sip.storm_handler import enqueue_keepalive_update
+
                             enqueue_keepalive_update(gb_id, real_ip, real_port, proto)
                             if expires_int > 0:
                                 try:
@@ -1853,7 +1841,9 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                                                 a.port = real_port
                                             await renew_session.commit()
                                 except Exception as renew_err:
-                                    logger.warning(f"Device renewal expires update failed: {renew_err}")  # 续注册时keepalive/IP更新失败仅debug日志，提升为warning
+                                    logger.warning(
+                                        f"Device renewal expires update failed: {renew_err}"
+                                    )  # 续注册时keepalive/IP更新失败仅debug日志，提升为warning
                             resp = create_response(message, 200, received_addr=addr)
                             resp.headers["Date"] = _sip_date_gmt(now)
                             resp.headers["Expires"] = str(expires_int)
@@ -1881,7 +1871,9 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             resp.headers["Date"] = _sip_date_gmt(now)
             resp.headers["Expires"] = str(expires_int)
             contact_in = (message.get_header("Contact") or message.get_header("m") or "").strip()
-            contact_out = _rewrite_register_contact(contact_in, (real_ip, real_port), gb_id, expires_int)  # R-04 平台首次注册Contact头需包含expires参数
+            contact_out = _rewrite_register_contact(
+                contact_in, (real_ip, real_port), gb_id, expires_int
+            )  # R-04 平台首次注册Contact头需包含expires参数
             resp.headers["Contact"] = contact_out
             resp.headers["Server"] = settings.PROJECT_NAME
             _sip_debug_log("register_ok_platform", message, {"gb_id": gb_id, "platform_id": platform.id, "expires": expires_int})
@@ -1891,9 +1883,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             async def _after_register_digest() -> None:
                 try:
                     async with AsyncSessionLocal() as session2:
-                        p = (
-                            await session2.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))
-                        ).scalars().first()
+                        p = (await session2.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                         if not p:
                             return
                         if expires_int == 0:
@@ -1903,6 +1893,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                             # 平台注销时清理出站订阅，防止续期任务空转
                             try:
                                 from app.sip.subscribe_manager import subscribe_manager
+
                                 await subscribe_manager.remove_all_for_device(gb_id)
                             except Exception as _sub_err:
                                 logger.warning(f"Failed to cleanup subscriptions for unregistered platform {gb_id}: {_sub_err}")
@@ -1918,6 +1909,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                                 },
                             )
                             import app.services.platform_service as platform_service_mod
+
                             svc = getattr(platform_service_mod, "platform_service", None)
                             if svc and getattr(svc, "running", False):
                                 _bg_create_task(svc.handle_platform_offline(p.id, reason="unregister"))
@@ -1978,11 +1970,14 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             _log_with_trace("info", f"Device {gb_id} unregistering", message)
             if asset:
                 from app.sip.storm_handler import enqueue_register_update
+
                 enqueue_register_update(gb_id, real_ip, real_port, proto, 0)
+
                 # R24-04: ha_cluster Redis I/O 改为后台任务，避免在 DB session 内阻塞
                 async def _ha_cluster_offline_task() -> None:
                     try:
                         from app.core.redis import ha_cluster
+
                         await ha_cluster.unregister_device_owner(gb_id)
                         await ha_cluster.broadcast_device_change(gb_id, "status_changed", {"status": "offline"})
                     except Exception as e:
@@ -2017,22 +2012,25 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
 
                 one_hour_ago = now - datetime.timedelta(hours=1)
                 recent_devices_count = await session.scalar(
-                    select(func.count(Asset.id)).where(
-                        Asset.ip_addr == real_ip,
-                        Asset.created_at >= one_hour_ago
-                    )
+                    select(func.count(Asset.id)).where(Asset.ip_addr == real_ip, Asset.created_at >= one_hour_ago)
                 )
                 # 先阻断再创建：>= 10 时直接拒绝，不创建任何资产
                 if recent_devices_count >= 10:
-                    _log_with_trace("warning", f"IP {real_ip} registered {recent_devices_count} devices in past hour, blocking new registration of {gb_id}.", message)
+                    _log_with_trace(
+                        "warning",
+                        f"IP {real_ip} registered {recent_devices_count} devices in past hour, blocking new registration of {gb_id}.",
+                        message,
+                    )
 
                     from app.models.ip_blacklist import IpBlacklist
+
                     exist_bl = await session.scalar(select(IpBlacklist).where(IpBlacklist.ip == real_ip))
                     if not exist_bl:
                         session.add(IpBlacklist(ip=real_ip, reason="Auto-blocked: 10+ device registrations from same IP within 1 hour"))  # 国际化
                         await session.commit()
 
                         from app.sip.server import sip_server
+
                         if hasattr(sip_server, "reload_ip_blacklist"):
                             _bg_create_task(sip_server.reload_ip_blacklist())
 
@@ -2043,7 +2041,9 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
 
                 # 未知设备接管：自动创建设备
                 _log_with_trace("info", f"Auto-discovered and taking over unknown device: {gb_id}", message)
-                asset = Asset(gb_id=gb_id, name=f"Auto_Discovered_{gb_id}", decrypted_password=settings.SIP_DEFAULT_PASSWORD or "", tenant_id="default")  # GB28181协议 — 自动发现设备使用SIP默认密码
+                asset = Asset(
+                    gb_id=gb_id, name=f"Auto_Discovered_{gb_id}", decrypted_password=settings.SIP_DEFAULT_PASSWORD or "", tenant_id="default"
+                )  # GB28181协议 — 自动发现设备使用SIP默认密码
                 session.add(asset)
                 is_new_asset = True
 
@@ -2063,9 +2063,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                     await session.commit()
                 except _SqlaIntegrityError:
                     await session.rollback()
-                    _existing = (
-                        await session.execute(select(Asset).where(Asset.gb_id == gb_id))
-                    ).scalars().first()
+                    _existing = (await session.execute(select(Asset).where(Asset.gb_id == gb_id))).scalars().first()
                     if _existing:
                         logger.info(f"S-04: Auto-discovery race resolved for {gb_id}, using existing Asset")
                         asset = _existing
@@ -2081,20 +2079,14 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
                         raise
             else:
                 from app.sip.storm_handler import enqueue_register_update
+
                 enqueue_register_update(gb_id, real_ip, real_port, proto, expires_int)
 
             if getattr(sip_commander_module, "sip_commander", None):
                 _bg_create_task(_schedule_device_catalog_retry(gb_id, ((real_ip, real_port), proto, transport)))
-                _bg_create_task(
-                    sip_commander_module.sip_commander.send_mobile_position_subscribe(
-                        gb_id, ((real_ip, real_port), proto, transport)
-                    )
-                )
-                _bg_create_task(
-                    sip_commander_module.sip_commander.send_time_sync(
-                        gb_id, ((real_ip, real_port), proto, transport)
-                    )
-                )
+                _bg_create_task(sip_commander_module.sip_commander.send_mobile_position_subscribe(gb_id, ((real_ip, real_port), proto, transport)))
+                _bg_create_task(sip_commander_module.sip_commander.send_time_sync(gb_id, ((real_ip, real_port), proto, transport)))
+
                 # R24-04: 报警订阅改为后台任务，避免在 DB session 内 await SIP 发送（2-5s 阻塞）
                 async def _alarm_subscribe_task() -> None:
                     try:
@@ -2120,6 +2112,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
             async def _ha_cluster_online_task() -> None:
                 try:
                     from app.core.redis import ha_cluster
+
                     await ha_cluster.register_device_owner(gb_id)
                     await ha_cluster.broadcast_device_change(gb_id, "status_changed", {"status": "online"})
                 except Exception as e:
@@ -2136,6 +2129,7 @@ async def handle_register(message: SipMessage, addr: tuple, proto: str, transpor
         _sip_debug_log("register_ok_device", message, {"gb_id": gb_id, "expires": expires_int})
         await send_response(transport, proto, addr, resp)
 
+
 async def handle_message_request(message: SipMessage, addr: tuple, proto: str, transport):
     # Emit SIP Receive Hook
     _bg_create_task(plugin_manager.emit(HOOK_ON_SIP_RECEIVE, message, addr, proto))
@@ -2149,12 +2143,10 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
 
     body = message.body
     looks_like_xml = bool(
-        body and body.strip() and (  # C-30 增加body.strip()检查，防止空字符串误判为XML
-            (content_type and "xml" in str(content_type).lower())
-            or "<?xml" in body
-            or "<Notify" in body
-            or "<Query" in body
-            or "<Response" in body
+        body
+        and body.strip()
+        and (  # C-30 增加body.strip()检查，防止空字符串误判为XML
+            (content_type and "xml" in str(content_type).lower()) or "<?xml" in body or "<Notify" in body or "<Query" in body or "<Response" in body
         )
     )
     root = parse_xml(body) if looks_like_xml else None
@@ -2173,7 +2165,6 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
 
     # 优先按 XML 结构识别，避免部分平台 Content-Type 不规范导致漏处理
     if root is not None:
-
         if cmd_type == "Keepalive":
             keepalive_gb_id = get_xml_text(root, "DeviceID") or gb_id
 
@@ -2232,12 +2223,16 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     try:
                         async with AsyncSessionLocal() as session:
                             matched_platforms = (
-                                await session.execute(
-                                    select(ParentPlatform).where(
-                                        (ParentPlatform.server_gb_id == keepalive_gb_id) | (ParentPlatform.client_gb_id == keepalive_gb_id)
+                                (
+                                    await session.execute(
+                                        select(ParentPlatform).where(
+                                            (ParentPlatform.server_gb_id == keepalive_gb_id) | (ParentPlatform.client_gb_id == keepalive_gb_id)
+                                        )
                                     )
                                 )
-                            ).scalars().all()
+                                .scalars()
+                                .all()
+                            )
                             for p in matched_platforms:
                                 await _patch_platform_runtime(
                                     p,
@@ -2256,7 +2251,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
 
         elif cmd_type == "Catalog":
             # GB28181：Catalog 同时可能是 Query（需要回复 Catalog Response）或 Response（需要解析更新本地资源）
-            is_query = (root_name == "query")
+            is_query = root_name == "query"
             if is_query:
                 resp = create_response(message, 200)
                 await send_response(transport, proto, addr, resp)
@@ -2339,12 +2334,14 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             )
             async with AsyncSessionLocal() as session:
                 platform = (
-                    await session.execute(
-                        select(ParentPlatform).where(
-                            (ParentPlatform.server_gb_id == gb_id) | (ParentPlatform.client_gb_id == gb_id)
+                    (
+                        await session.execute(
+                            select(ParentPlatform).where((ParentPlatform.server_gb_id == gb_id) | (ParentPlatform.client_gb_id == gb_id))
                         )
                     )
-                ).scalars().first()
+                    .scalars()
+                    .first()
+                )
             if platform:
                 await _patch_platform_runtime(
                     platform,
@@ -2363,6 +2360,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     "catalog.last_error": "",
                 },
             )
+
             # FIX [2026-08-11 P1]: 包装 handle_catalog_response 添加异常处理，
             # 原实现通过 _bg_create_task 调用，异常时 catalog.sync_state 永久停留在
             # "response_received"，前端显示"同步中"永不完成，运维人员无法感知失败。
@@ -2370,9 +2368,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 try:
                     await handle_catalog_response(_body, _device_id)
                 except Exception as _catalog_err:
-                    logger.opt(exception=True).error(
-                        f"[CATALOG_HANDLE_ERROR] device={_device_id} error={_catalog_err}"
-                    )
+                    logger.opt(exception=True).error(f"[CATALOG_HANDLE_ERROR] device={_device_id} error={_catalog_err}")
                     try:
                         await patch_device_catalog_runtime(
                             _device_id,
@@ -2384,6 +2380,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                         )
                     except Exception as _patch_err:
                         logger.error(f"[CATALOG_HANDLE_ERROR] Failed to patch runtime for {_device_id}: {_patch_err}")
+
             _bg_create_task(_safe_handle_catalog_response(body, response_device_id))
             return
 
@@ -2396,9 +2393,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 is_cascade = False
                 try:
                     async with AsyncSessionLocal() as session:
-                        platform = (await session.execute(
-                            select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
-                        )).scalars().first()
+                        platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                         if platform:
                             is_cascade = True
                 except Exception as e:
@@ -2411,6 +2406,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     query_type = get_xml_text(root, "Type") or "all"
                     sn = get_xml_text(root, "SN") or "0"
                     import app.services.platform_service as _ps_mod
+
                     svc = getattr(_ps_mod, "platform_service", None)
                     if svc:
                         ok = await svc.forward_cascade_record_query(platform, channel_id, start_time, end_time, query_type, sn)
@@ -2435,6 +2431,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                 from app.sip.catalog_data_manager import catalog_data_manager
+
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route DirectoryInfo response to catalog_data_manager: {e}")
@@ -2449,6 +2446,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                 from app.sip.catalog_data_manager import catalog_data_manager
+
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route AlarmCodeResponse response to catalog_data_manager: {e}")
@@ -2490,9 +2488,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 is_cascade = False
                 try:
                     async with AsyncSessionLocal() as session:
-                        platform = (await session.execute(
-                            select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
-                        )).scalars().first()
+                        platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                         if platform:
                             is_cascade = True
                 except Exception as e:
@@ -2500,6 +2496,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     logger.warning(f"Cascade device control check failed for {gb_id}: {e}")
                 if is_cascade:
                     import app.services.platform_service as _ps_mod
+
                     svc = getattr(_ps_mod, "platform_service", None)
                     if svc:
                         ok = await svc.forward_cascade_device_control(device_id_xml, inner_xml, sn)
@@ -2514,6 +2511,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                         # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                         # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                         from app.sip.catalog_data_manager import catalog_data_manager
+
                         await catalog_data_manager.put(device_id_xml, "DeviceControl", body)
                     except Exception as e:
                         logger.warning(f"Failed to route DeviceControl to catalog_data_manager: {e}")
@@ -2534,9 +2532,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             is_cascade_query = False
             try:
                 async with AsyncSessionLocal() as session:
-                    platform = (await session.execute(
-                        select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
-                    )).scalars().first()
+                    platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                     if platform:
                         is_cascade_query = True
             except Exception as e:
@@ -2546,6 +2542,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 config_type = get_xml_text(root, "ConfigType") or "BasicParam"
                 sn = get_xml_text(root, "SN") or "0"
                 import app.services.platform_service as _ps_mod
+
                 svc = getattr(_ps_mod, "platform_service", None)
                 if svc:
                     ok = await svc.forward_cascade_config_download(device_id_xml, config_type, sn)
@@ -2557,6 +2554,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                 from app.sip.catalog_data_manager import catalog_data_manager
+
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route {cmd_type} response to catalog_data_manager: {e}")
@@ -2573,6 +2571,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                 from app.sip.catalog_data_manager import catalog_data_manager
+
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route ConfigSet response to catalog_data_manager: {e}")
@@ -2598,6 +2597,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                 from app.sip.catalog_data_manager import catalog_data_manager
+
                 await catalog_data_manager.put(gb_id, cmd_type, body)
             except Exception as e:
                 logger.warning(f"Failed to route ConfigUpload response to catalog_data_manager: {e}")
@@ -2618,20 +2618,17 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             is_cascade_broadcast = False
             try:
                 async with AsyncSessionLocal() as session:
-                    platform = (await session.execute(
-                        select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id)
-                    )).scalars().first()
+                    platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                     if platform:
                         is_cascade_broadcast = True
             except Exception as e:
                 logger.warning(f"Cascade broadcast check failed for {gb_id}: {e}")
             if is_cascade_broadcast:
                 import app.services.platform_service as _ps_mod
+
                 svc = getattr(_ps_mod, "platform_service", None)
                 if svc:
-                    ok = await svc.forward_cascade_broadcast(
-                        gb_id, broadcast_target_id, broadcast_source_id, sn_val, body
-                    )
+                    ok = await svc.forward_cascade_broadcast(gb_id, broadcast_target_id, broadcast_source_id, sn_val, body)
                     if ok:
                         logger.info(f"[MESSAGE] Forwarded cascade Broadcast from {gb_id} for device {broadcast_target_id}")
                     else:
@@ -2644,6 +2641,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                     # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                     # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
                     from app.sip.catalog_data_manager import catalog_data_manager
+
                     await catalog_data_manager.put(broadcast_device_id, "Broadcast", body)
                 except Exception as e:
                     logger.warning(f"Failed to route Broadcast to catalog_data_manager: {e}")
@@ -2660,10 +2658,7 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
             _orig_xml_snippet = str(body)[:2000]
         except Exception:
             _orig_xml_snippet = "(failed to extract body)"
-        logger.warning(
-            f"[MESSAGE] Malformed XML body from {gb_id}, replying 400 Bad Request | "
-            f"original_xml_snippet=[{_orig_xml_snippet}]"
-        )
+        logger.warning(f"[MESSAGE] Malformed XML body from {gb_id}, replying 400 Bad Request | original_xml_snippet=[{_orig_xml_snippet}]")
         _sip_debug_log("message_malformed_xml_400", message, {"gb_id": gb_id, "cmd_type": cmd_type or "", "body_snippet": _orig_xml_snippet[:500]})
         resp = create_response(message, 400, received_addr=addr)
         await send_response(transport, proto, addr, resp)
@@ -2709,13 +2704,10 @@ async def handle_mobile_position_notify(xml_body: str, device_id: str):
 
             async with AsyncSessionLocal() as session:
                 # 1. Update Resource (latest position)
-                stmt = update(Resource).where(
-                    Resource.asset_id == (
-                        select(Asset.id).where(Asset.gb_id == device_id).scalar_subquery()
-                    )
-                ).values(
-                    longitude=float(longitude),
-                    latitude=float(latitude)
+                stmt = (
+                    update(Resource)
+                    .where(Resource.asset_id == (select(Asset.id).where(Asset.gb_id == device_id).scalar_subquery()))
+                    .values(longitude=float(longitude), latitude=float(latitude))
                 )
                 await session.execute(stmt)
 
@@ -2727,15 +2719,18 @@ async def handle_mobile_position_notify(xml_body: str, device_id: str):
                     speed=float(speed) if speed else None,
                     direction=float(direction) if direction else None,
                     altitude=float(altitude) if altitude else None,
-                    time=pos_time
+                    time=pos_time,
                 )
                 session.add(pos)
 
                 await session.commit()
                 logger.info(f"Updated position and saved trajectory for {device_id}: {longitude}, {latitude}")
-                _bg_create_task(plugin_manager.emit(HOOK_ON_MOBILE_POSITION, device_id, float(longitude), float(latitude), speed, direction, altitude, pos_time))
+                _bg_create_task(
+                    plugin_manager.emit(HOOK_ON_MOBILE_POSITION, device_id, float(longitude), float(latitude), speed, direction, altitude, pos_time)
+                )
         except Exception as e:
             logger.error(f"Error parsing MobilePosition XML: {e}")
+
 
 async def handle_media_status_notify(xml_body: str, device_id: str):
     """
@@ -2744,6 +2739,7 @@ async def handle_media_status_notify(xml_body: str, device_id: str):
     from app.core.xml_utils import parse_xml, get_xml_text
     from app.services.stream_session_service import finalize_stream_session
     from app.models.stream_session import StreamSession
+
     root = parse_xml(xml_body)
     if root is None:
         return
@@ -2756,39 +2752,47 @@ async def handle_media_status_notify(xml_body: str, device_id: str):
         try:
             async with AsyncSessionLocal() as session:
                 get_xml_text(root, "SN") or ""
-                stmt = select(StreamSession).where(
-                    (StreamSession.app == 'playback') | (StreamSession.app == 'download')
-                ).join(Resource, StreamSession.resource_id == Resource.id).where(
-                    Resource.gb_id == channel_id
-                ).order_by(StreamSession.start_time.desc()).limit(1)
+                stmt = (
+                    select(StreamSession)
+                    .where((StreamSession.app == "playback") | (StreamSession.app == "download"))
+                    .join(Resource, StreamSession.resource_id == Resource.id)
+                    .where(Resource.gb_id == channel_id)
+                    .order_by(StreamSession.start_time.desc())
+                    .limit(1)
+                )
                 result = await session.execute(stmt)
                 stream_session = result.scalars().first()
 
                 if stream_session:
                     ss_id = stream_session.id
-                    _bg_create_task(plugin_manager.emit("ON_MEDIA_STATUS", {
-                        "device_id": device_id,
-                        "channel_id": channel_id,
-                        "notify_type": notify_type,
-                        "stream": str(getattr(stream_session, "stream", "") or ""),
-                        "app": str(getattr(stream_session, "app", "") or "")
-                    }))
+                    _bg_create_task(
+                        plugin_manager.emit(
+                            "ON_MEDIA_STATUS",
+                            {
+                                "device_id": device_id,
+                                "channel_id": channel_id,
+                                "notify_type": notify_type,
+                                "stream": str(getattr(stream_session, "stream", "") or ""),
+                                "app": str(getattr(stream_session, "app", "") or ""),
+                            },
+                        )
+                    )
 
                     async def _finalize_in_own_session():
                         try:
                             async with AsyncSessionLocal() as own_db:
-                                ss = (await own_db.execute(
-                                    select(StreamSession).where(StreamSession.id == ss_id)
-                                )).scalars().first()
+                                ss = (await own_db.execute(select(StreamSession).where(StreamSession.id == ss_id))).scalars().first()
                                 if ss:
                                     await finalize_stream_session(own_db, ss, reason=f"media_status_{notify_type}")
                         except Exception as e:
                             logger.error(f"Failed to finalize playback session {ss_id}: {e}")
+
                     _bg_create_task(_finalize_in_own_session())
 
                 await session.commit()
         except Exception as e:
             logger.error(f"Error handling MediaStatus {notify_type}: {e}")
+
 
 async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, transport):
     """
@@ -2810,6 +2814,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
     to_uri = message.to_header
     call_id = message.call_id
     from app.sip.invite_server_state import invite_server_state
+
     await invite_server_state.put(call_id, message, addr, proto, transport)
     trying = create_response(message, 100, "Trying", received_addr=addr)
     await send_response(transport, proto, addr, trying)
@@ -2819,6 +2824,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
     try:
         from app.sip.invite_server_state import validate_session_expires_for_uas, build_422_response
         from app.core.config import settings as _settings
+
         _se_ok, _se_expires, _se_refresher = validate_session_expires_for_uas(message, _settings.SIP_SESSION_MIN_SE_SECONDS)
         if not _se_ok:
             _resp_422 = build_422_response(message, _settings.SIP_SESSION_MIN_SE_SECONDS)
@@ -2826,7 +2832,9 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             _resp_422.headers["Via"] = message.get_header("Via") or ""
             await send_response(transport, proto, addr, _resp_422)
             await invite_server_state.pop(call_id)
-            logger.info(f"[INVITE] Rejected with 422 (Session-Expires {_se_expires} < Min-SE {_settings.SIP_SESSION_MIN_SE_SECONDS}) call_id={call_id}")
+            logger.info(
+                f"[INVITE] Rejected with 422 (Session-Expires {_se_expires} < Min-SE {_settings.SIP_SESSION_MIN_SE_SECONDS}) call_id={call_id}"
+            )
             return
     except Exception as _se_validate_err:
         # FIX [2026-07-17 P3-9]: 描述性日志替代 "silently_swallowed_exception"
@@ -2846,6 +2854,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
     if upstream_from_tag:
         try:
             from app.sip.dialog_manager import dialog_manager as _dm_reinvite
+
             _existing_dialogs = await _dm_reinvite.find_by_call_id(call_id)
             if _existing_dialogs:
                 _bg_create_task(_dm_reinvite.update_session_refresh(call_id, upstream_from_tag), name=f"session_refresh_reinvite:{call_id}")
@@ -2905,9 +2914,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             if _now_ts - _unknown_invite_log_last_ts >= _UNKNOWN_INVITE_LOG_COOLDOWN_SECONDS:
                 # FIX [2026-07-22 P2]: 扫描器常发送含非 ASCII/不可打印字节的伪造 From，
                 # 原样写入日志会出现乱码（如 £`£`、$┐$┐），过滤为可打印字符便于阅读。
-                _safe_requester = "".join(
-                    ch if 32 <= ord(ch) < 127 else "?" for ch in str(requester_id)
-                )[:64]
+                _safe_requester = "".join(ch if 32 <= ord(ch) < 127 else "?" for ch in str(requester_id))[:64]
                 logger.warning(
                     f"INVITE from unknown platform rejected (last: {_safe_requester}, "
                     f"total {_unknown_invite_log_count} in last {_UNKNOWN_INVITE_LOG_COOLDOWN_SECONDS:.0f}s). "
@@ -2925,10 +2932,17 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         real_gb_id = target_id
         resource_id = None
         if platform:
-            mapping = (await session.execute(select(PlatformCatalogResource).where(
-                PlatformCatalogResource.platform_id == platform.id,
-                PlatformCatalogResource.virtual_gb_id == target_id
-            ))).scalars().first()
+            mapping = (
+                (
+                    await session.execute(
+                        select(PlatformCatalogResource).where(
+                            PlatformCatalogResource.platform_id == platform.id, PlatformCatalogResource.virtual_gb_id == target_id
+                        )
+                    )
+                )
+                .scalars()
+                .first()
+            )
 
             if mapping:
                 mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
@@ -2994,13 +3008,17 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             from app.models.access_source import AccessSource
 
             pc = (
-                await session.execute(
-                    select(PushChannel).where(
-                        PushChannel.gb_resource_id == resource_id,
-                        PushChannel.gb_enabled,
+                (
+                    await session.execute(
+                        select(PushChannel).where(
+                            PushChannel.gb_resource_id == resource_id,
+                            PushChannel.gb_enabled,
+                        )
                     )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if not pc:
                 resp = create_response(message, 404)
                 await send_response(transport, proto, addr, resp)
@@ -3028,16 +3046,11 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             # SDP Passthrough (RTP Media Bypass)
             if settings.CASCADE_RTP_MEDIA_BYPASS:
                 logger.info(f"[Cascade] Applying RTP Media Bypass for {real_gb_id}, sending INVITE directly to device with upstream SDP.")
-                transport_info = (
-                    (asset.ip_addr, asset.port),
-                    asset.transport,
-                    sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
-                )
+                transport_info = ((asset.ip_addr, asset.port), asset.transport, sip_server.get_transport(asset.ip_addr, asset.port, asset.transport))
                 try:
                     from app.sip.invite import sip_invite
-                    bypass_res = await sip_invite.send_cascade_invite(
-                        asset, res_obj, transport_info, sdp_body, session_name=session_name
-                    )
+
+                    bypass_res = await sip_invite.send_cascade_invite(asset, res_obj, transport_info, sdp_body, session_name=session_name)
 
                     device_sdp = bypass_res.get("sdp_response", "")
                     if device_sdp:
@@ -3099,11 +3112,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
 
             if not local_stream:
                 logger.info(f"Stream for {real_gb_id} not found locally, pulling from device...")
-                transport_info = (
-                    (asset.ip_addr, asset.port),
-                    asset.transport,
-                    sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
-                )
+                transport_info = ((asset.ip_addr, asset.port), asset.transport, sip_server.get_transport(asset.ip_addr, asset.port, asset.transport))
                 try:
                     cascade_timeout = settings.CASCADE_INVITE_TIMEOUT_SECONDS
                     invite_result = await asyncio.wait_for(
@@ -3137,14 +3146,21 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             await send_response(transport, proto, addr, resp)
             if not local_stream and asset:
                 try:
-                    ss = (await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.resource_id == resource_id,
-                            StreamSession.asset_id == asset.id,
+                    ss = (
+                        (
+                            await session.execute(
+                                select(StreamSession).where(
+                                    StreamSession.resource_id == resource_id,
+                                    StreamSession.asset_id == asset.id,
+                                )
+                            )
                         )
-                    )).scalars().first()
+                        .scalars()
+                        .first()
+                    )
                     if ss:
                         from app.services.stream_session_service import finalize_stream_session
+
                         await finalize_stream_session(session, ss, reason="invite_cancelled_before_sendRtp")
                 except Exception as cleanup_err:
                     logger.warning(f"Failed to cleanup after CANCEL (pre-startSendRtp): {cleanup_err}")
@@ -3224,14 +3240,21 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             await send_response(transport, proto, addr, resp)
             if not local_stream and asset:
                 try:
-                    ss = (await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.resource_id == resource_id,
-                            StreamSession.asset_id == asset.id,
+                    ss = (
+                        (
+                            await session.execute(
+                                select(StreamSession).where(
+                                    StreamSession.resource_id == resource_id,
+                                    StreamSession.asset_id == asset.id,
+                                )
+                            )
                         )
-                    )).scalars().first()
+                        .scalars()
+                        .first()
+                    )
                     if ss:
                         from app.services.stream_session_service import finalize_stream_session
+
                         await finalize_stream_session(session, ss, reason="cascade_startSendRtp_failed")
                 except Exception as cleanup_err:
                     logger.warning(f"Failed to cleanup device stream after startSendRtp failure: {cleanup_err}")
@@ -3243,10 +3266,13 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
             try:
                 from app.services.zlm_stream_control import stop_rtp_pusher
                 from app.core.media_nodes_db import get_db_node_by_id
+
                 async with AsyncSessionLocal() as cancel_session:
                     db_node = await get_db_node_by_id(cancel_session, str(node.id if node else ""))
                     if db_node:
-                        await stop_rtp_pusher(db_node.ip, db_node.http_port, db_node.decrypted_secret, _cascade_app, stream_to_send)  # P0-02: ORM 对象，decrypted_secret 解密
+                        await stop_rtp_pusher(
+                            db_node.ip, db_node.http_port, db_node.decrypted_secret, _cascade_app, stream_to_send
+                        )  # P0-02: ORM 对象，decrypted_secret 解密
             except Exception as stop_err:
                 logger.warning(f"Failed to stop RTP pusher after CANCEL (post-startSendRtp): {stop_err}")
             await invite_server_state.pop(call_id)
@@ -3255,7 +3281,9 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         # 组装响应 200 OK
         resp = create_response(message, 200)
         local_ip = sip_host_for_contact()
-        local_port = zlm_ret.get("local_port", recv_port) if zlm_ret and zlm_ret.get("code") == 0 else recv_port  # S-03 ZLM失败时回退到recv_port而非硬编码10000
+        local_port = (
+            zlm_ret.get("local_port", recv_port) if zlm_ret and zlm_ret.get("code") == 0 else recv_port
+        )  # S-03 ZLM失败时回退到recv_port而非硬编码10000
 
         resp_profile = "TCP/RTP/AVP" if is_tcp else "RTP/AVP"
         resp_setup = opposite_setup(str(recv_setup or "")) if is_tcp else None
@@ -3279,6 +3307,7 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         try:
             from app.sip.invite_server_state import validate_session_expires_for_uas, apply_session_expires_to_response
             from app.core.config import settings as _settings_se
+
             _ok_se, _expires_se, _refresher_se = validate_session_expires_for_uas(message, _settings_se.SIP_SESSION_MIN_SE_SECONDS)
             if _ok_se and _expires_se > 0:
                 # UAS 回带 Session-Expires；refresher 默认为 uac（RFC 4028 §5）
@@ -3298,15 +3327,22 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         if is_tcp:
             session_protocol = "TCP-PASSIVE" if str(recv_setup or "").strip().lower() == "active" else "TCP-ACTIVE"
 
-        old_cascade_sessions = (await session.execute(
-            select(StreamSession).where(
-                StreamSession.resource_id == resource_id,
-                StreamSession.cascade_platform_id.isnot(None),
+        old_cascade_sessions = (
+            (
+                await session.execute(
+                    select(StreamSession).where(
+                        StreamSession.resource_id == resource_id,
+                        StreamSession.cascade_platform_id.isnot(None),
+                    )
+                )
             )
-        )).scalars().all()
+            .scalars()
+            .all()
+        )
         for old_ss in old_cascade_sessions:
             try:
                 from app.services.stream_session_service import finalize_stream_session
+
                 await finalize_stream_session(session, old_ss, reason="cascade_replaced_by_new_invite")
             except Exception as old_cleanup_err:
                 logger.warning(f"Failed to cleanup old cascade session: {old_cleanup_err}")
@@ -3345,9 +3381,9 @@ async def handle_invite_request(message: SipMessage, addr: tuple, proto: str, tr
         else:
             await invite_server_state.pop(call_id)
 
+
 async def handle_response(message: SipMessage, addr: tuple, proto: str, transport):
     _bg_create_task(plugin_manager.emit(HOOK_ON_SIP_RECEIVE, message, addr, proto))
-
 
     cseq = message.get_header("CSeq")
     _cseq_parts = (cseq or "").split(" ", 1)
@@ -3378,6 +3414,7 @@ async def handle_update(message: SipMessage, addr: tuple, proto: str, transport)
     # 更新 dialog 的 last_refresh_at，避免 watchdog 超时误判
     try:
         from app.sip.dialog_manager import dialog_manager as _dm
+
         from_hdr = message.get_header("From") or ""
         m_ftag = re.search(r";\s*tag=([^;>\s]+)", from_hdr, re.IGNORECASE)
         if m_ftag:
@@ -3427,18 +3464,20 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
             try:
                 async with AsyncSessionLocal() as _sub_id_session:
                     _plat = (
-                        await _sub_id_session.execute(
-                            select(ParentPlatform).where(
-                                (ParentPlatform.server_gb_id == _sub_gb_id) | (ParentPlatform.client_gb_id == _sub_gb_id)
+                        (
+                            await _sub_id_session.execute(
+                                select(ParentPlatform).where(
+                                    (ParentPlatform.server_gb_id == _sub_gb_id) | (ParentPlatform.client_gb_id == _sub_gb_id)
+                                )
                             )
                         )
-                    ).scalars().first()
+                        .scalars()
+                        .first()
+                    )
                     if _plat:
                         _subscriber_known = True
                     else:
-                        _dev = (
-                            await _sub_id_session.execute(select(Asset).where(Asset.gb_id == _sub_gb_id))
-                        ).scalars().first()
+                        _dev = (await _sub_id_session.execute(select(Asset).where(Asset.gb_id == _sub_gb_id))).scalars().first()
                         if _dev:
                             _subscriber_known = True
             except Exception as _sub_id_err:
@@ -3491,17 +3530,18 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
             sn_val = secrets.randbelow(900000) + 100000
             resp.body = (
                 '<?xml version="1.0" encoding="GB2312"?>\n'
-                '<Response>\n'
-                '<CmdType>Alarm</CmdType>\n'
-                f'<SN>{sn_val}</SN>\n'
-                f'<DeviceID>{from_xml}</DeviceID>\n'
-                '<Result>OK</Result>\n'
-                '</Response>'
+                "<Response>\n"
+                "<CmdType>Alarm</CmdType>\n"
+                f"<SN>{sn_val}</SN>\n"
+                f"<DeviceID>{from_xml}</DeviceID>\n"
+                "<Result>OK</Result>\n"
+                "</Response>"
             )
     except Exception as e:
         logger.warning(f"Exception: {e}")
 
     await send_response(transport, proto, addr, resp)
+
     # FIXED-P2: 身份验证已在发送 200 OK 之前完成，_after_subscribe 不再重复验证
     async def _after_subscribe() -> None:
         try:
@@ -3519,17 +3559,14 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
                 expires_int = 0
 
             async with AsyncSessionLocal() as session:
-                platform = (
-                    await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))
-                ).scalars().first()
+                platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                 if not platform:
-                    platform = (
-                        await session.execute(select(ParentPlatform).where(ParentPlatform.client_gb_id == gb_id))
-                    ).scalars().first()
+                    platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.client_gb_id == gb_id))).scalars().first()
             if not platform:
                 return
 
             from app.services.platform_subscription_service import platform_subscription_service
+
             from_hdr = message.get_header("From") or ""
             m = re.search(r";\s*tag=([^;>\s]+)", from_hdr, re.IGNORECASE)
             remote_from_tag = m.group(1) if m else ""
@@ -3554,6 +3591,7 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
 
             if ev0.lower() == "catalog" and expires_int > 0:
                 import app.services.platform_service as platform_service_mod
+
                 svc = getattr(platform_service_mod, "platform_service", None)
                 if svc and getattr(svc, "running", False):
                     _bg_create_task(svc.trigger_push_catalog(platform.id))
@@ -3567,9 +3605,11 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
                         notify_cseq = 2
                     from app.sip.send import send_sip_bytes
                     from app.sip.message import SipMessage
+
                     # FIX: [2026-08-22 PN] sip_host_for_contact 位于 app.core.config（app/sip/utils.py 不存在），
                     # 原 ImportError 被吞 → SUBSCRIBE 注销的 terminated NOTIFY 永远不发送
                     from app.core.config import sip_host_for_contact
+
                     notify_req = SipMessage()
                     notify_req.method = "NOTIFY"
                     notify_req.uri = message.get_header("Contact") or f"sip:{gb_id}@{addr[0]}:{addr[1]}"
@@ -3607,6 +3647,7 @@ async def handle_subscribe(message: SipMessage, addr: tuple, proto: str, transpo
                 logger.warning(f"Invalid NOTIFY subscribe expires value: {_notify_exp_err}")
                 expires_int = 0
             from app.sip.subscribe_manager import subscribe_manager, SubscribeInfo
+
             from_hdr = message.get_header("From") or ""
             m = re.search(r";\s*tag=([^;>\s]+)", from_hdr, re.IGNORECASE)
             remote_from_tag = m.group(1) if m else ""
@@ -3653,9 +3694,8 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
     if event_hdr and call_id_hdr:
         try:
             from app.services.platform_subscription_service import platform_subscription_service
-            subs = await platform_subscription_service.list_active_subscriptions(
-                tenant_id="default", event=event_hdr
-            )
+
+            subs = await platform_subscription_service.list_active_subscriptions(tenant_id="default", event=event_hdr)
             for sub in subs:
                 if getattr(sub, "call_id", None) == call_id_hdr:
                     sub_from_tag = str(getattr(sub, "from_tag", "") or "").strip()
@@ -3679,6 +3719,7 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
         return
     resp = create_response(message, 200, received_addr=addr)
     await send_response(transport, proto, addr, resp)
+
     async def _after_notify() -> None:
         try:
             event = (message.get_header("Event") or "").strip()
@@ -3689,16 +3730,13 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
             if not gb_id:
                 return
             async with AsyncSessionLocal() as session:
-                platform = (
-                    await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))
-                ).scalars().first()
+                platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == gb_id))).scalars().first()
                 if not platform:
-                    platform = (
-                        await session.execute(select(ParentPlatform).where(ParentPlatform.client_gb_id == gb_id))
-                    ).scalars().first()
+                    platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.client_gb_id == gb_id))).scalars().first()
             if not platform:
                 return
             from app.services.platform_subscription_service import platform_subscription_service
+
             await platform_subscription_service.mark_notify(
                 tenant_id=platform.tenant_id or "default",
                 platform_id=platform.id,
@@ -3710,6 +3748,7 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
                 logger.info(f"[NOTIFY] Subscription terminated for {gb_id} event={event}")
                 try:
                     from app.sip.subscribe_manager import subscribe_manager
+
                     await subscribe_manager.remove_inbound(gb_id, event)
                 except Exception as e:
                     logger.warning(f"[NOTIFY] Failed to remove inbound subscription: {e}")
@@ -3718,6 +3757,7 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
             if body and event.lower() == "catalog":
                 try:
                     from app.core.xml_utils import parse_xml
+
                     root = parse_xml(body)
                     sn_el = root.findtext("SN", "")
                     root.findtext("DeviceID", "")
@@ -3726,6 +3766,7 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
                     if item_list:
                         # R24-05: 修复错误的导入（catalog_runtime 模块无 catalog_runtime 名称）
                         from app.sip.catalog_runtime import handle_catalog_notify_items
+
                         await handle_catalog_notify_items(gb_id, item_list)
                         logger.info(f"[NOTIFY] Parsed catalog notify from {gb_id}: {len(item_list)} items, SN={sn_el}")
                 except Exception as catalog_err:
@@ -3737,6 +3778,7 @@ async def handle_notify(message: SipMessage, addr: tuple, proto: str, transport)
                     # Also dispatch to subscribe_manager callbacks
                     from app.sip.subscribe_manager import subscribe_manager
                     from app.core.xml_utils import parse_xml as _parse_xml, get_xml_text as _get_xml_text
+
                     pos_root = _parse_xml(body)
                     if pos_root is not None:
                         position = {
@@ -3769,6 +3811,7 @@ async def handle_cancel(message: SipMessage, addr: tuple, proto: str, transport)
         cancel_branch = via_match.group(1).strip()
     if call_id:
         from app.sip.invite_server_state import invite_server_state
+
         # Verify Via branch matches the original INVITE's branch
         async with invite_server_state._lock:
             ctx = invite_server_state._items.get(call_id)
@@ -3801,6 +3844,7 @@ async def handle_cancel(message: SipMessage, addr: tuple, proto: str, transport)
     await send_response(transport, proto, addr, resp)
     if call_id:
         from app.sip.invite_server_state import invite_server_state
+
         ctx = await invite_server_state.mark_cancelled(call_id)
         if ctx:
             try:
@@ -3818,6 +3862,7 @@ async def handle_ack(message: SipMessage, addr: tuple, proto: str, transport):
     call_id = message.call_id
     if call_id:
         from app.sip.invite_server_state import invite_server_state
+
         # GB28181协议 — 验证ACK的From/To tag是否与原始INVITE匹配
         async with invite_server_state._lock:
             ctx = invite_server_state._items.get(call_id)
@@ -3861,6 +3906,7 @@ async def handle_ack(message: SipMessage, addr: tuple, proto: str, transport):
             try:
                 from app.sip.transactions import server_tx_manager
                 from app.sip.server import sip_server
+
                 tx_key = sip_server._tx_key_from_request(message)
                 await server_tx_manager.confirm_transaction(tx_key)
             except Exception as _tx_err:
@@ -3875,7 +3921,7 @@ async def handle_info(message: SipMessage, addr: tuple, proto: str, transport):
     # 解析 MANSRTSP 内容，提取 NPT 播放进度
     body = message.body or ""
     if body and "MANSRTSP" in body:
-        npt_match = re.search(r'Range:\s*npt=([\d.]+)-([\d.]*)', body)
+        npt_match = re.search(r"Range:\s*npt=([\d.]+)-([\d.]*)", body)
         if npt_match:
             npt_start = float(npt_match.group(1))
             npt_end = float(npt_match.group(2)) if npt_match.group(2) else None
@@ -3884,9 +3930,11 @@ async def handle_info(message: SipMessage, addr: tuple, proto: str, transport):
             call_id = message.call_id or ""
             if call_id:
                 from app.sip.playback_control import _npt_results_put  # W-30 使用带大小限制的写入方法
+
                 _npt_results_put(call_id, {"npt_start": npt_start, "npt_end": npt_end})
     resp = create_response(message, 200, received_addr=addr)
     await send_response(transport, proto, addr, resp)
+
 
 async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
     """
@@ -3923,9 +3971,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
 
             # 预加载 IP 校验所需的 Asset（expire_on_commit=False 保证关闭后仍可访问）
             if stream_session and stream_session.asset_id:
-                _asset_for_ip_check = (
-                    await session.execute(select(Asset).where(Asset.id == stream_session.asset_id))
-                ).scalars().first()
+                _asset_for_ip_check = (await session.execute(select(Asset).where(Asset.id == stream_session.asset_id))).scalars().first()
     except Exception as _phase1_err:
         logger.warning(f"[handle_bye] Phase1 query failed: {_phase1_err}")
 
@@ -3959,6 +4005,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             _cseq_hdr = message.get_header("CSeq") or "1 BYE"
             _cseq_num = int(_cseq_hdr.split()[0]) if _cseq_hdr.split() else 1
             from app.sip.dialog_manager import dialog_manager as _dm
+
             _validated = False
             for _tag in (bye_to_tag, bye_from_tag):
                 if _tag:
@@ -3985,19 +4032,15 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
         #   方向B（本端挂断）: BYE From-tag=本端tag(X), To-tag=设备tag(Y)
         #     → bye_from==ss_from_tag, bye_to==ss_to_tag
         # 两种方向都是合法的，但必须严格匹配，不允许交叉匹配。
-        tag_matched = (
-            (ss_to_tag and bye_from_tag == ss_to_tag and ss_from_tag and bye_to_tag == ss_from_tag)
-            or (ss_from_tag and bye_from_tag == ss_from_tag and ss_to_tag and bye_to_tag == ss_to_tag)
+        tag_matched = (ss_to_tag and bye_from_tag == ss_to_tag and ss_from_tag and bye_to_tag == ss_from_tag) or (
+            ss_from_tag and bye_from_tag == ss_from_tag and ss_to_tag and bye_to_tag == ss_to_tag
         )
 
         # S-06 BYE tag为空时降级为Call-ID-only匹配存在伪造风险，增加源IP+端口校验
         if not tag_matched and (not ss_from_tag or not ss_to_tag):
             # 生产环境可禁用降级匹配（SIP_STRICT_BYE_TAG_MATCH=True）
             if settings.SIP_STRICT_BYE_TAG_MATCH:
-                logger.error(
-                    "BYE rejected: strict tag matching enabled, tag fallback disabled for %s",
-                    call_id
-                )
+                logger.error("BYE rejected: strict tag matching enabled, tag fallback disabled for %s", call_id)
                 resp = create_response(message, 481, "Call/Transaction Does Not Exist", received_addr=addr)
                 await send_response(transport, proto, addr, resp)
                 return
@@ -4020,8 +4063,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                 logger.debug("BYE handler: failed to read registered IP, skipping IP validation")
             if _registered_ip and client_ip != _registered_ip:
                 logger.warning(
-                    "BYE rejected: Call-ID-only match with IP mismatch for %s (registered=%s, bye_from=%s)",
-                    call_id, _registered_ip, client_ip
+                    "BYE rejected: Call-ID-only match with IP mismatch for %s (registered=%s, bye_from=%s)", call_id, _registered_ip, client_ip
                 )
                 resp = create_response(message, 481, "Call/Transaction Does Not Exist", received_addr=addr)
                 await send_response(transport, proto, addr, resp)
@@ -4032,7 +4074,9 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                 if isinstance(bye_src_port, int) and bye_src_port != _registered_port:
                     logger.warning(
                         "BYE rejected: Call-ID-only match with port mismatch for %s (registered_port=%s, bye_port=%s)",
-                        call_id, _registered_port, bye_src_port
+                        call_id,
+                        _registered_port,
+                        bye_src_port,
                     )
                     resp = create_response(message, 481, "Call/Transaction Does Not Exist", received_addr=addr)
                     await send_response(transport, proto, addr, resp)
@@ -4040,7 +4084,10 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             tag_matched = True
             logger.warning(
                 "BYE tag fallback to Call-ID+IP+port match for %s (ss_from=%s, ss_to=%s, bye_ip=%s) - legacy device compatibility",
-                call_id, ss_from_tag, ss_to_tag, client_ip
+                call_id,
+                ss_from_tag,
+                ss_to_tag,
+                client_ip,
             )
 
         # 额外安全：如果 session 有 cascade_call_id 且 BYE 的 Call-ID 匹配 cascade_call_id，
@@ -4049,9 +4096,8 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             cascade_from = str(getattr(stream_session, "cascade_from_tag", "") or "")
             cascade_to = str(getattr(stream_session, "cascade_to_tag", "") or "")
             if cascade_from and cascade_to:
-                tag_matched = (
-                    (bye_from_tag == cascade_to and bye_to_tag == cascade_from)
-                    or (bye_from_tag == cascade_from and bye_to_tag == cascade_to)
+                tag_matched = (bye_from_tag == cascade_to and bye_to_tag == cascade_from) or (
+                    bye_from_tag == cascade_from and bye_to_tag == cascade_to
                 )
 
         if not tag_matched:
@@ -4076,6 +4122,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             _finalize_stream_session_no_db,
             _release_stream_session_no_db,
         )
+
         # W-06 handle_bye与release_stream_session并发时session可能已被删除，加try保护
         try:
             cascade_call_id_val = str(getattr(stream_session, "cascade_call_id", "") or "")
@@ -4083,6 +4130,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                 # R24-04: stop_rtp_pusher 使用短 session 查询 db_node（ZLM HTTP 不持有 DB session）
                 from app.services.zlm_stream_control import stop_rtp_pusher
                 from app.core.media_nodes_db import get_db_node_by_id
+
                 try:
                     _ms_id = str(getattr(stream_session, "media_server_id", "") or "")
                     _db_node = None
@@ -4091,7 +4139,9 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                             _db_node = await get_db_node_by_id(_node_session, _ms_id)
                     if _db_node:
                         await stop_rtp_pusher(
-                            _db_node.ip, _db_node.http_port, _db_node.decrypted_secret,  # P0-02: ORM 对象，decrypted_secret 解密
+                            _db_node.ip,
+                            _db_node.http_port,
+                            _db_node.decrypted_secret,  # P0-02: ORM 对象，decrypted_secret 解密
                             str(getattr(stream_session, "app", "") or ""),
                             str(getattr(stream_session, "stream", "") or ""),
                         )
@@ -4132,14 +4182,15 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             if _res_id:
                 try:
                     async with AsyncSessionLocal() as _res_session:
-                        _fin_resource = (
-                            await _res_session.execute(select(Resource).where(Resource.id == _res_id))
-                        ).scalars().first()
+                        _fin_resource = (await _res_session.execute(select(Resource).where(Resource.id == _res_id))).scalars().first()
                 except Exception as _res_err:
                     logger.warning(f"[BYE] Failed to pre-load resource for finalize: {_res_err}")
 
             await _finalize_stream_session_no_db(
-                stream_session, reason="sip_bye", asset=_fin_asset, resource=_fin_resource,
+                stream_session,
+                reason="sip_bye",
+                asset=_fin_asset,
+                resource=_fin_resource,
             )
             logger.info(f"Stream session {call_id} closed via authenticated BYE")
             # S-04 移除重复SSRC释放，finalize_stream_session内部已释放
@@ -4147,6 +4198,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
                 ft = str(getattr(stream_session, "from_tag", "") or "")
                 if ft:
                     from app.sip.dialog_manager import dialog_manager
+
                     await dialog_manager.terminate_dialog(call_id, ft)
             except Exception as dlg_err:
                 logger.warning(f"Dialog terminate on BYE failed: {dlg_err}")
@@ -4154,6 +4206,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
             logger.error(f"Failed to finalize stream session for BYE {call_id}: {e}")
 
         from app.sip.invite_server_state import invite_server_state
+
         await invite_server_state.pop(call_id)
         cascade_call_id_val2 = str(getattr(stream_session, "cascade_call_id", "") or "")
         if cascade_call_id_val2 and cascade_call_id_val2 != call_id:
@@ -4161,12 +4214,14 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
         # BYE处理后取消流切换看门狗，防止超时后对已终止会话发送Re-INVITE
         try:
             from app.sip.watchdog import cancel_stream_switch_watchdog
+
             cancel_stream_switch_watchdog(call_id)
         except Exception as _wd_err:
             logger.warning(f"Failed to cancel stream switch watchdog on BYE: {_wd_err}")
         # GB28181协议 — BYE处理后清理流切换全局字典
         try:
             from app.sip.invite import invite_state
+
             async with invite_state.stream_switch_lock:
                 invite_state.stream_switch_pending.pop(call_id, None)
                 invite_state.stream_switch_pending_timestamps.pop(call_id, None)
@@ -4177,6 +4232,7 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
         # R4-01 BYE处理清理playback状态，防止内存泄漏
         try:
             from app.sip.playback_control import playback_control as _pb_ctrl
+
             if _pb_ctrl:
                 _pb_ctrl._playback_states.pop(call_id, None)
         except Exception as _pb_cleanup_err:
@@ -4189,19 +4245,23 @@ async def handle_bye(message: SipMessage, addr: tuple, proto: str, transport):
     resp = create_response(message, 200, received_addr=addr)
     await send_response(transport, proto, addr, resp)
 
+
 def init_handlers():
     from app.sip.server import sip_server
     from app.sip.invite_server_state import invite_server_state
     from app.sip.storm_handler import start_storm_handler
     from loguru import logger
+
     start_storm_handler()
     invite_server_state.start()
     invite_server_state.set_sender(lambda transport, proto, addr, msg: send_response(transport, proto, addr, msg))
     # 启动时从DB恢复活跃SSRC，防止进程重启后SSRC冲突
     from app.sip.ssrc_manager import ssrc_manager
+
     _bg_create_task(ssrc_manager.restore_from_db())
     try:
         from app.sip.subscribe_manager import subscribe_manager
+
         _bg_create_task(subscribe_manager.start())
     except Exception as e:
         logger.warning(f"Failed to start subscribe_manager: {e}")

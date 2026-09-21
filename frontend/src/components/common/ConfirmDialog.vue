@@ -122,9 +122,6 @@ const iconType = computed(() => {
   return 'info'
 })
 
-const icon = computed(() => resolvedIcon.value)
-const confirmType = computed(() => resolvedConfirmType.value)
-
 const handleConfirm = async () => {
   emit('confirm')
 }

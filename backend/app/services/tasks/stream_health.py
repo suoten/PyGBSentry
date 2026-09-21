@@ -17,7 +17,6 @@ from sqlalchemy import select
 from app.core.media_nodes_db import _to_runtime
 
 
-
 _task: asyncio.Task | None = None
 
 PLUGIN_ID = "stream_health"
@@ -44,9 +43,7 @@ async def _get_runtime_cfg() -> dict:
         return _cfg_cache
 
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
     merged = dict(_DEFAULT_BASE_CONFIG)
@@ -167,10 +164,7 @@ def _run_quality_diag(streams: list[dict], check_interval: int, signal_loss_thre
     # 4. 信号丢失检测（流消失）
     #    遍历之前记录过的流，若超过阈值时间没再出现，则认为是信号丢失
     threshold = max(60, signal_loss_threshold)
-    gone_keys = [
-        k for k, last_ts in list(_stream_last_seen.items())
-        if k not in current_keys and (now_ts - last_ts) >= threshold
-    ]
+    gone_keys = [k for k, last_ts in list(_stream_last_seen.items()) if k not in current_keys and (now_ts - last_ts) >= threshold]
     for gone_key in gone_keys:
         _log_diag(gone_key, "SIGNAL_LOST", f"stream_missing_since={int(now_ts - _stream_last_seen[gone_key])}s")
         del _stream_last_seen[gone_key]
@@ -204,6 +198,7 @@ async def monitor_health():
             data = {}
             try:
                 from app.services.zlm_stream_control import _get_zlm_client
+
                 _client = await _get_zlm_client()
                 # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
                 res = await _client.post(
@@ -243,11 +238,15 @@ async def monitor_health():
                                 # 记录连续离线次数
                                 _node_offline_counts[node_key] = _node_offline_counts.get(node_key, 0) + 1
                                 if _node_offline_counts[node_key] >= _OFFLINE_THRESHOLD_COUNT:
-                                    logger.warning(f"[HA Failover] Media node {node.ip}:{node.http_port} heartbeat timeout ({now_ts - last_heartbeat}s > {timeout_sec}s), marking OFFLINE.")
+                                    logger.warning(
+                                        f"[HA Failover] Media node {node.ip}:{node.http_port} heartbeat timeout ({now_ts - last_heartbeat}s > {timeout_sec}s), marking OFFLINE."
+                                    )
                                     node.is_online = 0
                                     offline_nodes.append(node)
                                 else:
-                                    logger.debug(f"[HA Failover] Media node {node.ip}:{node.http_port} heartbeat delayed ({_node_offline_counts[node_key]}/{_OFFLINE_THRESHOLD_COUNT}), waiting...")
+                                    logger.debug(
+                                        f"[HA Failover] Media node {node.ip}:{node.http_port} heartbeat delayed ({_node_offline_counts[node_key]}/{_OFFLINE_THRESHOLD_COUNT}), waiting..."
+                                    )
                             else:
                                 _node_offline_counts.pop(node_key, None)
                                 healthy_nodes.append(node)
@@ -256,6 +255,7 @@ async def monitor_health():
 
                     if offline_nodes and healthy_nodes:
                         from app.core.media_nodes_db import select_best_db_node
+
                         try:
                             async with AsyncSessionLocal() as sel_session:
                                 best_node = await select_best_db_node(sel_session, exclude_node_ids=[n.id for n in offline_nodes])
@@ -273,6 +273,7 @@ async def monitor_health():
                             async with _ha_semaphore:
                                 try:
                                     import app.sip.invite as sip_invite_module
+
                                     if sip_invite_module.sip_invite:
                                         await sip_invite_module.sip_invite.send_reinvite(ds_item, tgt_rt)
                                 except Exception as reinvite_err:
@@ -320,16 +321,20 @@ async def monitor_health():
             active_count = len(streams)
             try:
                 async with AsyncSessionLocal() as metric_session:
-                    metric_session.add(NetworkMetric(
-                        tenant_id="default",
-                        metric="active_streams",
-                        value=int(active_count),
-                    ))
-                    metric_session.add(NetworkMetric(
-                        tenant_id="default",
-                        metric="zlm_bandwidth_kbps",
-                        value=bandwidth_kbps,
-                    ))
+                    metric_session.add(
+                        NetworkMetric(
+                            tenant_id="default",
+                            metric="active_streams",
+                            value=int(active_count),
+                        )
+                    )
+                    metric_session.add(
+                        NetworkMetric(
+                            tenant_id="default",
+                            metric="zlm_bandwidth_kbps",
+                            value=bandwidth_kbps,
+                        )
+                    )
                     await metric_session.commit()
             except Exception as e:
                 logger.warning(f"Error: {e}")
@@ -341,9 +346,7 @@ async def monitor_health():
                 total_readers = s.get("totalReaderCount", 0)
 
                 if bytes_speed < 1024 and total_readers > 0:
-                    logger.warning(
-                        f"[Health] Low bitrate detected on {app}/{stream_id}: {bytes_speed / 1024:.2f} KB/s"
-                    )
+                    logger.warning(f"[Health] Low bitrate detected on {app}/{stream_id}: {bytes_speed / 1024:.2f} KB/s")
                     sla_log_file = str(cfg.get("sla_log_file") or _DEFAULT_BASE_CONFIG["sla_log_file"])
                     try:
                         os.makedirs(os.path.dirname(sla_log_file) or ".", exist_ok=True)

@@ -7,6 +7,7 @@ than raised, making it safe for non-critical background work (webhooks, plugin
 event emission, SIEM push, etc.) — consistent with the ``P0-16`` annotation
 used throughout the codebase.
 """
+
 from __future__ import annotations
 
 import asyncio

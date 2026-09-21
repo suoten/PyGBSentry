@@ -1,4 +1,5 @@
 """移动指挥会商会话与指令 API。"""
+
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -66,13 +67,17 @@ def _duration_sec(started_at: datetime | None, ended_at: datetime | None) -> int
 
 async def _ensure_session(db: AsyncSession, user: User, session_id: str, title: str | None = None):
     row = (
-        await db.execute(
-            select(CommandSession).where(
-                CommandSession.id == session_id,
-                CommandSession.tenant_id == _tenant_id(user),
+        (
+            await db.execute(
+                select(CommandSession).where(
+                    CommandSession.id == session_id,
+                    CommandSession.tenant_id == _tenant_id(user),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if row:
         return row
     row = CommandSession(
@@ -169,13 +174,17 @@ async def create_session(
 ):
     session_id = (body.alarm_id or "").strip() or f"cm_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S%f')}"
     existing = (
-        await db.execute(
-            select(CommandSession).where(
-                CommandSession.id == session_id,
-                CommandSession.tenant_id == _tenant_id(current_user),
+        (
+            await db.execute(
+                select(CommandSession).where(
+                    CommandSession.id == session_id,
+                    CommandSession.tenant_id == _tenant_id(current_user),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if existing:
         await safe_auth_audit(
             db,
@@ -231,13 +240,17 @@ async def join_session(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     session = (
-        await db.execute(
-            select(CommandSession).where(
-                CommandSession.id == session_id,
-                CommandSession.tenant_id == _tenant_id(current_user),
+        (
+            await db.execute(
+                select(CommandSession).where(
+                    CommandSession.id == session_id,
+                    CommandSession.tenant_id == _tenant_id(current_user),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not session:
         await safe_auth_audit(
             db,
@@ -253,13 +266,17 @@ async def join_session(
         )
         raise HTTPException(status_code=404, detail="Talk session not found")
     exists = (
-        await db.execute(
-            select(CommandParticipant).where(
-                CommandParticipant.session_id == session_id,
-                CommandParticipant.user_id == current_user.id,
+        (
+            await db.execute(
+                select(CommandParticipant).where(
+                    CommandParticipant.session_id == session_id,
+                    CommandParticipant.user_id == current_user.id,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not exists:
         db.add(
             CommandParticipant(
@@ -294,13 +311,17 @@ async def list_participants(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     session = (
-        await db.execute(
-            select(CommandSession).where(
-                CommandSession.id == session_id,
-                CommandSession.tenant_id == _tenant_id(current_user),
+        (
+            await db.execute(
+                select(CommandSession).where(
+                    CommandSession.id == session_id,
+                    CommandSession.tenant_id == _tenant_id(current_user),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not session:
         raise HTTPException(status_code=404, detail="Talk session not found")
     stmt = select(CommandParticipant).where(CommandParticipant.session_id == session_id)
@@ -329,13 +350,17 @@ async def close_session(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     session = (
-        await db.execute(
-            select(CommandSession).where(
-                CommandSession.id == session_id,
-                CommandSession.tenant_id == _tenant_id(current_user),
+        (
+            await db.execute(
+                select(CommandSession).where(
+                    CommandSession.id == session_id,
+                    CommandSession.tenant_id == _tenant_id(current_user),
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not session:
         await safe_auth_audit(
             db,

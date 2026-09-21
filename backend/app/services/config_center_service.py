@@ -1,13 +1,16 @@
 import json
 import uuid
 from datetime import datetime, timezone
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
 
 from sqlalchemy import select, desc  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
 from sqlalchemy.ext.asyncio import AsyncSession

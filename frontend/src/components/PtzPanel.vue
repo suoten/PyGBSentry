@@ -78,7 +78,7 @@
           :max="255" 
           size="small" 
           style="width: 80px"
-          :placeholder="t('ptz.presetId')"  <!-- FIXED: 国际化 -->
+          :placeholder="t('ptz.presetId')"
         />
         <el-button size="small" type="primary" @click="setPreset" :loading="settingPreset">
           <el-icon class="mr-1"><Plus /></el-icon>

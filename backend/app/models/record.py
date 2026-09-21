@@ -8,8 +8,10 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
+
 
 class Record(Base):
     __tablename__ = "records"
@@ -24,11 +26,11 @@ class Record(Base):
     end_time = Column(DateTime, nullable=False, index=True)
     duration = Column(Float, comment="Duration in seconds")
 
-    file_path = Column(String(255), nullable=False) # Local path or URL
+    file_path = Column(String(255), nullable=False)  # Local path or URL
     file_size = Column(BigInteger, default=0)
 
     # FIX R22-GENERAL: stream_id 添加索引（hook 回调、流清理、录像去重都按 stream_id 查询）
-    stream_id = Column(String(64), index=True) # ZLM stream ID
+    stream_id = Column(String(64), index=True)  # ZLM stream ID
 
     tenant_id = Column(String(64), default="default", index=True)
     record_app = Column(String(32), nullable=True, index=True)

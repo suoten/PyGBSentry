@@ -1,4 +1,5 @@
 """资产管理：设备台账、维保记录。"""
+
 from fastapi import Query, APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -47,29 +48,31 @@ async def device_ledger(
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     if keyword:
-        stmt = stmt.where(
-            Asset.gb_id.ilike(f"%{keyword}%") | Asset.name.ilike(f"%{keyword}%")
-        )
+        stmt = stmt.where(Asset.gb_id.ilike(f"%{keyword}%") | Asset.name.ilike(f"%{keyword}%"))
     stmt = stmt.offset(skip).limit(limit).order_by(Asset.created_at.desc())
     result = await db.execute(stmt)
     assets = result.scalars().all()
     asset_ids = [a.id for a in assets]
     # 维保次数
-    count_stmt = select(AssetMaintenance.asset_id, func.count(AssetMaintenance.id)).where(
-        AssetMaintenance.asset_id.in_(asset_ids)
-    ).group_by(AssetMaintenance.asset_id)
+    count_stmt = (
+        select(AssetMaintenance.asset_id, func.count(AssetMaintenance.id))
+        .where(AssetMaintenance.asset_id.in_(asset_ids))
+        .group_by(AssetMaintenance.asset_id)
+    )
     counts = {r[0]: r[1] for r in (await db.execute(count_stmt)).all()}
     out = []
     for a in assets:
-        out.append({
-            "id": a.id,
-            "gb_id": a.gb_id,
-            "name": a.name,
-            "manufacturer": a.manufacturer,
-            "model": a.model,
-            "status": a.status,
-            "maintenance_count": counts.get(a.id, 0),
-        })
+        out.append(
+            {
+                "id": a.id,
+                "gb_id": a.gb_id,
+                "name": a.name,
+                "manufacturer": a.manufacturer,
+                "model": a.model,
+                "status": a.status,
+                "maintenance_count": counts.get(a.id, 0),
+            }
+        )
     return out
 
 
@@ -86,9 +89,7 @@ async def list_maintenances(
     if asset_id:
         stmt = stmt.where(AssetMaintenance.asset_id == asset_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     stmt = stmt.offset(skip).limit(limit).order_by(AssetMaintenance.maintenance_date.desc())
     result = await db.execute(stmt)
     rows = result.scalars().all()
@@ -165,9 +166,7 @@ async def update_maintenance(
 ):
     stmt = select(AssetMaintenance).where(AssetMaintenance.id == maintenance_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     m = (await db.execute(stmt)).scalars().first()
     if not m:
         await safe_auth_audit(
@@ -215,9 +214,7 @@ async def delete_maintenance(
 ):
     stmt = select(AssetMaintenance).where(AssetMaintenance.id == maintenance_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == AssetMaintenance.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     m = (await db.execute(stmt)).scalars().first()
     if not m:
         await safe_auth_audit(

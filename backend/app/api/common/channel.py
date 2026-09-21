@@ -2,6 +2,7 @@
 全局通道管理 API 兼容层（路径与语义对齐 /api/common/channel/*）。
 仅覆盖当前数据模型所能映射的能力；推流/拉流/部标等类型列表可返回空集合。
 """
+
 from __future__ import annotations
 from loguru import logger
 
@@ -10,13 +11,16 @@ from typing import Any
 from datetime import datetime
 import time
 import uuid
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
 
 import math
 
@@ -73,6 +77,7 @@ router = APIRouter(tags=["common-channel"])
 
 # Global state: Redis-backed with in-memory fallback for multi-instance support
 from app.core.redis_state import FallbackDict
+
 _map_level_cache = FallbackDict("p3s:map_level", ttl=86400)
 _map_thin_jobs = FallbackDict("p3s:thin_job", ttl=3600)
 _map_thin_default_id: str | None = None
@@ -85,10 +90,7 @@ async def _cleanup_thin_jobs() -> None:
     global _map_thin_default_id
     now = time.time()
     all_items = await _map_thin_jobs.items()
-    expired = [
-        k for k, v in all_items
-        if now - v.get("_created_at", 0) > _MAP_THIN_TTL_SECONDS
-    ]
+    expired = [k for k, v in all_items if now - v.get("_created_at", 0) > _MAP_THIN_TTL_SECONDS]
     for k in expired:
         await _map_thin_jobs.delete(k)
         if _map_thin_default_id == k:
@@ -98,7 +100,7 @@ async def _cleanup_thin_jobs() -> None:
     if current_size > _MAP_THIN_MAX_JOBS:
         all_items = await _map_thin_jobs.items()
         oldest = sorted(all_items, key=lambda x: x[1].get("_created_at", 0))
-        for k, _ in oldest[:current_size - _MAP_THIN_MAX_JOBS]:
+        for k, _ in oldest[: current_size - _MAP_THIN_MAX_JOBS]:
             await _map_thin_jobs.delete(k)
             if _map_thin_default_id == k:
                 _map_thin_default_id = None
@@ -185,14 +187,7 @@ def _out_of_china(lon: float, lat: float) -> bool:
 
 
 def _transform_lat(x: float, y: float) -> float:
-    ret = (
-        -100.0
-        + 2.0 * x
-        + 3.0 * y
-        + 0.2 * y * y
-        + 0.1 * x * y
-        + 0.2 * math.sqrt(abs(x))
-    )
+    ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * math.sqrt(abs(x))
     ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
     ret += (20.0 * math.sin(y * math.pi) + 40.0 * math.sin(y / 3.0 * math.pi)) * 2.0 / 3.0
     ret += (160.0 * math.sin(y / 12.0 * math.pi) + 320 * math.sin(y * math.pi / 30.0)) * 2.0 / 3.0
@@ -200,14 +195,7 @@ def _transform_lat(x: float, y: float) -> float:
 
 
 def _transform_lon(x: float, y: float) -> float:
-    ret = (
-        300.0
-        + x
-        + 2.0 * y
-        + 0.1 * x * x
-        + 0.1 * x * y
-        + 0.1 * math.sqrt(abs(x))
-    )
+    ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * math.sqrt(abs(x))
     ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
     ret += (20.0 * math.sin(x * math.pi) + 40.0 * math.sin(x / 3.0 * math.pi)) * 2.0 / 3.0
     ret += (150.0 * math.sin(x / 12.0 * math.pi) + 300.0 * math.sin(x / 30.0 * math.pi)) * 2.0 / 3.0
@@ -477,9 +465,7 @@ async def _query_map_tile_features(
     return features
 
 
-async def _resolve_channel_asset_pair(
-    db: AsyncSession, current_user: User, channel_id: int
-) -> tuple[Resource, Asset]:
+async def _resolve_channel_asset_pair(db: AsyncSession, current_user: User, channel_id: int) -> tuple[Resource, Asset]:
     rows = await _resolve_resources_by_numeric_ids(
         db,
         current_user.tenant_id or "default",
@@ -666,11 +652,7 @@ async def _query_channel_page(
         count_stmt = count_stmt.where(and_(*conditions))
     total = int((await db.execute(count_stmt)).scalar() or 0)
 
-    stmt = (
-        stmt.order_by(Resource.gb_id.asc(), Resource.id.asc())
-        .offset(skip)
-        .limit(limit)
-    )
+    stmt = stmt.order_by(Resource.gb_id.asc(), Resource.id.asc()).offset(skip).limit(limit)
     result = await db.execute(stmt)
     rows = result.all()
     return rows, total
@@ -720,11 +702,7 @@ async def _query_unusual_channel_page(
     stmt = stmt.where(and_(*conditions))
     count_stmt = select(func.count()).select_from(Resource).join(Asset, Asset.id == Resource.asset_id).where(and_(*conditions))
     total = int((await db.execute(count_stmt)).scalar() or 0)
-    rows = (
-        await db.execute(
-            stmt.order_by(Resource.gb_id.asc(), Resource.id.asc()).offset(skip).limit(limit)
-        )
-    ).all()
+    rows = (await db.execute(stmt.order_by(Resource.gb_id.asc(), Resource.id.asc()).offset(skip).limit(limit))).all()
     return rows, total
 
 
@@ -993,9 +971,7 @@ async def region_add(
     code = _norm_civil(body.civil_code)
     if len(code) < 6:
         raise HTTPException(status_code=400, detail="Invalid administrative division code")  # i18n
-    chans = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids
-    )
+    chans = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids)
     target_region = f"region:{code}"
     for r in chans:
         r.civil_code = code
@@ -1048,9 +1024,7 @@ async def group_add(
     bg = (body.business_group or "").strip()
     if not pid or not bg:
         raise HTTPException(status_code=400, detail="parentId and businessGroup are required")  # i18n
-    chans = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids
-    )
+    chans = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids)
     for r in chans:
         r.parent_gb_id = pid
         r.business_group_id = bg
@@ -1100,9 +1074,7 @@ async def region_delete(
 ):
     if not body.channel_ids:
         raise HTTPException(status_code=400, detail="channelIds is required")  # i18n
-    chans = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids
-    )
+    chans = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids)
     for r in chans:
         r.civil_code = None
         r.region_parent_gb_id = None
@@ -1146,9 +1118,7 @@ async def group_delete(
 ):
     if not body.channel_ids:
         raise HTTPException(status_code=400, detail="channelIds is required")  # i18n
-    chans = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids
-    )
+    chans = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, body.channel_ids)
     for r in chans:
         r.parent_gb_id = None
         r.business_group_id = None
@@ -1234,9 +1204,7 @@ async def channel_one(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    rows = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, [id]
-    )
+    rows = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, [id])
     if not rows:
         raise HTTPException(status_code=404, detail="Channel not found")  # i18n
     r = rows[0]
@@ -1299,10 +1267,7 @@ async def channel_update(
             Resource.id != r.id,
         )
         if not current_user.is_superuser:
-            exists_stmt = (
-                exists_stmt.join(Asset, Asset.id == Resource.asset_id)
-                .where(Asset.tenant_id == tenant_id)
-            )
+            exists_stmt = exists_stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == tenant_id)
         exists = (await db.execute(exists_stmt)).scalar_one_or_none()
         if exists:
             raise HTTPException(status_code=400, detail="Channel ID already exists")  # i18n
@@ -1332,9 +1297,7 @@ async def channel_reset(
 ):
     if not body.channel_fields:  # chanel_fields拼写错误→channel_fields
         raise HTTPException(status_code=400, detail="Fields to reset cannot be empty")  # i18n
-    rows = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, [body.id]
-    )
+    rows = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, [body.id])
     if not rows:
         raise HTTPException(status_code=404, detail="Channel not found")  # i18n
     r = rows[0]
@@ -1489,15 +1452,18 @@ async def channel_map_thin_draw(
         raise HTTPException(status_code=400, detail="zoomParam is required")  # i18n
     thin_id = _uuid7_hex()
     await _cleanup_thin_jobs()
-    await _map_thin_jobs.set(thin_id, {
-        "drawThinId": thin_id,
-        "process": 1,
-        "msg": "done",  # i18n
-        "geoCoordSys": (body.geo_coord_sys or "WGS84").upper(),
-        "extent": body.extent,
-        "zoomParam": body.zoom_param,
-        "_created_at": time.time(),
-    })
+    await _map_thin_jobs.set(
+        thin_id,
+        {
+            "drawThinId": thin_id,
+            "process": 1,
+            "msg": "done",  # i18n
+            "geoCoordSys": (body.geo_coord_sys or "WGS84").upper(),
+            "extent": body.extent,
+            "zoomParam": body.zoom_param,
+            "_created_at": time.time(),
+        },
+    )
     return thin_id
 
 
@@ -1559,9 +1525,7 @@ async def channel_map_tile(
 ):
     _ = geo_coord_sys
     bbox = _tile_bbox_wgs84(z, x, y)
-    features = await _query_map_tile_features(
-        db, current_user, bbox, z, target_geo_coord_sys=geo_coord_sys, thin_job=None
-    )
+    features = await _query_map_tile_features(db, current_user, bbox, z, target_geo_coord_sys=geo_coord_sys, thin_job=None)
     payload = _encode_mvt_points("channel", features, bbox)
     return Response(content=payload, media_type="application/x-protobuf")
 
@@ -1585,9 +1549,7 @@ async def channel_map_thin_tile(
     if thin_id:
         job = await _map_thin_jobs.get(thin_id)
     bbox = _tile_bbox_wgs84(z, x, y)
-    features = await _query_map_tile_features(
-        db, _user, bbox, z, target_geo_coord_sys=geo_coord_sys, thin_job=job
-    )
+    features = await _query_map_tile_features(db, _user, bbox, z, target_geo_coord_sys=geo_coord_sys, thin_job=job)
     payload = _encode_mvt_points("channel", features, bbox)
     return Response(content=payload, media_type="application/x-protobuf")
 
@@ -1655,6 +1617,7 @@ async def channel_play_stop(
             from app.models.stream_session import StreamSession
             from app.models.asset import Asset
             from app.models.resource import Resource
+
             # FIX [2026-07-17 P0]: StreamSession 模型只有 asset_id 和 resource_id 列，
             # 不存在 device_id 和 channel_id 列（已确认 stream_session.py 模型定义）。
             # 原代码引用 StreamSession.device_id / StreamSession.channel_id 会抛 AttributeError，
@@ -1752,7 +1715,11 @@ async def channel_preset_query(
     # 另需显式 remote=False：直调时 remote 形参默认值是 Query(False) FieldInfo
     # 对象（真值），不传会误入 SIP 远程查询分支。
     data = await query_preset(
-        asset.gb_id, resource.gb_id, remote=False, db=db, current_user=current_user,
+        asset.gb_id,
+        resource.gb_id,
+        remote=False,
+        db=db,
+        current_user=current_user,
     )
     preset_list = data.get("preset_list", []) if isinstance(data, dict) else []
     out: list[dict[str, Any]] = []
@@ -1803,9 +1770,7 @@ async def channel_tour_speed(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     resource, asset = await _resolve_channel_asset_pair(db, current_user, channel_id)
-    body = CruiseRequest(
-        cruise_id=tour_id, preset_id=preset_id, action="set_speed", speed=speed, stay_time=5
-    )
+    body = CruiseRequest(cruise_id=tour_id, preset_id=preset_id, action="set_speed", speed=speed, stay_time=5)
     return await control_cruise(asset.gb_id, resource.gb_id, body, db, current_user)
 
 
@@ -1819,9 +1784,7 @@ async def channel_tour_time(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     resource, asset = await _resolve_channel_asset_pair(db, current_user, channel_id)
-    body = CruiseRequest(
-        cruise_id=tour_id, preset_id=preset_id, action="set_time", speed=128, stay_time=time
-    )
+    body = CruiseRequest(cruise_id=tour_id, preset_id=preset_id, action="set_time", speed=128, stay_time=time)
     return await control_cruise(asset.gb_id, resource.gb_id, body, db, current_user)
 
 
@@ -1967,9 +1930,7 @@ async def channel_playback(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    rows = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, [channel_id]
-    )
+    rows = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, [channel_id])
     if not rows:
         raise HTTPException(status_code=404, detail="Channel not found")  # i18n
     r = rows[0]
@@ -1994,9 +1955,7 @@ async def channel_playback_query(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_user),
 ):
-    rows = await _resolve_resources_by_numeric_ids(
-        db, current_user.tenant_id or "default", current_user.is_superuser, [channel_id]
-    )
+    rows = await _resolve_resources_by_numeric_ids(db, current_user.tenant_id or "default", current_user.is_superuser, [channel_id])
     if not rows:
         raise HTTPException(status_code=404, detail="Channel not found")  # i18n
     r = rows[0]
@@ -2144,11 +2103,7 @@ async def channel_stream_status(
     # 按 numeric ID 查询（通过全表扫描 + 内存过滤，限制查询范围避免全表）
     if want_numeric_ids:
         # 先通过 GB ID 关联查询（更高效）
-        stmt_numeric = (
-            select(Resource, Asset)
-            .join(Asset, Asset.id == Resource.asset_id)
-            .where(Resource.node_type == "channel")
-        )
+        stmt_numeric = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id).where(Resource.node_type == "channel")
         if not current_user.is_superuser:
             stmt_numeric = stmt_numeric.where(Asset.tenant_id == (current_user.tenant_id or "default"))
         result = await db.execute(stmt_numeric)
@@ -2231,17 +2186,19 @@ async def channel_stream_status(
             final_has_video = False
 
         if not stream_key:
-            results.append(ChannelStreamStatusResponse(
-                channelId=nid,
-                resourceId=resource_id,
-                channelGbId=str(r.gb_id or ""),
-                streamActive=False,
-                hasVideo=final_has_video if final_has_video is not None else default_has_video,
-                hasAudio=bool(getattr(r, "has_audio", True)),
-                reason="no_active_stream",
-                nodeHost=None,
-                nodeHttpPort=None,
-            ))
+            results.append(
+                ChannelStreamStatusResponse(
+                    channelId=nid,
+                    resourceId=resource_id,
+                    channelGbId=str(r.gb_id or ""),
+                    streamActive=False,
+                    hasVideo=final_has_video if final_has_video is not None else default_has_video,
+                    hasAudio=bool(getattr(r, "has_audio", True)),
+                    reason="no_active_stream",
+                    nodeHost=None,
+                    nodeHttpPort=None,
+                )
+            )
             continue
 
         # 查询关联的媒体节点
@@ -2249,14 +2206,20 @@ async def channel_stream_status(
         # 避免匹配到 playback 等其他 app 的旧会话。
         from app.core.media_nodes_db import get_db_media_node_by_id
         from app.core.media_nodes import get_node_by_id
-        ss_node_stmt = select(
-            StreamSession.media_server_id,
-            StreamSession.app,
-            StreamSession.stream,
-        ).where(
-            StreamSession.resource_id == resource_id,
-            StreamSession.app.in_(["live", "rtp"]),
-        ).order_by(StreamSession.start_time.desc()).limit(1)
+
+        ss_node_stmt = (
+            select(
+                StreamSession.media_server_id,
+                StreamSession.app,
+                StreamSession.stream,
+            )
+            .where(
+                StreamSession.resource_id == resource_id,
+                StreamSession.app.in_(["live", "rtp"]),
+            )
+            .order_by(StreamSession.start_time.desc())
+            .limit(1)
+        )
         ss_node_result = await db.execute(ss_node_stmt)
         ss_row = ss_node_result.first()
         node_id = str(ss_row[0]) if ss_row and ss_row[0] is not None else None
@@ -2285,17 +2248,19 @@ async def channel_stream_status(
             node_secret = ""
 
         if not node_host:
-            results.append(ChannelStreamStatusResponse(
-                channelId=nid,
-                resourceId=resource_id,
-                channelGbId=str(r.gb_id or ""),
-                streamActive=False,
-                hasVideo=final_has_video if final_has_video is not None else default_has_video,
-                hasAudio=bool(getattr(r, "has_audio", True)),
-                reason="media_node_not_found",
-                nodeHost=None,
-                nodeHttpPort=None,
-            ))
+            results.append(
+                ChannelStreamStatusResponse(
+                    channelId=nid,
+                    resourceId=resource_id,
+                    channelGbId=str(r.gb_id or ""),
+                    streamActive=False,
+                    hasVideo=final_has_video if final_has_video is not None else default_has_video,
+                    hasAudio=bool(getattr(r, "has_audio", True)),
+                    reason="media_node_not_found",
+                    nodeHost=None,
+                    nodeHttpPort=None,
+                )
+            )
             continue
 
         # 探测 ZLM
@@ -2337,48 +2302,54 @@ async def channel_stream_status(
                             codec = str(track.get("codec") or codec_id or "")
 
         if not probe_ok:
-            results.append(ChannelStreamStatusResponse(
-                channelId=nid,
-                resourceId=resource_id,
-                channelGbId=str(r.gb_id or ""),
-                streamActive=False,
-                hasVideo=final_has_video if final_has_video is not None else default_has_video,
-                hasAudio=bool(getattr(r, "has_audio", True)),
-                reason="zlm_unreachable",
-                nodeHost=node_host,
-                nodeHttpPort=node_http_port,
-            ))
+            results.append(
+                ChannelStreamStatusResponse(
+                    channelId=nid,
+                    resourceId=resource_id,
+                    channelGbId=str(r.gb_id or ""),
+                    streamActive=False,
+                    hasVideo=final_has_video if final_has_video is not None else default_has_video,
+                    hasAudio=bool(getattr(r, "has_audio", True)),
+                    reason="zlm_unreachable",
+                    nodeHost=node_host,
+                    nodeHttpPort=node_http_port,
+                )
+            )
         elif not stream_found:
-            results.append(ChannelStreamStatusResponse(
-                channelId=nid,
-                resourceId=resource_id,
-                channelGbId=str(r.gb_id or ""),
-                streamActive=False,
-                hasVideo=final_has_video if final_has_video is not None else default_has_video,
-                hasAudio=bool(getattr(r, "has_audio", True)),
-                reason="stream_not_found_in_zlm",
-                nodeHost=node_host,
-                nodeHttpPort=node_http_port,
-            ))
+            results.append(
+                ChannelStreamStatusResponse(
+                    channelId=nid,
+                    resourceId=resource_id,
+                    channelGbId=str(r.gb_id or ""),
+                    streamActive=False,
+                    hasVideo=final_has_video if final_has_video is not None else default_has_video,
+                    hasAudio=bool(getattr(r, "has_audio", True)),
+                    reason="stream_not_found_in_zlm",
+                    nodeHost=node_host,
+                    nodeHttpPort=node_http_port,
+                )
+            )
         else:
             effective_has_video = has_video_stream
             if not has_video_stream and final_has_video is False:
                 effective_has_video = False
 
-            results.append(ChannelStreamStatusResponse(
-                channelId=nid,
-                resourceId=resource_id,
-                channelGbId=str(r.gb_id or ""),
-                streamActive=stream_found,
-                hasVideo=effective_has_video,
-                hasAudio=has_audio_stream or bool(getattr(r, "has_audio", True)),
-                codec=codec,
-                streamSchema=schema,
-                bytesSpeed=bytes_speed,
-                readerCount=reader_count,
-                reason="",
-                nodeHost=node_host,
-                nodeHttpPort=node_http_port,
-            ))
+            results.append(
+                ChannelStreamStatusResponse(
+                    channelId=nid,
+                    resourceId=resource_id,
+                    channelGbId=str(r.gb_id or ""),
+                    streamActive=stream_found,
+                    hasVideo=effective_has_video,
+                    hasAudio=has_audio_stream or bool(getattr(r, "has_audio", True)),
+                    codec=codec,
+                    streamSchema=schema,
+                    bytesSpeed=bytes_speed,
+                    readerCount=reader_count,
+                    reason="",
+                    nodeHost=node_host,
+                    nodeHttpPort=node_http_port,
+                )
+            )
 
     return {"channels": [r.model_dump() for r in results]}

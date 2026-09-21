@@ -7,6 +7,7 @@ therefore need every model module under ``app/models/`` to be imported first.
 ``ensure_model_registry_loaded()`` walks the models package and imports every
 module exactly once, idempotently. It is safe to call repeatedly.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -63,8 +64,7 @@ def ensure_model_registry_loaded() -> None:
             _LOADED.add(name)
         except Exception as e:
             logger.warning(
-                "model_registry: failed to import '{}' ({}); "
-                "its table may be missing from Base.metadata",
+                "model_registry: failed to import '{}' ({}); its table may be missing from Base.metadata",
                 name,
                 e,
             )

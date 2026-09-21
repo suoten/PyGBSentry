@@ -84,6 +84,7 @@ class SubscribeManager:
         """
         try:
             from app.core import redis as _redis_module
+
             client = _redis_module.redis_client
             if client is None:
                 return
@@ -95,6 +96,7 @@ class SubscribeManager:
         """Restore CSeq from Redis/DB"""
         try:
             from app.core import redis as _redis_module
+
             client = _redis_module.redis_client
             if client is None:
                 return 1
@@ -136,7 +138,9 @@ class SubscribeManager:
                 # 订阅字典超限清理，防止长期运行内存增长
                 if len(self._inbound) > self._MAX_INBOUND:
                     async with self._lock:
-                        oldest = sorted(self._inbound.items(), key=lambda x: getattr(x[1], 'last_renewed', 0))[:len(self._inbound) - self._MAX_INBOUND + 1000]
+                        oldest = sorted(self._inbound.items(), key=lambda x: getattr(x[1], "last_renewed", 0))[
+                            : len(self._inbound) - self._MAX_INBOUND + 1000
+                        ]
                         for k, _ in oldest:
                             self._inbound.pop(k, None)
                             _task = self._inbound_renew_tasks.pop(k, None)
@@ -145,7 +149,9 @@ class SubscribeManager:
                     logger.warning(f"[SubscribeManager] Inbound subscriptions exceeded {self._MAX_INBOUND}, pruned {len(oldest)} oldest")
                 if len(self._outbound) > self._MAX_OUTBOUND:
                     async with self._lock:
-                        oldest = sorted(self._outbound.items(), key=lambda x: getattr(x[1], 'last_sent', 0))[:len(self._outbound) - self._MAX_OUTBOUND + 1000]
+                        oldest = sorted(self._outbound.items(), key=lambda x: getattr(x[1], "last_sent", 0))[
+                            : len(self._outbound) - self._MAX_OUTBOUND + 1000
+                        ]
                         for k, _ in oldest:
                             sub = self._outbound.pop(k, None)
                             if sub and sub.renew_task and not sub.renew_task.done():
@@ -188,7 +194,9 @@ class SubscribeManager:
                 if sub.expires > 0 and sub.last_sent > 0:
                     elapsed_since_renew = now - sub.last_sent
                     if elapsed_since_renew > sub.expires * 2:
-                        logger.warning(f"[SubscribeManager] Outbound subscribe appears lost: device={sub.device_id} event={sub.event}, last_sent={elapsed_since_renew:.0f}s ago, expires={sub.expires}s")
+                        logger.warning(
+                            f"[SubscribeManager] Outbound subscribe appears lost: device={sub.device_id} event={sub.event}, last_sent={elapsed_since_renew:.0f}s ago, expires={sub.expires}s"
+                        )
                         lost_keys.append(key)
             for key in lost_keys:
                 sub = self._outbound.pop(key, None)
@@ -272,12 +280,16 @@ class SubscribeManager:
                         latest_sub = self._inbound.get(key)
                         if latest_sub and latest_sub.call_id == sub.call_id:
                             latest_sub.last_renewed = time.monotonic()
-                    logger.info(f"[SubscribeManager] Renewed inbound subscribe: device={latest_sub.device_id} event={latest_sub.event} attempt={attempt}")
+                    logger.info(
+                        f"[SubscribeManager] Renewed inbound subscribe: device={latest_sub.device_id} event={latest_sub.event} attempt={attempt}"
+                    )
                     # 续期成功后启动下一轮续期
                     self._start_inbound_renew(key, latest_sub)
                     return
                 except Exception as e:
-                    logger.warning(f"[SubscribeManager] Inbound subscribe renew attempt {attempt}/{max_retries} failed: device={current.device_id} event={current.event} error={e}")
+                    logger.warning(
+                        f"[SubscribeManager] Inbound subscribe renew attempt {attempt}/{max_retries} failed: device={current.device_id} event={current.event} error={e}"
+                    )
                     if attempt < max_retries:
                         await asyncio.sleep(10)
             logger.warning(f"[SubscribeManager] Inbound subscribe renew all {max_retries} attempts failed: device={sub.device_id} event={sub.event}")
@@ -361,7 +373,9 @@ class SubscribeManager:
         branch = f"z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.from_tag}"
-        req.headers["To"] = f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>"  # F-01 to_tag为空时不附加;tag=，避免畸形SIP头
+        req.headers["To"] = (
+            f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>;tag={sub.to_tag}" if sub.to_tag else f"<sip:{sub.device_id}@{settings.SIP_DOMAIN}>"
+        )  # F-01 to_tag为空时不附加;tag=，避免畸形SIP头
         req.headers["Call-ID"] = sub.call_id
         req.headers["CSeq"] = f"{sub.cseq} SUBSCRIBE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
@@ -390,7 +404,9 @@ class SubscribeManager:
                 self._start_inbound_renew(key, existing)
                 return existing
             if existing and existing.call_id != subscribe.call_id:
-                logger.info(f"[SubscribeManager] Replacing inbound subscribe with new Call-ID: device={subscribe.device_id} event={subscribe.event} old_call_id={existing.call_id} new_call_id={subscribe.call_id}")
+                logger.info(
+                    f"[SubscribeManager] Replacing inbound subscribe with new Call-ID: device={subscribe.device_id} event={subscribe.event} old_call_id={existing.call_id} new_call_id={subscribe.call_id}"
+                )
                 # 目录订阅自动续期 — 替换时取消旧续期任务
                 old_task = self._inbound_renew_tasks.pop(key, None)
                 if old_task and not old_task.done():
@@ -538,30 +554,19 @@ class SubscribeManager:
 
         try:
             async with AsyncSessionLocal() as session:
-                asset = (await session.execute(
-                    select(Asset).where(Asset.gb_id == sub.device_id)
-                )).scalars().first()
+                asset = (await session.execute(select(Asset).where(Asset.gb_id == sub.device_id))).scalars().first()
             if not asset:
-                logger.info(
-                    f"[SubscribeManager] Cannot send unsubscribe: "
-                    f"device {sub.device_id} not found"
-                )
+                logger.info(f"[SubscribeManager] Cannot send unsubscribe: device {sub.device_id} not found")
                 return
             addr = (str(asset.ip_addr or ""), int(asset.port or 5060))
             proto = str(getattr(asset, "transport", "UDP") or "UDP")
         except Exception as e:
-            logger.warning(
-                f"[SubscribeManager] Unsubscribe asset lookup failed for "
-                f"{sub.device_id}: {e}"
-            )
+            logger.warning(f"[SubscribeManager] Unsubscribe asset lookup failed for {sub.device_id}: {e}")
             return
 
         transport = sip_server.get_transport(addr[0], addr[1], proto)
         if not transport:
-            logger.info(
-                f"[SubscribeManager] Cannot send unsubscribe: "
-                f"no transport to {addr[0]}:{addr[1]}/{proto}"
-            )
+            logger.info(f"[SubscribeManager] Cannot send unsubscribe: no transport to {addr[0]}:{addr[1]}/{proto}")
             return
 
         domain = str(settings.SIP_DOMAIN or sip_host_for_contact())
@@ -585,15 +590,9 @@ class SubscribeManager:
 
         try:
             await send_sip_bytes(proto, transport, addr, req.to_bytes())
-            logger.info(
-                f"[SubscribeManager] Sent unsubscribe (Expires=0) to device "
-                f"{sub.device_id} event={sub.event}"
-            )
+            logger.info(f"[SubscribeManager] Sent unsubscribe (Expires=0) to device {sub.device_id} event={sub.event}")
         except Exception as e:
-            logger.warning(
-                f"[SubscribeManager] Failed to send unsubscribe to "
-                f"{sub.device_id} event={sub.event}: {e}"
-            )
+            logger.warning(f"[SubscribeManager] Failed to send unsubscribe to {sub.device_id} event={sub.event}: {e}")
 
     async def notify_catalog_change(self, device_id: str, channels: list):
         """设备目录变更后，向已订阅的上级发送 SIP NOTIFY"""
@@ -736,7 +735,7 @@ class SubscribeManager:
             # Send paginated NOTIFYs
             page_count = (total + _CHUNK_SIZE - 1) // _CHUNK_SIZE
             for page_idx, offset in enumerate(range(0, total, _CHUNK_SIZE)):
-                chunk = channels[offset:offset + _CHUNK_SIZE]
+                chunk = channels[offset : offset + _CHUNK_SIZE]
                 sn = int(time.time() * 1000) % 100000 + page_idx
                 sub.cseq += 1
                 await self._persist_cseq(sub.call_id, sub.cseq)  # M-01 Catalog/Alarm NOTIFY CSeq持久化
@@ -744,9 +743,13 @@ class SubscribeManager:
                 # FIXED-P2: 逐页异常保护，单页发送失败不中断后续页面
                 try:
                     await send_sip_bytes(proto, transport, addr, req.to_bytes())
-                    logger.info(f"[SubscribeManager] Sent catalog NOTIFY page {page_idx + 1}/{page_count} to {sub.device_id} with {len(chunk)} items (total={total})")
+                    logger.info(
+                        f"[SubscribeManager] Sent catalog NOTIFY page {page_idx + 1}/{page_count} to {sub.device_id} with {len(chunk)} items (total={total})"
+                    )
                 except Exception as _page_err:
-                    logger.warning(f"[SubscribeManager] Failed to send catalog NOTIFY page {page_idx + 1}/{page_count} to {sub.device_id}: {_page_err}")
+                    logger.warning(
+                        f"[SubscribeManager] Failed to send catalog NOTIFY page {page_idx + 1}/{page_count} to {sub.device_id}: {_page_err}"
+                    )
 
     # GB14 移动位置订阅通知分发
     async def notify_mobile_position(self, device_id: str, position: dict):
@@ -832,8 +835,9 @@ class SubscribeManager:
         # W-08 通知方法检查订阅过期状态，避免向过期订阅发送NOTIFY(RFC 3265)
         # R-11 通知方法添加锁保护，与put_inbound/remove_inbound一致
         async with self._lock:
-            alarm_subs = [(k, sub) for k, sub in self._inbound.items()
-                          if sub.event.lower() == "alarm" and sub.device_id == device_id and not sub.is_expired]
+            alarm_subs = [
+                (k, sub) for k, sub in self._inbound.items() if sub.event.lower() == "alarm" and sub.device_id == device_id and not sub.is_expired
+            ]
         for key, sub in alarm_subs:
             try:
                 await self._send_alarm_notify(sub, alarm_info)
@@ -866,15 +870,15 @@ class SubscribeManager:
 
         alarm_xml = (
             '<?xml version="1.0" encoding="GB2312"?>\n'
-            '<Notify>\n'
-            '<CmdType>Alarm</CmdType>\n'
-            f'<SN>{int(time.time() * 1000) % 100000}</SN>\n'  # M-12 Alarm NOTIFY SN扩大值域
-            f'<DeviceID>{sub.device_id}</DeviceID>\n'
-            f'<AlarmPriority>{alarm_info.get("priority", "1")}</AlarmPriority>\n'
-            f'<AlarmMethod>{alarm_info.get("method", "2")}</AlarmMethod>\n'
-            f'<AlarmTime>{alarm_info.get("time", "")}</AlarmTime>\n'
-            f'<AlarmDescription>{alarm_info.get("description", "")}</AlarmDescription>\n'
-            '</Notify>'
+            "<Notify>\n"
+            "<CmdType>Alarm</CmdType>\n"
+            f"<SN>{int(time.time() * 1000) % 100000}</SN>\n"  # M-12 Alarm NOTIFY SN扩大值域
+            f"<DeviceID>{sub.device_id}</DeviceID>\n"
+            f"<AlarmPriority>{alarm_info.get('priority', '1')}</AlarmPriority>\n"
+            f"<AlarmMethod>{alarm_info.get('method', '2')}</AlarmMethod>\n"
+            f"<AlarmTime>{alarm_info.get('time', '')}</AlarmTime>\n"
+            f"<AlarmDescription>{alarm_info.get('description', '')}</AlarmDescription>\n"
+            "</Notify>"
         )
 
         sub.cseq += 1
@@ -956,6 +960,7 @@ class SubscribeManager:
         req.headers["Call-ID"] = call_id
         # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
         from app.sip.commander import _next_cseq as _sub_next_cseq
+
         req.headers["CSeq"] = f"{_sub_next_cseq()} SUBSCRIBE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Event"] = "MobilePosition"
@@ -998,16 +1003,13 @@ class SubscribeManager:
             await self.start_outbound_renew(
                 device_id=device_id,
                 event="MobilePosition",
-                send_func=lambda sub_obj, dev_id=device_id, exp=expires, iv=interval:
-                    self._renew_mobile_position_subscribe(sub_obj, dev_id, exp, iv),
+                send_func=lambda sub_obj, dev_id=device_id, exp=expires, iv=interval: self._renew_mobile_position_subscribe(sub_obj, dev_id, exp, iv),
             )
         except Exception as e:
             logger.warning(f"[SubscribeManager] Failed to start MobilePosition renew for {device_id}: {e}")
         return True
 
-    async def _renew_mobile_position_subscribe(
-        self, sub: OutboundSubscribe, device_id: str, expires: int, interval: int
-    ) -> bool:
+    async def _renew_mobile_position_subscribe(self, sub: OutboundSubscribe, device_id: str, expires: int, interval: int) -> bool:
         """Renew MobilePosition SUBSCRIBE (called by renew loop)."""
         from app.sip.server import sip_server
         from app.sip.message import SipMessage
@@ -1154,8 +1156,7 @@ class SubscribeManager:
                     for v in self._inbound.values()
                 ],
                 "outbound_subscribes": [
-                    {"device_id": v.device_id, "event": v.event, "expires": v.expires, "running": v.running}
-                    for v in self._outbound.values()
+                    {"device_id": v.device_id, "event": v.event, "expires": v.expires, "running": v.running} for v in self._outbound.values()
                 ],
             }
 
@@ -1281,9 +1282,9 @@ async def send_subscribe_to_device(
         await subscribe_manager.start_outbound_renew(  # async function call must be awaited
             device_id=device_id,
             event=event,
-            send_func=lambda sub_obj, dev_id=device_id, ev=event, exp=expires, iv=interval:
-                send_subscribe_to_device(dev_id, ev, exp, iv, cseq=sub_obj.cseq,
-                                          call_id=sub_obj.call_id, from_tag=sub_obj.from_tag),
+            send_func=lambda sub_obj, dev_id=device_id, ev=event, exp=expires, iv=interval: send_subscribe_to_device(
+                dev_id, ev, exp, iv, cseq=sub_obj.cseq, call_id=sub_obj.call_id, from_tag=sub_obj.from_tag
+            ),
         )
     except Exception as e:
         logger.warning(f"[SubscribeManager] Failed to start outbound renew for {device_id}/{event}: {e}")

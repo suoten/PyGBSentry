@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -71,6 +72,7 @@ class TenantSubscription(Base):
 # FIX: [2026-07-13] 以下三个模型类从 2ad636a 恢复 — billing 端点导入
 # TenantBranding/PluginOrder/SubscriptionDowngradeLog 但 ConvergeLoop Round 0
 # 将它们删除，导致 billing 端点导入失败、/api/v1/billing/* 全部 404。[全栈工程师]
+
 
 class TenantBranding(Base):
     """租户品牌定制（产品名、Logo、主题色等）。"""

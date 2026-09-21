@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -26,4 +27,3 @@ class SipTraceEvent(Base):
 
     payload = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now(), index=True)
-

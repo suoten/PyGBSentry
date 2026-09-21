@@ -11,16 +11,7 @@ from app.sip.invite import sip_invite
 _prefetch_tasks: dict[str, asyncio.Task] = {}
 
 
-
-async def _prefetch_worker(
-    asset_id: str,
-    resource_id: str,
-    start_time: int,
-    end_time: int,
-    used_target: tuple,
-    stream_id: str,
-    tenant_id: str
-):
+async def _prefetch_worker(asset_id: str, resource_id: str, start_time: int, end_time: int, used_target: tuple, stream_id: str, tenant_id: str):
     """
     后台任务：监控当前回放会话。
     由于录像通常有物理文件分段（如每小时一个），跨文件播放时摄像机会发送 BYE 断流。
@@ -62,13 +53,18 @@ async def _prefetch_worker(
                 try:
                     target_ip, target_port, transport_proto = used_target
                     from app.sip.server import sip_server
+
                     transport = sip_server.get_transport(target_ip, target_port, transport_proto)
                     if transport:
                         # 复用同一个 ZLM 端口和 SSRC 进行预加载，在内存中完成 RTP 流拼接
                         await sip_invite.send_playback_invite(
-                            asset, resource, ((target_ip, target_port), transport_proto, transport),
-                            next_start, next_end, media_mode_override=None,
-                            reuse_stream_session_id=ss.id
+                            asset,
+                            resource,
+                            ((target_ip, target_port), transport_proto, transport),
+                            next_start,
+                            next_end,
+                            media_mode_override=None,
+                            reuse_stream_session_id=ss.id,
                         )
                         logger.info(f"[Timeline] Pre-fetched segment successfully. Seamless transition to {next_start}.")
                 except Exception as e:
@@ -81,15 +77,8 @@ async def _prefetch_worker(
     except Exception as e:
         logger.error(f"[Timeline] Error in prefetch task: {e}")
 
-def start_prefetch_task(
-    asset_id: str,
-    resource_id: str,
-    start_time: int,
-    end_time: int,
-    used_target: tuple,
-    stream_id: str,
-    tenant_id: str
-):
+
+def start_prefetch_task(asset_id: str, resource_id: str, start_time: int, end_time: int, used_target: tuple, stream_id: str, tenant_id: str):
     # S-13 保存task引用，以便回放停止时取消
     task = asyncio.create_task(_prefetch_worker(asset_id, resource_id, start_time, end_time, used_target, stream_id, tenant_id))
     _prefetch_tasks[stream_id] = task

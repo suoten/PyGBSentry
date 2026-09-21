@@ -117,7 +117,7 @@ function emitError(msg: string) {
 function cleanup() {
   if (pc) {
     try {
-      pc.getReceivers().forEach((r) => { r.track && r.track.stop() })
+      pc.getReceivers().forEach((r) => { if (r.track) r.track.stop() })
       pc.close()
     } catch { /* ignore */ }
     pc = null

@@ -16,6 +16,7 @@ GB28181 SIP 信令中，平台向下级设备发送的查询/控制命令（如�
 模块提供进程级单例 :data:`catalog_data_manager`。所有公开方法为 ``async``，
 内部用 :class:`asyncio.Lock` 保护；模块导入绝不抛异常。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -88,10 +89,7 @@ class CatalogDataManager:
                 self._entries[key] = entry
             else:
                 entry.refresh(body or "", sn or "")
-        logger.debug(
-            f"catalog_data_manager.put: gb_id={gb_id} cmd_type={cmd_type} "
-            f"sn={sn or '-'} body_len={len(body or '')}"
-        )
+        logger.debug(f"catalog_data_manager.put: gb_id={gb_id} cmd_type={cmd_type} sn={sn or '-'} body_len={len(body or '')}")
 
     # ------------------------------------------------------------------
     # 读取
@@ -146,10 +144,7 @@ class CatalogDataManager:
         try:
             await asyncio.wait_for(entry.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning(
-                f"catalog_data_manager.wait_for timeout: gb_id={gb_id} "
-                f"cmd_type={cmd_type} timeout={timeout}s"
-            )
+            logger.warning(f"catalog_data_manager.wait_for timeout: gb_id={gb_id} cmd_type={cmd_type} timeout={timeout}s")
             return ""
 
         body = entry.body or ""
@@ -210,10 +205,7 @@ class CatalogDataManager:
         if self._monitor_running:
             return
         self._monitor_running = True
-        logger.info(
-            f"catalog_data_manager monitor_loop started: "
-            f"interval={self._monitor_interval}s ttl={self._entry_ttl}s"
-        )
+        logger.info(f"catalog_data_manager monitor_loop started: interval={self._monitor_interval}s ttl={self._entry_ttl}s")
         try:
             while True:
                 await asyncio.sleep(self._monitor_interval)

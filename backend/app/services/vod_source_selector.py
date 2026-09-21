@@ -19,6 +19,7 @@ import hashlib
 @dataclass
 class VodSourceCandidate:
     """点播源候选"""
+
     # 基本信息
     url: str
     protocol: str  # mp4, hls, flv, webrtc, rtsp, rtmp
@@ -54,7 +55,7 @@ class VodSourceSelector:
     4. 响应时间加权
     """
 
-    _instance: Optional['VodSourceSelector'] = None
+    _instance: Optional["VodSourceSelector"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -69,24 +70,24 @@ class VodSourceSelector:
 
         # 协议优先级映射 (数字越小优先级越高)
         self.protocol_priority = {
-            'local': 0,      # 本地文件
-            'internal': 1,   # 内网地址
-            'webrtc': 2,     # WebRTC
-            'rtmp': 3,       # RTMP
-            'rtsp': 4,      # RTSP
-            'hls': 5,       # HLS
-            'flv': 6,       # FLV
-            'mp4': 7,       # MP4直连
-            'http': 8,      # 其他HTTP
+            "local": 0,  # 本地文件
+            "internal": 1,  # 内网地址
+            "webrtc": 2,  # WebRTC
+            "rtmp": 3,  # RTMP
+            "rtsp": 4,  # RTSP
+            "hls": 5,  # HLS
+            "flv": 6,  # FLV
+            "mp4": 7,  # MP4直连
+            "http": 8,  # 其他HTTP
         }
 
         # 质量优先级
         self.quality_priority = {
-            'ultra': 0,   # 4K+
-            'high': 1,   # 1080p
-            'medium': 2, # 720p
-            'low': 3,    # 480p及以下
-            'unknown': 4,
+            "ultra": 0,  # 4K+
+            "high": 1,  # 1080p
+            "medium": 2,  # 720p
+            "low": 3,  # 480p及以下
+            "unknown": 4,
         }
 
         # 配置
@@ -109,10 +110,7 @@ class VodSourceSelector:
         if len(self._check_cache) <= self._cache_cleanup_threshold:
             return
         now = time.time()
-        expired_keys = [
-            k for k, v in self._check_cache.items()
-            if now - v.get('timestamp', 0) >= self.cache_duration_seconds
-        ]
+        expired_keys = [k for k, v in self._check_cache.items() if now - v.get("timestamp", 0) >= self.cache_duration_seconds]
         for k in expired_keys:
             del self._check_cache[k]
         if expired_keys:
@@ -123,7 +121,7 @@ class VodSourceSelector:
         sources: list[dict],
         prefer_protocol: Optional[str] = None,
         prefer_quality: Optional[str] = None,
-        network_condition: str = "good"  # good, fair, poor
+        network_condition: str = "good",  # good, fair, poor
     ) -> dict:
         """
         选择最优源
@@ -158,28 +156,28 @@ class VodSourceSelector:
 
         # 计算综合评分
         for candidate in available:
-            candidate.health_score = self._calculate_health_score(
-                candidate, network_condition
-            )
+            candidate.health_score = self._calculate_health_score(candidate, network_condition)
 
         # 排序选择
-        available.sort(key=lambda x: (
-            # 1. 可用性 (不可用排最后)
-            -x.available,
-            # 2. 健康分
-            -x.health_score,
-            # 3. 协议优先级
-            self.protocol_priority.get(x.source_type, 99),
-            self.protocol_priority.get(x.protocol, 99),
-            # 4. 质量优先级
-            self.quality_priority.get(x.estimated_quality, 99),
-            # 5. 码率 (高优先)
-            -x.estimated_bitrate,
-            # 6. 响应时间
-            x.response_time_ms,
-            # 7. 用户优先级
-            x.priority,
-        ))
+        available.sort(
+            key=lambda x: (
+                # 1. 可用性 (不可用排最后)
+                -x.available,
+                # 2. 健康分
+                -x.health_score,
+                # 3. 协议优先级
+                self.protocol_priority.get(x.source_type, 99),
+                self.protocol_priority.get(x.protocol, 99),
+                # 4. 质量优先级
+                self.quality_priority.get(x.estimated_quality, 99),
+                # 5. 码率 (高优先)
+                -x.estimated_bitrate,
+                # 6. 响应时间
+                x.response_time_ms,
+                # 7. 用户优先级
+                x.priority,
+            )
+        )
 
         best = available[0]
         logger.info(
@@ -192,68 +190,69 @@ class VodSourceSelector:
 
     def _create_candidate(self, source: dict, index: int) -> VodSourceCandidate:
         """从字典创建候选对象"""
-        url = source.get('url', '')
-        protocol = source.get('protocol', self._detect_protocol(url))
+        url = source.get("url", "")
+        protocol = source.get("protocol", self._detect_protocol(url))
         source_type = self._classify_source_type(url)
 
         return VodSourceCandidate(
             url=url,
             protocol=protocol,
             source_type=source_type,
-            priority=source.get('priority', index),
-            estimated_bitrate=source.get('bitrate', source.get('estimated_bitrate', 0)),
-            estimated_quality=source.get('quality', 'unknown'),
+            priority=source.get("priority", index),
+            estimated_bitrate=source.get("bitrate", source.get("estimated_bitrate", 0)),
+            estimated_quality=source.get("quality", "unknown"),
         )
 
     def _detect_protocol(self, url: str) -> str:
         """检测协议"""
         url_lower = url.lower()
-        if url_lower.endswith('.m3u8') or '/hls/' in url_lower:
-            return 'hls'
-        if url_lower.endswith('.flv') or '/flv/' in url_lower:
-            return 'flv'
-        if url_lower.endswith('.mp4') or '/record/' in url_lower or '/mp4/' in url_lower:
-            return 'mp4'
-        if '/webrtc/' in url_lower or 'api/webrtc' in url_lower:
-            return 'webrtc'
-        if url_lower.startswith('rtmp://'):
-            return 'rtmp'
-        if url_lower.startswith('rtsp://'):
-            return 'rtsp'
-        return 'http'
+        if url_lower.endswith(".m3u8") or "/hls/" in url_lower:
+            return "hls"
+        if url_lower.endswith(".flv") or "/flv/" in url_lower:
+            return "flv"
+        if url_lower.endswith(".mp4") or "/record/" in url_lower or "/mp4/" in url_lower:
+            return "mp4"
+        if "/webrtc/" in url_lower or "api/webrtc" in url_lower:
+            return "webrtc"
+        if url_lower.startswith("rtmp://"):
+            return "rtmp"
+        if url_lower.startswith("rtsp://"):
+            return "rtsp"
+        return "http"
 
     def _classify_source_type(self, url: str) -> str:
         """分类源类型"""
         url_lower = url.lower()
 
         # 本地文件
-        if url_lower.startswith('/') or ':\\' in url:
-            return 'local'
+        if url_lower.startswith("/") or ":\\" in url:
+            return "local"
 
         # S3/MinIO
-        if 's3://' in url_lower or 'minio' in url_lower:
-            return 's3'
+        if "s3://" in url_lower or "minio" in url_lower:
+            return "s3"
 
         # 内网地址
         parsed = self._parse_url(url)
         if parsed:
-            host = parsed.get('host', '').lower()
-            if any(x in host for x in ['192.168.', '10.', '172.', 'localhost', '127.0.0.1']):
-                return 'internal'
+            host = parsed.get("host", "").lower()
+            if any(x in host for x in ["192.168.", "10.", "172.", "localhost", "127.0.0.1"]):
+                return "internal"
 
         # CDN/HTTP
-        return 'http'
+        return "http"
 
     def _parse_url(self, url: str) -> dict:
         """简单URL解析"""
         try:
             from urllib.parse import urlparse
+
             result = urlparse(url)
             return {
-                'scheme': result.scheme,
-                'host': result.netloc,
-                'path': result.path,
-                'query': result.query,
+                "scheme": result.scheme,
+                "host": result.netloc,
+                "path": result.path,
+                "query": result.query,
             }
         except ValueError:
             return {}
@@ -271,11 +270,11 @@ class VodSourceSelector:
         async with self._cache_lock:
             cached = self._check_cache.get(cache_key)
             if cached:
-                elapsed = time.time() - cached['timestamp']
+                elapsed = time.time() - cached["timestamp"]
                 if elapsed < self.cache_duration_seconds:
-                    candidate.available = cached['available']
-                    candidate.health_score = cached['health_score']
-                    candidate.response_time_ms = cached['response_time_ms']
+                    candidate.available = cached["available"]
+                    candidate.health_score = cached["health_score"]
+                    candidate.response_time_ms = cached["response_time_ms"]
                     return
 
         # 并发控制
@@ -311,10 +310,10 @@ class VodSourceSelector:
 
         # 更新缓存
         self._check_cache[cache_key] = {
-            'available': candidate.available,
-            'health_score': candidate.health_score,
-            'response_time_ms': candidate.response_time_ms,
-            'timestamp': time.time(),
+            "available": candidate.available,
+            "health_score": candidate.health_score,
+            "response_time_ms": candidate.response_time_ms,
+            "timestamp": time.time(),
         }
         self._cleanup_expired_cache()
 
@@ -325,38 +324,36 @@ class VodSourceSelector:
         url_lower = url.lower()
 
         # 本地文件直接检查
-        if url_lower.startswith('/') or ':\\' in url_lower:
+        if url_lower.startswith("/") or ":\\" in url_lower:
             import os
+
             exists = os.path.exists(url)
             return exists, (time.time() - start) * 1000
 
         # S3 特殊处理
-        if url_lower.startswith('s3://'):
+        if url_lower.startswith("s3://"):
             return True, (time.time() - start) * 1000
 
         # HTTP/HTTPS HEAD请求
         try:
             from app.core.http_client import get_http_client
+
             client = await get_http_client()
             resp = await client.head(url, timeout=5.0, follow_redirects=True)
             response_time = (time.time() - start) * 1000
 
-            content_type = resp.headers.get('Content-Type', '').lower()
-            supported_types = ['video/', 'application/', 'audio/']
+            content_type = resp.headers.get("Content-Type", "").lower()
+            supported_types = ["video/", "application/", "audio/"]
             is_video = any(t in content_type for t in supported_types)
 
-            content_length = int(resp.headers.get('Content-Length', 0))
+            content_length = int(resp.headers.get("Content-Length", 0))
 
             return is_video or content_length > 0, response_time
 
         except Exception:
             return False, (time.time() - start) * 1000
 
-    def _calculate_health_score(
-        self,
-        candidate: VodSourceCandidate,
-        network_condition: str
-    ) -> float:
+    def _calculate_health_score(self, candidate: VodSourceCandidate, network_condition: str) -> float:
         """计算健康分"""
         score = 100.0
 
@@ -378,19 +375,19 @@ class VodSourceSelector:
         score -= min(30, candidate.consecutive_failures * 10)
 
         # 协议类型加成
-        if candidate.source_type in ['local', 'internal']:
+        if candidate.source_type in ["local", "internal"]:
             score += 10
 
         # 网络状况影响
-        if network_condition == 'poor':
+        if network_condition == "poor":
             # 网络差时优先考虑稳定性
-            if candidate.protocol in ['hls', 'flv']:  # 这些协议有缓冲
+            if candidate.protocol in ["hls", "flv"]:  # 这些协议有缓冲
                 score += 5
-        elif network_condition == 'good':
+        elif network_condition == "good":
             # 网络好时优先考虑延迟
-            if candidate.protocol == 'webrtc':
+            if candidate.protocol == "webrtc":
                 score += 10
-            elif candidate.protocol == 'mp4':
+            elif candidate.protocol == "mp4":
                 score += 5
 
         # 码率加成 (高码率通常意味着高画质)
@@ -408,14 +405,14 @@ class VodSourceSelector:
     def _to_source_dict(self, candidate: VodSourceCandidate) -> dict:
         """转换为源字典"""
         return {
-            'url': candidate.url,
-            'protocol': candidate.protocol,
-            'source_type': candidate.source_type,
-            'available': candidate.available,
-            'health_score': candidate.health_score,
-            'response_time_ms': candidate.response_time_ms,
-            'estimated_bitrate': candidate.estimated_bitrate,
-            'quality': candidate.estimated_quality,
+            "url": candidate.url,
+            "protocol": candidate.protocol,
+            "source_type": candidate.source_type,
+            "available": candidate.available,
+            "health_score": candidate.health_score,
+            "response_time_ms": candidate.response_time_ms,
+            "estimated_bitrate": candidate.estimated_bitrate,
+            "quality": candidate.estimated_quality,
         }
 
     def clear_cache(self):

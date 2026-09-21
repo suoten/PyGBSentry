@@ -11,7 +11,6 @@ from app.models.system_setting import SystemSetting
 from sqlalchemy import select  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
 
 
-
 PLUGIN_ID = "webhook_pusher"
 
 LOG_DIR = "logs/webhook_pusher"
@@ -34,9 +33,7 @@ async def _get_runtime_cfg() -> dict:
         return _cfg_cache
     # 多租户兼容：聚合所有 tenant 的 webhook_pusher 配置，取第一个有效 webhook_url。
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
         merged = dict(_DEFAULT_BASE_CONFIG)
         any_enabled = False
@@ -81,9 +78,7 @@ async def _push_webhook(*, device_id: str, status: str) -> None:
     log_file = os.path.join(LOG_DIR, f"webhook_pusher_{today}.log")
     timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S.%f")[:-3]
     try:
-        await asyncio.to_thread(
-            _requests.post, webhook_url, json=payload, timeout=2
-        )
+        await asyncio.to_thread(_requests.post, webhook_url, json=payload, timeout=2)
         logger.info(f"[Webhook] Pushed {status} for {device_id}")
         line = f"[{timestamp}] device={device_id} status={status} ok=true\n"
         try:
@@ -110,12 +105,14 @@ async def _push_webhook(*, device_id: str, status: str) -> None:
 async def on_device_register(device_id):
     await _push_webhook(device_id=str(device_id or "").strip(), status="online")
 
+
 async def on_device_offline(device_id):
     await _push_webhook(device_id=str(device_id or "").strip(), status="offline")
 
 
 def register(pm) -> None:
     from app.core.plugin_manager import HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE
+
     pm.register_hook(HOOK_ON_DEVICE_REGISTER, on_device_register)
     pm.register_hook(HOOK_ON_DEVICE_OFFLINE, on_device_offline)
     logger.info("[WebhookPusher] Hook registered: HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE")

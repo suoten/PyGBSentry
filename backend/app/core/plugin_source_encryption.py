@@ -9,9 +9,9 @@ PyArmor 源码加密检测框架（第5层防护 - 开源版）
 加密流程（完整链路）：
   开发者上传源码 → 服务器版 PyArmor 加密 → 分发加密后代码 → 开源版检测并加载
 """
+
 import subprocess
 from pathlib import Path
-
 
 
 def is_pyarmor_available() -> bool:
@@ -56,6 +56,7 @@ def is_cython_native_available() -> bool:
     """检查 Cython 编译的原生验签模块是否可用。"""
     try:
         from app.core._license_native import native_verify_ed25519
+
         return callable(native_verify_ed25519)
     except ImportError:
         return False

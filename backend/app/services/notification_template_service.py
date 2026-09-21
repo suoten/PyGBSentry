@@ -23,6 +23,7 @@ TEMPLATES: dict[str, dict[str, str]] = {
     },
 }
 
+
 def render_template(event: str, channel: str, context: dict[str, Any]) -> str:
     event_tpl = TEMPLATES.get(event, {})
     template_text = event_tpl.get(channel) or "{{ data }}"
@@ -30,6 +31,7 @@ def render_template(event: str, channel: str, context: dict[str, Any]) -> str:
         return Template(template_text).render(**context, data=json.dumps(context, ensure_ascii=False))
     except Exception:
         return json.dumps(context, ensure_ascii=False)
+
 
 def render_webhook_payload(event: str, platform: str, context: dict[str, Any]) -> dict[str, Any]:
     title = render_template(event, "title", context)
@@ -42,6 +44,7 @@ def render_webhook_payload(event: str, platform: str, context: dict[str, Any]) -
     data["title"] = title
     data["text"] = text
     return data
+
 
 def render_email(event: str, context: dict[str, Any]) -> tuple[str, str]:
     subject = render_template(event, "email_subject", context)

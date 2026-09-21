@@ -4,6 +4,7 @@ Startup phase orchestrator for PyGBSentry.
 Extracts lifespan startup logic into testable, composable phase functions.
 Each phase handles a specific initialization step with proper timeout and error handling.
 """
+
 import asyncio
 import random
 from loguru import logger
@@ -29,6 +30,7 @@ async def phase_schema_migration():
         import subprocess
         import sys
         import os
+
         _backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
         # FIXED-P0: 与 main.py 保持一致，使用 subprocess 调用 alembic CLI
@@ -39,48 +41,48 @@ async def phase_schema_migration():
             async with engine.connect() as conn:
                 _dialect_name = (getattr(engine.dialect, "name", None) or "").lower()
                 if _dialect_name == "sqlite":
-                    _av_result = await conn.execute(text(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
-                    ))
+                    _av_result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"))
                     if not _av_result.first():
-                        _bt_result = await conn.execute(text(
-                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')"
-                        ))
+                        _bt_result = await conn.execute(
+                            text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')")
+                        )
                         if _bt_result.fetchall():
                             _need_stamp = True
                 elif _dialect_name == "postgresql":
                     # 检查 alembic_version 表是否存在且是否有版本记录
-                    _av_result = await conn.execute(text(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='alembic_version')"
-                    ))
+                    _av_result = await conn.execute(
+                        text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='alembic_version')")
+                    )
                     _av_exists = _av_result.scalar()
                     if not _av_exists:
                         # 无 alembic_version 表，检查是否有其他业务表
-                        _bt_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
-                        ))
+                        _bt_result = await conn.execute(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
+                            )
+                        )
                         if _bt_result.scalar():
                             _need_stamp = True
                     else:
                         # alembic_version 表存在但可能为空（之前部分运行）
-                        _ver_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM alembic_version)"
-                        ))
+                        _ver_result = await conn.execute(text("SELECT EXISTS (SELECT 1 FROM alembic_version)"))
                         if not _ver_result.scalar():
                             # 有表但无版本记录，检查是否有业务表
-                            _bt_result = await conn.execute(text(
-                                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
-                            ))
+                            _bt_result = await conn.execute(
+                                text(
+                                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
+                                )
+                            )
                             if _bt_result.scalar():
                                 _need_stamp = True
                 elif _dialect_name == "mysql":
-                    _av_result = await conn.execute(text(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
-                    ))
+                    _av_result = await conn.execute(
+                        text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')")
+                    )
                     if not _av_result.scalar():
-                        _bt_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))"
-                        ))
+                        _bt_result = await conn.execute(
+                            text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))")
+                        )
                         if _bt_result.scalar():
                             _need_stamp = True
         except Exception as _stamp_check_err:
@@ -92,7 +94,9 @@ async def phase_schema_migration():
                 _stamp_result = subprocess.run(
                     [sys.executable, "-m", "alembic", "stamp", "head"],
                     cwd=_backend_dir,
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                 )
                 if _stamp_result.returncode == 0:
                     logger.info("Startup step: alembic stamp head done.")
@@ -106,7 +110,9 @@ async def phase_schema_migration():
             _result = subprocess.run(
                 [sys.executable, "-m", "alembic", "upgrade", "head"],
                 cwd=_backend_dir,
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if _result.returncode == 0:
                 logger.info("Startup step: alembic upgrade head done.")
@@ -121,7 +127,9 @@ async def phase_schema_migration():
                         _stamp_result = subprocess.run(
                             [sys.executable, "-m", "alembic", "stamp", "head"],
                             cwd=_backend_dir,
-                            capture_output=True, text=True, timeout=30,
+                            capture_output=True,
+                            text=True,
+                            timeout=30,
                         )
                         if _stamp_result.returncode == 0:
                             logger.info("Startup step: alembic stamp head done (after duplicate error).")
@@ -139,6 +147,7 @@ async def phase_schema_migration():
         try:
             from app.db.model_registry import ensure_model_registry_loaded
             from app.db.base import Base
+
             ensure_model_registry_loaded()
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -148,6 +157,7 @@ async def phase_schema_migration():
     else:
         logger.info("Startup step: ensure_business_schema...")
         from app.services.schema_upgrade import ensure_business_schema
+
         await ensure_business_schema()
         logger.info("Startup step: ensure_business_schema done.")
 
@@ -180,9 +190,11 @@ async def phase_load_plugins(plugin_manager):
     logger.info("Startup step: plugin_manager.load_plugins done.")
 
     import app as app_pkg
+
     app_pkg.services.notify_manager.init_notify_manager()
 
     from app.core.plugin_manager import HOOK_ON_STARTUP
+
     logger.info("Startup step: plugin_manager.emit(HOOK_ON_STARTUP)...")
     try:
         await asyncio.wait_for(plugin_manager.emit(HOOK_ON_STARTUP), timeout=20)
@@ -208,6 +220,7 @@ async def phase_marketplace_registration(plugin_manager):
 
     try:
         from app.services.license_service import _get_current_machine_code
+
         _machine_code = _get_current_machine_code()
         await plugin_manager.register_oss_instance(machine_code=_machine_code)
         logger.info("Startup step: OSS instance registered to marketplace server.")
@@ -294,6 +307,7 @@ async def phase_data_migrations():
         logger.info("Startup step: ensure_regions_seeded_from_sql...")
         try:
             from app.services.region_import_service import ensure_regions_seeded_from_sql
+
             seeded = await asyncio.wait_for(_session_call(ensure_regions_seeded_from_sql), timeout=120)
             logger.info("Startup step: ensure_regions_seeded_from_sql => {}", seeded)
             logger.info("Startup step: ensure_regions_seeded_from_sql done.")
@@ -312,6 +326,7 @@ async def phase_data_migrations():
         logger.info("Startup step: ensure_embedded_media_node...")
         try:
             from app.core.media_nodes_db import ensure_embedded_media_node
+
             embedded_id = await asyncio.wait_for(_session_call(ensure_embedded_media_node), timeout=30)
             if embedded_id:
                 logger.info(f"Startup step: ensure_embedded_media_node ok (id={embedded_id}).")
@@ -329,6 +344,7 @@ async def phase_init_sip_state_backend():
     """Phase 6: Initialize SIP state backend."""
     try:
         from app.sip.state_backend import get_sip_state_backend as _get_sip_state_backend
+
         _backend = _get_sip_state_backend()
         _backend_type = type(_backend).__name__
         logger.info(f"Startup step: SipStateBackend initialized (type={_backend_type})")
@@ -340,9 +356,11 @@ async def phase_check_secret_consistency():
     """Phase 7: Verify MEDIA_SERVER_SECRET consistency with DB."""
     # P0-02: secret 列已加密存储，需通过 decrypted_secret 取明文后比较
     try:
+
         async def _check_secret_consistency(db):
             from app.models.media_node import MediaNode as _MN
             from sqlalchemy import select as _sel
+
             result = await db.execute(_sel(_MN).where(_MN.is_embedded).limit(1))
             return result.scalars().first()
 
@@ -388,6 +406,7 @@ async def phase_init_redis():
     logger.info("Startup step: init_redis...")
     try:
         from app.core.redis import init_redis
+
         # P0-16 [2026-07-17]: 使用 fire_and_forget 替代裸 create_task，带异常回调和任务名
         # 注意：此处需要可等待的 task 引用，因此直接使用 fire_and_forget 返回值
         redis_task = fire_and_forget(init_redis(), name="init_redis")
@@ -467,6 +486,7 @@ async def phase_init_platform_service(sip_server):
     # Cluster Pub/Sub subscriber
     try:
         from app.core.redis import ha_cluster
+
         await ha_cluster.start_subscriber()
         logger.info("Startup step: cluster subscriber started.")
     except Exception as e:
@@ -476,6 +496,7 @@ async def phase_init_platform_service(sip_server):
     logger.info("Startup step: platform_subscription_service.start...")
     try:
         from app.services.platform_subscription_service import platform_subscription_service
+
         await asyncio.wait_for(platform_subscription_service.start(), timeout=10)
         logger.info("Startup step: platform_subscription_service.start done.")
     except asyncio.TimeoutError:
@@ -487,6 +508,7 @@ async def phase_init_platform_service(sip_server):
     logger.info("Startup step: device_subscription_service.start...")
     try:
         from app.services.device_subscription_service import device_subscription_service
+
         await asyncio.wait_for(device_subscription_service.start(), timeout=10)
         logger.info("Startup step: device_subscription_service.start done.")
     except asyncio.TimeoutError:
@@ -500,12 +522,14 @@ async def phase_start_background_services(sip_server, plugin_manager):
     # Catalog aggregation prune
     try:
         from app.sip.catalog import start_catalog_agg_prune
+
         start_catalog_agg_prune()
     except Exception as e:
         logger.warning(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
 
     # AI Vision Hub
     from app.services.vision_hub import VisionHub
+
     app_pkg.services.vision_hub.vision_hub = VisionHub()
     logger.info("Startup step: vision_hub.start...")
     try:
@@ -516,6 +540,7 @@ async def phase_start_background_services(sip_server, plugin_manager):
 
     # Embedded ZLMediaKit
     from app.services.media_manager import media_manager
+
     zlm_boot_timeout = settings.EMBEDDED_ZLM_START_TIMEOUT_SECONDS
     logger.info("Startup step: media_manager.start (embedded ZLM)...")
     try:
@@ -535,6 +560,7 @@ async def phase_start_background_services(sip_server, plugin_manager):
 
     # Health Service
     from app.services.health_service import health_service
+
     logger.info("Startup step: health_service.start...")
     try:
         await asyncio.wait_for(health_service.start(), timeout=20)
@@ -544,11 +570,13 @@ async def phase_start_background_services(sip_server, plugin_manager):
 
     # Background tasks
     from app.services.tasks.task_manager import start_all_background_tasks
+
     await start_all_background_tasks(plugin_manager=plugin_manager)
 
     # SSL certbot
     try:
         from app.services.ssl_certbot.certbot_manager import on_startup
+
         await asyncio.wait_for(on_startup(), timeout=130)
     except asyncio.TimeoutError:
         logger.warning("SSL certbot startup check timeout (130s), continuing startup.")
@@ -582,6 +610,7 @@ async def phase_start_license_sync(plugin_manager):
     run_sync_on_startup = settings.PLUGIN_PAID_LICENSE_SYNC_ON_STARTUP
 
     if sync_enabled and paid_license_sync_interval > 0:
+
         async def _paid_license_sync_loop():
             if run_sync_on_startup:
                 try:
@@ -613,6 +642,7 @@ async def phase_start_license_sync(plugin_manager):
     except Exception as e:
         logger.warning(f"Failed to parse OSS heartbeat interval: {e}")
     if getattr(plugin_manager, "_oss_instance_id", None):
+
         async def _oss_heartbeat_loop():
             while True:
                 await asyncio.sleep(oss_heartbeat_interval)
@@ -687,8 +717,12 @@ def emit_security_warnings():
     if not settings.PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED:
         _security_warnings.append("PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED=False: activation token disabled, trial period can be reset")
     if not settings.PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD:
-        _security_warnings.append("PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered")
+        _security_warnings.append(
+            "PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered"
+        )
     if _security_warnings and (settings.APP_ENV or "dev").lower() in {"prod", "production"}:
         for _w in _security_warnings:
             logger.warning(f"[Security] {_w}")
-        logger.warning("[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02")
+        logger.warning(
+            "[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02"
+        )

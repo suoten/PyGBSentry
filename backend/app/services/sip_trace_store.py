@@ -67,7 +67,7 @@ async def store_sip_trace_event(payload: dict) -> None:
         payload_str = json.dumps(payload, ensure_ascii=False)
     except Exception:
         payload_str = str(payload)
-    payload_str = payload_str[:max(0, max_len)]
+    payload_str = payload_str[: max(0, max_len)]
 
     row = SipTraceEvent(
         tenant_id=tenant_id,
@@ -98,8 +98,8 @@ def schedule_store_sip_trace(payload: dict) -> None:
     # 原 loop.create_task(store_sip_trace_event(payload)) 无引用无异常回调，
     # 高频 SIP 信令跟踪写入异常会静默丢失，且 task 可能被 GC 中途取消
     from app.core.async_utils import fire_and_forget
+
     fire_and_forget(
         store_sip_trace_event(payload),
         name=f"sip_trace_store:{payload.get('event', 'unknown')}",
     )
-

@@ -17,12 +17,14 @@ from app.services.auth_audit import safe_auth_audit
 
 def get_or_404(result, detail: str = "Resource not found"):
     """# ORM查询结果空值判断辅助函数"""
-    obj = result.scalars().first() if hasattr(result, 'scalars') else result
+    obj = result.scalars().first() if hasattr(result, "scalars") else result
     if obj is None:
         raise HTTPException(status_code=404, detail=detail)
     return obj
 
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/login/access-token", auto_error=False)
+
 
 async def get_current_user(
     request: Request,
@@ -199,10 +201,7 @@ async def get_current_user(
             tenant_id=tid,
             status_code=401,
             detail=detail,
-            extra_summary=(
-                f"key_id={matched.id}; key_prefix={matched.key_prefix}; "
-                f"subject_user_id={matched.user_id}"
-            ),
+            extra_summary=(f"key_id={matched.id}; key_prefix={matched.key_prefix}; subject_user_id={matched.user_id}"),
         )
         raise credentials_exception
     if matched.tenant_id:
@@ -213,17 +212,15 @@ async def get_current_user(
     # 异常 (MissingGreenlet) → HTTP 500。 [全栈工程师]
     try:
         from app.db.session import AsyncSessionLocal as _ASL
+
         async with _ASL() as _key_db:
-            await _key_db.execute(
-                update(UserApiKey)
-                .where(UserApiKey.id == matched.id)
-                .values(last_used_at=datetime.now(timezone.utc))
-            )
+            await _key_db.execute(update(UserApiKey).where(UserApiKey.id == matched.id).values(last_used_at=datetime.now(timezone.utc)))
             await _key_db.commit()
     except Exception:
         logger.warning("Failed to update API key last_used_at", exc_info=True)
 
     return user
+
 
 async def get_current_active_user(
     current_user: User = Depends(get_current_user),
@@ -247,6 +244,7 @@ async def get_current_active_user(
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+
 async def get_current_active_superuser(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -267,10 +265,9 @@ async def get_current_active_superuser(
             detail="not_superuser",
             extra_summary=f"user_id={current_user.id}; role={r}",
         )
-        raise HTTPException(
-            status_code=400, detail="The user doesn't have enough privileges"
-        )
+        raise HTTPException(status_code=400, detail="The user doesn't have enough privileges")
     return current_user
+
 
 def require_roles(allowed_roles: list[str]):
     """Dependency factory: require the authenticated user to have one of the given roles."""
@@ -305,14 +302,11 @@ def require_roles(allowed_roles: list[str]):
                     tenant_id=tid,
                     status_code=403,
                     detail="role_denied",
-                    extra_summary=(
-                        f"user_role={role}; allowed_roles={roles_csv}; path={path}"
-                    ),
+                    extra_summary=(f"user_role={role}; allowed_roles={roles_csv}; path={path}"),
                 )
-            raise HTTPException(
-                status_code=403, detail="Permission denied"
-            )
+            raise HTTPException(status_code=403, detail="Permission denied")
         return current_user
+
     return _checker
 
 
@@ -382,6 +376,7 @@ def require_permission(permission: str):
             extra_summary=f"user_role={role_code}; required={required}; granted={','.join(sorted(codes))}; path={(request.url.path or '')[:220]}",
         )
         raise HTTPException(status_code=403, detail="Permission denied")
+
     return _checker
 
 
@@ -389,5 +384,6 @@ async def require_server_edition() -> None:
     """Dependency: raise 403 if the running edition is not the server edition."""
     # ARCHITECTURE: 统一使用 app.core.edition 进行版本判断
     from app.core.edition import is_server_edition as _is_server_edition_fn
+
     if not _is_server_edition_fn():
         raise HTTPException(status_code=403, detail="This feature requires the server edition")

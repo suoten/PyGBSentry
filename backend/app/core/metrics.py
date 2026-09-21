@@ -3,6 +3,7 @@
 Exposes Prometheus metrics for external monitoring systems (Grafana/Prometheus).
 All metrics here must be reconciled with deploy/monitoring/alert_rules.yml.
 """
+
 from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, generate_latest
 
 # Use a custom registry to avoid conflicts with other libraries

@@ -28,6 +28,7 @@ router = APIRouter()
 
 class BroadcastStartRequest(BaseModel):
     """语音广播开始请求"""
+
     device_id: str
     channel_id: str
     audio_file_url: str | None = Field(None, description="预先录制的音频文件URL (MP3/WAV)，如果提供则播报文件而不是麦克风")
@@ -36,6 +37,7 @@ class BroadcastStartRequest(BaseModel):
 
 class BroadcastStopRequest(BaseModel):
     """语音广播停止请求"""
+
     device_id: str
     channel_id: str
     call_id: str
@@ -127,11 +129,13 @@ async def broadcast_start(
     # Generate SSRC — P0-fix: 改用 ssrc_manager 统一分配，支持跨节点去重和生命周期管理
     try:
         from app.sip.ssrc_manager import ssrc_manager as _ssrc_mgr
+
         ssrc = await _ssrc_mgr.allocate(settings.SIP_DOMAIN, is_playback=False)
     except Exception as ssrc_err:
         # 失败时记录警告并回退到随机生成，避免广播功能完全不可用
         logger.warning(f"ssrc_manager.allocate failed for broadcast, fallback to random: {ssrc_err}")
         import secrets as _secrets_mod
+
         ssrc = f"0{_secrets_mod.randbelow(10**9):09d}"
 
     # Get media server info from settings
@@ -140,6 +144,7 @@ async def broadcast_start(
 
     # 获取媒体服务器节点
     from app.models.media_node import MediaNode
+
     media_node_result = await db.execute(select(MediaNode).where(MediaNode.is_online == 1))
     media_node = media_node_result.scalars().first()
 
@@ -177,16 +182,14 @@ async def broadcast_start(
             dst_url=dst_url,
             timeout_ms=10000,
             enable_hls=0,
-            enable_mp4=0
+            enable_mp4=0,
         )
         if ffmpeg_key:
             logger.info(f"Added FFmpeg source for AAC->PCMA transcoding: key={ffmpeg_key}")
 
     # Send broadcast invite
     call_id = await broadcast.send_broadcast_invite(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        ssrc, media_server_ip, media_server_port
+        asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), ssrc, media_server_ip, media_server_port
     )
 
     await _stream_audit(
@@ -204,7 +207,7 @@ async def broadcast_start(
         "call_id": call_id,
         "ssrc": ssrc,
         "media_server_ip": media_server_ip,
-        "media_server_port": media_server_port
+        "media_server_port": media_server_port,
     }
 
 
@@ -278,10 +281,7 @@ async def broadcast_stop(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
-
-    stream_session = (
-        await db.execute(select(StreamSession).where(StreamSession.call_id == payload.call_id))
-    ).scalars().first()
+    stream_session = (await db.execute(select(StreamSession).where(StreamSession.call_id == payload.call_id))).scalars().first()
     if stream_session:
         await broadcast.send_broadcast_bye(
             asset,
@@ -319,11 +319,7 @@ async def broadcast_stop(
         detail="ok",
         extra_summary=f"device_id={payload.device_id}; channel_id={payload.channel_id}; call_id={payload.call_id[:32]}",
     )
-    return {
-        "status": "ok",
-        "action": "broadcast_stop",
-        "call_id": payload.call_id
-    }
+    return {"status": "ok", "action": "broadcast_stop", "call_id": payload.call_id}
 
 
 @router.post("/talk/start")
@@ -338,9 +334,7 @@ async def talk_start(
     返回 WHIP URL 供前端 WebRTC 推流使用。
     """
     try:
-        asset, resource = await _get_asset_resource(
-            db, payload.device_id, payload.channel_id, current_user
-        )
+        asset, resource = await _get_asset_resource(db, payload.device_id, payload.channel_id, current_user)
         if not asset or not resource:
             raise HTTPException(status_code=404, detail="Device or channel not found")
         if not asset.ip_addr:
@@ -358,36 +352,30 @@ async def talk_start(
 
         # 获取媒体服务器节点信息用于 ZLM WHIP 推流
         from app.models.media_node import MediaNode
+
         media_node_result = await db.execute(select(MediaNode).where(MediaNode.is_online == 1))
         media_node = media_node_result.scalars().first()
 
         # P1-fix [2026-07-17]: Talk SDP 媒体地址回退优先使用 MEDIA_SERVER_HOST / STREAM_PUBLIC_HOST，
         # 而非 SIP_IP。NAT/Docker 环境下 SIP_IP 可能是内网地址，设备无法到达 RTP 端口。
-        zlm_host = (
-            str(settings.MEDIA_SERVER_HOST or "")
-            or str(settings.STREAM_PUBLIC_HOST or "")
-            or settings.SIP_IP
-        )
-        zlm_http_port = (
-            settings.MEDIA_SERVER_HTTP_PORT
-            or settings.STREAM_PUBLIC_HTTP_PORT
-            or 80
-        )
+        zlm_host = str(settings.MEDIA_SERVER_HOST or "") or str(settings.STREAM_PUBLIC_HOST or "") or settings.SIP_IP
+        zlm_http_port = settings.MEDIA_SERVER_HTTP_PORT or settings.STREAM_PUBLIC_HTTP_PORT or 80
         zlm_rtp_port = settings.MEDIA_SERVER_RTP_PROXY_PORT  # 对讲SDP需使用RTP端口
         zlm_stream_id = f"{payload.channel_id}_talk"
 
         if media_node:
             zlm_host = (
-                getattr(media_node, 'stream_ip', None)
-                or getattr(media_node, 'public_ip', None)
+                getattr(media_node, "stream_ip", None)
+                or getattr(media_node, "public_ip", None)
                 or media_node.host
                 or zlm_host  # P1-fix: 回退到已解析的 zlm_host 而非 SIP_IP
             )
             zlm_http_port = media_node.http_port or zlm_http_port
-            zlm_rtp_port = getattr(media_node, 'rtp_proxy_port', 0) or zlm_rtp_port  # 获取RTP端口
+            zlm_rtp_port = getattr(media_node, "rtp_proxy_port", 0) or zlm_rtp_port  # 获取RTP端口
 
         # 优先使用 SipTalk 双向对讲（a=sendrecv + ZLM WHIP 音频上行）
         from app.sip.talk import sip_talk
+
         if sip_talk:
             talk_result = await sip_talk.send_talk_invite(
                 device_id=payload.device_id,
@@ -413,8 +401,7 @@ async def talk_start(
                 status_code=200,
                 detail="ok",
                 extra_summary=(
-                    f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                    f"call_id={call_id[:32]}; zlm_stream_id={zlm_stream_id}"
+                    f"device_id={payload.device_id}; channel_id={payload.channel_id}; call_id={call_id[:32]}; zlm_stream_id={zlm_stream_id}"
                 ),
             )
             return {
@@ -437,10 +424,12 @@ async def talk_start(
             # 通过 ssrc_manager 分配 SSRC，避免与并发对讲流冲突
             try:
                 from app.sip.ssrc_manager import ssrc_manager as _ssrc_mgr
+
                 _talk_ssrc = await _ssrc_mgr.allocate(settings.SIP_DOMAIN, is_playback=False)
             except Exception as _ssrc_err:
                 logger.warning(f"Talk SSRC allocation failed, fallback to random: {_ssrc_err}")
                 import secrets as _secrets_mod
+
                 _talk_ssrc = f"0{_secrets_mod.randbelow(10**9):09d}"
             sdp_body = (
                 f"v=0\r\n"
@@ -471,10 +460,7 @@ async def talk_start(
             result="success",
             status_code=200,
             detail="ok",
-            extra_summary=(
-                f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                f"call_id={call_id[:32]}; stream={stream_id[:80]}"
-            ),
+            extra_summary=(f"device_id={payload.device_id}; channel_id={payload.channel_id}; call_id={call_id[:32]}; stream={stream_id[:80]}"),
         )
         return {
             "status": "ok",
@@ -493,8 +479,7 @@ async def talk_start(
             status_code=int(getattr(he, "status_code", 500) or 500),
             detail=str(getattr(he, "detail", "") or "")[:200] or "http_error",
             extra_summary=(
-                f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                f"status_code={int(getattr(he, 'status_code', 500) or 500)}"
+                f"device_id={payload.device_id}; channel_id={payload.channel_id}; status_code={int(getattr(he, 'status_code', 500) or 500)}"
             ),
         )
         raise
@@ -506,12 +491,10 @@ async def talk_start(
             result="failed",
             status_code=500,
             detail="talk_invite_error",
-            extra_summary=(
-                f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                f"err={str(e)[:160]}"
-            ),
+            extra_summary=(f"device_id={payload.device_id}; channel_id={payload.channel_id}; err={str(e)[:160]}"),
         )
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/talk/stop")
 async def talk_stop(
@@ -523,9 +506,7 @@ async def talk_stop(
     对讲停止（当前实现与广播通道一致，作为语义化别名接口保留）。
     """
     try:
-        result = await broadcast_stop(
-            payload=payload, db=db, current_user=current_user
-        )
+        result = await broadcast_stop(payload=payload, db=db, current_user=current_user)
         if isinstance(result, dict):
             result["action"] = "talk_stop"
 
@@ -536,10 +517,7 @@ async def talk_stop(
             result="success",
             status_code=200,
             detail="ok",
-            extra_summary=(
-                f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                f"call_id={str(payload.call_id or '')[:32]}"
-            ),
+            extra_summary=(f"device_id={payload.device_id}; channel_id={payload.channel_id}; call_id={str(payload.call_id or '')[:32]}"),
         )
         return result
     except HTTPException as he:
@@ -550,9 +528,6 @@ async def talk_stop(
             result="failed",
             status_code=int(getattr(he, "status_code", 500) or 500),
             detail=str(getattr(he, "detail", "") or "")[:200] or "http_error",
-            extra_summary=(
-                f"device_id={payload.device_id}; channel_id={payload.channel_id}; "
-                f"call_id={str(payload.call_id or '')[:32]}"
-            ),
+            extra_summary=(f"device_id={payload.device_id}; channel_id={payload.channel_id}; call_id={str(payload.call_id or '')[:32]}"),
         )
         raise

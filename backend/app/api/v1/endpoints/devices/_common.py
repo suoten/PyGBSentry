@@ -5,6 +5,7 @@
 
 由 devices_crud.py 和 devices_channels.py 共同使用。
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,6 +20,7 @@ from loguru import logger
 
 
 # ─── 工具函数 ──────────────────────────────────────────────────────────────────
+
 
 def _tenant_id_for_user(user: User) -> str:
     """返回用户的 tenant_id，空值回退为 'default'。"""
@@ -78,9 +80,8 @@ async def _get_effective_sip_id(db: AsyncSession) -> str:
     # 优先从 SystemSetting 读取，回退到配置
     try:
         from app.models.system_setting import SystemSetting
-        result = await db.execute(
-            select(SystemSetting.setting_value).where(SystemSetting.setting_key == "sip_id")
-        )
+
+        result = await db.execute(select(SystemSetting.setting_value).where(SystemSetting.setting_key == "sip_id"))
         val = result.scalar()
         if val:
             return str(val).strip()
@@ -178,8 +179,8 @@ def _sort_tree_nodes(node: dict[str, Any]) -> None:
         return
     directories = [c for c in children if (c.get("nodeType") or "") == "directory"]
     channels = [c for c in children if (c.get("nodeType") or "") != "directory"]
-    directories.sort(key=lambda x: (x.get("label") or ""))
-    channels.sort(key=lambda x: (x.get("label") or ""))
+    directories.sort(key=lambda x: x.get("label") or "")
+    channels.sort(key=lambda x: x.get("label") or "")
     node["children"] = directories + channels
     for child in node["children"]:
         _sort_tree_nodes(child)
@@ -187,14 +188,17 @@ def _sort_tree_nodes(node: dict[str, Any]) -> None:
 
 # ─── Pydantic 模型 ─────────────────────────────────────────────────────────────
 
+
 class StreamModeUpdate(BaseModel):
     """设备码流传输模式更新。"""
+
     model_config = ConfigDict(extra="forbid")
     stream_mode: str
 
 
 class DeviceOrganizationUpdate(BaseModel):
     """设备组织归属更新。"""
+
     model_config = ConfigDict(extra="forbid")
     organization_id: str | None = None
 
@@ -206,6 +210,7 @@ class CatalogSubscriptionUpdate(BaseModel):
     及前端实际发送的 {enabled, cycle_seconds} 均不匹配（extra=forbid → 422，
     传模型字段则 AttributeError → 500），PUT 无任何成功路径（测试发现）。
     """
+
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
     cycle_seconds: int = 300
@@ -213,6 +218,7 @@ class CatalogSubscriptionUpdate(BaseModel):
 
 class MobilePositionSubscriptionUpdate(BaseModel):
     """移动位置订阅更新。"""
+
     model_config = ConfigDict(extra="forbid")
     enabled: bool = True
     interval: int = 60
@@ -220,6 +226,7 @@ class MobilePositionSubscriptionUpdate(BaseModel):
 
 class DeviceCreatePayload(BaseModel):
     """手动添加设备请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_id: str
     name: str
@@ -241,6 +248,7 @@ class DeviceCreatePayload(BaseModel):
 
 class DeviceUpdatePayload(BaseModel):
     """编辑设备信息请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
     password: str | None = None
@@ -261,12 +269,14 @@ class DeviceUpdatePayload(BaseModel):
 
 class BatchDeletePayload(BaseModel):
     """批量删除设备请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_ids: list[str]
 
 
 class DeviceBlacklistRequest(BaseModel):
     """设备拉黑请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     ip: str
     blacklist_ip: bool = True
@@ -276,6 +286,7 @@ class DeviceBlacklistRequest(BaseModel):
 
 class DeviceExportPayload(BaseModel):
     """设备导出请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     format: str = "csv"
     include_channels: bool = False
@@ -288,12 +299,14 @@ class BatchChannelSnapPayload(BaseModel):
     FIX: [2026-07-13] 从 2ad636a 恢复 — devices_control.py 的 /channels/snap-batch
     端点需要此模型，ConvergeLoop Round 0 删除了它。[全栈工程师]
     """
+
     model_config = ConfigDict(extra="forbid")
     channel_ids: list[str]
 
 
 class ChannelUpdatePayload(BaseModel):
     """通道更新请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
     status: int | None = None
@@ -322,6 +335,7 @@ class ChannelUpdatePayload(BaseModel):
 
 class BatchChannelPlacementPayload(BaseModel):
     """批量通道归属设置请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     resource_ids: list[str]
     placement: str = "region"
@@ -331,6 +345,7 @@ class BatchChannelPlacementPayload(BaseModel):
 
 class DirectoryCreatePayload(BaseModel):
     """目录创建请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_id: str | None = None
     name: str | None = None
@@ -340,12 +355,14 @@ class DirectoryCreatePayload(BaseModel):
 
 class DirectoryDeletePayload(BaseModel):
     """目录删除请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_id: str | None = None
 
 
 class DirectoryRenamePayload(BaseModel):
     """目录重命名请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_id: str | None = None
     name: str | None = None
@@ -353,6 +370,7 @@ class DirectoryRenamePayload(BaseModel):
 
 class BatchUpdateCivilCodePayload(BaseModel):
     """批量更新行政区码请求体。"""
+
     model_config = ConfigDict(extra="forbid")
     gb_ids: list[str]
     civil_code: str

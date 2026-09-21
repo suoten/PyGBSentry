@@ -13,7 +13,6 @@ from app.models.system_setting import SystemSetting
 from sqlalchemy import select
 
 
-
 _task: asyncio.Task | None = None
 
 PLUGIN_ID = "stream_idle"
@@ -41,9 +40,7 @@ async def _get_runtime_cfg() -> dict:
         return _cfg_cache
 
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
         merged = dict(_DEFAULT_BASE_CONFIG)
@@ -90,6 +87,7 @@ async def _get_runtime_cfg() -> dict:
 async def _query_reader_count(node_host: str, node_http_port: int, secret: str, app: str, stream: str) -> int:
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         sec = str(secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip()
         url = f"http://{node_host}:{int(node_http_port)}/index/api/getMediaList"
         client = await _get_zlm_client()
@@ -111,6 +109,7 @@ async def _query_reader_count(node_host: str, node_http_port: int, secret: str, 
         return 0
     except Exception:
         return -1
+
 
 async def check_idle_streams():
     while True:
@@ -164,7 +163,9 @@ async def check_idle_streams():
                     ss, host, http_port, secret = pair
                     async with _sem:
                         readers = await _query_reader_count(
-                            host, http_port, secret,
+                            host,
+                            http_port,
+                            secret,
                             str(getattr(ss, "app", "") or ""),
                             str(getattr(ss, "stream", "") or ""),
                         )
@@ -214,6 +215,7 @@ async def check_idle_streams():
             logger.error(f"[StreamIdle] Error: {e}")
 
         await asyncio.sleep(check_interval)
+
 
 async def start():
     global _task

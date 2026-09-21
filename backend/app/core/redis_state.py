@@ -12,14 +12,14 @@ from loguru import logger
 from typing import Any
 
 from app.core.redis import redis_client
+
 # P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
 from app.core.async_utils import fire_and_forget
 
 
-
-
 class RedisStateError(Exception):
     """Redis 状态操作失败时抛出"""
+
     pass
 
 
@@ -69,6 +69,7 @@ class RedisDict:
             mapped[field] = json.dumps(v) if not isinstance(v, str) else v
         # FIX [2026-09-01 P1]: hset(mapping=) 需 Redis 4.0+，改用兼容写入（Redis 3.0）
         from app.core.redis import hset_mapping
+
         await hset_mapping(redis_client, self._key(k), mapped)
         if self._ttl:
             await redis_client.expire(self._key(k), self._ttl)
@@ -209,11 +210,9 @@ class RedisSortedSet:
         _ensure_redis()
         return int(await redis_client.zcard(self._key) or 0)
 
-    async def range_by_score(self, min_score: float, max_score: float,
-                             start: int = 0, end: int = -1) -> list[str]:
+    async def range_by_score(self, min_score: float, max_score: float, start: int = 0, end: int = -1) -> list[str]:
         _ensure_redis()
-        return await redis_client.zrangebyscore(self._key, min_score, max_score,
-                                                 start=start, num=end if end != -1 else None)
+        return await redis_client.zrangebyscore(self._key, min_score, max_score, start=start, num=end if end != -1 else None)
 
     async def clear(self) -> None:
         _ensure_redis()
@@ -424,10 +423,7 @@ class SsrcWaiterManager:
     async def notify(self, ssrc: str, data: dict) -> None:
         """通知 SSRC 就绪"""
         _ensure_redis()
-        await redis_client.publish(
-            f"p3s:sip:ssrc:ready:{ssrc}",
-            json.dumps(data, default=str)
-        )
+        await redis_client.publish(f"p3s:sip:ssrc:ready:{ssrc}", json.dumps(data, default=str))
 
     async def close(self):
         """关闭 Pub/Sub 监听器"""

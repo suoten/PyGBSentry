@@ -18,6 +18,7 @@
 为避免循环导入，``app.sip.commander`` 在函数内部惰性导入。模块级
 ``device_subscription_service`` 为单例。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,6 +56,7 @@ class DeviceSubscriptionService:
                 return
             self._running = True
             from app.core.async_utils import fire_and_forget
+
             self._refresh_task = fire_and_forget(self._refresh_loop())
             logger.info("device_subscription_service started")
         except Exception as e:
@@ -105,9 +107,7 @@ class DeviceSubscriptionService:
         ok = await self._send_subscribe(asset_id, kind="catalog", expires=0)
         try:
             async with AsyncSessionLocal() as db:
-                await db.execute(
-                    delete(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id)
-                )
+                await db.execute(delete(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id))
                 await db.commit()
         except Exception as e:
             logger.warning("device_subscription unsubscribe cleanup failed: {}", e)
@@ -123,14 +123,13 @@ class DeviceSubscriptionService:
         """构造并发送 SUBSCRIBE 给设备。惰性导入 commander 避免循环依赖。"""
         try:
             import app.sip.commander as commander_mod  # noqa: WPS433 (lazy import)
+
             commander = getattr(commander_mod, "sip_commander", None)
             if commander is None:
                 logger.debug("device_subscription: sip_commander not ready, skip subscribe")
                 return False
             async with AsyncSessionLocal() as db:
-                asset = (
-                    await db.execute(select(Asset).where(Asset.id == asset_id))
-                ).scalars().first()
+                asset = (await db.execute(select(Asset).where(Asset.id == asset_id))).scalars().first()
                 if not asset:
                     logger.warning("device_subscription: asset {} not found", asset_id)
                     return False
@@ -142,16 +141,12 @@ class DeviceSubscriptionService:
                 now = _utcnow()
                 if kind == "mobile_position":
                     if hasattr(commander, "send_mobile_position_subscribe"):
-                        await commander.send_mobile_position_subscribe(
-                            asset.gb_id, transport_info, expires=expires
-                        )
+                        await commander.send_mobile_position_subscribe(asset.gb_id, transport_info, expires=expires)
                     await self._mark_mp_result(db, asset_id, now, ok=True)
                     return True
                 # catalog
                 if hasattr(commander, "send_catalog_subscribe"):
-                    await commander.send_catalog_subscribe(
-                        asset.gb_id, transport_info, expires=expires
-                    )
+                    await commander.send_catalog_subscribe(asset.gb_id, transport_info, expires=expires)
                 await self._mark_catalog_result(db, asset_id, now, ok=True)
                 return True
         except Exception as e:
@@ -176,11 +171,7 @@ class DeviceSubscriptionService:
         ok: bool,
         error: str = "",
     ) -> None:
-        sub = (
-            await db.execute(
-                select(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id)
-            )
-        ).scalars().first()
+        sub = (await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id))).scalars().first()
         if sub is None:
             return
         sub.last_catalog_sync_at = now
@@ -197,11 +188,7 @@ class DeviceSubscriptionService:
         ok: bool,
         error: str = "",
     ) -> None:
-        sub = (
-            await db.execute(
-                select(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id)
-            )
-        ).scalars().first()
+        sub = (await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset_id))).scalars().first()
         if sub is None:
             return
         sub.last_mobile_position_subscribe_at = now
@@ -216,9 +203,7 @@ class DeviceSubscriptionService:
         """扫描全部订阅配置，按需重新发起订阅。返回处理的设备数。"""
         try:
             async with AsyncSessionLocal() as db:
-                subs = (
-                    await db.execute(select(DeviceSubscription))
-                ).scalars().all()
+                subs = (await db.execute(select(DeviceSubscription))).scalars().all()
             count = 0
             now = _utcnow()
             for sub in subs:
@@ -226,10 +211,7 @@ class DeviceSubscriptionService:
                     # 目录同步：按 cycle 周期触发
                     cycle = int(getattr(sub, "catalog_cycle_seconds", 0) or 0)
                     last_sync = getattr(sub, "last_catalog_sync_at", None)
-                    need_catalog = cycle > 0 and (
-                        last_sync is None
-                        or (now - last_sync).total_seconds() >= cycle
-                    )
+                    need_catalog = cycle > 0 and (last_sync is None or (now - last_sync).total_seconds() >= cycle)
                     if need_catalog:
                         await self.subscribe_catalog(sub.asset_id)
                         count += 1
@@ -238,10 +220,7 @@ class DeviceSubscriptionService:
                     mp_enabled = bool(int(getattr(sub, "mobile_position_enabled", 0) or 0))
                     renew = int(getattr(sub, "mobile_position_renew_seconds", 300) or 300)
                     last_mp = getattr(sub, "last_mobile_position_subscribe_at", None)
-                    need_mp = mp_enabled and (
-                        last_mp is None
-                        or (now - last_mp).total_seconds() >= renew
-                    )
+                    need_mp = mp_enabled and (last_mp is None or (now - last_mp).total_seconds() >= renew)
                     if need_mp:
                         await self.subscribe_mobile_position(sub.asset_id)
                         count += 1

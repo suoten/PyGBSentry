@@ -10,7 +10,10 @@ import json
 import os
 from app.db.session import get_db
 from app.models.billing import (
-    BillingPlan, TenantSubscription, TenantBranding, PluginOrder,
+    BillingPlan,
+    TenantSubscription,
+    TenantBranding,
+    PluginOrder,
     SubscriptionDowngradeLog,
 )
 from app.models.user import User
@@ -30,8 +33,11 @@ router = APIRouter()
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
+
+
 PLUGIN_DIR = "plugins"
 MARKETPLACE_CATALOG_PATH = os.path.join(PLUGIN_DIR, "marketplace.json")
+
 
 class BillingPlanCreate(BaseModel):
     code: str
@@ -42,6 +48,7 @@ class BillingPlanCreate(BaseModel):
     plugin_entitlements: str = ""
     is_active: bool = True
 
+
 class SubscriptionUpdate(BaseModel):
     tenant_id: str
     plan_code: str
@@ -49,16 +56,19 @@ class SubscriptionUpdate(BaseModel):
     trial_ends_at: Optional[datetime] = None
     ends_at: Optional[datetime] = None
 
+
 class BrandingUpdate(BaseModel):
     product_name: str = "PyGBSentry"
     logo_url: Optional[str] = None
     primary_color: str = "#1f2937"
     welcome_text: str = "Welcome to PyGBSentry"
 
+
 class PluginOrderCreate(BaseModel):
     plugin_id: str
     months: int = 1
     pay_channel: str = ""
+
 
 class PaymentCallbackPayload(BaseModel):
     order_no: str
@@ -67,6 +77,7 @@ class PaymentCallbackPayload(BaseModel):
     paid_at: Optional[datetime] = None
     provider_trade_no: Optional[str] = None
     signature: str
+
 
 def _load_marketplace_catalog() -> list[dict]:
     if not os.path.exists(MARKETPLACE_CATALOG_PATH):
@@ -92,6 +103,7 @@ async def _fetch_server_trial_config() -> dict | None:
     record_url = (settings.PLUGIN_SERVER_RECORD_URL or "").strip()
     if record_url:
         from urllib.parse import urlparse
+
         parsed = urlparse(record_url)
         if parsed.netloc:
             base_url = f"{parsed.scheme}://{parsed.netloc}"
@@ -99,6 +111,7 @@ async def _fetch_server_trial_config() -> dict | None:
         return None
     try:
         from app.core.http_client import get_http_client
+
         client = await get_http_client()
         resp = await client.get(f"{base_url}/api/v1/plugins/trial-config", timeout=8.0)
         if resp.status_code == 200:
@@ -244,9 +257,11 @@ def _sign_callback(order_no: str, status: str, paid_amount: int, provider_trade_
     payload = f"{order_no}|{status}|{paid_amount}|{provider_trade_no or ''}"
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
+
 def _verify_callback_signature(payload: PaymentCallbackPayload) -> bool:
     expected = _sign_callback(payload.order_no, payload.status, payload.paid_amount, payload.provider_trade_no)
     return hmac.compare_digest(expected, payload.signature)
+
 
 def _build_plugin_license(order: PluginOrder) -> dict:
     if sign_license_payload is None:
@@ -289,15 +304,18 @@ async def list_plans(
         return plans_from_config
 
     # 降级兜底：返回 community 基础套餐
-    return [{
-        "code": "community",
-        "name": "Community",  # i18n
-        "price_monthly": 0,
-        "max_devices": 5,
-        "max_channels": 20,
-        "plugin_entitlements": "",
-        "is_active": True,
-    }]
+    return [
+        {
+            "code": "community",
+            "name": "Community",  # i18n
+            "price_monthly": 0,
+            "max_devices": 5,
+            "max_channels": 20,
+            "plugin_entitlements": "",
+            "is_active": True,
+        }
+    ]
+
 
 @router.post("/plans")
 async def create_plan(
@@ -347,6 +365,7 @@ async def list_plugins_for_billing(
     _: None = Depends(deps.require_server_edition),
 ):
     return _load_marketplace_catalog()
+
 
 @router.post("/orders")
 async def create_plugin_order(
@@ -399,10 +418,7 @@ async def create_plugin_order(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"order_no={order.order_no}; plugin_id={order.plugin_id}; "
-            f"amount={order.amount}; pay_channel={order.pay_channel or ''}"
-        ),
+        extra_summary=(f"order_no={order.order_no}; plugin_id={order.plugin_id}; amount={order.amount}; pay_channel={order.pay_channel or ''}"),
     )
     return {
         "order_no": order.order_no,
@@ -417,6 +433,7 @@ async def create_plugin_order(
         "return_url": settings.PAYMENT_SUCCESS_RETURN_URL,
     }
 
+
 @router.get("/orders/me")
 async def list_my_orders(
     db: AsyncSession = Depends(get_db),
@@ -428,6 +445,7 @@ async def list_my_orders(
     result = await db.execute(stmt)
     return result.scalars().all()
 
+
 @router.get("/orders/{order_no}")
 async def get_order_status(
     order_no: str,
@@ -436,13 +454,11 @@ async def get_order_status(
     _: None = Depends(deps.require_server_edition),
 ):
     tenant_id = current_user.tenant_id or "default"
-    stmt = select(PluginOrder).where(
-        PluginOrder.order_no == order_no,
-        PluginOrder.tenant_id == tenant_id
-    )
+    stmt = select(PluginOrder).where(PluginOrder.order_no == order_no, PluginOrder.tenant_id == tenant_id)
     result = await db.execute(stmt)
     order = get_or_404(result, detail="Order not found")  # ORM查询结果空值判断
     return order
+
 
 @router.post("/payment/callback")
 async def payment_callback(
@@ -549,6 +565,7 @@ async def payment_callback(
     )
     return {"status": "ok", "order_no": order.order_no, "order_status": order.status}
 
+
 @router.get("/licenses/me")
 async def list_my_licenses(
     request: Request,
@@ -567,6 +584,7 @@ async def list_my_licenses(
     record_url = (settings.PLUGIN_SERVER_RECORD_URL or "").strip()
     if record_url:
         from urllib.parse import urlparse
+
         parsed = urlparse(record_url)
         if parsed.netloc:
             base_url = f"{parsed.scheme}://{parsed.netloc}"
@@ -581,6 +599,7 @@ async def list_my_licenses(
             if expiring_within_days is not None:
                 params["expiring_within_days"] = int(expiring_within_days)
             from app.core.http_client import get_http_client
+
             client = await get_http_client()
             resp = await client.get(url, headers=headers, params=params, timeout=8.0)
             if resp.status_code == 200:
@@ -590,10 +609,7 @@ async def list_my_licenses(
 
     # 2) 本地回退（用于离线/演示等场景）
     tenant_id = current_user.tenant_id or "default"
-    stmt = select(PluginOrder).where(
-        PluginOrder.tenant_id == tenant_id,
-        PluginOrder.status == "paid"
-    ).order_by(desc(PluginOrder.paid_at))
+    stmt = select(PluginOrder).where(PluginOrder.tenant_id == tenant_id, PluginOrder.status == "paid").order_by(desc(PluginOrder.paid_at))
     result = await db.execute(stmt)
     orders = result.scalars().all()
     rows = [
@@ -603,7 +619,7 @@ async def list_my_licenses(
             "plugin_name": item.plugin_name,
             "paid_at": item.paid_at,
             "expires_at": item.expires_at,
-            "license_data": json.loads(item.license_data) if item.license_data else None
+            "license_data": json.loads(item.license_data) if item.license_data else None,
         }
         for item in orders
     ]
@@ -643,6 +659,7 @@ async def list_my_licenses(
             latest[pid] = r
     return list(latest.values())
 
+
 @router.get("/subscription/me")
 async def get_my_subscription(
     db: AsyncSession = Depends(get_db),
@@ -663,6 +680,7 @@ async def get_my_subscription(
     await db.commit()
     await db.refresh(default_sub)
     return default_sub
+
 
 @router.put("/subscription")
 async def update_subscription(
@@ -704,6 +722,7 @@ async def update_subscription(
     )
     return item
 
+
 @router.get("/branding/me")
 async def get_my_branding(
     db: AsyncSession = Depends(get_db),
@@ -720,6 +739,7 @@ async def get_my_branding(
     await db.commit()
     await db.refresh(item)
     return item
+
 
 @router.put("/branding/me")
 async def update_my_branding(

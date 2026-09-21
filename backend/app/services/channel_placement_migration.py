@@ -13,6 +13,7 @@
 幂等：仅当 ``region_parent_gb_id`` 为空时处理，迁移后该字段被填充，再次运行不会
 重复处理。永不抛异常。
 """
+
 from __future__ import annotations
 
 import re
@@ -37,8 +38,7 @@ async def ensure_split_channel_region_parents(db: AsyncSession) -> int:
         # parent_gb_id 非空且不是 20 位国标 ID（疑似行政区域编码）。
         stmt = select(Resource).where(
             Resource.node_type == "channel",
-            (Resource.region_parent_gb_id.is_(None))
-            | (Resource.region_parent_gb_id == ""),
+            (Resource.region_parent_gb_id.is_(None)) | (Resource.region_parent_gb_id == ""),
             Resource.parent_gb_id.isnot(None),
             Resource.parent_gb_id != "",
         )

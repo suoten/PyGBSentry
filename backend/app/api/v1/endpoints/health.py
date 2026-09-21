@@ -31,6 +31,7 @@ def build_readiness_response() -> Response:
     paths are backed by the same implementation.
     """
     from app.services.health_service import health_service
+
     if not health_service.is_ready:
         body = _json.dumps(
             {"status": "degraded", "reasons": health_service.degraded_reasons},
@@ -71,12 +72,14 @@ class DeviceHealth(BaseModel):
     signal_quality: Optional[str] = None  # good / normal / poor，由 failure_rate 与在线状态推导
     storage_status: Optional[str] = None  # normal / warning / unknown，由录像覆盖情况推导
 
+
 class ApplyRecommendationsRequest(BaseModel):
     device_ids: List[str] = []
     risk_level: Optional[Literal["low", "medium", "high"]] = None
     min_failure_rate: Optional[float] = None
     only_diff: bool = True
     dry_run: bool = False
+
 
 class ApplyResult(BaseModel):
     device_id: str
@@ -86,12 +89,14 @@ class ApplyResult(BaseModel):
     applied: bool
     reason: str
 
+
 class ApplyRecommendationsResponse(BaseModel):
     total: int
     matched: int
     would_apply: int
     applied: int
     results: List[ApplyResult]
+
 
 class DailyHealthSummary(BaseModel):
     generated_at: datetime
@@ -101,6 +106,7 @@ class DailyHealthSummary(BaseModel):
     low_risk: int
     would_apply: int
     top_risky: List[DeviceHealth]
+
 
 def _signal_quality_from_rate(failure_rate: float, is_online: bool) -> str:
     if not is_online:
@@ -172,6 +178,7 @@ def _build_device_health(
         signal_quality=signal_quality,
         storage_status=storage_status,
     )
+
 
 @router.get("/overview")
 async def get_ops_overview(
@@ -405,9 +412,8 @@ async def get_loadtest_spec(
 
 async def _load_all_device_health(db: AsyncSession, tenant_id: Optional[str] = None) -> List[DeviceHealth]:
     from sqlalchemy import func
-    stmt = select(Asset, AssetStreamHealth).outerjoin(
-        AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id
-    )
+
+    stmt = select(Asset, AssetStreamHealth).outerjoin(AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id)
     if tenant_id:
         stmt = stmt.where(Asset.tenant_id == tenant_id)
     result = await db.execute(stmt)
@@ -415,14 +421,10 @@ async def _load_all_device_health(db: AsyncSession, tenant_id: Optional[str] = N
     policy_result = await db.execute(select(AssetStreamPolicy))
     policy_map = {policy.asset_id: policy.stream_mode for policy in policy_result.scalars().all()}
     asset_ids = [asset.id for asset, _ in rows]
-    channel_count_stmt = select(Resource.asset_id, func.count(Resource.id)).where(
-        Resource.asset_id.in_(asset_ids)
-    ).group_by(Resource.asset_id)
+    channel_count_stmt = select(Resource.asset_id, func.count(Resource.id)).where(Resource.asset_id.in_(asset_ids)).group_by(Resource.asset_id)
     channel_rows = (await db.execute(channel_count_stmt)).all()
     channel_map = {row[0]: row[1] for row in channel_rows}
-    record_count_stmt = select(Record.asset_id, func.count(Record.id)).where(
-        Record.asset_id.in_(asset_ids)
-    ).group_by(Record.asset_id)
+    record_count_stmt = select(Record.asset_id, func.count(Record.id)).where(Record.asset_id.in_(asset_ids)).group_by(Record.asset_id)
     record_rows = (await db.execute(record_count_stmt)).all()
     record_map = {row[0]: row[1] for row in record_rows}
     return [
@@ -435,6 +437,7 @@ async def _load_all_device_health(db: AsyncSession, tenant_id: Optional[str] = N
         )
         for asset, health in rows
     ]
+
 
 def _filter_device_health(
     items: List[DeviceHealth],
@@ -457,6 +460,7 @@ def _filter_device_health(
         result.append(item)
     return result
 
+
 @router.get("/devices", response_model=List[DeviceHealth])
 async def get_devices_health(
     db: AsyncSession = Depends(get_db),
@@ -470,6 +474,7 @@ async def get_devices_health(
     health_data = await _load_all_device_health(db, tenant_id=tenant_id)
     return _filter_device_health(health_data, risk_level, min_failure_rate, current_policy_mode, only_diff)
 
+
 @router.get("/report/daily", response_model=DailyHealthSummary)
 async def get_daily_report(
     db: AsyncSession = Depends(get_db),
@@ -478,11 +483,7 @@ async def get_daily_report(
 ):
     tenant_id = None if current_user.is_superuser else (current_user.tenant_id or "default")
     items = await _load_all_device_health(db, tenant_id=tenant_id)
-    sorted_items = sorted(
-        items,
-        key=lambda item: (item.risk_level == "high", item.failure_rate, item.consecutive_failures),
-        reverse=True
-    )
+    sorted_items = sorted(items, key=lambda item: (item.risk_level == "high", item.failure_rate, item.consecutive_failures), reverse=True)
     would_apply_count = sum(1 for item in items if item.current_policy_mode != item.recommended_mode)
     return DailyHealthSummary(
         generated_at=datetime.now(timezone.utc),
@@ -493,6 +494,7 @@ async def get_daily_report(
         would_apply=would_apply_count,
         top_risky=sorted_items[:top_limit],
     )
+
 
 @router.get("/report/daily.csv")
 async def download_daily_report_csv(
@@ -505,21 +507,27 @@ async def download_daily_report_csv(
         "device_id,device_name,risk_level,current_policy_mode,recommended_mode,failure_rate,consecutive_failures,auto_switch_count,recommend_reason,updated_at"
     ]
     for item in items:
+
         def esc(value: str) -> str:
             v = str(value or "")
             return '"' + v.replace('"', '""') + '"'
-        rows.append(",".join([
-            esc(item.device_id),
-            esc(item.device_name),
-            esc(item.risk_level),
-            esc(item.current_policy_mode),
-            esc(item.recommended_mode),
-            esc(str(item.failure_rate)),
-            esc(str(item.consecutive_failures)),
-            esc(str(item.auto_switch_count)),
-            esc(item.recommend_reason),
-            esc(item.updated_at.isoformat() if item.updated_at else ""),
-        ]))
+
+        rows.append(
+            ",".join(
+                [
+                    esc(item.device_id),
+                    esc(item.device_name),
+                    esc(item.risk_level),
+                    esc(item.current_policy_mode),
+                    esc(item.recommended_mode),
+                    esc(str(item.failure_rate)),
+                    esc(str(item.consecutive_failures)),
+                    esc(str(item.auto_switch_count)),
+                    esc(item.recommend_reason),
+                    esc(item.updated_at.isoformat() if item.updated_at else ""),
+                ]
+            )
+        )
     csv_content = "\ufeff" + "\n".join(rows)
     filename = f"health-daily-report-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
     return Response(
@@ -528,15 +536,14 @@ async def download_daily_report_csv(
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
+
 @router.post("/apply-recommendations", response_model=ApplyRecommendationsResponse)
 async def apply_recommendations(
     payload: ApplyRecommendationsRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(deps.get_current_active_superuser),
 ):
-    stmt = select(Asset, AssetStreamHealth).outerjoin(
-        AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id
-    )
+    stmt = select(Asset, AssetStreamHealth).outerjoin(AssetStreamHealth, Asset.id == AssetStreamHealth.asset_id)
     result = await db.execute(stmt)
     rows = result.all()
     policy_result = await db.execute(select(AssetStreamPolicy))

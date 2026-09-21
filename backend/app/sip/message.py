@@ -16,6 +16,7 @@
 
 本模块绝不抛出顶层导入异常 —— 所有依赖均为标准库或已确认存在的项目内模块。
 """
+
 from __future__ import annotations
 
 import re
@@ -196,6 +197,7 @@ _CSEQ_RE = re.compile(r"^\s*(\d+)\s+([A-Za-z]+)\s*$")
 # SipMessage
 # ---------------------------------------------------------------------------
 
+
 class SipMessage:
     """SIP 请求或响应报文。
 
@@ -296,7 +298,7 @@ class SipMessage:
     def cseq_method(self) -> str:
         """Cseq method."""
         m = _CSEQ_RE.match(self.cseq or "")
-        return (m.group(2).upper() if m else "")
+        return m.group(2).upper() if m else ""
 
     @property
     def via_branch(self) -> str:
@@ -436,10 +438,7 @@ class SipMessage:
         if (self.method or "").upper() == "MESSAGE" and not self.status_code:
             _ct_items = [kv for kv in _raw_items if _norm_name(kv[0]) == "content-type"]
             _cl_items = [kv for kv in _raw_items if _norm_name(kv[0]) == "content-length"]
-            _other_items = [
-                kv for kv in _raw_items
-                if _norm_name(kv[0]) not in ("content-type", "content-length")
-            ]
+            _other_items = [kv for kv in _raw_items if _norm_name(kv[0]) not in ("content-type", "content-length")]
             _raw_items = _other_items + _ct_items + _cl_items
         for k, v in _raw_items:
             parts.append(f"{k}: {v}".encode("utf-8", errors="replace"))
@@ -484,7 +483,7 @@ class SipMessage:
             body_text = ""
         else:
             header_block = text[:idx]
-            body_text = text[idx + len(sep):]
+            body_text = text[idx + len(sep) :]
 
         lines = header_block.split("\r\n")
         # 兼容 \n
@@ -506,7 +505,7 @@ class SipMessage:
             if not line:
                 continue
             # 折叠行（RFC 3261: 以空白开头的行是上一行的续行）
-            if line[:1] in (" ", "\t") :
+            if line[:1] in (" ", "\t"):
                 # 续行：附加到上一个头（简单实现：追加空格）
                 # 找到上一个写入的键
                 last_key = None
@@ -514,13 +513,13 @@ class SipMessage:
                     last_key = k
                 if last_key is not None:
                     cur = msg.headers.get(last_key, "")
-                    msg.headers[last_key] = (cur + " " + line.strip())
+                    msg.headers[last_key] = cur + " " + line.strip()
                 continue
             ci = line.find(":")
             if ci <= 0:
                 continue
             hname = line[:ci].strip()
-            hval = line[ci + 1:].strip()
+            hval = line[ci + 1 :].strip()
             # 多值头部使用 add，避免覆盖（如 Via）
             if _norm_name(hname) in ("via", "record-route", "route"):
                 msg.headers.add(hname, hval)
@@ -551,7 +550,7 @@ class SipMessage:
                     try:
                         cl_val = int(cl_str.strip())
                         if 0 <= cl_val <= len(data) - body_start:
-                            body_bytes = data[body_start:body_start + cl_val]
+                            body_bytes = data[body_start : body_start + cl_val]
                         else:
                             body_bytes = data[body_start:]
                     except ValueError:

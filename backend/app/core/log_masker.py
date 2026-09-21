@@ -5,6 +5,7 @@ tokens, phone numbers) in log lines. Rules can be loaded from Redis at
 runtime so operators can add masks without redeploying. The OSS edition
 ships built-in defaults and a best-effort Redis loader.
 """
+
 from __future__ import annotations
 
 import re
@@ -72,6 +73,7 @@ def mask_log_filter(record: "Any") -> bool:
         _exc = record.get("exception")
         if _exc is not None:
             import traceback as _tb
+
             try:
                 _exc_str = "".join(_tb.format_exception(_exc.type, _exc.value, _exc.traceback))
                 _masked_exc = mask_text(_exc_str)
@@ -87,6 +89,7 @@ def mask_log_filter(record: "Any") -> bool:
         # 敏感信息（密码/Token/手机号）未脱敏直接写入日志文件，违反等保 2.0。
         # 改为 error 级别日志（不使用 mask_text 避免递归）。
         import sys
+
         sys.stderr.write(f"[log_masker] CRITICAL: mask_log_filter failed, sensitive data may be leaked: {_mask_err}\n")
     return True
 
@@ -99,6 +102,7 @@ async def load_custom_rules_from_redis() -> int:
     global _custom_rules
     try:
         from app.core.redis import get_redis
+
         redis = await get_redis()
         if redis is None:
             return 0
@@ -106,6 +110,7 @@ async def load_custom_rules_from_redis() -> int:
         if not raw:
             return 0
         import json
+
         rules_data = json.loads(raw)
         loaded: list[tuple[re.Pattern, str]] = []
         for item in rules_data if isinstance(rules_data, list) else []:

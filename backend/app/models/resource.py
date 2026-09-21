@@ -9,6 +9,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -80,6 +81,7 @@ class Resource(Base):
             self.password = None
             return
         self.password = encrypt_field(plaintext, purpose="sip_password")
+
     ptz_type = Column(Integer, default=0)
     position_type = Column(Integer, default=0)
     room_type = Column(Integer, default=0)

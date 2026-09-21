@@ -12,6 +12,7 @@ The ``role_code`` argument is used to expand a small set of legacy role names
 (owner / admin / operator) into their canonical permission codes for backward
 compatibility with deployments that predate fine-grained RBAC.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,9 +29,16 @@ _LEGACY_ROLE_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "owner": (WILDCARD,),
     "admin": (WILDCARD,),
     "operator": (
-        "device.view", "device.control", "channel.view",
-        "record.view", "record.download", "alarm.view", "alarm.ack",
-        "ptz.control", "stream.play", "stream.playback",
+        "device.view",
+        "device.control",
+        "channel.view",
+        "record.view",
+        "record.download",
+        "alarm.view",
+        "alarm.ack",
+        "ptz.control",
+        "stream.play",
+        "stream.playback",
     ),
     "viewer": ("device.view", "channel.view", "record.view", "alarm.view", "stream.play", "stream.playback"),
 }

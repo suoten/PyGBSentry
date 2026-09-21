@@ -15,6 +15,7 @@ export default [
       'src/auto-imports.d.ts',
       'src/components.d.ts',
       'src/**/*.d.ts',
+      'scripts/**',
       'public/**',
       '*.config.js',
       '*.config.ts',

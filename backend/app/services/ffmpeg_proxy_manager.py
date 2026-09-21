@@ -37,6 +37,7 @@ class FfmpegProxyManager:
             # W-11 校验可执行文件路径，防止命令注入
             if cmd_args:
                 import shutil
+
                 ffmpeg_path = shutil.which(cmd_args[0])
                 if not ffmpeg_path or "ffmpeg" not in os.path.basename(ffmpeg_path).lower():
                     raise ValueError(f"Executable must be ffmpeg, got: {cmd_args[0]}")

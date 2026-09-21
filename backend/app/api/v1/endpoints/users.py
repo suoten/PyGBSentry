@@ -11,6 +11,7 @@ from app.core import security
 from app.core.config import settings
 from app.core.role_permissions import DEFAULT_ROLE_PERMISSIONS, serialize_permission_codes
 from app.core.totp import generate_base32_secret, verify_totp, encrypt_totp_secret, decrypt_totp_secret
+
 # FIX: [2026-07-16 P1] 添加限流依赖，保护敏感账户操作端点
 from app.core.ratelimit import limiter, get_tenant_remote_address
 from app.services.auth_audit import safe_auth_audit
@@ -32,6 +33,7 @@ def _role_validation_audit_detail(exc: HTTPException) -> str:
             return "role_empty"
     return "invalid_role"
 
+
 class UserCreate(BaseModel):
     username: str
     password: str
@@ -49,6 +51,7 @@ class UserUpdate(BaseModel):
     is_superuser: bool | None = None
     tenant_id: str | None = None
     role: str | None = None
+
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -138,6 +141,7 @@ async def _validate_role(db: AsyncSession, tenant_id: str, role: str) -> None:
     if not row:
         raise HTTPException(status_code=400, detail="Role not found")  # i18n
 
+
 @router.get("", response_model=List[UserOut])
 async def read_users(
     db: AsyncSession = Depends(get_db),
@@ -154,6 +158,7 @@ async def read_users(
     stmt = stmt.offset(skip).limit(limit)
     result = await db.execute(stmt)
     return result.scalars().all()
+
 
 @router.post("", response_model=UserOut)
 async def create_user(
@@ -267,9 +272,9 @@ async def update_user_me(
     current_user: User = Depends(deps.get_current_active_user),
 ) -> Any:
     if payload.email is not None:
-        current_user.email = (str(payload.email).strip() or None)
+        current_user.email = str(payload.email).strip() or None
     if payload.full_name is not None:
-        current_user.full_name = (str(payload.full_name).strip() or None)
+        current_user.full_name = str(payload.full_name).strip() or None
     await db.commit()
     await db.refresh(current_user)
     await safe_auth_audit(
@@ -351,8 +356,10 @@ async def change_user_password(
     current_user.hashed_password = security.get_password_hash(new_pwd)
     await db.commit()
     from app.core.redis import redis_client
+
     if redis_client:
         import time as _time
+
         await redis_client.set(
             f"user_token_revoked:{current_user.id}",
             str(_time.time()),
@@ -430,6 +437,7 @@ async def enable_totp(
         decrypted_secret = decrypt_totp_secret(encrypted_secret)
     except ValueError:
         import logging as _logging
+
         _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during enable", getattr(current_user, "id", "unknown"))
         raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
     if not verify_totp(payload.code, decrypted_secret):
@@ -500,6 +508,7 @@ async def disable_totp(
         decrypted_secret = decrypt_totp_secret(encrypted_secret)
     except ValueError:
         import logging as _logging
+
         _logging.getLogger(__name__).warning("TOTP secret decryption failed for user %s during disable", getattr(current_user, "id", "unknown"))
         raise HTTPException(status_code=500, detail="TOTP secret decryption failed. Please contact administrator to reset 2FA.")
     if not verify_totp(payload.code, decrypted_secret):
@@ -539,6 +548,7 @@ async def disable_totp(
 # 参考 devices/__init__.py 的做法，把单段通配路由（/{user_id}）移到 /me 系列
 # 静态路由之后注册。多段路径 /{user_id}/unlock 不参与单段遮蔽竞争，位置不变。
 # ---------------------------------------------------------------------------
+
 
 @router.put("/{user_id}", response_model=UserOut)
 async def update_user(
@@ -590,10 +600,7 @@ async def update_user(
                 tenant_id=_audit_tid(current_user),
                 status_code=e.status_code,
                 detail=_role_validation_audit_detail(e),
-                extra_summary=(
-                    f"target_user_id={row.id}; role={payload.role!s}; "
-                    f"tenant_id={row.tenant_id or 'default'}"
-                ),
+                extra_summary=(f"target_user_id={row.id}; role={payload.role!s}; tenant_id={row.tenant_id or 'default'}"),
             )
             raise
         row.role = (payload.role or "").strip()

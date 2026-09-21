@@ -2,6 +2,7 @@
 GB28181 录像回放控制模块
 支持：暂停、恢复、拖动、倍速控制、TEARDOWN、NPT查询、回放保活
 """
+
 from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
 from app.core.config import settings, sip_via_host, sip_from_to_host
@@ -22,7 +23,7 @@ def _npt_results_put(call_id: str, value: dict) -> None:
     global _npt_results
     if len(_npt_results) >= _NPT_RESULTS_MAX_SIZE:
         # 清理最旧的一半条目（按插入顺序，dict 在 Python 3.7+ 保持插入顺序）
-        keys_to_remove = list(_npt_results.keys())[:len(_npt_results) // 2]
+        keys_to_remove = list(_npt_results.keys())[: len(_npt_results) // 2]
         for k in keys_to_remove:
             _npt_results.pop(k, None)
     _npt_results[call_id] = value
@@ -33,6 +34,7 @@ async def _persist_cseq(call_id: str, cseq: int) -> None:
         from app.db.session import AsyncSessionLocal
         from app.models.stream_session import StreamSession
         from sqlalchemy import select
+
         async with AsyncSessionLocal() as session:
             ss = (await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))).scalars().first()
             if ss:
@@ -40,8 +42,6 @@ async def _persist_cseq(call_id: str, cseq: int) -> None:
                 await session.commit()
     except Exception as e:
         logger.debug(f"Failed to persist CSeq for {call_id}: {e}")
-
-
 
 
 def _attach_trace_header(req: SipMessage) -> str:
@@ -82,7 +82,7 @@ class PlaybackControl:
             self._playback_states_ts.pop(k, None)
         if len(self._playback_states) > self._PLAYBACK_STATES_MAX_SIZE:
             keys_by_age = sorted(self._playback_states_ts, key=self._playback_states_ts.get)
-            to_remove = keys_by_age[:len(self._playback_states) - self._PLAYBACK_STATES_MAX_SIZE // 2]
+            to_remove = keys_by_age[: len(self._playback_states) - self._PLAYBACK_STATES_MAX_SIZE // 2]
             for k in to_remove:
                 self._playback_states.pop(k, None)
                 self._playback_states_ts.pop(k, None)
@@ -152,6 +152,7 @@ class PlaybackControl:
         if wait_response:
             try:
                 from app.sip.transactions import client_tx_manager
+
                 resp, meta = await client_tx_manager.send_and_wait(
                     request=req,
                     send_once=lambda: send_sip_bytes(proto, transport, addr, req.to_bytes()),
@@ -239,6 +240,7 @@ class PlaybackControl:
         if wait_response:
             try:
                 from app.sip.transactions import client_tx_manager
+
                 resp, meta = await client_tx_manager.send_and_wait(
                     request=req,
                     send_once=lambda: send_sip_bytes(proto, transport, addr, req.to_bytes()),
@@ -330,6 +332,7 @@ class PlaybackControl:
         if wait_response:
             try:
                 from app.sip.transactions import client_tx_manager
+
                 resp, meta = await client_tx_manager.send_and_wait(
                     request=req,
                     send_once=lambda: send_sip_bytes(proto, transport, addr, req.to_bytes()),
@@ -419,6 +422,7 @@ class PlaybackControl:
         if wait_response:
             try:
                 from app.sip.transactions import client_tx_manager
+
                 resp, meta = await client_tx_manager.send_and_wait(
                     request=req,
                     send_once=lambda: send_sip_bytes(proto, transport, addr, req.to_bytes()),
@@ -598,6 +602,7 @@ class PlaybackControl:
         call_id = stream_session.call_id or ""
         if call_id in self._playback_keepalive_tasks:
             return
+
         async def _keepalive_loop():
             try:
                 while True:
@@ -611,10 +616,12 @@ class PlaybackControl:
                             from app.core.database import AsyncSessionLocal
                             from app.models.stream_session import StreamSession
                             from sqlalchemy import select
+
                             async with AsyncSessionLocal() as session:
                                 ss = (await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))).scalars().first()
                                 if ss:
                                     from app.services.stream_session_service import finalize_stream_session
+
                                     await finalize_stream_session(session, ss, reason="playback_keepalive_failed")
                                     await session.commit()
                         except Exception as _fin_err:
@@ -624,6 +631,7 @@ class PlaybackControl:
                 pass
             finally:
                 self._playback_keepalive_tasks.pop(call_id, None)
+
         task = fire_and_forget(
             _keepalive_loop(),
             name=f"playback_keepalive:{call_id}",

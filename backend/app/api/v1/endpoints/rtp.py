@@ -8,7 +8,13 @@ from app.db.session import get_db
 from app.api import deps
 from app.models.user import User
 from app.models.rtp_receive_task import RtpReceiveTask
-from app.core.media_nodes_db import get_active_media_node_id, get_db_media_node_by_id, select_best_db_node, allocate_rtp_port_with_lease, release_lease
+from app.core.media_nodes_db import (
+    get_active_media_node_id,
+    get_db_media_node_by_id,
+    select_best_db_node,
+    allocate_rtp_port_with_lease,
+    release_lease,
+)
 from app.services.zlm_stream_control import close_zlm_stream
 from app.services.auth_audit import safe_auth_audit
 
@@ -119,6 +125,7 @@ async def open_rtp_receive(
 
     try:
         from app.services.zlm_rtp_server_service import open_rtp_server
+
         # FIX [2026-09-19 P1]: open_rtp_server 返回 ZLM 响应 dict（{"code":0,"port":...}），
         # 原代码直接 int(allocated_port) 把 dict 转数字 → 必然 TypeError 500。
         # 从响应中取 port 字段；ZLM 未返回时回退请求端口（单端口模式）。
@@ -174,10 +181,7 @@ async def open_rtp_receive(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"task_id={task.id}; node_id={node.id}; stream_id={stream_id}; "
-            f"app={app}; port={int(port)}; tcp_mode={tcp_mode}"
-        ),
+        extra_summary=(f"task_id={task.id}; node_id={node.id}; stream_id={stream_id}; app={app}; port={int(port)}; tcp_mode={tcp_mode}"),
     )
     return {
         "task_id": task.id,

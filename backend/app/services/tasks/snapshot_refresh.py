@@ -14,7 +14,6 @@ from app.api.v1.endpoints.devices.devices_control import get_channel_snapshot
 from app.services.auth_audit import safe_auth_audit
 
 
-
 _task: asyncio.Task | None = None
 LOG_DIR = "logs/snapshot_refresh"
 
@@ -23,9 +22,7 @@ def _snap_tok(s: str) -> str:
     return str(s or "").strip().replace(" ", "%20").replace("\t", "_")
 
 
-def _append_snapshot_refresh_event(
-    *, asset_gb: str, channel_gb: str, stream_type: str, ok: bool, err: str | None = None
-) -> None:
+def _append_snapshot_refresh_event(*, asset_gb: str, channel_gb: str, stream_type: str, ok: bool, err: str | None = None) -> None:
     try:
         if not os.path.exists(LOG_DIR):
             os.makedirs(LOG_DIR, exist_ok=True)
@@ -44,6 +41,7 @@ def _append_snapshot_refresh_event(
             f.write(line)
     except Exception as e:
         logger.warning(f"Error: {e}")
+
 
 async def _plugin_snapshot_audit(
     db,
@@ -202,10 +200,7 @@ async def _refresh_once():
                         status_code=200,
                         detail="ok",
                         extra_summary=(
-                            f"asset_gb_id={c.get('asset_gb_id')}; "
-                            f"channel_id={channel_gb_id}; "
-                            f"stream_type={st}; "
-                            f"snap_path={c.get('snap_path')}"
+                            f"asset_gb_id={c.get('asset_gb_id')}; channel_id={channel_gb_id}; stream_type={st}; snap_path={c.get('snap_path')}"
                         ),
                     )
             except HTTPException as he:
@@ -224,9 +219,7 @@ async def _refresh_once():
                         status_code=int(getattr(he, "status_code", 500) or 500),
                         detail=str(getattr(he, "detail", "") or "http_error")[:200],
                         extra_summary=(
-                            f"asset_gb_id={c.get('asset_gb_id')}; "
-                            f"channel_id={c.get('channel_gb_id')}; "
-                            f"stream_type={c.get('stream_type')}"
+                            f"asset_gb_id={c.get('asset_gb_id')}; channel_id={c.get('channel_gb_id')}; stream_type={c.get('stream_type')}"
                         ),
                     )
                 continue
@@ -246,9 +239,7 @@ async def _refresh_once():
                         status_code=500,
                         detail="snapshot_refresh_exception",
                         extra_summary=(
-                            f"asset_gb_id={c.get('asset_gb_id')}; "
-                            f"channel_id={c.get('channel_gb_id')}; "
-                            f"stream_type={c.get('stream_type')}"
+                            f"asset_gb_id={c.get('asset_gb_id')}; channel_id={c.get('channel_gb_id')}; stream_type={c.get('stream_type')}"
                         ),
                     )
                 continue
@@ -285,5 +276,3 @@ async def stop():
     except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
         logger.warning("(asyncio.CancelledError, asyncio.TimeoutError, Exception) occurred")
     _task = None
-
-

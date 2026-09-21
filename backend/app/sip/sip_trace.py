@@ -11,6 +11,7 @@
 此前该逻辑在 ``app/sip/ptz.py`` 与 ``app/services/platform_service.py`` 中各有一份
 重复实现，本模块将其抽为共享层，保持行为一致。
 """
+
 from __future__ import annotations
 
 import random

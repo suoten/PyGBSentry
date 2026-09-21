@@ -1,4 +1,5 @@
 """网络管理：流量/带宽/拓扑与流媒体概况。"""
+
 import asyncio
 import time
 from datetime import datetime, timedelta, timezone
@@ -141,12 +142,7 @@ async def network_topology(
 
     # 1. Core Platform Node
     platform_id = "platform"
-    nodes.append({
-        "id": platform_id,
-        "type": "platform",
-        "label": settings.PROJECT_NAME or "PyGBSentry",
-        "status": "online"
-    })
+    nodes.append({"id": platform_id, "type": "platform", "label": settings.PROJECT_NAME or "PyGBSentry", "status": "online"})
 
     # 2. Media Server Nodes
     stmt_media = select(MediaNode)
@@ -156,48 +152,28 @@ async def network_topology(
     if not media_nodes and settings.MEDIA_SERVER_HOST:
         # Default single node from settings
         media_id = "media_default"
-        nodes.append({
-            "id": media_id,
-            "type": "media_server",
-            "label": f"{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}",
-            "status": "online" # Assumed online if not checked
-        })
-        edges.append({
-            "source": platform_id,
-            "target": media_id,
-            "type": "control"
-        })
+        nodes.append(
+            {
+                "id": media_id,
+                "type": "media_server",
+                "label": f"{settings.MEDIA_SERVER_HOST}:{settings.MEDIA_SERVER_HTTP_PORT}",
+                "status": "online",  # Assumed online if not checked
+            }
+        )
+        edges.append({"source": platform_id, "target": media_id, "type": "control"})
     else:
         for mn in media_nodes:
-            nodes.append({
-                "id": mn.id,
-                "type": "media_server",
-                "label": f"{mn.ip}:{mn.http_port}",
-                "status": "online" if mn.is_online else "offline"
-            })
-            edges.append({
-                "source": platform_id,
-                "target": mn.id,
-                "type": "control"
-            })
+            nodes.append({"id": mn.id, "type": "media_server", "label": f"{mn.ip}:{mn.http_port}", "status": "online" if mn.is_online else "offline"})
+            edges.append({"source": platform_id, "target": mn.id, "type": "control"})
 
     # 3. Cascade Parent Platforms (Upstream)
     if current_user.is_superuser:
         stmt_platforms = select(ParentPlatform)
         platforms = (await db.execute(stmt_platforms)).scalars().all()
         for p in platforms:
-            nodes.append({
-                "id": p.id,
-                "type": "cascade_platform",
-                "label": p.name,
-                "status": "online" if p.is_online else "offline"
-            })
+            nodes.append({"id": p.id, "type": "cascade_platform", "label": p.name, "status": "online" if p.is_online else "offline"})
             # Upstream means Platform -> Parent
-            edges.append({
-                "source": platform_id,
-                "target": p.id,
-                "type": "cascade_up"
-            })
+            edges.append({"source": platform_id, "target": p.id, "type": "cascade_up"})
 
     # 4. Tenant Nodes (Downstream Devices)
     stmt = select(
@@ -214,20 +190,18 @@ async def network_topology(
     for tenant_id, total_count, online_sum in tenant_rows:
         tid = tenant_id or "default"
         node_id = f"tenant_{tid}"
-        nodes.append({
-            "id": node_id,
-            "type": "tenant",
-            "label": f"租户 {tid}",
-            "metrics": {
-                "device_total": int(total_count or 0),
-                "device_online": int(online_sum or 0),
-            },
-        })
-        edges.append({
-            "source": platform_id,
-            "target": node_id,
-            "type": "tenant_link"
-        })
+        nodes.append(
+            {
+                "id": node_id,
+                "type": "tenant",
+                "label": f"租户 {tid}",
+                "metrics": {
+                    "device_total": int(total_count or 0),
+                    "device_online": int(online_sum or 0),
+                },
+            }
+        )
+        edges.append({"source": platform_id, "target": node_id, "type": "tenant_link"})
 
     return {
         "nodes": nodes,
@@ -287,11 +261,7 @@ async def network_bandwidth(
     if not current_user.is_superuser:
         conditions.append(NetworkMetric.tenant_id == (current_user.tenant_id or "default"))
 
-    stmt_hist = (
-        select(NetworkMetric)
-        .where(*conditions)
-        .order_by(NetworkMetric.created_at.asc())
-    )
+    stmt_hist = select(NetworkMetric).where(*conditions).order_by(NetworkMetric.created_at.asc())
     result = await db.execute(stmt_hist)
     rows = result.scalars().all()
 
@@ -339,7 +309,7 @@ async def network_bandwidth(
                 "name": "zlm_bandwidth",
                 "unit": "Mbps",
                 "points": points_bandwidth,
-            }
+            },
         ],
         "generated_at": now_iso,
     }

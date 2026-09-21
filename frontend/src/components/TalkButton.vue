@@ -84,7 +84,7 @@ const stopTalk = () => {
   // FIX: [2026-07-03] 清理 WHEP 拉流连接 [全栈工程师]
   if (recvPc) {
     try {
-      recvPc.getReceivers().forEach((r) => { r.track && r.track.stop() })
+      recvPc.getReceivers().forEach((r) => { if (r.track) r.track.stop() })
       recvPc.close()
     } catch { /* ignore */ }
     recvPc = null

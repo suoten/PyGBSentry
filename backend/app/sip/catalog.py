@@ -1,6 +1,7 @@
 """
 GB28181 设备目录查询模块
 """
+
 from app.sip.message import SipMessage
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_via_host, sip_from_to_host
@@ -35,6 +36,7 @@ __all__ = ["Catalog", "catalog", "handle_catalog_response"]
 async def _catalog_agg_prune_loop():
     # periodic cleanup of stale catalog aggregation entries to prevent memory growth
     import time as _time
+
     while True:
         await asyncio.sleep(60)
         try:
@@ -277,7 +279,6 @@ class Catalog:
         return str(sn)
 
 
-
 async def handle_catalog_response(xml_body: str, device_id: str):
     """
     Parse Catalog XML and update Resources
@@ -294,9 +295,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                 _orig_snippet = str(xml_body or "")[:2000]
         except Exception:
             _orig_snippet = "(failed to extract original XML)"
-        logger.error(
-            f"[CATALOG_PARSE_FAIL] device={device_id} original_xml_snippet=[{_orig_snippet}]"
-        )
+        logger.error(f"[CATALOG_PARSE_FAIL] device={device_id} original_xml_snippet=[{_orig_snippet}]")
         await patch_device_catalog_runtime(
             device_id,
             {
@@ -364,29 +363,31 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         elif not has_video:
             channel_type = 3  # 无视频能力，音频
 
-        items_data.append({
-            "channel_id": channel_id,
-            "name": (get_xml_text(item, "Name") or "").strip(),  # None.strip()空指针异常防护
-            "status": (get_xml_text(item, "Status") or "").strip(),
-            "parent_gb_id": (get_xml_text(item, "ParentID") or "").strip(),
-            "civil_code": (get_xml_text(item, "CivilCode") or "").strip(),
-            "parental": parental_str,
-            "ptz_type": ptz_type_str,
-            "channel_type": channel_type,
-            "manufacturer": get_xml_text(item, "Manufacturer"),
-            "model": get_xml_text(item, "Model"),
-            "owner": get_xml_text(item, "Owner"),
-            "address": get_xml_text(item, "Address"),
-            "secrecy": get_xml_text(item, "Secrecy"),
-            "longitude": get_xml_text(item, "Longitude"),
-            "latitude": get_xml_text(item, "Latitude"),
-            "has_video": has_video,
-            "video_opt_mask": video_opt_mask_str,
-            # P1-fix: GB28181 §A.1 要求 Catalog Item 应包含以下字段，原实现遗漏
-            "safety_way": (get_xml_text(item, "SafetyWay") or "").strip(),  # 安全方式 0=不涉及/1=IP/2=证书
-            "register_way": (get_xml_text(item, "RegisterWay") or "").strip(),  # 注册方式 1=主动/2=被动
-            "ip": (get_xml_text(item, "IP") or "").strip(),  # 设备 IP 地址
-        })
+        items_data.append(
+            {
+                "channel_id": channel_id,
+                "name": (get_xml_text(item, "Name") or "").strip(),  # None.strip()空指针异常防护
+                "status": (get_xml_text(item, "Status") or "").strip(),
+                "parent_gb_id": (get_xml_text(item, "ParentID") or "").strip(),
+                "civil_code": (get_xml_text(item, "CivilCode") or "").strip(),
+                "parental": parental_str,
+                "ptz_type": ptz_type_str,
+                "channel_type": channel_type,
+                "manufacturer": get_xml_text(item, "Manufacturer"),
+                "model": get_xml_text(item, "Model"),
+                "owner": get_xml_text(item, "Owner"),
+                "address": get_xml_text(item, "Address"),
+                "secrecy": get_xml_text(item, "Secrecy"),
+                "longitude": get_xml_text(item, "Longitude"),
+                "latitude": get_xml_text(item, "Latitude"),
+                "has_video": has_video,
+                "video_opt_mask": video_opt_mask_str,
+                # P1-fix: GB28181 §A.1 要求 Catalog Item 应包含以下字段，原实现遗漏
+                "safety_way": (get_xml_text(item, "SafetyWay") or "").strip(),  # 安全方式 0=不涉及/1=IP/2=证书
+                "register_way": (get_xml_text(item, "RegisterWay") or "").strip(),  # 注册方式 1=主动/2=被动
+                "ip": (get_xml_text(item, "IP") or "").strip(),  # 设备 IP 地址
+            }
+        )
 
     received_total = item_count
     total_sum = sum_num
@@ -452,9 +453,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         return items
         """
         try:
-            lua_result = await _redis_module.redis_client.eval(
-                _CATALOG_AGG_LUA, 1, redis_key, _total_sum_effective
-            )
+            lua_result = await _redis_module.redis_client.eval(_CATALOG_AGG_LUA, 1, redis_key, _total_sum_effective)
         except Exception as e:
             logger.warning(f"Redis Lua catalog agg failed for {device_id}: {e}")
             # R24-06: Redis 失败时设置为 error 状态，不再静默继续到 "synced"
@@ -507,6 +506,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
     # ?Redis 时的内存备用方案（分片聚合）
     elif sn and _total_sum_effective > 0:
         import time as _time
+
         key = (device_id, str(sn))
         async with _catalog_agg_lock:
             if key not in _catalog_agg:
@@ -552,7 +552,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         all_items = _catalog_agg.pop(key, {}).get("items", items_data)
 
     # ========== 开始入库逻辑 ==========
-    logger.info(f"[CATALOG_DB_DEBUG] device={device_id} entering DB upsert phase, all_items={len(all_items)}, total_sum={_total_sum_effective}, received_total={received_total}, redis_path={_redis_module.redis_client is not None}")
+    logger.info(
+        f"[CATALOG_DB_DEBUG] device={device_id} entering DB upsert phase, all_items={len(all_items)}, total_sum={_total_sum_effective}, received_total={received_total}, redis_path={_redis_module.redis_client is not None}"
+    )
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(Asset).where(Asset.gb_id == device_id)
@@ -560,9 +562,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             asset = result.scalars().first()
 
             if not asset:
-                platform_stmt = select(ParentPlatform).where(
-                    (ParentPlatform.server_gb_id == device_id) | (ParentPlatform.client_gb_id == device_id)
-                )
+                platform_stmt = select(ParentPlatform).where((ParentPlatform.server_gb_id == device_id) | (ParentPlatform.client_gb_id == device_id))
                 platform_result = await session.execute(platform_stmt)
                 platform = platform_result.scalars().first()
                 if not platform:
@@ -585,7 +585,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
 
             allowed, limit, current = await check_channel_quota(session, asset.tenant_id or "default")
             remaining = None if limit <= 0 else max(limit - current, 0)
-            logger.info(f"[CATALOG_DB_DEBUG] device={device_id} asset_id={asset.id} quota: allowed={allowed} limit={limit} current={current} remaining={remaining}")
+            logger.info(
+                f"[CATALOG_DB_DEBUG] device={device_id} asset_id={asset.id} quota: allowed={allowed} limit={limit} current={current} remaining={remaining}"
+            )
 
             seen_ids = set()
 
@@ -593,10 +595,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             channel_ids = [it.get("channel_id") for it in all_items if it.get("channel_id")]
             existing_resources = {}
             if channel_ids:
-                stmt = select(Resource).where(
-                    Resource.gb_id.in_(channel_ids),
-                    Resource.tenant_id == (asset.tenant_id or "default")
-                )
+                stmt = select(Resource).where(Resource.gb_id.in_(channel_ids), Resource.tenant_id == (asset.tenant_id or "default"))
                 res = await session.execute(stmt)
                 for r in res.scalars().all():
                     existing_resources[r.gb_id] = r
@@ -661,6 +660,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                         elif not isinstance(existing_caps, dict):
                             try:
                                 import json as _json
+
                                 parsed = _json.loads(existing_caps)
                                 existing_caps = parsed if isinstance(parsed, dict) else {}
                             except Exception:
@@ -703,7 +703,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                             capabilities=caps,
                             address=address,
                             longitude=lon_f,
-                            latitude=lat_f
+                            latitude=lat_f,
                         )
                         session.add(resource)
                         if remaining is not None:
@@ -744,7 +744,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                     logger.info(f"[CATALOG_DB_DEBUG] device={device_id} cleanup: ids_to_delete={len(ids_to_delete)}")
                     _BATCH_SIZE = 500
                     for batch_start in range(0, len(ids_to_delete), _BATCH_SIZE):
-                        batch = ids_to_delete[batch_start:batch_start + _BATCH_SIZE]
+                        batch = ids_to_delete[batch_start : batch_start + _BATCH_SIZE]
                         # FIX [2026-09-03 P1]: 先删录像记录再删通道，避免 records_resource_id_fkey
                         # 外键违反（PostgreSQL/MySQL；SQLite 默认不启用外键故不报）。
                         await session.execute(delete(Record).where(Record.resource_id.in_(batch)))
@@ -785,5 +785,7 @@ async def handle_catalog_response(xml_body: str, device_id: str):
         except Exception as _rt_err:
             logger.warning(f"[CATALOG_DB_ERROR] device={device_id} failed to update catalog runtime state: {_rt_err}")
         raise
+
+
 # Singleton instance
 catalog = None

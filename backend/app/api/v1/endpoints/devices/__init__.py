@@ -11,8 +11,10 @@ channels 后注册的单段静态路径 PUT/DELETE /directories 被通配路由�
 （不能新建独立 router 重挂 crud：其 GET "" 空路径路由在无前缀 include 时
 会触发 FastAPI "Prefix and path cannot be both empty" 导入失败。）
 """
+
 from .devices_crud import router as router
 from .devices_channels import router as channels_router
+
 router.include_router(channels_router)
 
 # FIX: [2026-07-13] 从 2ad636a 恢复 devices_control 路由 — 包含快照、同步、
@@ -20,9 +22,11 @@ router.include_router(channels_router)
 # 导致 /api/v1/devices/channels/{id}/snap 等端点全部 404。 [全栈工程师]
 try:
     from .devices_control import router as control_router
+
     router.include_router(control_router)
 except Exception as _e:
     import loguru
+
     loguru.logger.warning(f"devices_control router import failed, skipping: {_e}")
 
 
@@ -32,11 +36,7 @@ def _is_single_segment_wildcard(route) -> bool:
     多段路径（如 ``/{device_id}/sync``）不参与单段遮蔽竞争，无需移动。
     """
     path = getattr(route, "path", "") or ""
-    return (
-        path.startswith("/{")
-        and path.endswith("}")
-        and "/" not in path[2:-1]
-    )
+    return path.startswith("/{") and path.endswith("}") and "/" not in path[2:-1]
 
 
 # 单段通配路由（PUT/DELETE /{device_id}）移到路由表末尾，

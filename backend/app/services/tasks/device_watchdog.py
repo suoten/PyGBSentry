@@ -12,9 +12,10 @@ from sqlalchemy import select, update
 # FIX: [2026-07-03] _ensure_aware_utc 仅在 server.py 的局部作用域中定义，device_watchdog.py 引用未定义的名称导致 NameError [全栈工程师]
 def _ensure_aware_utc(dt_val):
     """将 offset-naive datetime 视为 UTC 并添加 tzinfo。"""
-    if dt_val is not None and hasattr(dt_val, 'tzinfo') and dt_val.tzinfo is None:
+    if dt_val is not None and hasattr(dt_val, "tzinfo") and dt_val.tzinfo is None:
         return dt_val.replace(tzinfo=datetime.timezone.utc)
     return dt_val
+
 
 _task: asyncio.Task | None = None
 
@@ -42,7 +43,7 @@ async def _check_device_offline():
         return
     _last_offline_check_ts = _now_ts
 
-    now = datetime.datetime.now(datetime.timezone.utc) # utcnow() deprecated in Python 3.12+
+    now = datetime.datetime.now(datetime.timezone.utc)  # utcnow() deprecated in Python 3.12+
     offline_count = 0
     try:
         async with AsyncSessionLocal() as session:
@@ -83,9 +84,7 @@ async def _check_device_offline():
 
             # P0-N+1: 批量更新所有离线设备的通道状态，避免循环内逐条 UPDATE
             if _offline_asset_ids:
-                await session.execute(
-                    update(Resource).where(Resource.asset_id.in_(_offline_asset_ids)).values(status=0)
-                )
+                await session.execute(update(Resource).where(Resource.asset_id.in_(_offline_asset_ids)).values(status=0))
 
             if offline_count > 0:
                 await session.commit()
@@ -94,6 +93,7 @@ async def _check_device_offline():
                 for device in offline_devices:
                     try:
                         from app.sip.handlers import _cleanup_device_resources
+
                         await _cleanup_device_resources(device.gb_id)
                     except Exception as cleanup_err:
                         logger.warning("Device watchdog cleanup failed for {}: {}", device.gb_id, cleanup_err)

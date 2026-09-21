@@ -11,18 +11,18 @@ from app.core.config import settings
 
 def _get_totp_cipher():
     from cryptography.fernet import Fernet
+
     key_source = settings.TOTP_ENCRYPTION_KEY or settings.SECRET_KEY
     if not key_source:
         raise RuntimeError("SECRET_KEY is not configured - TOTP encryption requires a valid SECRET_KEY")
     key_material = key_source.encode("utf-8")
-    fernet_key = base64.urlsafe_b64encode(
-        hashlib.pbkdf2_hmac("sha256", key_material, b"pygbsentry:totp_encryption", 100_000)
-    )
+    fernet_key = base64.urlsafe_b64encode(hashlib.pbkdf2_hmac("sha256", key_material, b"pygbsentry:totp_encryption", 100_000))
     return Fernet(fernet_key)
 
 
 def _get_legacy_totp_cipher():
     from cryptography.fernet import Fernet
+
     key_source = settings.TOTP_ENCRYPTION_KEY or settings.SECRET_KEY
     if not key_source:
         raise RuntimeError("SECRET_KEY is not configured")
@@ -63,7 +63,7 @@ def _hotp(secret_b32: str, counter: int, digits: int = 6) -> str:
     msg = struct.pack(">Q", int(counter))
     digest = hmac.new(key, msg, hashlib.sha1).digest()
     offset = digest[-1] & 0x0F
-    code_int = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
+    code_int = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
     return str(code_int % (10 ** int(digits))).zfill(int(digits))
 
 
@@ -85,4 +85,3 @@ def verify_totp(code: str, secret_b32: str, window: int = 1, step: int = 30, dig
         if _hotp(secret_b32, base_counter + i, digits=digits) == c:
             return True
     return False
-

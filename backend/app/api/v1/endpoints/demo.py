@@ -6,6 +6,7 @@ and all demo data is clearly marked with is_demo=true.
 Demo data is loaded from an external JSON file (data/demo_data.json) if available,
 otherwise falls back to built-in defaults.
 """
+
 import json
 from pathlib import Path
 from fastapi import APIRouter, Depends
@@ -49,8 +50,22 @@ _FALLBACK_DEVICES = [
 
 _FALLBACK_CHANNELS = [
     {"id": "demo-ch-1", "device_id": "demo-device-1", "channel_id": "34020000001320000001", "name": "Gate-1", "status": "Online", "is_demo": True},
-    {"id": "demo-ch-2", "device_id": "demo-device-2", "channel_id": "34020000001320000002", "name": "Workshop A-1", "status": "Online", "is_demo": True},
-    {"id": "demo-ch-3", "device_id": "demo-device-3", "channel_id": "34020000001320000003", "name": "Warehouse-1", "status": "Online", "is_demo": True},
+    {
+        "id": "demo-ch-2",
+        "device_id": "demo-device-2",
+        "channel_id": "34020000001320000002",
+        "name": "Workshop A-1",
+        "status": "Online",
+        "is_demo": True,
+    },
+    {
+        "id": "demo-ch-3",
+        "device_id": "demo-device-3",
+        "channel_id": "34020000001320000003",
+        "name": "Warehouse-1",
+        "status": "Online",
+        "is_demo": True,
+    },
 ]
 
 
@@ -80,10 +95,7 @@ DEMO_DEVICES, DEMO_CHANNELS = _load_demo_data()
 def _demo_enabled() -> bool:
     enabled = settings.DEMO_MODE is True
     if enabled:
-        logger.warning(
-            "DEMO_MODE is enabled. Demo device data is being served. "
-            "Disable DEMO_MODE in production by setting DEMO_MODE=false in .env."
-        )
+        logger.warning("DEMO_MODE is enabled. Demo device data is being served. Disable DEMO_MODE in production by setting DEMO_MODE=false in .env.")
     return enabled
 
 

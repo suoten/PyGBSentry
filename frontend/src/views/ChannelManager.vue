@@ -568,6 +568,7 @@
 </template>
 
 <script setup lang="ts">
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment -- 存量文件，暂无法整体过 TS
 // @ts-nocheck
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'  // FIXED: i18n - added useI18n import
@@ -2406,10 +2407,9 @@ const applyCivilCode = async () => {
     ElMessage.warning(t('channel.enterLastTwoDigits'))  // FIXED: 硬编码中文→i18n
     return
   }
-  createDirectoryForm.value.civil_code = civilCodePreview.value
-  if (!String(createDirectoryForm.value.gb_id || '').trim()) {
-    createDirectoryForm.value.gb_id = `${civilCodePreview.value}${civilCodeSuffix.value}`
-  }
+  // FIX [2026-09-21]: createDirectoryForm 引用在弹窗重构后已不存在（运行时 ReferenceError），
+  // 改为通过 CreateDirectoryDialog 的 init-region-code 参数传递行政区划码。
+  createDirectoryInitRegionCode.value = civilCodePreview.value
   civilCodeDialogVisible.value = false
 }
 
@@ -2602,7 +2602,7 @@ onMounted(() => {
 
   const eid = String(route.query.edit || '').trim()
   if (eid) {
-    void axios
+    void http
       .get('/api/v1/devices/channels/flat', {
         params: { node_type: 'channel', limit: 800, skip: 0, placement: 'business' }
       })

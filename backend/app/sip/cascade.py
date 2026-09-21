@@ -5,6 +5,7 @@ All cascade functionality (registration, keepalive, catalog push, INVITE respons
 alarm notify) has been consolidated into PlatformService. This module provides
 backward-compatible aliases so that existing import paths continue to work.
 """
+
 from __future__ import annotations
 
 import time  # N-01 _cleanup_stale_call_ids使用time.time()但未导入
@@ -18,6 +19,7 @@ from app.models.platform import ParentPlatform
 def _get_svc():
     """Get the PlatformService singleton."""
     import app.services.platform_service as _mod
+
     return getattr(_mod, "platform_service", None)
 
 
@@ -125,6 +127,7 @@ class SipCascadeCommander:
         # FIX [2026-07-17 P1]: CSeq 必须单调递增（RFC 3261 §22.2），原硬编码 "1 REGISTER"
         # 会导致级联重注册时 CSeq 冲突，上级平台可能拒绝后续 REGISTER。
         from app.sip.commander import _next_cseq as _cascade_next_cseq
+
         req.headers["CSeq"] = f"{_cascade_next_cseq()} REGISTER"
         req.headers["Contact"] = f"<sip:{username}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Expires"] = str(expires_val)
@@ -173,11 +176,11 @@ class SipCascadeCommander:
         sn = secrets.randbelow(65535) + 1  # C-26 random.randint→secrets，与项目安全规范一致
         xml_body = (
             '<?xml version="1.0" encoding="GB2312"?>\n'
-            '<Query>\n'
-            '<CmdType>Catalog</CmdType>\n'
-            f'<SN>{sn}</SN>\n'
-            f'<DeviceID>{target_device}</DeviceID>\n'
-            '</Query>'
+            "<Query>\n"
+            "<CmdType>Catalog</CmdType>\n"
+            f"<SN>{sn}</SN>\n"
+            f"<DeviceID>{target_device}</DeviceID>\n"
+            "</Query>"
         )
 
         req = SipMessage()
@@ -194,6 +197,7 @@ class SipCascadeCommander:
         req.headers["Call-ID"] = call_id
         # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
         from app.sip.commander import _next_cseq as _cascade_next_cseq
+
         req.headers["CSeq"] = f"{_cascade_next_cseq()} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
         req.headers["Max-Forwards"] = "70"
@@ -276,6 +280,7 @@ class SipCascadeCommander:
         if not ssrc:
             try:
                 from app.sip.ssrc_manager import ssrc_manager as _ssrc_mgr
+
                 ssrc = await _ssrc_mgr.allocate(is_playback=True)
                 _allocated_ssrc = True
                 if not ssrc:
@@ -294,6 +299,7 @@ class SipCascadeCommander:
         actual_transport = None
         try:
             from app.sip.server import sip_server as _sip_server_ref
+
             if _sip_server_ref:
                 actual_transport = _sip_server_ref.get_transport(server_ip, server_port, str(transport_proto).upper())
         except Exception as _transport_err:
@@ -304,6 +310,7 @@ class SipCascadeCommander:
 
         # Build SDP for playback
         from app.sip.sdp import build_sdp
+
         media_profile = "TCP/RTP/AVP" if is_tcp else "RTP/AVP"
         setup_val = "passive" if is_tcp else None
         time_range = f"{start_time} {end_time}"
@@ -334,6 +341,7 @@ class SipCascadeCommander:
         req.headers["Call-ID"] = call_id
         # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
         from app.sip.commander import _next_cseq as _cascade_next_cseq
+
         req.headers["CSeq"] = f"{_cascade_next_cseq()} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
@@ -351,6 +359,7 @@ class SipCascadeCommander:
             if _allocated_ssrc and ssrc:
                 try:
                     from app.sip.ssrc_manager import ssrc_manager as _ssrc_mgr
+
                     await _ssrc_mgr.release(ssrc)
                 except Exception as _ssrc_err:
                     logger.warning(f"Cascade playback: failed to release SSRC {ssrc}: {_ssrc_err}")

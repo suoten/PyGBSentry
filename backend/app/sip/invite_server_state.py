@@ -21,6 +21,7 @@
     * :func:`apply_session_expires_to_response` — UAS 在 200 OK 中回带头域
     * :func:`build_422_response` — Session-Expires < Min-SE 时构造 422 响应
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -111,9 +112,7 @@ def apply_session_expires_to_request(req: Any, expires: int, min_se: int) -> Non
         req.headers["Min-SE"] = str(int(min_se))
 
 
-def validate_session_expires_for_uas(
-    message: Any, min_se: int
-) -> Tuple[bool, int, str]:
+def validate_session_expires_for_uas(message: Any, min_se: int) -> Tuple[bool, int, str]:
     """UAS 校验入站 INVITE 的 ``Session-Expires`` 头域并协商。
 
     RFC 4028 §6：若 ``Session-Expires`` 小于 ``Min-SE``，UAS 必须回 422
@@ -155,9 +154,7 @@ def validate_session_expires_for_uas(
     return True, seconds, refresher
 
 
-def apply_session_expires_to_response(
-    resp: Any, expires: int, refresher: str
-) -> None:
+def apply_session_expires_to_response(resp: Any, expires: int, refresher: str) -> None:
     """UAS 在 200 OK 中回带协商后的 ``Session-Expires`` 头域。
 
     Args:
@@ -184,6 +181,7 @@ def build_422_response(request: Any, min_se: int) -> Any:
     """
     # 延迟导入避免循环依赖（handlers.py 在模块顶部导入本模块）
     from app.sip.message import SipMessage
+
     resp = SipMessage()
     resp.version = "SIP/2.0"
     resp.status_code = 422
@@ -213,8 +211,8 @@ def build_422_response(request: Any, min_se: int) -> Any:
 # ---------------------------------------------------------------------------
 
 # RFC 3261 定时器常量（秒）
-_T1 = 0.5       # 初始重传间隔
-_T2 = 4.0       # 最大重传间隔
+_T1 = 0.5  # 初始重传间隔
+_T2 = 4.0  # 最大重传间隔
 _T1X64 = 64 * _T1  # Timer H 超时 = 32s
 
 
@@ -222,9 +220,16 @@ class _InviteContext:
     """单条 INVITE 服务端事务上下文。"""
 
     __slots__ = (
-        "message", "addr", "proto", "transport",
-        "cancelled", "acked", "final_response",
-        "retransmit_task", "retransmit_count", "first_response_at",
+        "message",
+        "addr",
+        "proto",
+        "transport",
+        "cancelled",
+        "acked",
+        "final_response",
+        "retransmit_task",
+        "retransmit_count",
+        "first_response_at",
         "created_at",
     )
 
@@ -441,10 +446,7 @@ class InviteServerState:
                 ctx = self._items.get(call_id)
                 if ctx is None or ctx.acked:
                     return  # 已 ACK 或已移除
-            logger.warning(
-                f"invite_server_state Timer H expired (TCP/TLS): no ACK for call_id={call_id} "
-                f"after {deadline:.0f}s, sending BYE"
-            )
+            logger.warning(f"invite_server_state Timer H expired (TCP/TLS): no ACK for call_id={call_id} after {deadline:.0f}s, sending BYE")
             await self._send_bye_on_timeout(call_id)
             await self.pop(call_id)
         except asyncio.CancelledError:
@@ -463,10 +465,7 @@ class InviteServerState:
 
                 # Timer H 超时：未收到 ACK，发送 BYE 拆除对话
                 if elapsed >= deadline:
-                    logger.warning(
-                        f"invite_server_state Timer H expired: no ACK for call_id={call_id} "
-                        f"after {deadline:.0f}s, sending BYE"
-                    )
+                    logger.warning(f"invite_server_state Timer H expired: no ACK for call_id={call_id} after {deadline:.0f}s, sending BYE")
                     await self._send_bye_on_timeout(call_id)
                     await self.pop(call_id)
                     return
@@ -480,12 +479,9 @@ class InviteServerState:
                     if ctx.final_response is not None and self._sender:
                         ctx.retransmit_count += 1
                         try:
-                            await self._do_send(
-                                ctx.transport, ctx.proto, ctx.addr, ctx.final_response
-                            )
+                            await self._do_send(ctx.transport, ctx.proto, ctx.addr, ctx.final_response)
                             logger.debug(
-                                f"invite_server_state retransmit 2xx: call_id={call_id} "
-                                f"count={ctx.retransmit_count} interval={interval:.1f}s"
+                                f"invite_server_state retransmit 2xx: call_id={call_id} count={ctx.retransmit_count} interval={interval:.1f}s"
                             )
                         except Exception as e:
                             logger.warning(f"invite_server_state retransmit send failed: {e}")
@@ -513,6 +509,7 @@ class InviteServerState:
             # 构造 BYE 消息
             try:
                 from app.sip.message import SipMessage
+
                 bye = SipMessage()
                 bye.method = "BYE"
                 # 使用原始 INVITE 的 Request-URI
@@ -585,10 +582,7 @@ class InviteServerState:
         now = time.monotonic()
         removed = 0
         async with self._lock:
-            stale = [
-                cid for cid, ctx in self._items.items()
-                if now - ctx.created_at > max_age
-            ]
+            stale = [cid for cid, ctx in self._items.items() if now - ctx.created_at > max_age]
             for cid in stale:
                 ctx = self._items.pop(cid, None)
                 if ctx and ctx.retransmit_task:

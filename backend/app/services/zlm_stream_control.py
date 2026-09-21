@@ -19,18 +19,33 @@ def _is_zlm_node_unreachable(error: BaseException) -> bool:
     # httpx.ConnectError / httpx.ConnectTimeout / aiohttp.ClientConnectorError 等
     name = type(error).__name__
     if name in {
-        "ConnectError", "ConnectTimeout", "ConnectionError",
-        "ClientConnectorError", "ClientConnectError", "OSError",
-        "ServerDisconnectedError", "ReadTimeout", "RemoteProtocolError",
+        "ConnectError",
+        "ConnectTimeout",
+        "ConnectionError",
+        "ClientConnectorError",
+        "ClientConnectError",
+        "OSError",
+        "ServerDisconnectedError",
+        "ReadTimeout",
+        "RemoteProtocolError",
     }:
         return True
     msg = str(error).lower()
     network_hints = (
-        "connection refused", "network is unreachable", "network down",
-        "connection reset", "timed out", "timeout",
-        "no route to host", "connectex:", "wsastartup",
-        "[errno 111]", "[errno 113]", "[errno 110]",
-        "connectionabortederror", "connectionrefusederror",
+        "connection refused",
+        "network is unreachable",
+        "network down",
+        "connection reset",
+        "timed out",
+        "timeout",
+        "no route to host",
+        "connectex:",
+        "wsastartup",
+        "[errno 111]",
+        "[errno 113]",
+        "[errno 110]",
+        "connectionabortederror",
+        "connectionrefusederror",
     )
     return any(h in msg for h in network_hints)
 
@@ -59,11 +74,13 @@ def _log_zlm_node_error(host: str, port: int, operation: str, error: BaseExcepti
 
 async def _get_zlm_client():
     from app.services.zlm_rtp_server_service import get_shared_zlm_client
+
     return await get_shared_zlm_client()
 
 
 async def close_zlm_client() -> None:
     from app.services.zlm_rtp_server_service import close_shared_zlm_client
+
     await close_shared_zlm_client()
 
 
@@ -83,6 +100,7 @@ async def _close_on_node_client(client, host: str, http_port: int, secret: str, 
     # closeRtpServer 改用统一封装（含重试、断路器、错误分类、幂等）
     try:
         from app.services.zlm_rtp_server_service import close_rtp_server, ZlmApiError
+
         await close_rtp_server(
             host=host,
             http_port=http_port,
@@ -109,11 +127,12 @@ async def close_zlm_stream(app: str, stream: str, node_id: Optional[str] = None)
     if node_id:
         node = get_node_by_id(node_id)
         if node:
-            await _close_on_node_client(client, node['host'], node['http_port'], node["secret"], app, stream)
+            await _close_on_node_client(client, node["host"], node["http_port"], node["secret"], app, stream)
             return
         try:
             from app.core.media_nodes_db import get_db_node_by_id
             from app.db.session import AsyncSessionLocal
+
             async with AsyncSessionLocal() as session:
                 db_node = await get_db_node_by_id(session, node_id)
                 if db_node:
@@ -135,27 +154,21 @@ async def close_zlm_stream(app: str, stream: str, node_id: Optional[str] = None)
     nodes = get_media_nodes()
     env_node_ids = set()
     # P1-fix [2026-07-17]: gather 添加 return_exceptions=True，单节点失败不影响其他节点
-    await asyncio.gather(*[
-        _close_on_node_client(client, n['host'], n['http_port'], n['secret'], app, stream)
-        for n in nodes
-    ], return_exceptions=True)
+    await asyncio.gather(*[_close_on_node_client(client, n["host"], n["http_port"], n["secret"], app, stream) for n in nodes], return_exceptions=True)
     # dedup by host:http_port instead of id, since ENV nodes have id="default" but DB nodes have UUID
     env_node_ids = {f"{n['host']}:{n['http_port']}" for n in nodes}
 
     try:
         from app.core.media_nodes_db import list_db_media_nodes
         from app.db.session import AsyncSessionLocal
+
         async with AsyncSessionLocal() as session:
             db_nodes = await list_db_media_nodes(session)
-        deduped_db_nodes = [
-            n for n in db_nodes
-            if f"{n.host}:{n.http_port}" not in env_node_ids
-        ]
+        deduped_db_nodes = [n for n in db_nodes if f"{n.host}:{n.http_port}" not in env_node_ids]
         # P1-fix [2026-07-17]: gather 添加 return_exceptions=True
-        await asyncio.gather(*[
-            _close_on_node_client(client, n.host, n.http_port, n.secret, app, stream)
-            for n in deduped_db_nodes
-        ], return_exceptions=True)
+        await asyncio.gather(
+            *[_close_on_node_client(client, n.host, n.http_port, n.secret, app, stream) for n in deduped_db_nodes], return_exceptions=True
+        )
     except Exception as e:
         # FIX [2026-07-19 P1-2]: 区分 sqlite "no such table" 与真实数据库异常。
         # 测试/开发环境未创建 media_nodes 表时，每次 close 都会触发 OperationalError，
@@ -171,11 +184,13 @@ def close_zlm_stream_sync(app: str, stream: str, node_id: Optional[str] = None) 
     try:
         loop = asyncio.get_running_loop()
         task = loop.create_task(close_zlm_stream(app, stream, node_id))
+
         def _on_done(t):
             if not t.cancelled():
                 exc = t.exception()
                 if exc:
                     logger.warning(f"[ZLM Control] close_zlm_stream async error: {exc}")
+
         task.add_done_callback(_on_done)
     except RuntimeError:
         try:
@@ -184,7 +199,9 @@ def close_zlm_stream_sync(app: str, stream: str, node_id: Optional[str] = None) 
             logger.warning(f"[ZLM Control] close_zlm_stream fallback failed: {e}")
 
 
-async def start_rtp_pusher(host: str, http_port: int, secret: str, app: str, stream: str, dst_ip: str, dst_port: int, ssrc: str, is_tcp: bool = False):
+async def start_rtp_pusher(
+    host: str, http_port: int, secret: str, app: str, stream: str, dst_ip: str, dst_port: int, ssrc: str, is_tcp: bool = False
+):
     url = f"http://{host}:{http_port}/index/api/startSendRtp"
     params = {
         "secret": secret,
@@ -194,7 +211,7 @@ async def start_rtp_pusher(host: str, http_port: int, secret: str, app: str, str
         "ssrc": ssrc,
         "dst_url": dst_ip,
         "dst_port": dst_port,
-        "is_udp": 0 if is_tcp else 1
+        "is_udp": 0 if is_tcp else 1,
     }
     try:
         client = await _get_zlm_client()
@@ -215,12 +232,7 @@ async def start_rtp_pusher(host: str, http_port: int, secret: str, app: str, str
 
 async def stop_rtp_pusher(host: str, http_port: int, secret: str, app: str, stream: str) -> bool:
     url = f"http://{host}:{http_port}/index/api/stopSendRtp"
-    params = {
-        "secret": secret,
-        "vhost": "__defaultVhost__",
-        "app": app,
-        "stream": stream
-    }
+    params = {"secret": secret, "vhost": "__defaultVhost__", "app": app, "stream": stream}
     try:
         client = await _get_zlm_client()
         r = await client.post(url, data=params, timeout=2.0)
@@ -239,16 +251,11 @@ async def stop_rtp_pusher(host: str, http_port: int, secret: str, app: str, stre
         return False
 
 
-async def add_ffmpeg_source(host: str, http_port: int, secret: str, src_url: str, dst_url: str, timeout_ms: int = 10000, enable_hls: int = 0, enable_mp4: int = 0) -> str:
+async def add_ffmpeg_source(
+    host: str, http_port: int, secret: str, src_url: str, dst_url: str, timeout_ms: int = 10000, enable_hls: int = 0, enable_mp4: int = 0
+) -> str:
     url = f"http://{host}:{http_port}/index/api/addFFmpegSource"
-    params = {
-        "secret": secret,
-        "src_url": src_url,
-        "dst_url": dst_url,
-        "timeout_ms": timeout_ms,
-        "enable_hls": enable_hls,
-        "enable_mp4": enable_mp4
-    }
+    params = {"secret": secret, "src_url": src_url, "dst_url": dst_url, "timeout_ms": timeout_ms, "enable_hls": enable_hls, "enable_mp4": enable_mp4}
     try:
         client = await _get_zlm_client()
         r = await client.post(url, data=params, timeout=5.0)
@@ -264,10 +271,7 @@ async def add_ffmpeg_source(host: str, http_port: int, secret: str, src_url: str
 
 async def del_ffmpeg_source(host: str, http_port: int, secret: str, key: str) -> bool:
     url = f"http://{host}:{http_port}/index/api/delFFmpegSource"
-    params = {
-        "secret": secret,
-        "key": key
-    }
+    params = {"secret": secret, "key": key}
     try:
         client = await _get_zlm_client()
         r = await client.post(url, data=params, timeout=3.0)

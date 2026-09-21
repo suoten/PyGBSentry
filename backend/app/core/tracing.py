@@ -25,6 +25,7 @@ try:
     from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
     from opentelemetry.instrumentation.redis import RedisInstrumentor
     from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+
     _OTEL_AVAILABLE = True
 except ImportError:
     pass
@@ -72,6 +73,7 @@ def setup_tracing(app=None) -> bool:
 
         if exporter_type == "console":
             from opentelemetry.sdk.trace.export import ConsoleSpanExporter
+
             processor = BatchSpanProcessor(ConsoleSpanExporter())
             provider.add_span_processor(processor)
             logger.info(f"OpenTelemetry tracing enabled: console exporter, service={service_name}")
@@ -82,9 +84,11 @@ def setup_tracing(app=None) -> bool:
 
             if protocol == "http/protobuf":
                 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
                 exporter = OTLPSpanExporter(endpoint=f"{endpoint}/v1/traces")
             else:
                 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+
                 exporter = OTLPSpanExporter(endpoint=endpoint)
 
             processor = BatchSpanProcessor(exporter)
@@ -146,23 +150,31 @@ def get_tracer(name: str = "pygbsentry"):
 
 class _NoOpSpan:
     """No-op span that discards all operations."""
+
     def __enter__(self):
         return self
+
     def __exit__(self, *args):
         pass
+
     def set_attribute(self, *args, **kwargs):
         pass
+
     def add_event(self, *args, **kwargs):
         pass
+
     def record_exception(self, *args, **kwargs):
         pass
+
     def set_status(self, *args, **kwargs):
         pass
 
 
 class _NoOpTracer:
     """No-op tracer that returns no-op spans."""
+
     def start_as_current_span(self, *args, **kwargs):
         return _NoOpSpan()
+
     def start_span(self, *args, **kwargs):
         return _NoOpSpan()

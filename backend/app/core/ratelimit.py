@@ -13,6 +13,7 @@ from slowapi.util import get_remote_address
 # 详见 REQ-3.1 设计说明。
 import starlette.config as _starlette_config_mod
 
+
 def _utf8_read_file(self, file_name, *args, **kwargs):
     # FIX: [2026-07-13] 新版 Starlette 的 Config._read_file 可能传入额外参数
     # (如 _depth)，使用 *args/**kwargs 兼容所有版本，避免
@@ -31,6 +32,7 @@ def _utf8_read_file(self, file_name, *args, **kwargs):
     except (OSError, IOError) as e:
         logger.warning(f"Failed to read rate limit config file: {e}")
     return file_values
+
 
 _starlette_config_mod.Config._read_file = _utf8_read_file
 # --- 编码兼容修复结束 ---
@@ -69,6 +71,7 @@ def get_tenant_remote_address(request: Request) -> str:
         # FIX: [2026-07-16 P1] 使用 SECRET_KEY 验签，防止伪造 tenant_id 绕过限流
         import jwt as _jwt
         from app.core.config import settings
+
         secret = settings.SECRET_KEY
         if not secret:
             return ip
@@ -109,7 +112,7 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
                     if body:
                         data = json.loads(body.decode("utf-8", errors="replace"))
                         if isinstance(data, dict):
-                            attempted = (str(data.get("username") or "").strip() or "unknown")
+                            attempted = str(data.get("username") or "").strip() or "unknown"
                 except Exception as e:
                     logger.warning(f"Error: {e}")
             else:
@@ -139,12 +142,8 @@ async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) 
         except Exception as e:
             logger.warning(f"Error: {e}")
 
-    response = JSONResponse(
-        {"error": f"Rate limit exceeded: {exc.detail}"}, status_code=429
-    )
-    response = request.app.state.limiter._inject_headers(
-        response, request.state.view_rate_limit
-    )
+    response = JSONResponse({"error": f"Rate limit exceeded: {exc.detail}"}, status_code=429)
+    response = request.app.state.limiter._inject_headers(response, request.state.view_rate_limit)
     return response
 
 

@@ -35,4 +35,3 @@ async def load_plugin_runtime_config(
     except Exception as e:
         logger.warning(f"插件运行时配置解析失败: {e}")
     return base
-

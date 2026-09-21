@@ -41,7 +41,6 @@ _PLAY_INFLIGHT_LOCK = asyncio.Lock()
 
 
 class _PlayIdempotencyGuard:
-
     _TTL = 5.0
 
     def __init__(self, device_id: str, channel_id: str):
@@ -63,6 +62,7 @@ class _PlayIdempotencyGuard:
 
     async def acquire(self) -> bool:
         import time as _time
+
         async with _PLAY_INFLIGHT_LOCK:
             ts = _PLAY_INFLIGHT.get(self.key)
             if ts is not None and (_time.time() - ts) < self._TTL:
@@ -123,9 +123,7 @@ async def _get_asset_resource(
 
     stmt = select(Resource).where(Resource.gb_id == channel_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     resource = (await db.execute(stmt)).scalars().first()
     return asset, resource
 
@@ -271,9 +269,7 @@ def _parse_bootstrap_learning_state(raw_value: str | None) -> dict[str, Any]:
 
 
 async def _set_system_setting(db: AsyncSession, key: str, value: str) -> None:
-    item = (
-        await db.execute(select(SystemSetting).where(SystemSetting.setting_key == key))
-    ).scalars().first()
+    item = (await db.execute(select(SystemSetting).where(SystemSetting.setting_key == key))).scalars().first()
     if item:
         item.setting_value = value
     else:
@@ -283,16 +279,10 @@ async def _set_system_setting(db: AsyncSession, key: str, value: str) -> None:
 async def _load_bootstrap_runtime_config(db: AsyncSession) -> dict[str, Any]:
     global _bootstrap_runtime_config_cache, _bootstrap_runtime_config_cache_timestamp
     current_time = time.time()
-    if (
-        _bootstrap_runtime_config_cache
-        and current_time - _bootstrap_runtime_config_cache_timestamp < _BOOTSTRAP_RUNTIME_CONFIG_CACHE_TTL_SECONDS
-    ):
+    if _bootstrap_runtime_config_cache and current_time - _bootstrap_runtime_config_cache_timestamp < _BOOTSTRAP_RUNTIME_CONFIG_CACHE_TTL_SECONDS:
         return _bootstrap_runtime_config_cache
     async with _bootstrap_runtime_config_cache_lock:
-        if (
-            _bootstrap_runtime_config_cache
-            and time.time() - _bootstrap_runtime_config_cache_timestamp < _BOOTSTRAP_RUNTIME_CONFIG_CACHE_TTL_SECONDS
-        ):
+        if _bootstrap_runtime_config_cache and time.time() - _bootstrap_runtime_config_cache_timestamp < _BOOTSTRAP_RUNTIME_CONFIG_CACHE_TTL_SECONDS:
             return _bootstrap_runtime_config_cache
         keys = [
             _BOOTSTRAP_TEMPLATE_SETTING_KEY,
@@ -396,11 +386,24 @@ async def _validate_play_urls(
     """
     validated: dict[str, bool] = {}
     http_keys = {
-        "flv", "https_flv", "ws_flv", "wss_flv",
-        "fmp4", "https_fmp4", "ws_fmp4", "wss_fmp4",
-        "hls", "https_hls", "ws_hls", "wss_hls",
-        "ts", "https_ts", "ws_ts", "wss_ts",
-        "rtc", "rtcs",
+        "flv",
+        "https_flv",
+        "ws_flv",
+        "wss_flv",
+        "fmp4",
+        "https_fmp4",
+        "ws_fmp4",
+        "wss_fmp4",
+        "hls",
+        "https_hls",
+        "ws_hls",
+        "wss_hls",
+        "ts",
+        "https_ts",
+        "ws_ts",
+        "wss_ts",
+        "rtc",
+        "rtcs",
     }
     # RTC/WHEP 端点需要用 POST 探测，不能用 HEAD
     rtc_keys = {"rtc", "rtcs"}
@@ -448,12 +451,7 @@ async def _validate_play_urls(
                 # P1-fix [2026-07-17]: 1) 添加 secret 参数 2) 区分 401（鉴权失败）与 404（接口缺失）
                 #   3) 移除重复 app/stream 参数（URL 已含）和 WHEP 不支持的 type 参数
                 _sdp_ip = str(settings.MEDIA_SERVER_HOST or "")  # I3 回退值不再硬编码127.0.0.1
-                placeholder_sdp = (
-                    "v=0\r\n"
-                    f"o=- 0 0 IN IP4 {_sdp_ip}\r\n"
-                    "s=-\r\n"
-                    "t=0 0\r\n"
-                )
+                placeholder_sdp = f"v=0\r\no=- 0 0 IN IP4 {_sdp_ip}\r\ns=-\r\nt=0 0\r\n"
                 _probe_params = {}
                 if secret:
                     _probe_params["secret"] = secret
@@ -495,10 +493,7 @@ async def _persist_diagnostics_to_log() -> None:
         failure_count = len(_PLAY_STATUS_RECENT_FAILURE)
         trace_count = len(_PLAY_SESSION_TRACE)
         if failure_count > 0 or trace_count > 0:
-            logger.info(
-                f"[DiagnosticsSnapshot] failures={failure_count} traces={trace_count} "
-                f"build={_PLAY_DIAGNOSTIC_BUILD}"
-            )
+            logger.info(f"[DiagnosticsSnapshot] failures={failure_count} traces={trace_count} build={_PLAY_DIAGNOSTIC_BUILD}")
 
 
 def _record_play_trace(session_id: str, stage: str, detail: dict[str, Any] | None = None) -> None:
@@ -534,7 +529,9 @@ def _record_play_trace(session_id: str, stage: str, detail: dict[str, Any] | Non
     try:
         loop = asyncio.get_running_loop()
         _diag_task = loop.create_task(_persist_diagnostics_to_log())
-        _diag_task.add_done_callback(lambda t: logger.debug(f"Diagnostic persist error: {t.exception()}") if not t.cancelled() and t.exception() else None)
+        _diag_task.add_done_callback(
+            lambda t: logger.debug(f"Diagnostic persist error: {t.exception()}") if not t.cancelled() and t.exception() else None
+        )
     except RuntimeError:
         logger.warning("RuntimeError occurred")
 
@@ -572,7 +569,9 @@ def _record_play_failure(session_id: str, detail: dict[str, Any]) -> None:
     try:
         loop = asyncio.get_running_loop()
         _diag_task2 = loop.create_task(_persist_diagnostics_to_log())
-        _diag_task2.add_done_callback(lambda t: logger.debug(f"Diagnostic persist error: {t.exception()}") if not t.cancelled() and t.exception() else None)
+        _diag_task2.add_done_callback(
+            lambda t: logger.debug(f"Diagnostic persist error: {t.exception()}") if not t.cancelled() and t.exception() else None
+        )
     except RuntimeError:
         logger.warning("RuntimeError occurred")
 
@@ -738,7 +737,7 @@ def _infer_bootstrap_transport_mode(asset: Asset | None, templates: list[dict[st
     model = str(getattr(asset, "model", "") or "").strip().lower()
     transport = str(getattr(asset, "transport", "") or "").strip().upper()
     text = f"{manufacturer} {model}"
-    for tpl in (templates or _DEFAULT_BOOTSTRAP_TEMPLATES):
+    for tpl in templates or _DEFAULT_BOOTSTRAP_TEMPLATES:
         if not isinstance(tpl, dict):
             continue
         keywords = tpl.get("keywords")
@@ -766,12 +765,8 @@ async def _resolve_media_mode_candidates(db: AsyncSession, asset_id: str | None,
     weights = runtime_cfg.get("weights") if isinstance(runtime_cfg, dict) else dict(_DEFAULT_BOOTSTRAP_WEIGHTS)
     learning_state = runtime_cfg.get("learning_state") if isinstance(runtime_cfg, dict) else {"profiles": {}}
     if aid:
-        policy = (
-            await db.execute(select(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == aid))
-        ).scalars().first()
-        health = (
-            await db.execute(select(AssetStreamHealth).where(AssetStreamHealth.asset_id == aid))
-        ).scalars().first()
+        policy = (await db.execute(select(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == aid))).scalars().first()
+        health = (await db.execute(select(AssetStreamHealth).where(AssetStreamHealth.asset_id == aid))).scalars().first()
     mode = str(getattr(policy, "stream_mode", "") or "").strip().upper()
     success_total = int(getattr(health, "success_total", 0) or 0)
     fail_total = int(getattr(health, "fail_total", 0) or 0)
@@ -792,9 +787,7 @@ async def _resolve_media_mode_candidates(db: AsyncSession, asset_id: str | None,
     # - 当前模式(last_mode)连续失败过 → 大幅降级该模式
     # - TCP 模式整体失败 → 提升 UDP 权重（因为 UDP 通常最通用）
     # - prefer_stable 只影响"还没失败过的模式"之间的优先顺序
-    last_mode_normalized = _normalize_health_mode(
-        getattr(health, "last_mode", None) if health else None
-    )
+    last_mode_normalized = _normalize_health_mode(getattr(health, "last_mode", None) if health else None)
     last_mode_failures: int = 0
     if health and last_mode_normalized and last_mode_normalized != "UDP":
         # 查询该模式的历史失败情况（通过 learning_state 反推）
@@ -853,13 +846,7 @@ async def _build_signal_targets(db: AsyncSession, asset: Asset) -> list[tuple[st
     if hint_ip and hint_port > 0:
         targets.append((hint_ip, hint_port, hint_proto))
 
-    pf = (
-        await db.execute(
-            select(ParentPlatform).where(
-                ParentPlatform.server_gb_id == asset.gb_id
-            )
-        )
-    ).scalars().first()
+    pf = (await db.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == asset.gb_id))).scalars().first()
     if pf:
         pf_ip = str(getattr(pf, "server_ip", "") or "").strip() or base_ip
         pf_port = int(getattr(pf, "server_port", 0) or 0)
@@ -879,12 +866,15 @@ async def _build_signal_targets(db: AsyncSession, asset: Asset) -> list[tuple[st
         dedup.append((key[0], key[1], key[2]))
     return dedup
 
+
 # ---- compatibility aliases (older modules import these private names) ----
 async def _release_stream_session(db: AsyncSession, stream_session: StreamSession, reason: str = "compat") -> None:
     await release_stream_session(db, stream_session, reason=reason)
 
+
 async def _close_zlm_stream(app: str, stream: str, node_id: str | None = None) -> None:
     await close_zlm_stream(app, stream, node_id)
+
 
 async def _probe_zlm_stream(
     node_host: str,
@@ -971,7 +961,7 @@ async def _probe_zlm_stream(
         if "playback" not in apps_to_probe:
             apps_to_probe.append("playback")
 
-        sec = (str(secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip())
+        sec = str(secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip()
         url = f"http://{node_host}:{int(node_http_port)}/index/api/getMediaList"
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
@@ -1019,8 +1009,7 @@ async def _probe_zlm_stream(
                         item["_matched_app"] = item_app
                         item["_matched_stream"] = item_stream
                         logger_probe.debug(
-                            f"[Probe] FOUND stream={item_stream} app={item_app} "
-                            f"(target_app={target_app} target_stream={target_stream})"
+                            f"[Probe] FOUND stream={item_stream} app={item_app} (target_app={target_app} target_stream={target_stream})"
                         )
                         return True, True, item
 
@@ -1039,8 +1028,7 @@ async def _probe_zlm_stream(
                     item["_matched_app"] = item_app
                     item["_matched_stream"] = item_stream
                     logger_probe.debug(
-                        f"[Probe] FOUND (app_mismatch) stream={item_stream} app={item_app} "
-                        f"(target_app={target_app} target_stream={target_stream})"
+                        f"[Probe] FOUND (app_mismatch) stream={item_stream} app={item_app} (target_app={target_app} target_stream={target_stream})"
                     )
                     return True, True, item
 
@@ -1052,6 +1040,7 @@ async def _probe_zlm_stream(
     except Exception as e:
         logger.debug(f"[Probe] _probe_zlm_stream error for {node_host}:{node_http_port} app={app} stream={stream}: {e}")
         return False, False, {}
+
 
 def _probe_zlm_playable(node_host: str, node_http_port: int, app: str, stream: str) -> bool:
     # 既然我们已经用 HTTP 接口 getMediaList 查到了这个流存在
@@ -1086,7 +1075,7 @@ async def _probe_zlm_hls_ready(
     _base_stream = stream
     for _suf in (".live", ".mp4", ".ts"):
         if _base_stream.endswith(_suf):
-            _base_stream = _base_stream[:-len(_suf)]
+            _base_stream = _base_stream[: -len(_suf)]
             break
 
     hls_url = f"http://{node_host}:{int(node_http_port)}/{app}/{_base_stream}{_stream_suffix}/hls.m3u8"
@@ -1104,25 +1093,15 @@ async def _probe_zlm_hls_ready(
             response = await client.head(hls_url, timeout=3.0, follow_redirects=True)
             probe_detail["last_status_code"] = response.status_code
             if response.status_code == 200:
-                logger.info(
-                    f"[HLS] Ready for {app}/{stream} after {attempt + 1} attempt(s), "
-                    f"URL: {hls_url}"
-                )
+                logger.info(f"[HLS] Ready for {app}/{stream} after {attempt + 1} attempt(s), URL: {hls_url}")
                 return True, hls_url, probe_detail
             elif response.status_code == 404:
-                logger.debug(
-                    f"[HLS] Not ready (404) for {app}/{stream} on attempt {attempt + 1}/{max_attempts}"
-                )
+                logger.debug(f"[HLS] Not ready (404) for {app}/{stream} on attempt {attempt + 1}/{max_attempts}")
             else:
-                logger.debug(
-                    f"[HLS] Unexpected status {response.status_code} for {app}/{stream} "
-                    f"on attempt {attempt + 1}/{max_attempts}"
-                )
+                logger.debug(f"[HLS] Unexpected status {response.status_code} for {app}/{stream} on attempt {attempt + 1}/{max_attempts}")
         except Exception as exc:
             probe_detail["last_error"] = str(exc)[:120]
-            logger.debug(
-                f"[HLS] Probe failed for {app}/{stream} on attempt {attempt + 1}/{max_attempts}: {exc}"
-            )
+            logger.debug(f"[HLS] Probe failed for {app}/{stream} on attempt {attempt + 1}/{max_attempts}: {exc}")
 
         if attempt < max_attempts - 1:
             await asyncio.sleep(interval_seconds * (attempt + 1))  # 指数退避
@@ -1133,6 +1112,7 @@ async def _probe_zlm_hls_ready(
         f"last_error={probe_detail['last_error']}"
     )
     return False, "", probe_detail
+
 
 def _build_stream_match_hints(stream: str | None, ssrc: str | None) -> list[str]:
     hints: list[str] = []
@@ -1160,8 +1140,8 @@ def _build_stream_match_hints(stream: str | None, ssrc: str | None) -> list[str]
     # Try to split stream to get channel_id if it's formatted like {channel}_{ssrc}
     if stream_text and "_" in stream_text:
         parts = stream_text.split("_")
-        _push(parts[0]) # usually channel id
-        _push(parts[-1]) # usually ssrc
+        _push(parts[0])  # usually channel id
+        _push(parts[-1])  # usually ssrc
 
     return hints
 
@@ -1214,6 +1194,7 @@ async def _wait_zlm_stream_ready(
     if ssrc:
         try:
             from app.sip.invite import wait_ssrc_stream_registered
+
             _event_fired = await wait_ssrc_stream_registered(ssrc, timeout=_ssrc_wait_timeout)
             if _event_fired:
                 logger.info(f"[StreamReady] ZLM webhook event fired for ssrc={ssrc}, probing immediately")
@@ -1461,12 +1442,7 @@ async def _probe_webrtc_capability(node_host: str, node_http_port: int, app: str
     # GET 可能直接 404。这里改为 POST（即使 SDP 不完整也够判断"接口是否存在/可用"）。
     # SDP o= line hardcoded 127.0.0.1 → use MEDIA_SERVER_HOST from settings
     _sdp_ip = str(settings.MEDIA_SERVER_HOST or "")  # I3 回退值不再硬编码127.0.0.1
-    placeholder_sdp = (
-        "v=0\r\n"
-        f"o=- 0 0 IN IP4 {_sdp_ip}\r\n"
-        "s=-\r\n"
-        "t=0 0\r\n"
-    )
+    placeholder_sdp = f"v=0\r\no=- 0 0 IN IP4 {_sdp_ip}\r\ns=-\r\nt=0 0\r\n"
     try:
         url = f"http://{node_host}:{int(node_http_port)}/index/api/webrtc"
         client = await _get_zlm_client()
@@ -1495,8 +1471,7 @@ async def _probe_webrtc_capability(node_host: str, node_http_port: int, app: str
         if r.status_code == 401:
             return (
                 False,
-                "WebRTC 探测返回 401：ZLM 启用 secret 鉴权但探测请求未携带有效 secret。"
-                "请检查媒体节点 secret 配置与 MEDIA_SERVER_SECRET 是否一致。",
+                "WebRTC 探测返回 401：ZLM 启用 secret 鉴权但探测请求未携带有效 secret。请检查媒体节点 secret 配置与 MEDIA_SERVER_SECRET 是否一致。",
             )
         # 只要不是 404/401，就认为 WebRTC 接口存在（可能因 SDP 不完整返回 400/其它错误）
         if r.status_code >= 500:
@@ -1641,9 +1616,8 @@ def _build_media_url(scheme: str, host: str | None, port: int | None, path: str)
     port_num = _safe_int(port, 0)
     if not host_text or port_num <= 0:
         return None
-    hide_default_port = (
-        (scheme in {"http", "ws", "rtmp", "rtsp"} and port_num == 80)
-        or (scheme in {"https", "wss", "rtmps", "rtsps"} and port_num == 443)
+    hide_default_port = (scheme in {"http", "ws", "rtmp", "rtsp"} and port_num == 80) or (
+        scheme in {"https", "wss", "rtmps", "rtsps"} and port_num == 443
     )
     if hide_default_port:
         return f"{scheme}://{host_text}{path}"
@@ -1663,8 +1637,7 @@ def cleanup_stream_traces(max_age_seconds: float = 3600) -> int:
 
     # 清理 _PLAY_SESSION_TRACE：移除超过 max_age 未更新的条目
     stale_trace_keys = [
-        sid for sid, rec in _PLAY_SESSION_TRACE.items()
-        if not isinstance(rec, dict) or (now_ms - int(rec.get("updated_at_ms") or 0)) > max_age_ms
+        sid for sid, rec in _PLAY_SESSION_TRACE.items() if not isinstance(rec, dict) or (now_ms - int(rec.get("updated_at_ms") or 0)) > max_age_ms
     ]
     for key in stale_trace_keys:
         _PLAY_SESSION_TRACE.pop(key, None)
@@ -1672,8 +1645,7 @@ def cleanup_stream_traces(max_age_seconds: float = 3600) -> int:
 
     # 清理 _PLAY_STATUS_RECENT_FAILURE：移除超过 max_age 的条目
     stale_failure_keys = [
-        key for key, val in _PLAY_STATUS_RECENT_FAILURE.items()
-        if not isinstance(val, dict) or (now - float(val.get("ts") or 0)) > max_age_seconds
+        key for key, val in _PLAY_STATUS_RECENT_FAILURE.items() if not isinstance(val, dict) or (now - float(val.get("ts") or 0)) > max_age_seconds
     ]
     for key in stale_failure_keys:
         _PLAY_STATUS_RECENT_FAILURE.pop(key, None)
@@ -1691,7 +1663,7 @@ def cleanup_stream_traces(max_age_seconds: float = 3600) -> int:
 
 async def _find_zlm_media_item(node_host: str, node_http_port: int, secret: str, app: str, stream: str) -> dict | None:
     try:
-        sec = (str(secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip())
+        sec = str(secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip()
         url = f"http://{node_host}:{int(node_http_port)}/index/api/getMediaList"
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递

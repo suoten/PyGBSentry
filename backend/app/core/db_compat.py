@@ -3,6 +3,7 @@
 Normalises database type identifiers and runs lightweight vendor-specific
 compatibility checks exposed through the system-config endpoint.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -73,4 +74,5 @@ async def run_compat_checks(conn, db_type: str) -> dict[str, Any]:
 
 def _text(sql: str):
     from sqlalchemy import text
+
     return text(sql)

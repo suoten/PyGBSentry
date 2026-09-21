@@ -9,15 +9,18 @@ from loguru import logger
 import datetime
 import json
 
+
 async def get_subscription(db: AsyncSession, tenant_id: str) -> TenantSubscription | None:
     stmt = select(TenantSubscription).where(TenantSubscription.tenant_id == tenant_id)
     result = await db.execute(stmt)
     return result.scalars().first()
 
+
 async def get_plan(db: AsyncSession, plan_code: str) -> BillingPlan | None:
     stmt = select(BillingPlan).where(BillingPlan.code == plan_code)
     result = await db.execute(stmt)
     return result.scalars().first()
+
 
 async def get_effective_limits(db: AsyncSession, tenant_id: str) -> tuple[int, int]:
     if (settings.APP_EDITION or "oss").lower() != "server":
@@ -29,6 +32,7 @@ async def get_effective_limits(db: AsyncSession, tenant_id: str) -> tuple[int, i
         return 0, 0
     return max(plan.max_devices or 0, 0), max(plan.max_channels or 0, 0)
 
+
 async def check_device_quota(db: AsyncSession, tenant_id: str) -> tuple[bool, int, int]:
     limit, _ = await get_effective_limits(db, tenant_id)
     stmt = select(func.count(Asset.id)).where(Asset.tenant_id == tenant_id)
@@ -37,6 +41,7 @@ async def check_device_quota(db: AsyncSession, tenant_id: str) -> tuple[bool, in
     if limit <= 0:
         return True, limit, current
     return current < limit, limit, current
+
 
 async def check_channel_quota(db: AsyncSession, tenant_id: str) -> tuple[bool, int, int]:
     _, limit = await get_effective_limits(db, tenant_id)
@@ -120,6 +125,7 @@ async def get_active_record_download_count(db: AsyncSession, tenant_id: str) -> 
     )
     result = await db.execute(stmt)
     return int(result.scalar() or 0)
+
 
 def is_subscription_near_expiry(sub: TenantSubscription | None, days: int) -> tuple[bool, str]:
     if (settings.APP_EDITION or "oss").lower() != "server":

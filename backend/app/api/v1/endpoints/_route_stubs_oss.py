@@ -8,6 +8,7 @@ P2-29 路由暴露验证: 本 router 已在 app/api/v1/api.py 中注册到 OSS �
 该注册为有意行为，使企业版端点在 OpenAPI 文档中可见并返回明确的 501 响应。
 已确认: 所有 stub 路径与 OSS 真实路由无冲突。
 """
+
 from fastapi import APIRouter, HTTPException
 
 # 本 router 在 api.py 中注册到 OSS 路由表（无 prefix，路径已在装饰器中写全）。

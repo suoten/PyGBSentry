@@ -1,4 +1,5 @@
 """App 端日志上报与查询（手机版/小程序崩溃、行为日志）。"""
+
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from pydantic import BaseModel
@@ -16,6 +17,7 @@ from app.services.audit_center_service import audit_center_service
 from loguru import logger
 
 router = APIRouter()
+
 
 async def _safe_audit_log(
     *,
@@ -45,9 +47,11 @@ def _paid_app_log_plugins() -> set[str]:
     # 纯开源版无“付费插件”，直接返回空集合
     return set()
 
+
 def _can_verify_purchases() -> bool:
     # 纯开源版本地不与服务器做在线鉴权
     return False
+
 
 async def _fetch_purchased_plugin_ids(request: Request, current_user: User) -> set[str]:
     """开源版本地无在线购买，返回空"""
@@ -55,10 +59,10 @@ async def _fetch_purchased_plugin_ids(request: Request, current_user: User) -> s
 
 
 class AppLogCreate(BaseModel):
-    plugin_id: str = "mobile_app_suite"   # mobile_app_suite | mini_program_suite
+    plugin_id: str = "mobile_app_suite"  # mobile_app_suite | mini_program_suite
     app_version: str = ""
-    platform: str = ""                    # android | ios | miniprogram
-    log_type: str = "behavior"            # crash | behavior
+    platform: str = ""  # android | ios | miniprogram
+    log_type: str = "behavior"  # crash | behavior
     message: Optional[str] = None
     extra: Optional[str] = None
 
@@ -186,13 +190,7 @@ async def list_app_logs(
     count_stmt = select(func.count()).select_from(AppLog).where(and_(*conditions))
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    stmt = (
-        select(AppLog)
-        .where(and_(*conditions))
-        .order_by(desc(AppLog.created_at))
-        .offset(skip)
-        .limit(limit)
-    )
+    stmt = select(AppLog).where(and_(*conditions)).order_by(desc(AppLog.created_at)).offset(skip).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
     await _safe_audit_log(
@@ -293,16 +291,8 @@ async def app_log_stats(
 
     if plugin_id:
         conditions.append(AppLog.plugin_id == plugin_id)
-    total = (
-        await db.execute(
-            select(func.count()).select_from(AppLog).where(and_(*conditions))
-        )
-    ).scalar() or 0
-    crash_total = (
-        await db.execute(
-            select(func.count()).select_from(AppLog).where(and_(*(conditions + [AppLog.log_type == "crash"])))
-        )
-    ).scalar() or 0
+    total = (await db.execute(select(func.count()).select_from(AppLog).where(and_(*conditions)))).scalar() or 0
+    crash_total = (await db.execute(select(func.count()).select_from(AppLog).where(and_(*(conditions + [AppLog.log_type == "crash"]))))).scalar() or 0
     group_stmt = (
         select(AppLog.plugin_id, AppLog.platform, AppLog.log_type, func.count(AppLog.id))
         .where(and_(*conditions))

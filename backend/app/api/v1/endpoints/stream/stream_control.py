@@ -20,7 +20,7 @@ import time
 import shlex
 import re
 
-_SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 from ._shared import (
     _stream_audit,
@@ -52,7 +52,7 @@ async def playback_stream(
     start_time: int,
     end_time: int,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     req_t0 = time.perf_counter()
     stmt = select(Asset).where(Asset.gb_id == device_id)
@@ -94,7 +94,12 @@ async def playback_stream(
     max_streams = _get_max_concurrent_streams()
     if max_streams > 0:
         tenant_id = current_user.tenant_id or "default"
-        count_stmt = select(func.count(StreamSession.id)).select_from(StreamSession).join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
+        count_stmt = (
+            select(func.count(StreamSession.id))
+            .select_from(StreamSession)
+            .join(Asset, StreamSession.asset_id == Asset.id)
+            .where(Asset.tenant_id == tenant_id)
+        )
         cnt = (await db.execute(count_stmt)).scalar() or 0
         if cnt >= max_streams:
             await _stream_audit(
@@ -106,11 +111,14 @@ async def playback_stream(
                 detail="max_concurrent_streams",
                 extra_summary=f"limit={max_streams}; device_id={device_id}; channel_id={channel_id}",
             )
-            raise HTTPException(status_code=429, detail=f"Concurrent stream limit reached ({max_streams}), please close some playback sessions and retry")  # i18n
+            raise HTTPException(
+                status_code=429, detail=f"Concurrent stream limit reached ({max_streams}), please close some playback sessions and retry"
+            )  # i18n
 
     # VOD Edge Cache: Check if the requested playback is already cached as a record
     from datetime import datetime, timezone
     from app.models.record import Record
+
     requested_start_dt = datetime.fromtimestamp(start_time, tz=timezone.utc).replace(tzinfo=None)
     requested_end_dt = datetime.fromtimestamp(end_time, tz=timezone.utc).replace(tzinfo=None)
 
@@ -119,7 +127,7 @@ async def playback_stream(
         Record.start_time <= requested_start_dt,
         Record.end_time >= requested_end_dt,
         Record.url_ok,
-        Record.file_path is not None
+        Record.file_path is not None,
     )
     cache_result = await db.execute(cache_stmt)
     cached_record = cache_result.scalars().first()
@@ -137,7 +145,7 @@ async def playback_stream(
             "raw": cached_record.file_path,
             "ws_flv": cached_record.file_path,
             "ws_raw": cached_record.file_path,
-            "is_cached": True
+            "is_cached": True,
         }
 
     signal_targets = await _build_signal_targets(db, asset)
@@ -192,8 +200,7 @@ async def playback_stream(
         for media_mode in media_mode_candidates:
             try:
                 result = await sip_invite_module.sip_invite.send_playback_invite(
-                    asset, resource, ((target_ip, target_port), transport_proto, transport),
-                    start_time, end_time, media_mode_override=media_mode
+                    asset, resource, ((target_ip, target_port), transport_proto, transport), start_time, end_time, media_mode_override=media_mode
                 )
                 used_target = (target_ip, target_port, transport_proto)
                 break
@@ -238,12 +245,14 @@ async def playback_stream(
     # R3-03 回放会话开始时初始化状态机为"playing"
     if result.get("call_id"):
         from app.sip.playback_control import playback_control as _pb_ctrl
+
         if _pb_ctrl:
             _pb_ctrl.set_playback_started(result["call_id"])
 
     # 无缝预加载 (Seamless Timeline Pre-fetching)
     if end_time - start_time > 3600:
         from app.services.playback_timeline import start_prefetch_task
+
         start_prefetch_task(
             asset_id=asset.id,
             resource_id=resource.id,
@@ -251,7 +260,7 @@ async def playback_stream(
             end_time=end_time,
             used_target=used_target,
             stream_id=stream_id,
-            tenant_id=current_user.tenant_id or "default"
+            tenant_id=current_user.tenant_id or "default",
         )
 
     node_id = result.get("node_id")
@@ -295,6 +304,7 @@ async def playback_stream(
         "sla": sla_metrics,
     }
 
+
 @router.post("/download/{device_id}/{channel_id}")
 async def download_stream(
     device_id: str,
@@ -303,7 +313,7 @@ async def download_stream(
     end_time: int,
     download_speed: int = Query(4, description="下载倍速(例如1, 2, 4)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     stmt = select(Asset).where(Asset.gb_id == device_id)
     if not current_user.is_superuser:
@@ -344,7 +354,12 @@ async def download_stream(
     max_streams = _get_max_concurrent_streams()
     if max_streams > 0:
         tenant_id = current_user.tenant_id or "default"
-        count_stmt = select(func.count(StreamSession.id)).select_from(StreamSession).join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
+        count_stmt = (
+            select(func.count(StreamSession.id))
+            .select_from(StreamSession)
+            .join(Asset, StreamSession.asset_id == Asset.id)
+            .where(Asset.tenant_id == tenant_id)
+        )
         cnt = (await db.execute(count_stmt)).scalar() or 0
         if cnt >= max_streams:
             await _stream_audit(
@@ -356,7 +371,9 @@ async def download_stream(
                 detail="max_concurrent_streams",
                 extra_summary=f"limit={max_streams}; device_id={device_id}; channel_id={channel_id}",
             )
-            raise HTTPException(status_code=429, detail=f"Concurrent stream limit reached ({max_streams}), please close some playback sessions and retry")  # i18n
+            raise HTTPException(
+                status_code=429, detail=f"Concurrent stream limit reached ({max_streams}), please close some playback sessions and retry"
+            )  # i18n
 
     signal_targets = await _build_signal_targets(db, asset)
     if not signal_targets:
@@ -372,8 +389,11 @@ async def download_stream(
         # FIX: [2026-08-22 PN] 原调用缺必填参数 retryable → TypeError（端点崩溃 500），
         # 补上 retryable=True 返回 503。
         raise _play_http_exception(
-            503, "device_transport_unavailable", "Device signaling unavailable",
-            "Please verify the device is online and registered", retryable=True,
+            503,
+            "device_transport_unavailable",
+            "Device signaling unavailable",
+            "Please verify the device is online and registered",
+            retryable=True,
         )
 
     result = None
@@ -390,8 +410,13 @@ async def download_stream(
         for media_mode in media_mode_candidates:
             try:
                 result = await sip_invite_module.sip_invite.send_playback_invite(
-                    asset, resource, ((target_ip, target_port), transport_proto, transport),
-                    start_time, end_time, media_mode_override=media_mode, download_speed=download_speed
+                    asset,
+                    resource,
+                    ((target_ip, target_port), transport_proto, transport),
+                    start_time,
+                    end_time,
+                    media_mode_override=media_mode,
+                    download_speed=download_speed,
                 )
                 break
             except HTTPException:
@@ -425,8 +450,11 @@ async def download_stream(
         # FIX: [2026-08-22 PN] 原调用缺必填参数 retryable → TypeError（端点崩溃 500），
         # 补上 retryable=True 返回 503。
         raise _play_http_exception(
-            503, "device_transport_unavailable", "Device signaling transport unavailable",
-            "Please verify the device is online and registered", retryable=True,
+            503,
+            "device_transport_unavailable",
+            "Device signaling transport unavailable",
+            "Please verify the device is online and registered",
+            retryable=True,
         )
 
     stream_id = result.get("stream", "")  # 使用.get()防止KeyError
@@ -435,6 +463,7 @@ async def download_stream(
     # R3-03 回放会话开始时初始化状态机为"playing"
     if result.get("call_id"):
         from app.sip.playback_control import playback_control as _pb_ctrl
+
         if _pb_ctrl:
             _pb_ctrl.set_playback_started(result["call_id"])
 
@@ -450,7 +479,7 @@ async def download_stream(
     return {
         "app": app_name,
         "stream": stream_id,
-        "msg": "Download command sent, stream is transmitting"  # i18n
+        "msg": "Download command sent, stream is transmitting",  # i18n
     }
 
 
@@ -461,7 +490,7 @@ async def control_playback_stream(
     speed: float = Query(1.0, description="播放倍速"),
     seek_time: int = Query(0, description="拖拽秒数"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     _ALLOWED_PLAYBACK_ACTIONS = {"PAUSE", "PLAY", "TEARDOWN"}
     if action.upper() not in _ALLOWED_PLAYBACK_ACTIONS:
@@ -470,9 +499,10 @@ async def control_playback_stream(
     """
     发送 INFO 指令控制设备端的回放流 (暂停、恢复、倍速、拖拽、拆除)
     """
-    stmt = select(StreamSession, Asset).join(Asset, StreamSession.asset_id == Asset.id).where(
-        StreamSession.stream == stream_id,
-        StreamSession.app == "playback"
+    stmt = (
+        select(StreamSession, Asset)
+        .join(Asset, StreamSession.asset_id == Asset.id)
+        .where(StreamSession.stream == stream_id, StreamSession.app == "playback")
     )
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
@@ -520,11 +550,7 @@ async def control_playback_stream(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
     transport_info = ((asset.ip_addr, asset.port), asset.transport or "UDP", _transport)
 
-    session_dict = {
-        "call_id": session_obj.call_id,
-        "from_tag": session_obj.from_tag,
-        "to_tag": session_obj.to_tag
-    }
+    session_dict = {"call_id": session_obj.call_id, "from_tag": session_obj.from_tag, "to_tag": session_obj.to_tag}
 
     # We need the resource gb_id
     stmt_res = select(Resource.gb_id).where(Resource.id == session_obj.resource_id)
@@ -537,7 +563,7 @@ async def control_playback_stream(
         action=action,
         stream_session=session_dict,
         speed=speed,
-        seek_time=seek_time
+        seek_time=seek_time,
     )
 
     await _stream_audit(
@@ -587,10 +613,7 @@ async def playback_pause(
         raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
     # Find the playback session
-    stmt = select(StreamSession).where(
-        StreamSession.stream == payload.stream,
-        StreamSession.app == "playback"
-    )
+    stmt = select(StreamSession).where(StreamSession.stream == payload.stream, StreamSession.app == "playback")
     if not current_user.is_superuser:
         tenant_id = current_user.tenant_id or "default"
         stmt = stmt.join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
@@ -642,15 +665,12 @@ async def playback_pause(
     # VOD Edge Cache: 检查 Seek 目标时间是否已存在于本地/云端 MP4 缓存中
     from datetime import timedelta
     from app.models.record import Record
+
     if getattr(session, "start_time", None) and payload.seek_time is not None:
         seek_dt = session.start_time + timedelta(seconds=payload.seek_time)
 
         cache_stmt = select(Record).where(
-            Record.resource_id == resource.id,
-            Record.start_time <= seek_dt,
-            Record.end_time >= seek_dt,
-            Record.url_ok,
-            Record.file_path is not None
+            Record.resource_id == resource.id, Record.start_time <= seek_dt, Record.end_time >= seek_dt, Record.url_ok, Record.file_path is not None
         )
         cache_result = await db.execute(cache_stmt)
         cached_record = cache_result.scalars().first()
@@ -672,6 +692,7 @@ async def playback_pause(
                     offset_sec = 0.0
 
                 from app.sip.invite import sip_invite
+
                 transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
                 if transport:
                     await sip_invite.send_bye(asset, session, resource.gb_id)
@@ -693,10 +714,10 @@ async def playback_pause(
                     db,
                     current_user,
                     action="playback_seek",
-                result="success",
-                status_code=200,
-                detail="cache_hit",
-                extra_summary=f"app={payload.app}; stream={payload.stream}; offset={offset_sec}",
+                    result="success",
+                    status_code=200,
+                    detail="cache_hit",
+                    extra_summary=f"app={payload.app}; stream={payload.stream}; offset={offset_sec}",
                 )
                 return {"status": "ok", "action": "seek", "stream": payload.stream, "seek_time": payload.seek_time, "cached": True}
 
@@ -718,7 +739,8 @@ async def playback_pause(
     # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
     cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_pause(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         cseq=cseq,
@@ -759,10 +781,7 @@ async def playback_resume(
     if not playback_control:
         raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
-    stmt = select(StreamSession).where(
-        StreamSession.stream == payload.stream,
-        StreamSession.app == "playback"
-    )
+    stmt = select(StreamSession).where(StreamSession.stream == payload.stream, StreamSession.app == "playback")
     if not current_user.is_superuser:
         tenant_id = current_user.tenant_id or "default"
         stmt = stmt.join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
@@ -828,7 +847,8 @@ async def playback_resume(
     # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
     cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_resume(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         cseq=cseq,
@@ -868,10 +888,7 @@ async def playback_seek(
     if not playback_control:
         raise HTTPException(status_code=503, detail="PlaybackControl not initialized")
 
-    stmt = select(StreamSession).where(
-        StreamSession.stream == payload.stream,
-        StreamSession.app == "playback"
-    )
+    stmt = select(StreamSession).where(StreamSession.stream == payload.stream, StreamSession.app == "playback")
     if not current_user.is_superuser:
         tenant_id = current_user.tenant_id or "default"
         stmt = stmt.join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
@@ -937,7 +954,8 @@ async def playback_seek(
     # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
     cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_seek(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         seek_time=payload.seek_time,
@@ -992,10 +1010,7 @@ async def playback_speed(
         )
         raise HTTPException(status_code=400, detail=f"Invalid speed value, supported speeds: {valid_speeds}")  # i18n
 
-    stmt = select(StreamSession).where(
-        StreamSession.stream == payload.stream,
-        StreamSession.app == "playback"
-    )
+    stmt = select(StreamSession).where(StreamSession.stream == payload.stream, StreamSession.app == "playback")
     if not current_user.is_superuser:
         tenant_id = current_user.tenant_id or "default"
         stmt = stmt.join(Asset, StreamSession.asset_id == Asset.id).where(Asset.tenant_id == tenant_id)
@@ -1061,7 +1076,8 @@ async def playback_speed(
     # 对齐 stream_play 版 `int(ss.cseq or 1) + 1` 保护。
     cseq = int(session.cseq or 1) + 1
     result = await playback_control.send_speed(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         session.call_id,
         speed=payload.speed,

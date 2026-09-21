@@ -8,7 +8,6 @@ from app.core.plugin_manager import HOOK_ON_SHUTDOWN, HOOK_ON_ZLM_STREAM_REG
 from app.services.main_path_plugin_controller import MainPathPluginController, StreamPolicy, StartMode
 
 
-
 AnalysisHandler = Callable[[Any, asyncio.Event], Awaitable[None]]
 
 
@@ -63,4 +62,3 @@ def register_main_path_plugin(
         enabled_default,
     )
     return controller
-

@@ -7,6 +7,7 @@
 
 调用方：plugin_manager.py:_compute_eligible_plugin_ids()
 """
+
 from __future__ import annotations
 
 import json
@@ -115,14 +116,18 @@ class EntitlementEngine:
         except Exception as e:
             logger.error(
                 "EntitlementEngine.compute_eligible_plugins: DB query failed for tenant=%s: %s",
-                tid, e,
+                tid,
+                e,
             )
             return set()
 
         eligible = single_paid | plan_entitled
         logger.debug(
             "EntitlementEngine[async]: tenant=%s | single_paid=%s | plan_entitled=%s | eligible=%s",
-            tid, single_paid, plan_entitled, eligible,
+            tid,
+            single_paid,
+            plan_entitled,
+            eligible,
         )
         return eligible
 

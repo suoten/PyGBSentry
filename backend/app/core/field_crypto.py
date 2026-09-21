@@ -3,6 +3,7 @@
 SIP设备/平台密码应用层加密存储，防止数据库泄露后密码直接暴露。
 使用AES-256-GCM加密，密钥从SECRET_KEY派生。
 """
+
 import base64
 import hashlib
 import re
@@ -40,7 +41,7 @@ def _looks_like_ciphertext(s: str) -> bool:
         return False
     try:
         # 标准 base64 字符集 + URL-safe 变体
-        if not re.match(r'^[A-Za-z0-9+/=_-]+$', s):
+        if not re.match(r"^[A-Za-z0-9+/=_-]+$", s):
             return False
         # 尝试 base64 解码，检查解码后长度是否 >= 28 字节（12 nonce + 16 tag）
         decoded = base64.b64decode(s, validate=True)
@@ -110,9 +111,9 @@ def decrypt_field(ciphertext: str, purpose: str = "sip_password", allow_plaintex
             try:
                 plaintext = aesgcm.decrypt(nonce, ct, None).decode("utf-8")
                 logger.warning(
-                    "Field decryption succeeded with legacy format (no AAD). "
-                    "purpose={}, first_error={}. Consider re-encrypting this field.",
-                    purpose, e1,
+                    "Field decryption succeeded with legacy format (no AAD). purpose={}, first_error={}. Consider re-encrypting this field.",
+                    purpose,
+                    e1,
                 )
                 return plaintext
             except Exception as e2:
@@ -124,25 +125,23 @@ def decrypt_field(ciphertext: str, purpose: str = "sip_password", allow_plaintex
                     logger.warning(
                         "Field decryption failed for purpose={}: primary_error={}, legacy_error={}. "
                         "Returning original value as fallback (may be plaintext or key-changed ciphertext).",
-                        purpose, e1, e2,
+                        purpose,
+                        e1,
+                        e2,
                     )
                     return ciphertext
                 else:
                     logger.warning(
-                        "Field decryption failed for purpose={}: primary_error={}, legacy_error={}. "
-                        "Returning None (strict mode).",
-                        purpose, e1, e2,
+                        "Field decryption failed for purpose={}: primary_error={}, legacy_error={}. Returning None (strict mode).",
+                        purpose,
+                        e1,
+                        e2,
                     )
                     return None
     except Exception as e:
         # base64 解码失败
         if allow_plaintext:
-            logger.debug(
-                f"decrypt_field: base64 decode failed for purpose={purpose}, "
-                f"treating as plaintext. error={e}"
-            )
+            logger.debug(f"decrypt_field: base64 decode failed for purpose={purpose}, treating as plaintext. error={e}")
             return ciphertext
         else:
             return None
-
-

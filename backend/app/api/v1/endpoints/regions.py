@@ -1,4 +1,5 @@
 """行政区域 API：省-市-县区树形管理。"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -44,21 +45,25 @@ async def get_region_tree(
     by_parent: dict = defaultdict(list)
     for r in all_regions:
         pid = r.parent_id or "__root__"
-        by_parent[pid].append({
-            "id": r.id,
-            "code": r.code,
-            "name": r.name,
-            "parent_id": r.parent_id,
-            "level": r.level,
-            "sort_order": r.sort_order,
-            "children": [],
-        })
+        by_parent[pid].append(
+            {
+                "id": r.id,
+                "code": r.code,
+                "name": r.name,
+                "parent_id": r.parent_id,
+                "level": r.level,
+                "sort_order": r.sort_order,
+                "children": [],
+            }
+        )
+
     def build(node: dict) -> dict:
         node["children"] = sorted(
             [build(n) for n in by_parent.get(node["id"], [])],
             key=lambda x: (x["sort_order"], x["code"]),
         )
         return node
+
     roots = sorted(by_parent.get("__root__", []), key=lambda x: (x["sort_order"], x["code"]))
     return [build(r) for r in roots]
 

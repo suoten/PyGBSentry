@@ -6,6 +6,7 @@
 配置项：
   targets: [{"type": "loki"|"elasticsearch", "url": "...", "index": "...", "enabled": true}, ...]
 """
+
 import asyncio
 import datetime
 import json
@@ -19,7 +20,6 @@ from sqlalchemy import select  # TECH_DEBT: 直接依赖具体实现，未来改
 from app.core.plugin_manager import HOOK_ON_ALARM, HOOK_ON_STREAM_START, HOOK_ON_STREAM_STOP
 from app.db.session import AsyncSessionLocal
 from app.models.system_setting import SystemSetting
-
 
 
 PLUGIN_ID = "log_collector"
@@ -63,9 +63,7 @@ async def _get_cfg() -> dict:
     if _cfg_cache and (now - _cfg_ts) < _cfg_ttl:
         return _cfg_cache
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
     any_enabled = False
     cfg = dict(_DEFAULT_CONFIG)
@@ -139,12 +137,7 @@ def _push_to_loki(url: str, stream_name: str, events: list[dict]) -> bool:
         if label_key not in streams:
             streams[label_key] = []
         streams[label_key].append({"ts": str(ts_ns), "line": line})
-    payload = {
-        "streams": [
-            {"stream": {"job": stream_name, "type": k}, "values": v}
-            for k, v in streams.items()
-        ]
-    }
+    payload = {"streams": [{"stream": {"job": stream_name, "type": k}, "values": v} for k, v in streams.items()]}
     # 添加try-except避免Loki不可达时崩溃
     # R-01 _push_to_loki是同步函数（被asyncio.to_thread调用），不能使用await，恢复同步requests调用
     try:
@@ -247,39 +240,48 @@ async def on_alarm(alarm) -> None:
     device_id = str(getattr(alarm, "device_id", "") or "")
     channel_id = str(getattr(alarm, "channel_id", "") or device_id)
     t = getattr(alarm, "time", None)
-    await _collect_event("alarm", {
-        "device_id": device_id,
-        "channel_id": channel_id,
-        "alarm_type": str(getattr(alarm, "alarm_type", "") or "Alarm"),
-        "priority": str(getattr(alarm, "priority", "4") or "4"),
-        "description": str(getattr(alarm, "description", "") or ""),
-        "alarm_time": t.isoformat() if t and hasattr(t, "isoformat") else datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "status": str(getattr(alarm, "status", "") or "0"),
-        "tenant_id": getattr(alarm, "tenant_id", "default") or "default",
-    })
+    await _collect_event(
+        "alarm",
+        {
+            "device_id": device_id,
+            "channel_id": channel_id,
+            "alarm_type": str(getattr(alarm, "alarm_type", "") or "Alarm"),
+            "priority": str(getattr(alarm, "priority", "4") or "4"),
+            "description": str(getattr(alarm, "description", "") or ""),
+            "alarm_time": t.isoformat() if t and hasattr(t, "isoformat") else datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "status": str(getattr(alarm, "status", "") or "0"),
+            "tenant_id": getattr(alarm, "tenant_id", "default") or "default",
+        },
+    )
 
 
 async def on_stream_start(session) -> None:
-    await _collect_event("stream_start", {
-        "stream": str(getattr(session, "stream", "") or ""),
-        "app": str(getattr(session, "app", "") or ""),
-        "resource_id": str(getattr(session, "resource_id", "") or ""),
-        "media_ip": str(getattr(session, "media_ip", "") or ""),
-        "media_port": int(getattr(session, "media_port", 0) or 0),
-        "ssrc": str(getattr(session, "ssrc", "") or ""),
-        "start_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _collect_event(
+        "stream_start",
+        {
+            "stream": str(getattr(session, "stream", "") or ""),
+            "app": str(getattr(session, "app", "") or ""),
+            "resource_id": str(getattr(session, "resource_id", "") or ""),
+            "media_ip": str(getattr(session, "media_ip", "") or ""),
+            "media_port": int(getattr(session, "media_port", 0) or 0),
+            "ssrc": str(getattr(session, "ssrc", "") or ""),
+            "start_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 async def on_stream_stop(session) -> None:
-    await _collect_event("stream_stop", {
-        "stream": str(getattr(session, "stream", "") or ""),
-        "app": str(getattr(session, "app", "") or ""),
-        "resource_id": str(getattr(session, "resource_id", "") or ""),
-        "stop_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _collect_event(
+        "stream_stop",
+        {
+            "stream": str(getattr(session, "stream", "") or ""),
+            "app": str(getattr(session, "app", "") or ""),
+            "resource_id": str(getattr(session, "resource_id", "") or ""),
+            "stop_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 _task: asyncio.Task | None = None

@@ -7,6 +7,7 @@ missing/failed read returns ``default``.
 # FIX: [2026-07-03] 增加 _MAX_CACHE_SIZE 容量上限和 evict_expired 清理逻辑,
 # 防止高频写入场景下 _cache 字典无限增长导致内存泄漏 [可靠性工程师]
 """
+
 from __future__ import annotations
 
 import time
@@ -29,6 +30,7 @@ async def get_system_setting(session, key: str, default: Any = None) -> Any:
     try:
         from app.models.system_setting import SystemSetting
         from sqlalchemy import select
+
         result = await session.execute(select(SystemSetting).where(SystemSetting.setting_key == key))
         row = result.scalars().first()
         value = row.setting_value if row is not None else default
@@ -62,6 +64,7 @@ async def set_system_setting(session, key: str, value: str) -> None:
     try:
         from app.models.system_setting import SystemSetting
         from sqlalchemy import select
+
         result = await session.execute(select(SystemSetting).where(SystemSetting.setting_key == key))
         row = result.scalars().first()
         if row is None:

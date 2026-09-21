@@ -103,6 +103,7 @@ const startCatalogSyncPolling = (gbId: string) => {
       const res = await api.get(`/api/v1/devices/${key}/catalog-runtime`)
       const runtime = res.data?.catalog_sync_runtime || {}
       const idx = props.devices.findIndex((d: Record<string, unknown>) => String(d?.gb_id || '') === key)
+      // eslint-disable-next-line vue/no-mutating-props -- 既有设计：同步轮询结果直接回写行数据
       if (idx >= 0) props.devices[idx] = { ...props.devices[idx], catalog_sync_runtime: runtime }
       if (catalogSyncDialogVisible.value && catalogSyncDialogGbId.value === key) catalogSyncDialogRuntime.value = runtime
       const state = String(runtime?.['catalog.sync_state'] || '').trim()

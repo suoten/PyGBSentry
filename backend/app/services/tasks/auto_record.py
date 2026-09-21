@@ -16,7 +16,6 @@ from app.models.resource import Resource
 from app.models.system_setting import SystemSetting
 
 
-
 _task: asyncio.Task | None = None
 
 PLUGIN_ID = "auto_record"
@@ -45,6 +44,7 @@ def _append_auto_record_event(*, op: str, stream_gb: str, ok: bool, err: str | N
             f.write(line)
     except Exception as e:
         logger.warning(f"Error: {e}")
+
 
 _DEFAULT_BASE_CONFIG = {
     "enabled": True,
@@ -146,9 +146,7 @@ async def _get_runtime_cfg() -> dict:
     check_interval_max: int | None = None
 
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
     for r in rows:
@@ -230,12 +228,7 @@ async def _get_target_stream_ids() -> list[str]:
     为每个启用的设备选择“第一个通道”（与旧逻辑一致），返回 stream gb_id 列表。
     """
     async with AsyncSessionLocal() as session:
-        stmt = (
-            select(Resource)
-            .join(Asset, Asset.id == Resource.asset_id)
-            .where(Asset.status == 1)
-            .order_by(Resource.asset_id, Resource.id)
-        )
+        stmt = select(Resource).join(Asset, Asset.id == Resource.asset_id).where(Asset.status == 1).order_by(Resource.asset_id, Resource.id)
         rows = (await session.execute(stmt)).scalars().all()
         picked: dict[str, Resource] = {}
         for r in rows:

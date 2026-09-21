@@ -13,7 +13,16 @@ class SipRecord:
         """Internal helper:   init  ."""
         self.sip_server = sip_server
 
-    async def query_device_record(self, asset, resource, transport_info: tuple, start_time: datetime.datetime, end_time: datetime.datetime, page_size: int = 50, page_num: int = 1):  # datetime module vs datetime class, 录像查询分页支持
+    async def query_device_record(
+        self,
+        asset,
+        resource,
+        transport_info: tuple,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        page_size: int = 50,
+        page_num: int = 1,
+    ):  # datetime module vs datetime class, 录像查询分页支持
         """
         Send RecordInfo Query with pagination support.
         GB28181 规范支持 RecNum（每页条数）和 SumNum（总条数）分页参数。
@@ -48,7 +57,9 @@ class SipRecord:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
+        )
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-17 P1]: 64位随机性
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去_rec后缀+SIP_DOMAIN，兼容非标准客户端
@@ -90,8 +101,12 @@ class SipRecord:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+        )
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去_rc后缀+SIP_DOMAIN，兼容非标准客户端
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -104,6 +119,7 @@ class SipRecord:
         await send_sip_bytes(proto, transport, addr, data)
         logger.info(f"Sent RecordCmd ({action}) to {channel_id}")
         return sn
+
 
 # Singleton
 sip_record = None

@@ -10,7 +10,7 @@ from app.db.model_registry import ensure_model_registry_loaded
 from app.core.config import settings
 
 # P1-6: SQL 标识符白名单正则，防止 f-string 拼接收列名/表名注入
-_SAFE_IDENT_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_SAFE_IDENT_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -988,9 +988,7 @@ async def _ensure_resources_asset_id_nullable():
 
         cols_sql = ", ".join(common_cols)
         sel_sql = ", ".join(common_cols)
-        await conn.execute(
-            text(f"INSERT INTO resources ({cols_sql}) SELECT {sel_sql} FROM resources_old")
-        )
+        await conn.execute(text(f"INSERT INTO resources ({cols_sql}) SELECT {sel_sql} FROM resources_old"))
         await conn.execute(text("DROP TABLE resources_old"))
         await conn.execute(text("PRAGMA foreign_keys=ON"))
 
@@ -1011,10 +1009,7 @@ async def _execute_ddl_statements(statements, dialect, conn):
             exec_stmt = exec_stmt.replace("ADD COLUMN IF NOT EXISTS", "ADD COLUMN")
 
         is_mysql_create_index = (
-            dialect == "mysql"
-            and "CREATE" in exec_stmt.upper()
-            and " INDEX " in exec_stmt.upper()
-            and "IF NOT EXISTS" in exec_stmt.upper()
+            dialect == "mysql" and "CREATE" in exec_stmt.upper() and " INDEX " in exec_stmt.upper() and "IF NOT EXISTS" in exec_stmt.upper()
         )
         if is_mysql_create_index:
             exec_stmt = exec_stmt.replace("IF NOT EXISTS", "").strip()
@@ -1048,7 +1043,10 @@ async def _execute_ddl_statements(statements, dialect, conn):
             elapsed_ms = int((time.perf_counter() - started) * 1000)
             logger.exception(
                 "Schema ensure [%s/%s] failed after %s ms: %s",
-                idx, total, elapsed_ms, stmt_preview,
+                idx,
+                total,
+                elapsed_ms,
+                stmt_preview,
             )
             raise
 
@@ -1058,7 +1056,11 @@ def _log_skip(idx, total, started, reason, stmt_preview):
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     logger.debug(
         "Schema ensure [%s/%s] skip %s (%s ms): %s",
-        idx, total, reason, elapsed_ms, stmt_preview,
+        idx,
+        total,
+        reason,
+        elapsed_ms,
+        stmt_preview,
     )
 
 

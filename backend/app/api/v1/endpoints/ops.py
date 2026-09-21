@@ -42,10 +42,11 @@ import zipfile
 import json
 from fastapi.responses import StreamingResponse
 
+
 @router.get("/diagnostics/export")
 async def export_diagnostics(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     """
     一键诊断包收集与导出工具 (A-10)
@@ -60,7 +61,7 @@ async def export_diagnostics(
             "python_version": sys.version,
             "edition": settings.APP_EDITION,
             "tenant_id": current_user.tenant_id,
-            "uptime_seconds": int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds())
+            "uptime_seconds": int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds()),
         }
         zf.writestr("env_info.json", json.dumps(env_info, indent=2, ensure_ascii=False))
 
@@ -94,10 +95,9 @@ async def export_diagnostics(
     zip_buffer.seek(0)
     filename = f"pygbsentry_diag_{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%d%H%M%S')}.zip"
     return StreamingResponse(
-        zip_buffer,
-        media_type="application/x-zip-compressed",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
+        zip_buffer, media_type="application/x-zip-compressed", headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
+
 
 # 系统状态采集缓存（5s TTL + 单飞锁 + stale-while-revalidate）：
 # /ops/status 是仪表盘高频轮询端点。原实现每请求阻塞 1 秒（cpu_percent
@@ -132,18 +132,15 @@ async def _collect_system_status() -> dict:
     zlm_host, zlm_port, zlm_secret, zlm_node_id, zlm_select_reason = await resolve_zlm_api_target()
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-        res = await client.post(
-            f"http://{zlm_host}:{zlm_port}/index/api/getMediaList",
-            data={"secret": zlm_secret},
-            timeout=2.0
-        )
+        res = await client.post(f"http://{zlm_host}:{zlm_port}/index/api/getMediaList", data={"secret": zlm_secret}, timeout=2.0)
         if res.status_code == 200:
             data = res.json()
             if data.get("code") == 0:
                 zlm_status = "Online"
-                zlm_streams = len(data.get('data', []))
+                zlm_streams = len(data.get("data", []))
             else:
                 zlm_error = f"api_code={data.get('code')}, msg={data.get('msg')}"
         else:
@@ -185,13 +182,12 @@ async def get_system_status(current_user: User = Depends(deps.get_current_active
     out["uptime_seconds"] = int((datetime.datetime.now(datetime.timezone.utc) - STARTED_AT).total_seconds())
     return out
 
+
 @router.get("/edition")
 def get_edition(current_user: User = Depends(deps.get_current_active_user)):
     edition = (settings.APP_EDITION or "oss").lower()
-    return {
-        "edition": edition,
-        "is_server": edition == "server"
-    }
+    return {"edition": edition, "is_server": edition == "server"}
+
 
 @router.get("/help-docs")
 async def get_help_docs(current_user: User = Depends(deps.get_current_active_user)):
@@ -199,6 +195,7 @@ async def get_help_docs(current_user: User = Depends(deps.get_current_active_use
     url = f"{base_url}/api/v1/ops/help-docs/public"
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         resp = await client.get(url, timeout=5.0)
         if resp.status_code == 200:
@@ -215,29 +212,17 @@ async def get_help_docs(current_user: User = Depends(deps.get_current_active_use
             "items": [
                 {
                     "title": "部署",
-                    "content": "在 <code>editions/open-source</code> 目录下运行 <code>docker compose --profile prod up -d</code> 一键启动，或分别启动后端和前端，然后通过浏览器访问并登录。详见 README-DOCKER.md。"
+                    "content": "在 <code>editions/open-source</code> 目录下运行 <code>docker compose --profile prod up -d</code> 一键启动，或分别启动后端和前端，然后通过浏览器访问并登录。详见 README-DOCKER.md。",
                 },
                 {
                     "title": "安装向导",
-                    "content": "首次登录时，若安装向导未完成，系统会自动跳转到安装向导页面，检查数据库和流媒体服务（ZLM）连通性；点击「完成配置」即可开始使用系统。"
+                    "content": "首次登录时，若安装向导未完成，系统会自动跳转到安装向导页面，检查数据库和流媒体服务（ZLM）连通性；点击「完成配置」即可开始使用系统。",
                 },
-                {
-                    "title": "添加设备",
-                    "content": "GB28181 设备通过运维中心配置的 SIP 完成注册；也可通过多协议接入添加 RTSP/ONVIF 视频源。"
-                },
-                {
-                    "title": "查看监控",
-                    "content": "在设备列表中查看通道，然后使用监控中心进行分屏预览和回放。"
-                },
-                {
-                    "title": "录像与报警",
-                    "content": "在录像计划中配置录像策略；在报警中心查看和处理报警信息。"
-                },
-                {
-                    "title": "插件",
-                    "content": "在插件中心安装所需插件（部分为付费插件）；安装后在配置中心填写相关地址即可使用。"
-                }
-            ]
+                {"title": "添加设备", "content": "GB28181 设备通过运维中心配置的 SIP 完成注册；也可通过多协议接入添加 RTSP/ONVIF 视频源。"},
+                {"title": "查看监控", "content": "在设备列表中查看通道，然后使用监控中心进行分屏预览和回放。"},
+                {"title": "录像与报警", "content": "在录像计划中配置录像策略；在报警中心查看和处理报警信息。"},
+                {"title": "插件", "content": "在插件中心安装所需插件（部分为付费插件）；安装后在配置中心填写相关地址即可使用。"},
+            ],
         },
         {
             "id": "2",
@@ -245,78 +230,67 @@ async def get_help_docs(current_user: User = Depends(deps.get_current_active_use
             "items": [
                 {
                     "title": "无法预览视频？",
-                    "content": "请检查：1) 设备是否在线（设备列表状态）；2) 运维中心中媒体节点（ZLM）配置是否正确且可达；3) 端口是否被占用或被防火墙拦截。可使用运维中心的「快速诊断」检查数据库和 ZLM 状态，并导出报告。"
+                    "content": "请检查：1) 设备是否在线（设备列表状态）；2) 运维中心中媒体节点（ZLM）配置是否正确且可达；3) 端口是否被占用或被防火墙拦截。可使用运维中心的「快速诊断」检查数据库和 ZLM 状态，并导出报告。",
                 },
                 {
                     "title": "找不到录像？",
-                    "content": "确认已配置录像计划且存储路径可写；回放时选择正确的时间范围和通道；设备录像需设备支持 GB28181 录像检索。在录像计划中按通道和策略配置录像计划。"
+                    "content": "确认已配置录像计划且存储路径可写；回放时选择正确的时间范围和通道；设备录像需设备支持 GB28181 录像检索。在录像计划中按通道和策略配置录像计划。",
                 },
                 {
                     "title": "没有报警通知？",
-                    "content": "在配置中心检查对应插件（飞书/电视墙/人脸·车牌·行为等）是否启用且回调地址正确；发布配置后需重启后端生效。"
+                    "content": "在配置中心检查对应插件（飞书/电视墙/人脸·车牌·行为等）是否启用且回调地址正确；发布配置后需重启后端生效。",
                 },
                 {
                     "title": "插件安装失败？",
-                    "content": "检查插件市场的网络访问；付费插件需先在计费中心购买；安装后若菜单未出现，请刷新页面或重新登录。"
+                    "content": "检查插件市场的网络访问；付费插件需先在计费中心购买；安装后若菜单未出现，请刷新页面或重新登录。",
                 },
                 {
                     "title": "如何启用演示模式？",
-                    "content": "部署时设置环境变量 <code>DEMO_MODE=true</code> 并重启后端；设备列表将显示内置演示设备（仅供体验，无真实视频流）。"
+                    "content": "部署时设置环境变量 <code>DEMO_MODE=true</code> 并重启后端；设备列表将显示内置演示设备（仅供体验，无真实视频流）。",
                 },
                 {
                     "title": "数据库连接失败？",
-                    "content": "在运维中心数据库配置中核对类型、主机、端口、库名和凭据；SQLite 需确认路径可写。修改后保存并点击「测试连接」验证。"
+                    "content": "在运维中心数据库配置中核对类型、主机、端口、库名和凭据；SQLite 需确认路径可写。修改后保存并点击「测试连接」验证。",
                 },
                 {
                     "title": "流媒体服务（ZLM）显示离线？",
-                    "content": "确认 ZLM 已启动，且运维中心中媒体节点 IP/端口与 <code>config.ini</code> 一致；Hook URL 必须指向本后端且能被 ZLM 访问。"
-                }
-            ]
+                    "content": "确认 ZLM 已启动，且运维中心中媒体节点 IP/端口与 <code>config.ini</code> 一致；Hook URL 必须指向本后端且能被 ZLM 访问。",
+                },
+            ],
         },
         {
             "id": "3",
             "tab_name": "升级须知",
             "items": [
-                {
-                    "title": "升级前准备",
-                    "content": "升级前建议<strong>备份数据库和配置</strong>（配置中心的草稿可导出或记录）。"
-                },
+                {"title": "升级前准备", "content": "升级前建议<strong>备份数据库和配置</strong>（配置中心的草稿可导出或记录）。"},
                 {
                     "title": "查看变更",
-                    "content": "从 x 升级到 y 时，请查看 Release Notes 或 CHANGELOG 中的<strong>配置变更和插件兼容性</strong>说明。"
+                    "content": "从 x 升级到 y 时，请查看 Release Notes 或 CHANGELOG 中的<strong>配置变更和插件兼容性</strong>说明。",
                 },
                 {
                     "title": "Docker 升级",
-                    "content": "若使用 Docker，拉取新镜像后运行 <code>docker compose --profile prod up -d</code>；数据库卷会被保留。"
+                    "content": "若使用 Docker，拉取新镜像后运行 <code>docker compose --profile prod up -d</code>；数据库卷会被保留。",
                 },
-                {
-                    "title": "升级后问题",
-                    "content": "升级后若插件或菜单异常，请尝试刷新页面、重新登录，或在插件中心重装插件。"
-                }
-            ]
+                {"title": "升级后问题", "content": "升级后若插件或菜单异常，请尝试刷新页面、重新登录，或在插件中心重装插件。"},
+            ],
         },
         {
             "id": "4",
             "tab_name": "文档与支持",
             "items": [
-                {
-                    "title": "文档",
-                    "content": "更多详情请参考项目文档或仓库 README。开源版提供基础功能，扩展能力可通过插件中心获取。"
-                },
-                {
-                    "title": "版权与支持",
-                    "content": "© PyGBSentry · 开源 + 插件市场"
-                }
-            ]
-        }
+                {"title": "文档", "content": "更多详情请参考项目文档或仓库 README。开源版提供基础功能，扩展能力可通过插件中心获取。"},
+                {"title": "版权与支持", "content": "© PyGBSentry · 开源 + 插件市场"},
+            ],
+        },
     ]
+
 
 @router.post("/shutdown")
 async def shutdown_service(
     background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查,
 ):
     tid = (current_user.tenant_id or "default").strip() or "default"
     op = current_user.username or "unknown"
@@ -373,6 +347,7 @@ async def shutdown_service(
     background_tasks.add_task(_term)
     return {"ok": True, "pid": pid}
 
+
 @router.get("/db-check")
 async def db_check(current_user: User = Depends(deps.get_current_active_user)):
     """校验当前配置的数据库连接是否可用，并给出数据库类型与兼容性提示。"""
@@ -419,7 +394,7 @@ async def db_compat_report(current_user: User = Depends(deps.get_current_active_
 @router.post("/backup")
 async def create_backup(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查,
 ):
     # FIX: [2026-08-22 P2] normalize_db_type() 缺少必填参数 value → TypeError →
     # POST /api/v1/ops/backup 必 500（测试发现）。备份格式按数据库类型分派。
@@ -429,10 +404,21 @@ async def create_backup(
     os.makedirs(backup_dir, exist_ok=True)
 
     tables_to_backup = [
-        "users", "assets", "resources", "alarms", "regions",
-        "organizations", "media_nodes", "billing_plans",
-        "tenant_subscriptions", "tenant_branding", "plugin_orders",
-        "roles", "push_channels", "platforms", "system_settings",
+        "users",
+        "assets",
+        "resources",
+        "alarms",
+        "regions",
+        "organizations",
+        "media_nodes",
+        "billing_plans",
+        "tenant_subscriptions",
+        "tenant_branding",
+        "plugin_orders",
+        "roles",
+        "push_channels",
+        "platforms",
+        "system_settings",
     ]
 
     # FIX [2026-09-19 P0]: 此前这里把 users.hashed_password/totp_secret 脱敏成
@@ -494,7 +480,7 @@ async def create_backup(
 
 @router.get("/backup/list")
 async def list_backups(
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查,
 ):
     backup_dir = os.path.join(os.getcwd(), "data", "backups")
     if not os.path.isdir(backup_dir):
@@ -504,18 +490,20 @@ async def list_backups(
         if f.startswith("pygbsentry_backup_") and f.endswith(".json"):
             fp = os.path.join(backup_dir, f)
             stat = os.stat(fp)
-            backups.append({
-                "filename": f,
-                "size_bytes": stat.st_size,
-                "created_at": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
-            })
+            backups.append(
+                {
+                    "filename": f,
+                    "size_bytes": stat.st_size,
+                    "created_at": datetime.datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                }
+            )
     return {"backups": backups}
 
 
 import re as _re
 from loguru import logger
 
-_SAFE_COL_RE = _re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
+_SAFE_COL_RE = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 @router.post("/restore")
@@ -545,14 +533,36 @@ async def restore_backup(
     restored_tables = []
     # Whitelist of allowed table names to prevent SQL injection from tampered backup files
     ALLOWED_RESTORE_TABLES = {
-        "users", "roles", "user_roles", "organizations", "devices", "resources",
-        "alarms", "alarm_notifications", "alarm_link_rules", "work_orders",
-        "media_nodes", "media_port_leases", "platforms", "platform_catalog_resources",
-        "stream_sessions", "push_channels", "integration_sources",
-        "record_schedules", "cloud_records", "device_positions",
-        "assets", "resource_assets", "audit_logs", "system_configs",
-        "plugins", "plugin_configs", "user_api_keys", "blacklist",
-        "device_directories", "device_subscriptions",
+        "users",
+        "roles",
+        "user_roles",
+        "organizations",
+        "devices",
+        "resources",
+        "alarms",
+        "alarm_notifications",
+        "alarm_link_rules",
+        "work_orders",
+        "media_nodes",
+        "media_port_leases",
+        "platforms",
+        "platform_catalog_resources",
+        "stream_sessions",
+        "push_channels",
+        "integration_sources",
+        "record_schedules",
+        "cloud_records",
+        "device_positions",
+        "assets",
+        "resource_assets",
+        "audit_logs",
+        "system_configs",
+        "plugins",
+        "plugin_configs",
+        "user_api_keys",
+        "blacklist",
+        "device_directories",
+        "device_subscriptions",
     }
     for table_name, rows in backup_data.items():
         if table_name not in ALLOWED_RESTORE_TABLES:
@@ -671,33 +681,39 @@ async def stream_diagnose(
     zlm_http_url = f"http://{zlm_host}:{zlm_port}"
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
         r = await client.post(f"{zlm_http_url}/index/api/getMediaList", data={"secret": zlm_secret}, timeout=3.0)
         zlm_reachable = r.status_code == 200
-        items.append({
-            "step": "zlm_api",
-            "key": "zlm_ping",
-            "ok": zlm_reachable,
-            "title": "ZLM HTTP API Connectivity",  # i18n
-            "detail": f"POST {zlm_http_url}/index/api/getMediaList → HTTP {r.status_code}" if zlm_reachable else None,
-            "suggestion": "Please check if ZLM is running and MEDIA_SERVER_HTTP_PORT is correct" if not zlm_reachable else None,  # i18n
-        })
+        items.append(
+            {
+                "step": "zlm_api",
+                "key": "zlm_ping",
+                "ok": zlm_reachable,
+                "title": "ZLM HTTP API Connectivity",  # i18n
+                "detail": f"POST {zlm_http_url}/index/api/getMediaList → HTTP {r.status_code}" if zlm_reachable else None,
+                "suggestion": "Please check if ZLM is running and MEDIA_SERVER_HTTP_PORT is correct" if not zlm_reachable else None,  # i18n
+            }
+        )
     except Exception as e:
-        items.append({
-            "step": "zlm_api",
-            "key": "zlm_ping",
-            "ok": False,
-            "title": "ZLM HTTP API Connectivity",  # i18n
-            "detail": f"Connection to {zlm_http_url} failed: {e}",  # i18n
-            "suggestion": f"Please confirm ZLM is running at {zlm_host}:{zlm_port} and the port is allowed by firewall",  # i18n
-        })
+        items.append(
+            {
+                "step": "zlm_api",
+                "key": "zlm_ping",
+                "ok": False,
+                "title": "ZLM HTTP API Connectivity",  # i18n
+                "detail": f"Connection to {zlm_http_url} failed: {e}",  # i18n
+                "suggestion": f"Please confirm ZLM is running at {zlm_host}:{zlm_port} and the port is allowed by firewall",  # i18n
+            }
+        )
 
     # --- Step 2: 流列表检查 ---
     streams = []
     if zlm_reachable:
         try:
             from app.services.zlm_stream_control import _get_zlm_client
+
             client = await _get_zlm_client()
             # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
             r = await client.post(f"{zlm_http_url}/index/api/getMediaList", data={"secret": zlm_secret}, timeout=3.0)
@@ -706,40 +722,52 @@ async def stream_diagnose(
             target_stream = None
             if channel_id:
                 target_stream = next((s for s in streams if channel_id in (s.get("stream") or "")), None)
-            stream_detail = (f"Channel '{channel_name}' ({target_stream.get('stream', '')})" if target_stream else "No channel specified or stream not found (normal)")  # i18n
-            items.append({
-                "step": "stream_list",
-                "key": "stream_list_check",
-                "ok": True,
-                "title": f"ZLM Stream List ({len(streams)} streams)",  # i18n
-                "detail": stream_detail,
-            })
+            stream_detail = (
+                f"Channel '{channel_name}' ({target_stream.get('stream', '')})"
+                if target_stream
+                else "No channel specified or stream not found (normal)"
+            )  # i18n
+            items.append(
+                {
+                    "step": "stream_list",
+                    "key": "stream_list_check",
+                    "ok": True,
+                    "title": f"ZLM Stream List ({len(streams)} streams)",  # i18n
+                    "detail": stream_detail,
+                }
+            )
             if target_stream:
                 channel_label = f"'{channel_name}'" if channel_name else ""  # i18n
-                items.append({
-                    "step": "stream_list",
-                    "key": "target_stream_app",
-                    "ok": True,
-                    "title": f"Target channel {channel_label} app type: {target_stream.get('app', 'unknown')}",  # i18n
-                    "detail": f"stream={target_stream.get('stream')}, schema={target_stream.get('schema')}",
-                })
+                items.append(
+                    {
+                        "step": "stream_list",
+                        "key": "target_stream_app",
+                        "ok": True,
+                        "title": f"Target channel {channel_label} app type: {target_stream.get('app', 'unknown')}",  # i18n
+                        "detail": f"stream={target_stream.get('stream')}, schema={target_stream.get('schema')}",
+                    }
+                )
         except Exception as e:
-            items.append({
-                "step": "stream_list",
-                "key": "stream_list_error",
-                "ok": False,
-                "title": "Failed to get stream list",  # i18n
-                "detail": str(e),
-                "suggestion": "ZLM API may be responding abnormally, check ZLM logs",  # i18n
-            })
+            items.append(
+                {
+                    "step": "stream_list",
+                    "key": "stream_list_error",
+                    "ok": False,
+                    "title": "Failed to get stream list",  # i18n
+                    "detail": str(e),
+                    "suggestion": "ZLM API may be responding abnormally, check ZLM logs",  # i18n
+                }
+            )
     else:
-        items.append({
-            "step": "stream_list",
-            "key": "stream_list_skip",
-            "ok": False,
-            "title": "Stream list check (skipped, ZLM API unreachable)",  # i18n
-            "suggestion": "Please fix ZLM API connectivity first",  # i18n
-        })
+        items.append(
+            {
+                "step": "stream_list",
+                "key": "stream_list_skip",
+                "ok": False,
+                "title": "Stream list check (skipped, ZLM API unreachable)",  # i18n
+                "suggestion": "Please fix ZLM API connectivity first",  # i18n
+            }
+        )
 
     # --- Step 3: Hook 回调检查 ---
     hook_ok = False
@@ -747,12 +775,14 @@ async def stream_diagnose(
     try:
         from app.models.media_node import MediaNode
         from app.api.v1.endpoints.integrations import _build_hook_base_url
+
         node_filter = [MediaNode.id == resolved_node_id] if resolved_node_id else [MediaNode.is_active]
         result = await db.execute(select(MediaNode).where(*node_filter).limit(1))
         db_node = result.scalar_one_or_none()
         hook_url = _build_hook_base_url(db_node)
         from app.services.zlm_stream_control import _get_zlm_client
         from urllib.parse import urlsplit, urlunsplit
+
         client = await _get_zlm_client()
         r = await client.head(hook_url, timeout=3.0)
         hook_ok = r.status_code < 500
@@ -772,23 +802,29 @@ async def stream_diagnose(
                         probe_note = f" (host alias unreachable from backend host, verified via {local_url}: HTTP {r2.status_code})"
                 except Exception:
                     pass
-        items.append({
-            "step": "hook_callback",
-            "key": "hook_check",
-            "ok": hook_ok,
-            "title": "Hook Callback URL Reachability",  # i18n
-            "detail": f"Callback URL: {hook_url}\nTest result: HTTP {r.status_code} {'OK' if hook_ok else 'Failed'}{probe_note}",  # i18n
-            "suggestion": "If 404/502 returned, check backend /api/v1/hook is working, ZLM hook URL must be accessible by this backend" if not hook_ok else None,  # i18n
-        })
+        items.append(
+            {
+                "step": "hook_callback",
+                "key": "hook_check",
+                "ok": hook_ok,
+                "title": "Hook Callback URL Reachability",  # i18n
+                "detail": f"Callback URL: {hook_url}\nTest result: HTTP {r.status_code} {'OK' if hook_ok else 'Failed'}{probe_note}",  # i18n
+                "suggestion": "If 404/502 returned, check backend /api/v1/hook is working, ZLM hook URL must be accessible by this backend"
+                if not hook_ok
+                else None,  # i18n
+            }
+        )
     except Exception as e:
-        items.append({
-            "step": "hook_callback",
-            "key": "hook_check",
-            "ok": False,
-            "title": "Hook Callback URL Reachability",  # i18n
-            "detail": f"Callback URL: {hook_url or '(not retrieved)'}\nError: {e}",  # i18n
-            "suggestion": "Check ZLM hook config is http://127.0.0.1:8000/api/v1/hook (if co-located), and /api/v1/hook responds normally",  # i18n
-        })
+        items.append(
+            {
+                "step": "hook_callback",
+                "key": "hook_check",
+                "ok": False,
+                "title": "Hook Callback URL Reachability",  # i18n
+                "detail": f"Callback URL: {hook_url or '(not retrieved)'}\nError: {e}",  # i18n
+                "suggestion": "Check ZLM hook config is http://127.0.0.1:8000/api/v1/hook (if co-located), and /api/v1/hook responds normally",  # i18n
+            }
+        )
 
     # --- Step 4: 流播放可用性（直连 ZLM 检查） ---
     # 目标流信息（可能来自 ZLM 实时流，也可能只是用户输入的 channel_id）
@@ -802,6 +838,7 @@ async def stream_diagnose(
     if resolved_node_id:
         try:
             from app.models.media_node import MediaNode
+
             node_result = await db.execute(select(MediaNode).where(MediaNode.id == resolved_node_id).limit(1))
             db_node4play = node_result.scalar_one_or_none()
             if db_node4play:
@@ -825,6 +862,7 @@ async def stream_diagnose(
     stream_detail = ""
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         r = await client.get(zlm_probe_addr, timeout=5.0, follow_redirects=True)  # S-09-01 HEAD不返回响应体，改为GET才能检查#EXTM3U内容
         if r.status_code == 200:
@@ -840,14 +878,18 @@ async def stream_diagnose(
     except Exception as ex:
         stream_detail = f"Connection failed: {ex}"  # i18n
 
-    items.append({
-        "step": "play_address",
-        "key": "play_addr_check",
-        "ok": stream_playable,
-        "title": f"Stream Playability (schema={schema}, direct ZLM)",  # i18n
-        "detail": f"Channel '{channel_name}' ({stream_id})\napp={app}, schema={schema}\nProbe URL: {zlm_probe_addr}\nProbe result: {stream_detail}",  # i18n
-        "suggestion": "If direct ZLM connection failed, check if HLS is enabled in ZLM config ([hls] enable=1) and if stream is being pushed" if not stream_playable else None,  # i18n
-    })
+    items.append(
+        {
+            "step": "play_address",
+            "key": "play_addr_check",
+            "ok": stream_playable,
+            "title": f"Stream Playability (schema={schema}, direct ZLM)",  # i18n
+            "detail": f"Channel '{channel_name}' ({stream_id})\napp={app}, schema={schema}\nProbe URL: {zlm_probe_addr}\nProbe result: {stream_detail}",  # i18n
+            "suggestion": "If direct ZLM connection failed, check if HLS is enabled in ZLM config ([hls] enable=1) and if stream is being pushed"
+            if not stream_playable
+            else None,  # i18n
+        }
+    )
 
     # --- Step 5: Nginx 反向代理检查（通过公网域名访问流地址） ---
     nginx_playable = False
@@ -864,6 +906,7 @@ async def stream_diagnose(
             nginx_probe_addr = f"http://{play_host}/live/{stream_id}.flv"
         try:
             from app.services.zlm_stream_control import _get_zlm_client
+
             client = await _get_zlm_client()
             r = await client.get(nginx_probe_addr, timeout=5.0, follow_redirects=True)  # S-09-01 HEAD不返回响应体，改为GET才能检查#EXTM3U内容
             if r.status_code == 200:
@@ -881,14 +924,18 @@ async def stream_diagnose(
     else:
         nginx_detail = "Public domain not configured, skipping reverse proxy check"  # i18n
 
-    items.append({
-        "step": "nginx_proxy",
-        "key": "nginx_play_check",
-        "ok": nginx_playable,
-        "title": "Nginx Reverse Proxy Stream Playability",  # i18n
-        "detail": f"Channel '{channel_name}' ({stream_id})\nPublic stream URL: {nginx_probe_addr if play_host and play_host != zlm_host else '(public domain not configured)'}\nProbe result: {nginx_detail}",  # i18n
-        "suggestion": "If reverse proxy failed, confirm nginx has /rtp/ proxy configured and reloaded, and public domain resolves correctly" if not nginx_playable and play_host != zlm_host else None,  # i18n
-    })
+    items.append(
+        {
+            "step": "nginx_proxy",
+            "key": "nginx_play_check",
+            "ok": nginx_playable,
+            "title": "Nginx Reverse Proxy Stream Playability",  # i18n
+            "detail": f"Channel '{channel_name}' ({stream_id})\nPublic stream URL: {nginx_probe_addr if play_host and play_host != zlm_host else '(public domain not configured)'}\nProbe result: {nginx_detail}",  # i18n
+            "suggestion": "If reverse proxy failed, confirm nginx has /rtp/ proxy configured and reloaded, and public domain resolves correctly"
+            if not nginx_playable and play_host != zlm_host
+            else None,  # i18n
+        }
+    )
 
     return {"items": items, "channel_name": channel_name, "channel_id": channel_id}
 
@@ -906,13 +953,10 @@ async def get_active_streams(
 
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-        r = await client.post(
-            f"http://{zlm_host}:{zlm_port}/index/api/getMediaList",
-            data={"secret": zlm_secret},
-            timeout=4.0
-        )
+        r = await client.post(f"http://{zlm_host}:{zlm_port}/index/api/getMediaList", data={"secret": zlm_secret}, timeout=4.0)
         if r.status_code != 200:
             raise HTTPException(status_code=502, detail=f"ZLM API returned {r.status_code}")  # i18n
         data = r.json()
@@ -984,16 +1028,18 @@ async def get_active_streams(
             for row in res_result.all():
                 stream_id = str(getattr(row, "stream_id", "") or "")
                 name = str(getattr(row, "channel_name", stream_id) or stream_id)
-                rtp_streams.append({
-                    "stream": stream_id,
-                    "name": name,
-                    "app": "rtp",
-                    "schema": "hls",
-                    "aliveSecond": 0,
-                    "readerCount": 0,
-                    "totalReaderCount": 0,
-                    "bytesSpeed": 0,
-                })
+                rtp_streams.append(
+                    {
+                        "stream": stream_id,
+                        "name": name,
+                        "app": "rtp",
+                        "schema": "hls",
+                        "aliveSecond": 0,
+                        "readerCount": 0,
+                        "totalReaderCount": 0,
+                        "bytesSpeed": 0,
+                    }
+                )
         except Exception as e:
             logger.warning(f"Failed to query online channel name: {e}")  # i18n
 
@@ -1025,27 +1071,25 @@ async def diagnose_report(
     zlm_host, zlm_port, zlm_secret, zlm_node_id, zlm_select_reason = await resolve_zlm_api_target(db)
     try:
         from app.services.zlm_stream_control import _get_zlm_client
+
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-        res = await client.post(
-            f"http://{zlm_host}:{zlm_port}/index/api/getMediaList",
-            data={"secret": zlm_secret},
-            timeout=2.0
-        )
+        res = await client.post(f"http://{zlm_host}:{zlm_port}/index/api/getMediaList", data={"secret": zlm_secret}, timeout=2.0)
         if res.status_code == 200 and res.json().get("code") == 0:
             zlm_ok = True
             zlm_streams = len(res.json().get("data", []))
     except Exception as e:
         logger.debug(f"Non-critical operation failed: {e}")  # i18n
-    report["items"].append({
-        "name": "zlm",
-        "ok": zlm_ok,
-        "text": (
-            f"Media Server (ZLM): {'online' if zlm_ok else 'offline'}, current streams: {zlm_streams}; "
-            f"target: {zlm_host}:{zlm_port}; source: {zlm_select_reason}"
-            + (f"; node_id={zlm_node_id}" if zlm_node_id else "")
-        ),  # i18n
-    })
+    report["items"].append(
+        {
+            "name": "zlm",
+            "ok": zlm_ok,
+            "text": (
+                f"Media Server (ZLM): {'online' if zlm_ok else 'offline'}, current streams: {zlm_streams}; "
+                f"target: {zlm_host}:{zlm_port}; source: {zlm_select_reason}" + (f"; node_id={zlm_node_id}" if zlm_node_id else "")
+            ),  # i18n
+        }
+    )
     if not zlm_ok:
         report["summary"] = "error"
     # 端到端验证检查项（供运维按步骤执行）
@@ -1079,43 +1123,13 @@ async def diagnose_report(
     # 业务统计（按租户聚合）
     tenant_id = current_user.tenant_id or "default"
     try:
-        device_total = int(
-            (
-                await db.execute(
-                    select(func.count()).select_from(Asset).where(Asset.tenant_id == tenant_id)
-                )
-            ).scalar()
-            or 0
-        )
+        device_total = int((await db.execute(select(func.count()).select_from(Asset).where(Asset.tenant_id == tenant_id))).scalar() or 0)
         device_online = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(Asset)
-                    .where(Asset.tenant_id == tenant_id, Asset.status == 1)
-                )
-            ).scalar()
-            or 0
+            (await db.execute(select(func.count()).select_from(Asset).where(Asset.tenant_id == tenant_id, Asset.status == 1))).scalar() or 0
         )
-        channel_total = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(Resource)
-                    .where(Resource.tenant_id == tenant_id)
-                )
-            ).scalar()
-            or 0
-        )
+        channel_total = int((await db.execute(select(func.count()).select_from(Resource).where(Resource.tenant_id == tenant_id))).scalar() or 0)
         open_alarms = int(
-            (
-                await db.execute(
-                    select(func.count())
-                    .select_from(Alarm)
-                    .where(Alarm.tenant_id == tenant_id, Alarm.status != 1)
-                )
-            ).scalar()
-            or 0
+            (await db.execute(select(func.count()).select_from(Alarm).where(Alarm.tenant_id == tenant_id, Alarm.status != 1))).scalar() or 0
         )
         report["items"].append(
             {
@@ -1155,6 +1169,7 @@ async def get_cluster_health(current_user: User = Depends(deps.get_current_activ
     """获取集群健康状态"""
     # 实现集群健康检查API
     from app.core.redis import ha_cluster
+
     if not ha_cluster:
         return {"enabled": False, "message": "Cluster mode not enabled"}
     return {"enabled": True, **await ha_cluster.get_cluster_health()}

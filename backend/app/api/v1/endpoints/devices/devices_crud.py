@@ -17,6 +17,7 @@ from app.models.organization import Organization
 from app.models.asset_stream_policy import AssetStreamPolicy
 from app.models.asset_stream_health import AssetStreamHealth  # FIX: [2026-07-13] 级联删除流健康度记录
 from app.models.ip_blacklist import IpBlacklist
+
 try:
     # 可选依赖：部分部署/版本可能没有该模型与对应表
     from app.models.device_subscription import DeviceSubscription
@@ -34,7 +35,7 @@ from typing import Any
 from datetime import datetime, timezone
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
-from . _common import (
+from ._common import (
     _tenant_id_for_user,
     _safe_val,
     StreamModeUpdate,
@@ -117,6 +118,8 @@ def _escape_ilike(val: str) -> str:
 
 # 导出端点全量加载无限制 → 添加 max_rows 限制
 _EXPORT_MAX_ROWS = 10000
+
+
 @router.get("", response_model=DeviceListResponse)
 async def get_devices(
     organization_id: str | None = None,
@@ -126,7 +129,7 @@ async def get_devices(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     """设备列表；可选按组织筛选 organization_id。"""
     limit = max(1, min(int(limit or 50), 10000))
@@ -215,44 +218,44 @@ async def get_devices(
         cycle = int(getattr(sub, "catalog_cycle_seconds", 0) or 0) if sub else 0
         items.append(
             {
-            "id": asset.id,
-            "gb_id": asset.gb_id,
-            "name": asset.name,
-            "organization_id": asset.organization_id,
-            "transport": asset.transport,
-            "ip_addr": asset.ip_addr,
-            "port": asset.port,
-            "manufacturer": asset.manufacturer,
-            "model": asset.model,
-            "firmware": asset.firmware,
-            "status": asset.status,
-            "is_online": asset.status == 1,  # FIX: [2026-07-04] 响应缺少 is_online 布尔字段，前端/审计读取恒为 None [全栈工程师]
-            "last_keepalive": asset.last_keepalive,
-            "register_time": asset.register_time,
-            "expires": asset.expires,
-            "domain": getattr(asset, "domain", None),  # FIX: [2026-07-03] Asset 模型无 domain 列，使用 getattr 防止 AttributeError [全栈工程师]
-            "charset": asset.charset,
-            "ssrc_check": asset.ssrc_check,
-            "geo_coord_sys": asset.geo_coord_sys,
-            "as_message_channel": asset.as_message_channel,
-            "heartbeat_interval": asset.heartbeat_interval,
-            "heartbeat_count": asset.heartbeat_count,
-            "created_at": asset.created_at,
-            "updated_at": asset.updated_at,
-            "stream_mode": policy_map.get(asset.id) or "GLOBAL",
-            "catalog_sync_runtime": runtime,
-            "channel_count": channel_count_map.get(str(asset.id), 0),
-            "catalog_subscribe_enabled": bool(cycle > 0),
-            "catalog_subscribe_cycle_seconds": cycle,
-            "catalog_subscribe_last_sync_at": (sub.last_catalog_sync_at if sub else None),
-            "catalog_subscribe_last_sync_ok": int(getattr(sub, "last_catalog_sync_ok", 0) or 0) if sub else 0,
-            "catalog_subscribe_last_sync_error": str(getattr(sub, "last_catalog_sync_error", "") or "") if sub else "",
-            "mobile_position_subscribe_enabled": bool(int(getattr(sub, "mobile_position_enabled", 0) or 0) == 1) if sub else False,
-            "mobile_position_interval_seconds": int(getattr(sub, "mobile_position_interval_seconds", 60) or 60) if sub else 60,
-            "mobile_position_last_subscribe_at": (sub.last_mobile_position_subscribe_at if sub else None),
-            "mobile_position_last_subscribe_ok": int(getattr(sub, "last_mobile_position_subscribe_ok", 0) or 0) if sub else 0,
-            "mobile_position_last_subscribe_error": str(getattr(sub, "last_mobile_position_subscribe_error", "") or "") if sub else "",
-        }
+                "id": asset.id,
+                "gb_id": asset.gb_id,
+                "name": asset.name,
+                "organization_id": asset.organization_id,
+                "transport": asset.transport,
+                "ip_addr": asset.ip_addr,
+                "port": asset.port,
+                "manufacturer": asset.manufacturer,
+                "model": asset.model,
+                "firmware": asset.firmware,
+                "status": asset.status,
+                "is_online": asset.status == 1,  # FIX: [2026-07-04] 响应缺少 is_online 布尔字段，前端/审计读取恒为 None [全栈工程师]
+                "last_keepalive": asset.last_keepalive,
+                "register_time": asset.register_time,
+                "expires": asset.expires,
+                "domain": getattr(asset, "domain", None),  # FIX: [2026-07-03] Asset 模型无 domain 列，使用 getattr 防止 AttributeError [全栈工程师]
+                "charset": asset.charset,
+                "ssrc_check": asset.ssrc_check,
+                "geo_coord_sys": asset.geo_coord_sys,
+                "as_message_channel": asset.as_message_channel,
+                "heartbeat_interval": asset.heartbeat_interval,
+                "heartbeat_count": asset.heartbeat_count,
+                "created_at": asset.created_at,
+                "updated_at": asset.updated_at,
+                "stream_mode": policy_map.get(asset.id) or "GLOBAL",
+                "catalog_sync_runtime": runtime,
+                "channel_count": channel_count_map.get(str(asset.id), 0),
+                "catalog_subscribe_enabled": bool(cycle > 0),
+                "catalog_subscribe_cycle_seconds": cycle,
+                "catalog_subscribe_last_sync_at": (sub.last_catalog_sync_at if sub else None),
+                "catalog_subscribe_last_sync_ok": int(getattr(sub, "last_catalog_sync_ok", 0) or 0) if sub else 0,
+                "catalog_subscribe_last_sync_error": str(getattr(sub, "last_catalog_sync_error", "") or "") if sub else "",
+                "mobile_position_subscribe_enabled": bool(int(getattr(sub, "mobile_position_enabled", 0) or 0) == 1) if sub else False,
+                "mobile_position_interval_seconds": int(getattr(sub, "mobile_position_interval_seconds", 60) or 60) if sub else 60,
+                "mobile_position_last_subscribe_at": (sub.last_mobile_position_subscribe_at if sub else None),
+                "mobile_position_last_subscribe_ok": int(getattr(sub, "last_mobile_position_subscribe_ok", 0) or 0) if sub else 0,
+                "mobile_position_last_subscribe_error": str(getattr(sub, "last_mobile_position_subscribe_error", "") or "") if sub else "",
+            }
         )
     return {
         "items": items,
@@ -279,9 +282,7 @@ async def get_catalog_subscription(
     asset = get_or_404(asset_result, detail="Asset not found")  # ORM查询结果空值判断
     if not current_user.is_superuser and asset.tenant_id != (current_user.tenant_id or "default"):
         raise HTTPException(status_code=403, detail="Permission denied")  # i18n
-    sub = (
-        await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset.id))
-    ).scalars().first()
+    sub = (await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset.id))).scalars().first()
     cycle = int(getattr(sub, "catalog_cycle_seconds", 0) or 0) if sub else 0
     return {
         "device_id": device_id,
@@ -310,9 +311,7 @@ async def update_catalog_subscription(
     if not current_user.is_superuser and asset.tenant_id != (current_user.tenant_id or "default"):
         raise HTTPException(status_code=403, detail="Permission denied")  # i18n
 
-    sub = (
-        await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset.id))
-    ).scalars().first()
+    sub = (await db.execute(select(DeviceSubscription).where(DeviceSubscription.asset_id == asset.id))).scalars().first()
     if not sub:
         sub = DeviceSubscription(asset_id=asset.id, tenant_id=(asset.tenant_id or (current_user.tenant_id or "default")))
         db.add(sub)
@@ -397,12 +396,13 @@ async def update_mobile_position_subscription(
     await db.commit()
     return {"device_id": device_id, "enabled": enabled, "interval_seconds": interval, "renew_seconds": renew}
 
+
 @router.put("/{device_id}/stream-mode")
 async def update_device_stream_mode(
     device_id: str,
     payload: StreamModeUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"]))
+    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"])),
 ):
     stream_mode = (payload.stream_mode or "").strip().upper()
     if stream_mode not in {"GLOBAL", "AUTO", "UDP", "TCP_PASSIVE", "TCP_ACTIVE"}:
@@ -786,6 +786,7 @@ async def export_devices(
     truncated = False
     if len(assets) > _EXPORT_MAX_ROWS:
         from loguru import logger
+
         logger.warning(f"Export truncated: {len(assets)} devices exceed max_rows={_EXPORT_MAX_ROWS}")
         assets = assets[:_EXPORT_MAX_ROWS]
         truncated = True
@@ -804,25 +805,45 @@ async def export_devices(
 
     # 字段列表
     device_fields = [
-        "gb_id", "name", "manufacturer", "model", "owner", "civil_code",
-        "address", "ip_addr", "port", "transport", "status",
-        "has_ptz", "stream_type", "max_stream", "alarm_method",
+        "gb_id",
+        "name",
+        "manufacturer",
+        "model",
+        "owner",
+        "civil_code",
+        "address",
+        "ip_addr",
+        "port",
+        "transport",
+        "status",
+        "has_ptz",
+        "stream_type",
+        "max_stream",
+        "alarm_method",
         "created_at",
     ]
     channel_fields = [
-        "gb_id", "asset_id", "name", "manufacturer", "model", "owner",
-        "civil_code", "address", "parent_gb_id", "node_type", "status",
-        "longitude", "latitude", "has_ptz",
+        "gb_id",
+        "asset_id",
+        "name",
+        "manufacturer",
+        "model",
+        "owner",
+        "civil_code",
+        "address",
+        "parent_gb_id",
+        "node_type",
+        "status",
+        "longitude",
+        "latitude",
+        "has_ptz",
     ]
 
     if format_ == "json":
         items = []
         for a in assets:
             dev = {k: _safe_val(getattr(a, k, "")) for k in device_fields}
-            dev["channels"] = [
-                {k: _safe_val(getattr(c, k, "")) for k in channel_fields}
-                for c in channels_map.get(a.id, [])
-            ]
+            dev["channels"] = [{k: _safe_val(getattr(c, k, "")) for k in channel_fields} for c in channels_map.get(a.id, [])]
             items.append(dev)
         # 导出端点全量加载无限制 → 截断时在 JSON 中添加警告
         export_data = {"total": len(items), "devices": items}
@@ -901,11 +922,7 @@ async def cleanup_dummy_assets(
         raise HTTPException(status_code=400, detail="No replaceable real asset found, cannot delete virtual device")  # i18n
 
     # 迁移资源外键
-    res = await db.execute(
-        update(Resource)
-        .where(Resource.asset_id.in_(dummy_ids))
-        .values(asset_id=replace_asset.id)
-    )
+    res = await db.execute(update(Resource).where(Resource.asset_id.in_(dummy_ids)).values(asset_id=replace_asset.id))
     resources_reassigned = int(getattr(res, "rowcount", 0) or 0)
 
     # 删除虚拟资产

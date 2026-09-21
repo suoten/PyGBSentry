@@ -20,6 +20,7 @@ SUBSCRIBE/NOTIFY 周期。订阅记录持久化在 ``platform_subscriptions`` �
 模块级 ``platform_subscription_service`` 为单例，``notify_manager`` 在模块加载时
 即引用，故本模块导入必须始终成功。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -68,6 +69,7 @@ class PlatformSubscriptionService:
             self._running = True
             # 续订循环作为 fire-and-forget 后台任务，保存引用防 GC
             from app.core.async_utils import fire_and_forget
+
             self._renew_task = fire_and_forget(self._renewal_loop())
             logger.info("platform_subscription_service started")
         except Exception as e:
@@ -205,8 +207,7 @@ class PlatformSubscriptionService:
                 now = _utcnow()
                 stmt = select(PlatformSubscription).where(
                     PlatformSubscription.event == event,
-                    (PlatformSubscription.expires_at.is_(None))
-                    | (PlatformSubscription.expires_at > now),
+                    (PlatformSubscription.expires_at.is_(None)) | (PlatformSubscription.expires_at > now),
                 )
                 if tenant_id:
                     stmt = stmt.where(PlatformSubscription.tenant_id == tenant_id)
@@ -222,8 +223,7 @@ class PlatformSubscriptionService:
                 now = _utcnow()
                 stmt = select(PlatformSubscription).where(
                     PlatformSubscription.event == event_type,
-                    (PlatformSubscription.expires_at.is_(None))
-                    | (PlatformSubscription.expires_at > now),
+                    (PlatformSubscription.expires_at.is_(None)) | (PlatformSubscription.expires_at > now),
                 )
                 return list((await db.execute(stmt)).scalars().all())
         except Exception as e:
@@ -266,9 +266,7 @@ class PlatformSubscriptionService:
                 return
             async with AsyncSessionLocal() as db:
                 now = _utcnow()
-                stmt = select(PlatformSubscription).where(
-                    PlatformSubscription.last_call_id == call_id
-                )
+                stmt = select(PlatformSubscription).where(PlatformSubscription.last_call_id == call_id)
                 sub = (await db.execute(stmt)).scalars().first()
                 if sub is None:
                     return
@@ -291,9 +289,7 @@ class PlatformSubscriptionService:
         """平台离线时清理其所有订阅记录。返回删除条数。"""
         try:
             async with AsyncSessionLocal() as db:
-                stmt = delete(PlatformSubscription).where(
-                    PlatformSubscription.platform_id == platform_id
-                )
+                stmt = delete(PlatformSubscription).where(PlatformSubscription.platform_id == platform_id)
                 if tenant_id:
                     stmt = stmt.where(PlatformSubscription.tenant_id == tenant_id)
                 result = await db.execute(stmt)
@@ -302,7 +298,9 @@ class PlatformSubscriptionService:
                 if deleted:
                     logger.info(
                         "platform_subscription removed {} subs for platform={} reason={}",
-                        deleted, platform_id, reason,
+                        deleted,
+                        platform_id,
+                        reason,
                     )
                 return deleted
         except Exception as e:
@@ -331,14 +329,13 @@ class PlatformSubscriptionService:
         """构造并发送 SUBSCRIBE 给上级平台。惰性导入 commander 避免循环依赖。"""
         try:
             import app.sip.commander as commander_mod  # noqa: WPS433 (lazy import)
+
             commander = getattr(commander_mod, "sip_commander", None)
             if commander is None:
                 logger.debug("platform_subscription: sip_commander not ready, skip subscribe")
                 return False
             async with AsyncSessionLocal() as db:
-                plat = (
-                    await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))
-                ).scalars().first()
+                plat = (await db.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                 if not plat:
                     logger.warning("platform_subscription: platform {} not found", platform_id)
                     return False

@@ -3,6 +3,7 @@
 解决"设备初始注册后新增通道不自动同步"的问题。
 默认每 30 分钟刷新一次（可通过 CATALOG_REFRESH_INTERVAL_SECONDS 配置）。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,12 +27,7 @@ async def _refresh_device_catalogs() -> None:
     try:
         async with AsyncSessionLocal() as session:
             # 查询在线设备（status=1）
-            stmt = (
-                select(Asset)
-                .where(Asset.status == 1)
-                .order_by(Asset.last_keepalive.desc())
-                .limit(_MAX_DEVICES_PER_CYCLE)
-            )
+            stmt = select(Asset).where(Asset.status == 1).order_by(Asset.last_keepalive.desc()).limit(_MAX_DEVICES_PER_CYCLE)
             result = await session.execute(stmt)
             assets = result.scalars().all()
 
@@ -69,6 +65,7 @@ async def _refresh_device_catalogs() -> None:
 
             # 获取 transport 对象（SIP server 有 UDP/TCP 双栈，根据协议选择）
             from app.sip.server import sip_server
+
             if proto.upper() == "TCP":
                 transport = getattr(sip_server, "tcp_transport", None)
             else:

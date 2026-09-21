@@ -49,7 +49,7 @@ def _build_play_urls(
     _base_stream = stream_id
     for _suf in (".live", ".mp4", ".ts"):
         if _base_stream.endswith(_suf):
-            _base_stream = _base_stream[:-len(_suf)]
+            _base_stream = _base_stream[: -len(_suf)]
             break
 
     # 处理虚拟主机路径
@@ -208,11 +208,7 @@ def _build_media_server_payload(selected_node, media_host: str | None, http_port
         "hookAliveInterval": None,
         "rtpEnable": True,
         "status": bool(zlm_probe_ok),
-        "rtpPortRange": str(
-            _node_value(selected_node, "rtp_port_range")
-            or settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE
-            or ""
-        ) or None,
+        "rtpPortRange": str(_node_value(selected_node, "rtp_port_range") or settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE or "") or None,
         "sendRtpPortRange": None,
         "recordAssistPort": _safe_int(_node_value(selected_node, "record_mgr_port"), 0) or None,
         "createTime": None,
@@ -228,12 +224,7 @@ def _build_media_server_payload(selected_node, media_host: str | None, http_port
 
 def _resolve_codec(resource: Resource) -> str:
     capabilities = resource.capabilities or {}
-    codec = str(
-        capabilities.get("video_codec")
-        or capabilities.get("codec")
-        or capabilities.get("encode")
-        or "h264"
-    ).lower()
+    codec = str(capabilities.get("video_codec") or capabilities.get("codec") or capabilities.get("encode") or "h264").lower()
     if codec in {"h265", "hevc"}:
         return "h265"
     return "h264"
@@ -253,15 +244,18 @@ def _build_media_info_payload(
     width = _safe_int((media_item or {}).get("width") or capabilities.get("width"), 0) or None
     height = _safe_int((media_item or {}).get("height") or capabilities.get("height"), 0) or None
     reader_count = _safe_int((media_item or {}).get("readerCount"), 0)
-    video_codec = str(
-        (media_item or {}).get("videoCodec")
-        or (media_item or {}).get("vcodec")
-        or capabilities.get("video_codec")
-        or capabilities.get("codec")
-        or capabilities.get("encode")
-        or _resolve_codec(resource)
-        or ""
-    ).upper() or None
+    video_codec = (
+        str(
+            (media_item or {}).get("videoCodec")
+            or (media_item or {}).get("vcodec")
+            or capabilities.get("video_codec")
+            or capabilities.get("codec")
+            or capabilities.get("encode")
+            or _resolve_codec(resource)
+            or ""
+        ).upper()
+        or None
+    )
     audio_codec = str((media_item or {}).get("audioCodec") or (media_item or {}).get("acodec") or "").upper() or None
     return {
         "app": app_name,
@@ -348,15 +342,90 @@ def _pick_preferred_play_url(
         rtc_order = ()
 
     if is_rtp_stream:
-        base_order = ("https_flv", "wss_flv", "flv", "ws_flv", "https_hls", "wss_hls", "hls", "ws_hls", "rtsp", "rtsps", "https_ts", "wss_ts", "ts", "ws_ts")
+        base_order = (
+            "https_flv",
+            "wss_flv",
+            "flv",
+            "ws_flv",
+            "https_hls",
+            "wss_hls",
+            "hls",
+            "ws_hls",
+            "rtsp",
+            "rtsps",
+            "https_ts",
+            "wss_ts",
+            "ts",
+            "ws_ts",
+        )
     elif schema == "hls":
-        base_order = ("https_hls", "wss_hls", "hls", "ws_hls", "https_flv", "wss_flv", "flv", "ws_flv", "https_ts", "wss_ts", "ts", "ws_ts", "rtsp", "rtsps")
+        base_order = (
+            "https_hls",
+            "wss_hls",
+            "hls",
+            "ws_hls",
+            "https_flv",
+            "wss_flv",
+            "flv",
+            "ws_flv",
+            "https_ts",
+            "wss_ts",
+            "ts",
+            "ws_ts",
+            "rtsp",
+            "rtsps",
+        )
     elif schema == "ts":
-        base_order = ("https_ts", "wss_ts", "ts", "ws_ts", "https_flv", "wss_flv", "flv", "ws_flv", "https_hls", "wss_hls", "hls", "ws_hls", "rtsp", "rtsps")
+        base_order = (
+            "https_ts",
+            "wss_ts",
+            "ts",
+            "ws_ts",
+            "https_flv",
+            "wss_flv",
+            "flv",
+            "ws_flv",
+            "https_hls",
+            "wss_hls",
+            "hls",
+            "ws_hls",
+            "rtsp",
+            "rtsps",
+        )
     elif schema == "rtsp":
-        base_order = ("https_flv", "wss_flv", "flv", "ws_flv", "https_hls", "wss_hls", "hls", "ws_hls", "rtsp", "rtsps", "https_ts", "wss_ts", "ts", "ws_ts")
+        base_order = (
+            "https_flv",
+            "wss_flv",
+            "flv",
+            "ws_flv",
+            "https_hls",
+            "wss_hls",
+            "hls",
+            "ws_hls",
+            "rtsp",
+            "rtsps",
+            "https_ts",
+            "wss_ts",
+            "ts",
+            "ws_ts",
+        )
     else:
-        base_order = ("https_flv", "wss_flv", "flv", "ws_flv", "https_hls", "wss_hls", "hls", "ws_hls", "https_ts", "wss_ts", "ts", "ws_ts", "rtsp", "rtsps")
+        base_order = (
+            "https_flv",
+            "wss_flv",
+            "flv",
+            "ws_flv",
+            "https_hls",
+            "wss_hls",
+            "hls",
+            "ws_hls",
+            "https_ts",
+            "wss_ts",
+            "ts",
+            "ws_ts",
+            "rtsp",
+            "rtsps",
+        )
 
     # 合并优先级列表，去重
     seen: set[str] = set()
@@ -515,20 +584,18 @@ def _build_play_success_response(
     # P1-fix [2026-07-17]: STUN_SERVER 为空时生成无效 ICE 服务器（stun: 无 host），
     # 导致浏览器 ICE 候选收集失败。仅在 STUN_SERVER 非空时才添加 STUN 条目。
     turn_servers = []
-    _stun_server = str(settings.STUN_SERVER or '').strip()
+    _stun_server = str(settings.STUN_SERVER or "").strip()
     if _stun_server:
         turn_servers.append({"urls": [f"stun:{_stun_server}"]})
     if settings.TURN_SERVER:
         turn_username = settings.TURN_USERNAME
         turn_password = settings.TURN_PASSWORD
         if turn_username and turn_password:
-            turn_servers.append({
-                "urls": [f"turn:{settings.TURN_SERVER}"],
-                "username": turn_username,
-                "credential": turn_password
-            })
+            turn_servers.append({"urls": [f"turn:{settings.TURN_SERVER}"], "username": turn_username, "credential": turn_password})
         else:
-            logger.warning("TURN_SERVER is configured but TURN_USERNAME/TURN_PASSWORD are not set; skipping TURN entry")  # 移除默认凭证admin/admin123，未配置时不返回TURN
+            logger.warning(
+                "TURN_SERVER is configured but TURN_USERNAME/TURN_PASSWORD are not set; skipping TURN entry"
+            )  # 移除默认凭证admin/admin123，未配置时不返回TURN
 
     data = {
         "app": app_name,
@@ -654,12 +721,8 @@ async def _build_auto_heal_profile(
     }
     if not aid:
         return default_profile
-    health = (
-        await db.execute(select(AssetStreamHealth).where(AssetStreamHealth.asset_id == aid))
-    ).scalars().first()
-    policy = (
-        await db.execute(select(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == aid))
-    ).scalars().first()
+    health = (await db.execute(select(AssetStreamHealth).where(AssetStreamHealth.asset_id == aid))).scalars().first()
+    policy = (await db.execute(select(AssetStreamPolicy).where(AssetStreamPolicy.asset_id == aid))).scalars().first()
     if not health:
         if policy and getattr(policy, "stream_mode", None):
             default_profile["recommendedTransport"] = str(getattr(policy, "stream_mode", "AUTO") or "AUTO")
@@ -703,6 +766,7 @@ async def _build_auto_heal_profile(
 
 def _map_play_stream_error(exc: Exception) -> HTTPException:
     from loguru import logger as _logger
+
     message = str(exc or "").strip() or "Play request failed"
     lower_message = message.lower()
     _logger.warning(f"Stream play error: {message}")
@@ -791,7 +855,9 @@ async def _build_full_play_response(
     # P1-fix [2026-07-17]: 传入节点 secret，避免 ZLM 启用鉴权时探测返回 401 误判为可用
     _webrtc_probe_secret = str(_node_value(selected_node, "secret") or "") or str(settings.MEDIA_SERVER_SECRET or "")
     if node_host and node_http_port:
-        webrtc_supported, webrtc_hint = await _probe_webrtc_capability(node_host, int(node_http_port), app_name, stream_id, secret=_webrtc_probe_secret)
+        webrtc_supported, webrtc_hint = await _probe_webrtc_capability(
+            node_host, int(node_http_port), app_name, stream_id, secret=_webrtc_probe_secret
+        )
     elif media_host and media_port:
         webrtc_supported, webrtc_hint = await _probe_webrtc_capability(media_host, int(media_port), app_name, stream_id, secret=_webrtc_probe_secret)
     if not webrtc_supported and is_embedded_node:

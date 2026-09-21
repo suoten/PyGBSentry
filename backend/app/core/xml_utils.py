@@ -3,6 +3,7 @@
 Uses defusedxml to prevent XXE attacks. Provides namespace-agnostic helpers
 that match the GB28181 catalog/notification XML schemas.
 """
+
 from __future__ import annotations
 
 import logging
@@ -14,9 +15,7 @@ from defusedxml import ElementTree as ET
 logger = logging.getLogger(__name__)
 
 # FIX [2026-07-22 P0]: XML prolog encoding 声明正则，用于按声明编码解码 bytes
-_XML_ENCODING_RE = re.compile(
-    r'<\?xml[^>]+encoding=["\']([\w-]+)["\']', re.IGNORECASE
-)
+_XML_ENCODING_RE = re.compile(r'<\?xml[^>]+encoding=["\']([\w-]+)["\']', re.IGNORECASE)
 
 
 def _decode_bytes_safely(data: bytes) -> str:
@@ -106,9 +105,7 @@ def parse_xml(xml_str: Union[str, bytes, None]) -> Optional[ET.Element]:
                 _orig_snippet = str(xml_str)[:2000]
         except Exception:
             _orig_snippet = "(failed to extract original XML)"
-        logger.error(
-            f"XML Parse Error: {e} | original_xml_snippet=[{_orig_snippet}]"
-        )
+        logger.error(f"XML Parse Error: {e} | original_xml_snippet=[{_orig_snippet}]")
         return None
 
 

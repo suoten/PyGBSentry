@@ -11,11 +11,12 @@ _talk_pending: dict[str, tuple[asyncio.Event, dict]] = {}
 _talk_pending_lock = asyncio.Lock()
 _talk_pending_max_size = 5000
 _talk_pending_ttl_seconds = 300
-_talk_cleanup_interval = 60     # 全局定期清理间隔（秒）
-_talk_stale_max_age = 600      # 超过此时间的条目视为 stale（秒）
+_talk_cleanup_interval = 60  # 全局定期清理间隔（秒）
+_talk_stale_max_age = 600  # 超过此时间的条目视为 stale（秒）
 
 # 对讲超时监控任务：call_id -> asyncio.Task，模块级以便 wait_talk_200_ok 超时分支可取消
 _talk_timeout_tasks: dict[str, "asyncio.Task"] = {}
+
 
 def _parse_sdp_connection_and_audio_port(body: str) -> tuple[str | None, int | None]:
     from app.sip.sdp import parse_sdp, pick_media
@@ -28,6 +29,7 @@ def _parse_sdp_connection_and_audio_port(body: str) -> tuple[str | None, int | N
     except Exception:
         port = 0
     return (str(ip) if ip else None, port if port > 0 else None)
+
 
 async def on_talk_200_ok(call_id: str, sdp_body: str, to_tag: str | None = None) -> None:
     """收到对讲 INVITE 的 200 OK 时调用，解析设备 RTP 地址、发送 ACK、通知等待方。"""
@@ -80,6 +82,7 @@ async def on_talk_200_ok(call_id: str, sdp_body: str, to_tag: str | None = None)
             logger.info(f"Sent ACK for talk INVITE, call_id={call_id}")
     except Exception as e:
         logger.warning(f"Failed to send ACK for talk INVITE: {e}")
+
 
 async def wait_talk_200_ok(call_id: str, timeout: float = 5.0) -> dict:
     """等待对讲 200 OK，返回包含 target_ip、target_port 的字典；超时返回空/默认。"""
@@ -134,6 +137,7 @@ async def wait_talk_200_ok(call_id: str, timeout: float = 5.0) -> dict:
         if _ssrc:
             try:
                 from app.sip.ssrc_manager import ssrc_manager
+
                 await ssrc_manager.release(_ssrc)
             except Exception as _e:
                 logger.warning(f"wait_talk_200_ok: failed to release ssrc {_ssrc} on timeout: {_e}")
@@ -143,6 +147,7 @@ async def wait_talk_200_ok(call_id: str, timeout: float = 5.0) -> dict:
             _timeout_task.cancel()
         return result
 
+
 def _register_talk_pending(
     call_id: str,
     from_tag: str | None = None,
@@ -151,7 +156,7 @@ def _register_talk_pending(
     branch: str | None = None,
     from_header: str | None = None,
     to_header: str | None = None,
-    transport = None,
+    transport=None,
     addr: tuple | None = None,
     sip_host: str | None = None,
     sip_port: int | None = None,
@@ -196,6 +201,7 @@ def _register_talk_pending(
     _talk_pending[call_id] = (event, result)
     return event, result
 
+
 async def _async_register_talk_pending(
     call_id: str,
     from_tag: str | None = None,
@@ -204,6 +210,7 @@ async def _async_register_talk_pending(
 ) -> tuple[asyncio.Event, dict]:
     async with _talk_pending_lock:
         return _register_talk_pending(call_id, from_tag, cseq, **kwargs)
+
 
 def _unregister_talk_pending(call_id: str) -> None:
     async def _do_unregister():
@@ -218,15 +225,18 @@ def _unregister_talk_pending(call_id: str) -> None:
                 except Exception as e:
                     logger.warning(f"Exception: {e}")
                 st.pop("socket", None)
+
     try:
         asyncio.get_running_loop()
         # P0-fix [2026-07-17]: 改用 fire_and_forget，提供 task name + done_callback + GC 保护
         # 原 loop.create_task(_do_unregister()) 无引用无异常回调，注销失败无任何日志
         from app.core.async_utils import fire_and_forget
+
         fire_and_forget(_do_unregister(), name=f"talk_unregister:{call_id}")
     except RuntimeError as _loop_err:
         # FIX [2026-07-17 P3-7]: 描述性日志替代 "swallowed_exception"，记录无事件循环场景
         logger.debug(f"unregister_talk_pending: no running loop to schedule cleanup task: {_loop_err}")
+
 
 class SipTalk:
     def __init__(self, sip_server):
@@ -234,6 +244,7 @@ class SipTalk:
 
     async def _generate_ssrc(self, domain_code: str) -> str:  # C-20 改为async，通过ssrc_manager统一分配
         from app.sip.ssrc_manager import ssrc_manager
+
         ssrc = await ssrc_manager.allocate()
         # W-14 SSRC分配耗尽时返回空字符串，需检查避免构造无效SDP
         if not ssrc:
@@ -251,7 +262,7 @@ class SipTalk:
         """
         addr, proto, transport = transport_info
         device_id = asset.gb_id
-        channel_id = resource.gb_id # Usually audio channel or device ID
+        channel_id = resource.gb_id  # Usually audio channel or device ID
 
         # FIX: [2026-07-04] 使用 ZLM 的 host 和 RTP 端口，而非原始 UDP socket [全栈工程师]
         zlm_host = str(settings.MEDIA_SERVER_HOST or "") or str(settings.STREAM_PUBLIC_HOST or "") or sip_host_for_contact()
@@ -263,6 +274,7 @@ class SipTalk:
         try:
             from app.db.session import AsyncSessionLocal
             from app.core.media_nodes_db import get_active_media_node_id, get_db_node_by_id
+
             async with AsyncSessionLocal() as _db:
                 _active_id = await get_active_media_node_id(_db)
                 if _active_id:
@@ -272,20 +284,21 @@ class SipTalk:
         except Exception as _node_err:
             logger.warning(f"talk: failed to read active node secret, falling back to global: {_node_err}")
         if not _zlm_api_secret:
-            _zlm_api_secret = str(settings.MEDIA_SERVER_SECRET or '')
+            _zlm_api_secret = str(settings.MEDIA_SERVER_SECRET or "")
 
         # 查询 ZLM RTP proxy 端口（与 send_talk_invite 一致的逻辑）
         _rtp_port = settings.MEDIA_SERVER_RTP_PROXY_PORT
         if not _rtp_port:
             try:
                 from app.core.http_client import get_http_client
+
                 _client = await get_http_client()
                 _url = f"http://{zlm_host}:{zlm_http_port}/index/api/getServerConfig"
                 _resp = await _client.post(_url, data={"secret": _zlm_api_secret}, timeout=3.0)
                 if _resp.status_code == 200:
                     _data = _resp.json() or {}
                     if _data.get("code") in (0, "0"):
-                        for _item in (_data.get("data") or []):
+                        for _item in _data.get("data") or []:
                             if _item.get("key") == "rtp_proxy.port":
                                 _rtp_port = int(_item.get("value") or 0)
                                 break
@@ -331,6 +344,7 @@ class SipTalk:
         req.headers["Call-ID"] = call_id
         # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
         from app.sip.commander import _next_cseq as _talk_next_cseq
+
         req.headers["CSeq"] = f"{_talk_next_cseq()} INVITE"
         req.headers["Contact"] = f"<sip:{settings.SIP_ID}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
@@ -349,7 +363,9 @@ class SipTalk:
 
         logger.info(f"Sent Broadcast INVITE to {device_id} (SSRC: {ssrc}, ZLM RTP Port: {local_port})")
         await _async_register_talk_pending(
-            call_id, from_tag=tag, cseq=1,
+            call_id,
+            from_tag=tag,
+            cseq=1,
             branch=branch,
             from_header=f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={tag}",
             to_header=f"<sip:{device_id}@{settings.SIP_DOMAIN}>",
@@ -405,6 +421,7 @@ class SipTalk:
         # S-15 Talk INVITE不应回退到硬编码端口10000
         # zlm_rtp_port 为 0 时查询 ZLM 获取实际 RTP 端口，而非使用硬编码值
         from app.core.config import settings as _settings
+
         _rtp_port = zlm_rtp_port
         if not _rtp_port:
             _rtp_port = getattr(_settings, "MEDIA_SERVER_RTP_PROXY_PORT", 0) or 0
@@ -415,6 +432,7 @@ class SipTalk:
             try:
                 from app.db.session import AsyncSessionLocal
                 from app.core.media_nodes_db import get_active_media_node_id, get_db_node_by_id
+
                 async with AsyncSessionLocal() as _db:
                     _active_id = await get_active_media_node_id(_db)
                     if _active_id:
@@ -424,10 +442,11 @@ class SipTalk:
             except Exception as _node_err:
                 logger.warning(f"talk: failed to read active node secret for talk INVITE: {_node_err}")
             if not _zlm_api_secret:
-                _zlm_api_secret = str(getattr(_settings, 'MEDIA_SERVER_SECRET', '') or '')
+                _zlm_api_secret = str(getattr(_settings, "MEDIA_SERVER_SECRET", "") or "")
             # 尝试从 ZLM getServerConfig API 查询实际 rtp_proxy.port
             try:
                 from app.core.http_client import get_http_client
+
                 _client = await get_http_client()
                 _url = f"http://{zlm_host}:{zlm_http_port}/index/api/getServerConfig"
                 # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
@@ -435,14 +454,16 @@ class SipTalk:
                 if _resp.status_code == 200:
                     _data = _resp.json() or {}
                     if _data.get("code") in (0, "0"):
-                        for _item in (_data.get("data") or []):
+                        for _item in _data.get("data") or []:
                             if _item.get("key") == "rtp_proxy.port":
                                 _rtp_port = int(_item.get("value") or 0)
                                 break
             except Exception as _zlm_cfg_err:
                 logger.warning(f"Failed to query ZLM getServerConfig for RTP port: {_zlm_cfg_err}")
         if not _rtp_port:
-            raise RuntimeError(f"Cannot determine ZLM RTP port for talk INVITE: zlm_rtp_port={zlm_rtp_port}, MEDIA_SERVER_RTP_PROXY_PORT={getattr(_settings, 'MEDIA_SERVER_RTP_PROXY_PORT', None)}")
+            raise RuntimeError(
+                f"Cannot determine ZLM RTP port for talk INVITE: zlm_rtp_port={zlm_rtp_port}, MEDIA_SERVER_RTP_PROXY_PORT={getattr(_settings, 'MEDIA_SERVER_RTP_PROXY_PORT', None)}"
+            )
 
         # 构建 SDP — 双向音频
         sdp_body = (
@@ -478,6 +499,7 @@ class SipTalk:
         req.headers["Call-ID"] = call_id
         # FIX [2026-07-17 P1]: CSeq 单调递增（RFC 3261 §22.2）
         from app.sip.commander import _next_cseq as _talk_next_cseq2
+
         req.headers["CSeq"] = f"{_talk_next_cseq2()} INVITE"
         req.headers["Contact"] = f"<sip:{sip_id}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
         req.headers["Content-Type"] = "application/sdp"
@@ -527,6 +549,7 @@ class SipTalk:
             async with _talk_pending_lock:
                 _talk_pending.pop(call_id, None)
             from app.sip.ssrc_manager import ssrc_manager
+
             try:
                 await ssrc_manager.release(ssrc)
             except Exception as _ssrc_err:
@@ -601,6 +624,7 @@ class SipTalk:
                 if _timeout_ssrc:
                     try:
                         from app.sip.ssrc_manager import ssrc_manager
+
                         await ssrc_manager.release(str(_timeout_ssrc))
                     except Exception as _ssrc_rel_err:
                         logger.warning(f"Failed to release SSRC for timed-out talk session {call_id}: {_ssrc_rel_err}")
@@ -631,7 +655,9 @@ class SipTalk:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
         req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}" if from_tag else f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>"
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={from_tag}" if from_tag else f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>"
+        )
         req.headers["To"] = to_header
         req.headers["Call-ID"] = call_id
         req.headers["CSeq"] = f"{cseq} BYE"
@@ -658,6 +684,7 @@ class SipTalk:
         # 对讲BYE后释放dialog
         try:
             from app.sip.dialog_manager import dialog_manager
+
             from_tag_val = (state.get("from_tag") or "").strip()
             if call_id and from_tag_val:
                 await dialog_manager.terminate_dialog(call_id, from_tag_val)
@@ -666,6 +693,7 @@ class SipTalk:
         # GB28181协议 — 对讲BYE后释放SSRC和关闭ZLM流
         try:
             from app.sip.ssrc_manager import ssrc_manager
+
             _ssrc = state.get("ssrc")
             if _ssrc:
                 await ssrc_manager.release(_ssrc)
@@ -673,6 +701,7 @@ class SipTalk:
             logger.warning(f"Failed to release SSRC for talk session {call_id}: {e}")
         try:
             from app.services.zlm_stream_control import close_zlm_stream
+
             _talk_app = str(state.get("app", "") or "talk")
             _talk_stream = str(state.get("stream", "") or call_id)
             _talk_node_id = str(state.get("media_server_id", "") or "")
@@ -680,6 +709,7 @@ class SipTalk:
         except Exception as e:
             logger.warning(f"Failed to close ZLM stream for talk session {call_id}: {e}")
         return True
+
 
 async def start_talk_cleanup_loop() -> None:
     """全局定期清理 stale 的对讲会话条目，关闭其中的 socket 并释放 SSRC。"""
@@ -709,6 +739,7 @@ async def start_talk_cleanup_loop() -> None:
                     if ssrc:
                         try:
                             from app.sip.ssrc_manager import ssrc_manager
+
                             await ssrc_manager.release(str(ssrc))
                         except Exception as _ssrc_err:
                             logger.warning(f"Cleanup loop: failed to release SSRC {ssrc}: {_ssrc_err}")
@@ -719,6 +750,7 @@ async def start_talk_cleanup_loop() -> None:
                     logger.info(f"Talk cleanup: removed stale session {call_id}")
         except Exception as e:
             logger.warning(f"Talk cleanup loop error: {e}")
+
 
 # Singleton
 sip_talk = None

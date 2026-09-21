@@ -68,7 +68,7 @@ def _to_runtime(node: MediaNode) -> RuntimeMediaNode:
     # secret 为空时回退全局密钥，避免 getMediaList?secret= 刷屏与探测失败
     # P0-02: node 是 ORM MediaNode，secret 列存储密文，需通过 decrypted_secret 取明文
     _plain_secret = node.decrypted_secret
-    node_secret = (str(_plain_secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip())
+    node_secret = str(_plain_secret or "").strip() or str(settings.MEDIA_SERVER_SECRET or "").strip()
     return RuntimeMediaNode(
         id=node.id,
         host=node.ip,
@@ -195,9 +195,7 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
     try:
         result = await db.execute(select(MediaNode).where(MediaNode.is_embedded.is_(True)).limit(1))
         existed = result.scalars().first()
-        range_mode, range_start, range_end = _parse_rtp_port_range(
-            settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE
-        )
+        range_mode, range_start, range_end = _parse_rtp_port_range(settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE)
         # 计算更合理的“对外可达地址”默认值：优先 STREAM_PUBLIC_HOST，其次 BACKEND_PUBLIC_HOST；
         # 若仍是 localhost/127.0.0.1，则不写入（留给用户在运维中心手工填）。
         # W-19 MEDIA_SERVER_HOST回退值改为空字符串，非本地部署时显式报错
@@ -234,10 +232,13 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
                 # secret 列有值，检查能否解密
                 try:
                     from app.core.field_crypto import decrypt_field as _decrypt_check
+
                     _decrypted = _decrypt_check(_current_secret, purpose="media_secret")
                     if _decrypted is None:
                         _need_refill = True
-                        logger.info("ensure_embedded_media_node: existing secret cannot be decrypted (likely plaintext from legacy version or key changed), will refill")
+                        logger.info(
+                            "ensure_embedded_media_node: existing secret cannot be decrypted (likely plaintext from legacy version or key changed), will refill"
+                        )
                 except Exception:
                     _need_refill = True
 
@@ -305,11 +306,7 @@ async def ensure_embedded_media_node(db: AsyncSession) -> str | None:
             ip=media_host,
             public_ip=preferred_public,
             stream_ip=preferred_public,
-            hook_base_url=(
-                f"http://{media_host}:{backend_public_port}{api_v1_str}/hook"
-                if media_host and not _is_local_host(media_host)
-                else None
-            ),
+            hook_base_url=(f"http://{media_host}:{backend_public_port}{api_v1_str}/hook" if media_host and not _is_local_host(media_host) else None),
             hook_ip=(media_host if media_host and not _is_local_host(media_host) else None),
             http_port=settings.MEDIA_SERVER_HTTP_PORT,
             rtsp_port=settings.MEDIA_SERVER_RTSP_PORT,
@@ -500,13 +497,14 @@ async def _async_get_stream_count(node: RuntimeMediaNode) -> tuple[RuntimeMediaN
         return node, count, is_alive, cpu, mem, net_mbps
     except Exception as e:
         # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING，避免 ZLM 宕机时刷屏
-        node_id_outer = str(getattr(node, 'id', '?'))
+        node_id_outer = str(getattr(node, "id", "?"))
         now_ts_outer = time.time()
         last_ts_outer = _NODE_FAIL_LOG_COOLDOWN.get(node_id_outer, 0)
         if now_ts_outer - last_ts_outer >= _NODE_FAIL_LOG_COOLDOWN_SECONDS:
             logger.warning(f"_async_get_stream_count failed for node {node_id_outer}: {e}")
             _NODE_FAIL_LOG_COOLDOWN[node_id_outer] = now_ts_outer
         return node, 999999, False, 0.0, 0.0, 0.0
+
 
 async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = None) -> RuntimeMediaNode | None:
     """
@@ -518,9 +516,7 @@ async def select_best_db_node(db: AsyncSession, exclude_node_ids: list[str] = No
         return None
 
     try:
-        result = await db.execute(
-            select(MediaNode).where(MediaNode.is_embedded.is_(False) | MediaNode.is_embedded.is_(None))
-        )
+        result = await db.execute(select(MediaNode).where(MediaNode.is_embedded.is_(False) | MediaNode.is_embedded.is_(None)))
         db_nodes = result.scalars().all()
         if db_nodes:
             nodes = [_to_runtime(n) for n in db_nodes]
@@ -596,9 +592,7 @@ async def allocate_rtp_port(db: AsyncSession, node: RuntimeMediaNode) -> int:
         return int(node.rtp_port or 0)
     occupied = set()
     try:
-        result = await db.execute(
-            select(MediaPortLease.port).where(MediaPortLease.media_server_id == node.id)
-        )
+        result = await db.execute(select(MediaPortLease.port).where(MediaPortLease.media_server_id == node.id))
         occupied = {row[0] for row in result.all() if row and row[0]}
     except Exception as e:
         logger.warning(f"Error: {e}")
@@ -642,9 +636,7 @@ async def allocate_rtp_port_with_lease(
     excluded = exclude_ports or set()
     occupied = set()
     try:
-        result = await db.execute(
-            select(MediaPortLease.port).where(MediaPortLease.media_server_id == node.id)
-        )
+        result = await db.execute(select(MediaPortLease.port).where(MediaPortLease.media_server_id == node.id))
         occupied = {row[0] for row in result.all() if row and row[0]}
     except Exception as e:
         logger.warning(f"Error: {e}")
@@ -658,6 +650,7 @@ async def allocate_rtp_port_with_lease(
     #   - 顺序扫描（环形），遇到 occupied/excluded 跳过
     #   - 最大尝试次数 = 端口范围大小，避免无意义循环
     import random
+
     range_size = end - begin + 1
     random_offset = random.randint(0, range_size - 1) if range_size > 1 else 0
     max_attempts = range_size  # 最多尝试整个范围一次
@@ -710,6 +703,7 @@ async def cleanup_stale_leases(db: AsyncSession, max_age_seconds: int = 600, lim
         # FIX: [2026-07-03] 使用租约中存储的 stream_id/app_name 精确关闭对应的 ZLM RTP Server [全栈工程师]
         try:
             from app.services.zlm_stream_control import close_zlm_stream
+
             for r in rows:
                 _lease_id, _port, _node_id, _stream_id, _app_name = r
                 if not _node_id:
@@ -817,14 +811,16 @@ async def get_cluster_status(db: AsyncSession) -> dict[str, Any]:
             online_count += 1
         stream_count = int(getattr(node, "stream_count", 0) or 0)
         total_streams += stream_count
-        node_list.append({
-            "id": str(node.id),
-            "host": str(node.host),
-            "http_port": int(node.http_port or 0),
-            "is_online": is_online,
-            "stream_count": stream_count,
-            "is_embedded": bool(getattr(node, "is_embedded", False)),
-        })
+        node_list.append(
+            {
+                "id": str(node.id),
+                "host": str(node.host),
+                "http_port": int(node.http_port or 0),
+                "is_online": is_online,
+                "stream_count": stream_count,
+                "is_embedded": bool(getattr(node, "is_embedded", False)),
+            }
+        )
 
     return {
         "total": len(nodes),

@@ -29,15 +29,14 @@ except Exception:
     YOLO = None
 
 
-
 class VisionHub:
     def __init__(self):
         """Internal helper:   init  ."""
         self.running = False
         self.model = None
-        self.check_interval = 5 # Seconds between checks per stream
-        self._executor = None # Thread pool for OpenCV/YOLO
-        self._processing_streams = set() # Avoid overlapping processing
+        self.check_interval = 5  # Seconds between checks per stream
+        self._executor = None  # Thread pool for OpenCV/YOLO
+        self._processing_streams = set()  # Avoid overlapping processing
         self.enabled = True
 
     async def start(self):
@@ -56,13 +55,15 @@ class VisionHub:
             return
         try:
             from concurrent.futures import ThreadPoolExecutor
-            self._executor = ThreadPoolExecutor(max_workers=4) # Concurrent streams
+
+            self._executor = ThreadPoolExecutor(max_workers=4)  # Concurrent streams
 
             # Load YOLOv8n model
             self.model = YOLO("yolov8n.pt")
 
             # Optional: Move to GPU if available
             import torch
+
             if torch.cuda.is_available():
                 self.model.to("cuda")
                 logger.info("AI Vision Hub using CUDA GPU acceleration")
@@ -133,7 +134,7 @@ class VisionHub:
                         time=datetime.now(timezone.utc),
                         description=f"AI Alert: {label.capitalize()} detected (Conf: {conf:.2f})",
                         alarm_type="AI",
-                        status=0
+                        status=0,
                     )
                     session.add(alarm)
                     await session.flush()
@@ -147,7 +148,7 @@ class VisionHub:
                         "description": alarm.description,
                         "priority": alarm.priority,
                         "escalation_level": 0,
-                        "escalation_state": "open"
+                        "escalation_state": "open",
                     }
                     # FIX: [2026-07-03] broadcast_alarm 缺少 tenant_id 参数导致 TypeError [全栈工程师]
                     fire_and_forget(alarm_manager.broadcast_alarm(alarm_data, alarm.tenant_id))  # P0-16: 保存引用防 GC + 异常日志
@@ -168,7 +169,7 @@ class VisionHub:
             return None
 
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        for _ in range(3): # Clear buffer
+        for _ in range(3):  # Clear buffer
             ret, frame = cap.read()
 
         cap.release()
@@ -191,6 +192,7 @@ class VisionHub:
                     detections.append((label, conf))
 
         return detections
+
 
 # Singleton
 vision_hub = None

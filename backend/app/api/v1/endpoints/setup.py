@@ -1,4 +1,5 @@
 """首次部署安装向导：状态查询与完成标记（开源版）"""
+
 import os
 from app.core.http_client import get_http_client
 from fastapi import APIRouter, Depends
@@ -13,16 +14,20 @@ from app.services.auth_audit import safe_auth_audit
 
 router = APIRouter()
 
+
 # 向导完成标记文件（放在 backend 运行目录下 data/.wizard_completed）
 def _wizard_state_dir():
     return os.path.join(os.getcwd(), "data")
 
+
 def _wizard_done_path():
     return os.path.join(_wizard_state_dir(), ".wizard_completed")
+
 
 def _is_wizard_completed() -> bool:
     path = _wizard_done_path()
     return os.path.isfile(path)
+
 
 def _set_wizard_completed():
     d = _wizard_state_dir()
@@ -32,6 +37,7 @@ def _set_wizard_completed():
             f.write("1")
     except (OSError, IOError) as e:
         logger.warning("Failed to write setup wizard done marker: %s", e)  # 异常吞没→日志记录
+
 
 @router.get("/status")
 async def get_setup_status(current_user: User = Depends(deps.require_roles(["owner", "admin"]))):

@@ -15,8 +15,10 @@ from loguru import logger
 
 router = APIRouter()
 
+
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
+
 
 BASIC_CONFIG_KEY = "config_basic"
 

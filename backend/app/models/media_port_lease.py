@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -33,6 +34,4 @@ class MediaPortLease(Base):
 
     leased_at = Column(DateTime, default=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("media_server_id", "port", name="uq_media_port_leases_server_port"),
-    )
+    __table_args__ = (UniqueConstraint("media_server_id", "port", name="uq_media_port_leases_server_port"),)

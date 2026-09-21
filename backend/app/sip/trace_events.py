@@ -9,6 +9,7 @@ FIX: [2026-07-03] system_config.py 导入 SIP_TRACE_CONFIG_KEYS/SIP_TRACE_FIELDS
      但本模块未定义这些常量，导致 system_config 模块加载失败、/system-config/* 路由全部 404。
      根因：refactoring 时遗漏了常量定义。修复：补充这三个常量。 [全栈工程师]
 """
+
 from __future__ import annotations
 
 import threading

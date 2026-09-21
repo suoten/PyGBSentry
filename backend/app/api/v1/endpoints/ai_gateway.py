@@ -19,12 +19,11 @@ from app.models.user import User
 router = APIRouter()
 
 
-
 def _safe_str(v: Any) -> str:
     s = str(v or "").strip()
     # P-SEC: 使用正则白名单防路径遍历，仅允许字母数字下划线连字符
     # 黑名单方式（replace ..// 等）存在 URL 编码/Unicode 绕过风险
-    return re.sub(r'[^a-zA-Z0-9_-]', '_', s)
+    return re.sub(r"[^a-zA-Z0-9_-]", "_", s)
 
 
 def _extract_base64_str(raw: str) -> str:
@@ -141,4 +140,3 @@ async def analyze_ai_callback(
         "forward_status": forward_status,
         "forward_text_prefix": (forward_text[:200] if forward_text else None),
     }
-

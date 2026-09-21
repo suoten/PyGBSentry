@@ -11,6 +11,7 @@
 幂等性：仅在 ``regions`` 表为空时执行导入，已存在数据则直接返回。任何异常均被
 捕获并记录日志，绝不向上抛出（启动步骤不应因导入失败而中断）。
 """
+
 from __future__ import annotations
 
 import re
@@ -129,9 +130,7 @@ async def _seed_minimal_root(db: AsyncSession) -> int:
     root_code = str(settings.SIP_DOMAIN or "3402000000")
     if not re.match(r"^\d{10}$", root_code):
         root_code = "0000000000"
-    existing = (
-        await db.execute(select(Region).where(Region.code == root_code))
-    ).scalars().first()
+    existing = (await db.execute(select(Region).where(Region.code == root_code))).scalars().first()
     if existing:
         return 0
     db.add(
@@ -147,9 +146,7 @@ async def _seed_minimal_root(db: AsyncSession) -> int:
     await db.commit()
     logger.warning(
         "region.sql not found at {}; seeded minimal root region code={}. "
-        "Operators should import the full region set via scripts/seed_regions.py.".format(
-            _REGION_SQL, root_code
-        )
+        "Operators should import the full region set via scripts/seed_regions.py.".format(_REGION_SQL, root_code)
     )
     return 1
 

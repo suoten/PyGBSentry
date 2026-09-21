@@ -25,6 +25,7 @@ class LocalSipStateBackend:
         # P2-6: 硬编码上限配置化 — 通过 settings 覆盖默认值
         try:
             from app.core.config import settings
+
             _ssrc_waiters_max = settings.SIP_SSRC_WAITERS_MAX_SIZE
             _nonce_nc_max = settings.SIP_NONCE_NC_MAX_SIZE
             _nonce_nc_ttl = settings.SIP_NONCE_NC_TTL_SECONDS
@@ -63,7 +64,7 @@ class LocalSipStateBackend:
         async with self._ssrc_waiters_lock:
             if key not in self._ssrc_waiters:
                 if len(self._ssrc_waiters) >= self._ssrc_waiters_max_size:
-                    stale_keys = list(self._ssrc_waiters.keys())[:self._ssrc_waiters_max_size // 10]
+                    stale_keys = list(self._ssrc_waiters.keys())[: self._ssrc_waiters_max_size // 10]
                     for k in stale_keys:
                         self._ssrc_waiters.pop(k, None)
                 self._ssrc_waiters[key] = asyncio.Event()
@@ -107,10 +108,7 @@ class LocalSipStateBackend:
         async with self._invite_rate_lock:
             # 全局过期清理，防止 _invite_rate_buckets 字典无限增长
             if len(self._invite_rate_buckets) > 10000:
-                expired_keys = [
-                    k for k, bucket in self._invite_rate_buckets.items()
-                    if not bucket or all(now - t >= window for t in bucket)
-                ]
+                expired_keys = [k for k, bucket in self._invite_rate_buckets.items() if not bucket or all(now - t >= window for t in bucket)]
                 for k in expired_keys:
                     self._invite_rate_buckets.pop(k, None)
             for key in (device_key, tenant_key):
@@ -164,11 +162,7 @@ class LocalSipStateBackend:
             # 容量超限时触发清理：移除最旧的 IP 记录，并清理空列表条目
             # 注意：排除当前 key，避免清理掉刚插入的记录导致返回时 KeyError
             if len(self._auth_failure_tracker) > self._auth_failure_max_size:
-                other_items = [
-                    (k, min(v) if v else now)
-                    for k, v in self._auth_failure_tracker.items()
-                    if k != key
-                ]
+                other_items = [(k, min(v) if v else now) for k, v in self._auth_failure_tracker.items() if k != key]
                 other_items.sort(key=lambda x: x[1])
                 to_remove = len(self._auth_failure_tracker) - self._auth_failure_max_size + 100
                 for ip_key, _ in other_items[:to_remove]:
@@ -246,6 +240,7 @@ def get_sip_state_backend() -> SipStateBackend:
         if _backend_instance is not None:
             return _backend_instance
         from app.core.config import settings
+
         # FIX [2026-07-19 P1]: 移除 getattr 动态兜底——SIP_STATE_BACKEND 已在
         # Settings 类明确定义（config.py:365），违反硬约束 #41。
         # conftest.py 预加载真实 settings + 测试桩仅注入缺失字段，不会移除该属性。
@@ -261,6 +256,7 @@ def get_sip_state_backend() -> SipStateBackend:
         if backend_type == "redis":
             try:
                 from app.core.redis import redis_client
+
                 if not redis_client:
                     # FIX [2026-07-19 P1-5]: 首次降级输出 WARNING，后续降级改为 DEBUG，
                     # 避免 Redis 不可用时每次调用 get_sip_state_backend 都刷屏（aa.txt P1-5）。
@@ -272,11 +268,10 @@ def get_sip_state_backend() -> SipStateBackend:
                         )
                         _redis_fallback_warned = True
                     else:
-                        logger.debug(
-                            "SIP_STATE_BACKEND=redis fallback to local (already warned): redis_client not available"
-                        )
+                        logger.debug("SIP_STATE_BACKEND=redis fallback to local (already warned): redis_client not available")
                 else:
                     from app.sip.state_backend_redis import RedisSipStateBackend
+
                     _backend_instance = RedisSipStateBackend()
                     # FIX [2026-07-19 P1-5]: Redis 恢复后重置警告标志，下次故障可再次 WARNING
                     _redis_fallback_warned = False

@@ -3,9 +3,11 @@ GB28181 语音广播模块
 支持：语音广播(Broadcast) - 向设备喊话
 与语音对讲不同，广播是单向的：平台 -> 设备
 """
+
 from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
 from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.db.session import AsyncSessionLocal
@@ -14,8 +16,6 @@ from sqlalchemy import select
 from loguru import logger
 import secrets  # P4 安全随机数 — random→secrets
 import asyncio
-
-
 
 
 def _attach_trace_header(req: SipMessage) -> str:
@@ -40,6 +40,7 @@ class Broadcast:
         try:
             await asyncio.sleep(timeout)
             from app.sip.invite import invite_state
+
             # FIX: [2026-08-22 PN] 原访问不存在的 invite_state._invite_pending（实际属性名
             # 为 invite_pending），AttributeError 被外层 except 吞掉，导致看门狗超时后
             # SSRC/StreamSession/pending 条目泄漏。
@@ -48,6 +49,7 @@ class Broadcast:
             invite_state.invite_pending.pop(call_id, None)
             logger.warning(f"[Broadcast] INVITE watchdog timed out for call_id={call_id}, cleaning pending and releasing SSRC")
             from app.sip.ssrc_manager import ssrc_manager
+
             try:
                 await ssrc_manager.release(ssrc)
             except Exception as e:
@@ -56,10 +58,9 @@ class Broadcast:
             try:
                 from app.db.session import AsyncSessionLocal
                 from sqlalchemy import delete as sa_delete
+
                 async with AsyncSessionLocal() as session:
-                    await session.execute(
-                        sa_delete(StreamSession).where(StreamSession.call_id == call_id)
-                    )
+                    await session.execute(sa_delete(StreamSession).where(StreamSession.call_id == call_id))
                     await session.commit()
                 logger.info(f"[Broadcast] Cleaned up stale StreamSession for call_id={call_id}")
             except Exception as e:
@@ -132,6 +133,7 @@ class Broadcast:
         # 会导致同一对话内的后续请求（如 BYE）CSeq 冲突，部分设备（如海康/大华）会
         # 因 CSeq 重复而拒绝。使用 commander._next_cseq() 进程级单调递增计数器。
         from app.sip.commander import _next_cseq as _broadcast_next_cseq
+
         _broadcast_cseq = _broadcast_next_cseq()
         req.headers["CSeq"] = f"{_broadcast_cseq} INVITE"
         req.headers["Content-Type"] = "application/sdp"
@@ -144,6 +146,7 @@ class Broadcast:
         req.body = sdp_body
 
         from app.sip.invite import _register_invite_pending, invite_state
+
         _event, _result = _register_invite_pending(call_id)
         _result["type"] = "broadcast"
         _result["ssrc"] = ssrc
@@ -154,6 +157,7 @@ class Broadcast:
         except Exception:
             invite_state.invite_pending.pop(call_id, None)
             from app.sip.ssrc_manager import ssrc_manager
+
             try:
                 await ssrc_manager.release(ssrc)
             except Exception as _ssrc_err:
@@ -162,9 +166,7 @@ class Broadcast:
 
         try:
             async with AsyncSessionLocal() as session:
-                existing = (
-                    await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))
-                ).scalars().first()
+                existing = (await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))).scalars().first()
                 if not existing:
                     stream_session = StreamSession(
                         app="broadcast",

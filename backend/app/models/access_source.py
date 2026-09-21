@@ -9,6 +9,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -52,6 +53,7 @@ class AccessSource(Base):
             self.password = None
             return
         self.password = encrypt_field(plaintext, purpose="sip_password")
+
     path = Column(String(512), nullable=True)
     stream_name = Column(String(128), nullable=True)
 

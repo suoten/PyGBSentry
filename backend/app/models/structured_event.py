@@ -1,4 +1,5 @@
 """结构化事件（人脸/车牌/行为等），供统一检索与以图搜图扩展。"""
+
 from sqlalchemy import Column, String, DateTime, Text
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -8,6 +9,7 @@ try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
+
 
 def generate_uuid():
     return _uuid7_impl().hex

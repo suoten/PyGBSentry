@@ -152,12 +152,13 @@ async def load_gb28181_play_runtime_overrides(db: AsyncSession) -> None:
     except Exception as e:
         # 非关键步骤：加载失败仅告警，沿用 env 默认值
         import logging
+
         logging.getLogger(__name__).warning(f"load_gb28181_play_runtime_overrides failed: {e}")
 
 
 @router.get("/sip-trace-events")
 async def get_sip_trace_events(
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     """
     返回 SIP_TRACE 事件字典，供前端/排障脚本展示与筛选。
@@ -230,15 +231,9 @@ def _build_uri_from_payload(payload: DatabaseConfigPayload) -> str:
     if payload.sqlalchemy_database_uri:
         return payload.sqlalchemy_database_uri.strip()
     if db_type in {"postgresql", "kingbase"}:
-        return (
-            f"postgresql+asyncpg://{payload.username}:{payload.password}"
-            f"@{payload.host}:{payload.port}/{payload.name}"
-        )
+        return f"postgresql+asyncpg://{payload.username}:{payload.password}@{payload.host}:{payload.port}/{payload.name}"
     if db_type in {"mysql", "dameng"}:
-        return (
-            f"mysql+aiomysql://{payload.username}:{payload.password}"
-            f"@{payload.host}:{payload.port}/{payload.name}"
-        )
+        return f"mysql+aiomysql://{payload.username}:{payload.password}@{payload.host}:{payload.port}/{payload.name}"
     path = payload.sqlite_path or "./pygbsentry.db"
     return f"sqlite+aiosqlite:///{path}"
 
@@ -246,11 +241,9 @@ def _build_uri_from_payload(payload: DatabaseConfigPayload) -> str:
 @router.get("/database")
 async def get_database_config(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.setting_key.like("db.%"))
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.like("db.%")))
     values = _to_map(result.scalars().all())
     database_type = normalize_db_type(values.get("db.database_type") or settings.DATABASE_TYPE)
     return {
@@ -259,16 +252,18 @@ async def get_database_config(
         "port": _safe_int(values.get("db.port"), settings.DATABASE_PORT),
         "name": values.get("db.name") or settings.DATABASE_NAME,
         "username": values.get("db.username") or settings.DATABASE_USER,
-        "password": values.get("db.password") or "" if current_user.is_superuser else ("******" if values.get("db.password") else ""),  # W-07-02 operator角色掩码数据库密码
+        "password": values.get("db.password") or ""
+        if current_user.is_superuser
+        else ("******" if values.get("db.password") else ""),  # W-07-02 operator角色掩码数据库密码
         "sqlite_path": values.get("db.sqlite_path") or settings.DATABASE_SQLITE_PATH,
-        "sqlalchemy_database_uri": values.get("db.sqlalchemy_database_uri") or ""
+        "sqlalchemy_database_uri": values.get("db.sqlalchemy_database_uri") or "",
     }
 
 
 @router.post("/database/test")
 async def test_database_config(
     payload: DatabaseConfigPayload,
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     uri = _build_uri_from_payload(payload)
     db_type = normalize_db_type(payload.database_type)
@@ -299,7 +294,7 @@ async def test_database_config(
 async def save_database_config(
     payload: DatabaseConfigPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     uri = _build_uri_from_payload(payload)
     values = {
@@ -312,9 +307,7 @@ async def save_database_config(
         "db.sqlite_path": payload.sqlite_path or "",
         "db.sqlalchemy_database_uri": payload.sqlalchemy_database_uri or uri,
     }
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.setting_key.in_(list(values.keys())))
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.in_(list(values.keys()))))
     existing = {item.setting_key: item for item in result.scalars().all()}
     for key, value in values.items():
         if key in existing:
@@ -338,7 +331,7 @@ async def save_database_config(
     )
     return {
         "status": "ok",
-        "message": "Database config saved, restart backend to take effect"  # i18n
+        "message": "Database config saved, restart backend to take effect",  # i18n
     }
 
 
@@ -348,11 +341,12 @@ def _get_real_ip() -> str:
         ip_list = socket.getaddrinfo(hostname, None)
         for addr_info in ip_list:
             ip = addr_info[4][0]
-            if not ip.startswith('127.') and not ip.startswith('::1') and ':' not in ip:
+            if not ip.startswith("127.") and not ip.startswith("::1") and ":" not in ip:
                 return ip
-        return '127.0.0.1'
+        return "127.0.0.1"
     except Exception:
-        return '127.0.0.1'
+        return "127.0.0.1"
+
 
 def _is_ipv4(value: str) -> bool:
     try:
@@ -382,11 +376,9 @@ def _resolve_to_ipv4(hostname: str) -> str | None:
 async def get_system_info(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.setting_key.like("sip.%"))
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key.like("sip.%")))
     values = _to_map(result.scalars().all())
 
     sip_id = values.get("sip.sip_id") or settings.SIP_ID
@@ -450,7 +442,7 @@ async def get_system_info_alias(
 @router.get("/gb28181/play-config")
 async def get_gb28181_play_config(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     keys = [
         "gb28181.ssrc_policy",
@@ -475,17 +467,29 @@ async def get_gb28181_play_config(
     )
     return {
         "ssrc_policy": values.get("gb28181.ssrc_policy") or settings.GB28181_SSRC_POLICY,
-        "ssrc_retry_on_not_ready": (values.get("gb28181.ssrc_retry_on_not_ready") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.ssrc_retry_on_not_ready" in values else settings.GB28181_SSRC_RETRY_ON_NOT_READY,
+        "ssrc_retry_on_not_ready": (values.get("gb28181.ssrc_retry_on_not_ready") or "").strip().lower() in {"1", "true", "yes", "on"}
+        if "gb28181.ssrc_retry_on_not_ready" in values
+        else settings.GB28181_SSRC_RETRY_ON_NOT_READY,
         "ssrc_retry_order": values.get("gb28181.ssrc_retry_order") or settings.GB28181_SSRC_RETRY_ORDER,
-        "auto_ensure_embedded_media_node": (values.get("gb28181.auto_ensure_embedded_media_node") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.auto_ensure_embedded_media_node" in values else settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE,
+        "auto_ensure_embedded_media_node": (values.get("gb28181.auto_ensure_embedded_media_node") or "").strip().lower() in {"1", "true", "yes", "on"}
+        if "gb28181.auto_ensure_embedded_media_node" in values
+        else settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE,
         "bootstrap_templates": bootstrap_templates,
         "bootstrap_learning_weights": bootstrap_learning_weights,
         # FIX [2026-09-18 P1]: 补齐前端表单的 5 个字段（DB 优先，回退当前运行时/env 值）
-        "default_stream_type": (values.get("gb28181.default_stream_type") or "").strip().lower() if (values.get("gb28181.default_stream_type") or "").strip().lower() in {"main", "sub", "auto"} else str(getattr(settings, "GB28181_DEFAULT_STREAM_TYPE", "main") or "main"),
-        "transport": (values.get("gb28181.transport") or "").strip().lower() if (values.get("gb28181.transport") or "").strip().lower() in {"udp", "tcp_passive", "tcp_active"} else str(settings.MEDIA_SERVER_RTP_STREAM_MODE or "udp").strip().lower().replace("-", "_"),
+        "default_stream_type": (values.get("gb28181.default_stream_type") or "").strip().lower()
+        if (values.get("gb28181.default_stream_type") or "").strip().lower() in {"main", "sub", "auto"}
+        else str(getattr(settings, "GB28181_DEFAULT_STREAM_TYPE", "main") or "main"),
+        "transport": (values.get("gb28181.transport") or "").strip().lower()
+        if (values.get("gb28181.transport") or "").strip().lower() in {"udp", "tcp_passive", "tcp_active"}
+        else str(settings.MEDIA_SERVER_RTP_STREAM_MODE or "udp").strip().lower().replace("-", "_"),
         "invite_timeout": _safe_int(values.get("gb28181.invite_timeout"), int(settings.SIP_INVITE_TIMEOUT_SECONDS or 20)),
-        "learning_enabled": (values.get("gb28181.learning_enabled") or "").strip().lower() in {"1", "true", "yes", "on"} if "gb28181.learning_enabled" in values else bool(getattr(settings, "GB28181_PLAY_LEARNING_ENABLED", True)),
-        "learning_min_samples": _safe_int(values.get("gb28181.learning_min_samples"), int(getattr(settings, "GB28181_PLAY_LEARNING_MIN_SAMPLES", 5) or 5)),
+        "learning_enabled": (values.get("gb28181.learning_enabled") or "").strip().lower() in {"1", "true", "yes", "on"}
+        if "gb28181.learning_enabled" in values
+        else bool(getattr(settings, "GB28181_PLAY_LEARNING_ENABLED", True)),
+        "learning_min_samples": _safe_int(
+            values.get("gb28181.learning_min_samples"), int(getattr(settings, "GB28181_PLAY_LEARNING_MIN_SAMPLES", 5) or 5)
+        ),
     }
 
 
@@ -493,7 +497,7 @@ async def get_gb28181_play_config(
 async def save_gb28181_play_config(
     payload: Gb28181PlayConfigPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     values: dict[str, str] = {}
     if payload.ssrc_policy is not None:
@@ -566,7 +570,7 @@ async def save_gb28181_play_config(
 @router.get("/gb28181/learning-state")
 async def get_gb28181_learning_state(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     """可视化学习状态：返回各画像当前的成功率评分与原始统计"""
     key = "gb28181.bootstrap_learning_state"
@@ -592,16 +596,12 @@ async def get_gb28181_learning_state(
                 "success": s,
                 "fail": f,
                 "score": round(score, 4),
-                "preference": "high" if score > 0.6 else ("low" if score < 0.4 else "neutral")
+                "preference": "high" if score > 0.6 else ("low" if score < 0.4 else "neutral"),
             }
         total_samples += profile_samples
         if profile_samples > 0:
             devices_learned += 1
-        report.append({
-            "profile": p_key,
-            "updated_at": data.get("updated_at"),
-            "modes": modes
-        })
+        report.append({"profile": p_key, "updated_at": data.get("updated_at"), "modes": modes})
 
     # FIX [2026-09-18 P1]: 前端读取 total_samples/devices_learned，原响应只有 profiles 导致
     # 学习状态永远显示 0。补齐聚合字段（保留 profiles 不破坏潜在消费方）。
@@ -612,7 +612,7 @@ async def get_gb28181_learning_state(
 async def reset_gb28181_learning_state(
     profile_key: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("config.manage"))  # 角色检查→权限码检查
+    current_user: User = Depends(deps.require_permission("config.manage")),  # 角色检查→权限码检查
 ):
     """手动清理学习状态：支持全量重置或按画像重置数据"""
     key = "gb28181.bootstrap_learning_state"

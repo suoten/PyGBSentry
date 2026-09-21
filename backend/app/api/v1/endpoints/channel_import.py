@@ -11,6 +11,7 @@ import csv
 import io
 from typing import List, Dict
 from openpyxl import load_workbook
+
 # xlrd 1.2.0 — 解析 .xls (BIFF) 格式的唯一可用库（xlrd 2.0+ 已移除 .xls 支持，openpyxl 不支持 .xls）。
 # 风险面：仅解析用户上传的 .xls 文件，不执行宏/公式。缓解措施：接口限制 10MB 上传大小 + owner/admin/operator 鉴权。
 # 详见 requirements.txt 中 xlrd 条目的安全注释。
@@ -227,4 +228,3 @@ async def import_channels(
         extra_summary=f"created={created}; updated={updated}; row_count={len(rows)}; file={fn}",
     )
     return {"created": created, "updated": updated, "total": len(rows)}
-

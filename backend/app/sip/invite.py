@@ -8,8 +8,11 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
+
 from app.core.media_nodes import select_best_node
 from app.core.media_nodes_db import (
     allocate_rtp_port_with_lease,
@@ -44,11 +47,13 @@ from app.services.zlm_stream_control import close_zlm_stream
 from app.sip.watchdog import start_watchdog, cancel_watchdog
 from app.sip.message import SipMessage
 from app.sip.send import send_sip_bytes
+
 # FIX [2026-07-17 P1]: 统一使用进程级 CSeq 计数器（RFC 3261 §22.2 单调递增）
 from app.sip.commander import _next_cseq
 from app.core.plugin_manager import plugin_manager
 from app.sip.ssrc_manager import ssrc_manager
 from app.sip.dialog_manager import dialog_manager
+
 # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 长会话保活机制
 from app.sip.invite_server_state import (
     apply_session_expires_to_request,
@@ -73,10 +78,13 @@ def _attach_trace_header(req: SipMessage) -> str:
     实测发现 EasyGBS 等非标准 SIP 客户端对非标准头域（X- 开头）敏感，会返回 400 Bad Request。
     """
     return (req.get_header("Call-ID") or "").strip()
+
+
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from fastapi import HTTPException
 from app.sip.state_backend import get_sip_state_backend
+
 
 class InviteState:
     """Encapsulates all INVITE-related global state with bounded cleanup."""
@@ -112,7 +120,7 @@ class InviteState:
         self.channel_invite_locks: dict[str, asyncio.Lock] = {}
         self.ssrc_gen_lock = asyncio.Lock()
         # FIX: [2026-07-03] 全局并发 INVITE 信号量，防止大流量时打爆设备 [全栈工程师]
-        _max_concurrent = int(getattr(__import__('app.core.config', fromlist=['settings']).settings, 'SIP_INVITE_MAX_CONCURRENT', 200) or 200)
+        _max_concurrent = int(getattr(__import__("app.core.config", fromlist=["settings"]).settings, "SIP_INVITE_MAX_CONCURRENT", 200) or 200)
         self.global_invite_semaphore = asyncio.Semaphore(_max_concurrent)
 
     def cleanup(self) -> None:
@@ -126,7 +134,9 @@ class InviteState:
                 self.stream_switch_rollback_depth_timestamps.pop(k, None)
         # 溢出清理：超过 max_size 时移除最旧的条目
         if len(self.stream_switch_rollback_depth) > self.stream_switch_rollback_depth_max:
-            sorted_keys = sorted(self.stream_switch_rollback_depth_timestamps.keys(), key=lambda k: self.stream_switch_rollback_depth_timestamps.get(k, 0))
+            sorted_keys = sorted(
+                self.stream_switch_rollback_depth_timestamps.keys(), key=lambda k: self.stream_switch_rollback_depth_timestamps.get(k, 0)
+            )
             excess = len(self.stream_switch_rollback_depth) - self.stream_switch_rollback_depth_max + 100
             for k in sorted_keys[:excess]:
                 self.stream_switch_rollback_depth.pop(k, None)
@@ -205,7 +215,7 @@ class InviteState:
             self.channel_invite_locks[channel_id] = lock
         # 清理过多的通道锁，防止长期运行内存泄漏（保留最近1000个）
         if len(self.channel_invite_locks) > 1000:
-            _evict_keys = list(self.channel_invite_locks.keys())[:len(self.channel_invite_locks) - 800]
+            _evict_keys = list(self.channel_invite_locks.keys())[: len(self.channel_invite_locks) - 800]
             for k in _evict_keys:
                 if k != channel_id and not self.channel_invite_locks[k].locked():
                     self.channel_invite_locks.pop(k, None)
@@ -219,7 +229,9 @@ def cancel_invite_watchdog(call_id: str) -> None:
     cancel_watchdog(f"invite:{call_id}")
 
 
-async def _send_cancel(addr: tuple, proto: str, transport, call_id: str, from_tag: str, invite_branch: str, channel_id: str, cseq_num: int = 1) -> None:
+async def _send_cancel(
+    addr: tuple, proto: str, transport, call_id: str, from_tag: str, invite_branch: str, channel_id: str, cseq_num: int = 1
+) -> None:
     cancel_req = SipMessage()
     cancel_req.method = "CANCEL"
     cancel_req.uri = f"sip:{channel_id}@{addr[0]}:{addr[1]}"
@@ -238,7 +250,9 @@ async def _send_cancel(addr: tuple, proto: str, transport, call_id: str, from_ta
         logger.warning(f"Failed to send CANCEL for INVITE call_id={call_id}: {e}")
 
 
-async def _send_bye_for_timeout(addr: tuple, proto: str, transport, call_id: str, from_tag: str, invite_branch: str, channel_id: str, stream_session) -> None:
+async def _send_bye_for_timeout(
+    addr: tuple, proto: str, transport, call_id: str, from_tag: str, invite_branch: str, channel_id: str, stream_session
+) -> None:
     to_tag = getattr(stream_session, "to_tag", "") or ""
     bye_req = SipMessage()
     bye_req.method = "BYE"
@@ -301,6 +315,7 @@ def _register_invite_pending(call_id: str) -> tuple[asyncio.Event, dict]:
                 if _evicted_ssrc:
                     try:
                         from app.sip.ssrc_manager import ssrc_manager as _sm
+
                         fire_and_forget(_sm.release(_evicted_ssrc))
                     except Exception as e:
                         # evicted SSRC release should log, not silently pass
@@ -313,16 +328,19 @@ def _register_invite_pending(call_id: str) -> tuple[asyncio.Event, dict]:
                 if _evicted_stream_id and _evicted_app:
                     try:
                         from app.services.zlm_stream_control import close_zlm_stream as _close_stream
+
                         fire_and_forget(_close_stream(app=_evicted_app, stream=_evicted_stream_id, node_id=_evicted_node_id or None))
                     except Exception as e:
                         # evicted ZLM stream close should log, not silently pass
                         logger.warning(f"Failed to close evicted ZLM stream {_evicted_stream_id}: {e}")
                 if _evicted_lease_id:
                     try:
+
                         async def _release_evicted_lease(lid=_evicted_lease_id):
                             async with AsyncSessionLocal() as s:
                                 await release_lease(s, lid)
                                 await s.commit()
+
                         fire_and_forget(_release_evicted_lease())
                     except Exception as e:
                         # evicted lease release should log, not silently pass
@@ -335,13 +353,21 @@ def _register_invite_pending(call_id: str) -> tuple[asyncio.Event, dict]:
     return event, result
 
 
-def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: str, to_tag: str | None = None, record_route: str | None = None, session_expires_header: str | None = None) -> None:
+def on_invite_response(
+    call_id: str,
+    status_code: int,
+    reason: str,
+    sdp_body: str,
+    to_tag: str | None = None,
+    record_route: str | None = None,
+    session_expires_header: str | None = None,
+) -> None:
     entry = invite_state.invite_pending.pop(call_id, None)
     if not entry:
         return
     event, result = entry
     cancel_invite_watchdog(call_id)
-    result["ok"] = (200 <= status_code < 300)
+    result["ok"] = 200 <= status_code < 300
     result["status_code"] = status_code
     result["reason"] = reason
     result["sdp_response"] = sdp_body or ""
@@ -359,9 +385,14 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
                 # GB28181协议 — 级联场景传递Record-Route头到dialog
                 route_header = result.get("record_route", "")
                 route_set = [route_header] if route_header else None
-                fire_and_forget(_dm.confirm_dialog(
-                    call_id, from_tag, to_tag, route_set=route_set,
-                ))
+                fire_and_forget(
+                    _dm.confirm_dialog(
+                        call_id,
+                        from_tag,
+                        to_tag,
+                        route_set=route_set,
+                    )
+                )
                 # P1-fix [2026-07-17]: SIP Session Timer (RFC 4028) — 协商 200 OK 中的 Session-Expires
                 # GB28181-2016 兼容：无该头域时降级为现有行为，仅记录 debug 日志
                 if session_expires_header:
@@ -382,7 +413,8 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
                     """fire_and_forget 包装：写 Session Timer 状态并按需启动定时器。"""
                     try:
                         ok_set = await _dm.set_session_timer(
-                            _cid, _ft,
+                            _cid,
+                            _ft,
                             expires=_exp,
                             refresher=_ref,
                             local_role="uac",
@@ -412,6 +444,7 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
         if ssrc_val:
             try:
                 from app.sip.ssrc_manager import ssrc_manager as _sm
+
                 fire_and_forget(_sm.release(ssrc_val))
             except Exception as e:
                 logger.warning(f"Failed to release SSRC for INVITE error call_id={call_id}: {e}")  # 资源清理失败仅debug日志，提升为warning
@@ -425,16 +458,19 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
         if stream_id_val:
             try:
                 from app.services.zlm_stream_control import close_zlm_stream as _close_stream
+
                 fire_and_forget(_close_stream(app=app_val, stream=stream_id_val, node_id=node_id_val or None))
             except Exception as e:
                 logger.warning(f"Failed to close ZLM stream for INVITE error call_id={call_id}: {e}")  # 资源清理失败仅debug日志，提升为warning
         lease_id_val = result.get("lease_id", "")
         if lease_id_val:
             try:
+
                 async def _release_lease():
                     async with AsyncSessionLocal() as s:
                         await release_lease(s, lease_id_val)
                         await s.commit()
+
                 fire_and_forget(_release_lease())
             except Exception as e:
                 logger.warning(f"Failed to release lease for INVITE error call_id={call_id}: {e}")
@@ -442,12 +478,15 @@ def on_invite_response(call_id: str, status_code: int, reason: str, sdp_body: st
         session_id_val = result.get("session_id", "")
         if session_id_val:
             try:
+
                 async def _delete_stale_session():
                     async with AsyncSessionLocal() as s:
                         from app.models.stream_session import StreamSession
                         from sqlalchemy import delete as sql_delete
+
                         await s.execute(sql_delete(StreamSession).where(StreamSession.id == session_id_val))
                         await s.commit()
+
                 fire_and_forget(_delete_stale_session())
             except Exception as e:
                 logger.warning(f"Failed to delete stale StreamSession for INVITE error call_id={call_id}: {e}")
@@ -490,6 +529,7 @@ async def wait_invite_response(call_id: str, timeout: float = 20.0) -> dict:
             if _timeout_ssrc:
                 try:
                     from app.sip.ssrc_manager import ssrc_manager as _sm
+
                     fire_and_forget(_sm.release(_timeout_ssrc))
                 except Exception as e:
                     logger.warning(f"Failed to release SSRC for INVITE timeout call_id={call_id}: {e}")
@@ -500,10 +540,12 @@ async def wait_invite_response(call_id: str, timeout: float = 20.0) -> dict:
             _timeout_lease_id = pending_result.get("lease_id", "")
             if _timeout_lease_id:
                 try:
+
                     async def _release_timeout_lease():
                         async with AsyncSessionLocal() as s:
                             await release_lease(s, _timeout_lease_id)
                             await s.commit()
+
                     fire_and_forget(_release_timeout_lease())
                 except Exception as e:
                     logger.warning(f"Failed to release lease for INVITE timeout call_id={call_id}: {e}")
@@ -513,6 +555,7 @@ async def wait_invite_response(call_id: str, timeout: float = 20.0) -> dict:
             if _timeout_stream_id:
                 try:
                     from app.services.zlm_stream_control import close_zlm_stream as _close_stream
+
                     fire_and_forget(_close_stream(app=_timeout_app, stream=_timeout_stream_id, node_id=_timeout_node_id or None))
                 except Exception as e:
                     logger.warning(f"Failed to close ZLM stream for INVITE timeout call_id={call_id}: {e}")
@@ -570,7 +613,7 @@ def get_ssrc_waiter_count() -> int:
     """获取当前等待者数量（用于监控）"""
     try:
         backend = get_sip_state_backend()
-        if hasattr(backend, '_ssrc_waiters'):
+        if hasattr(backend, "_ssrc_waiters"):
             return len(backend._ssrc_waiters)
     except Exception as e:
         logger.warning(f"SIP Invite operation failed: {e}")
@@ -593,6 +636,7 @@ def _is_local_host(v: str | None) -> bool:
     s = (v or "").strip().lower()
     return s in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
+
 def _is_ipv4(v: str | None) -> bool:
     s = (v or "").strip()
     parts = s.split(".")
@@ -603,6 +647,7 @@ def _is_ipv4(v: str | None) -> bool:
     except ValueError:
         return False
     return all(0 <= n <= 255 for n in nums)
+
 
 def _resolve_sdp_ip(host: str) -> str:
     h = (host or "").strip()
@@ -656,9 +701,7 @@ async def _check_and_consume_invite_rate(tenant_id: str, device_id: str) -> tupl
         return True, ""
     try:
         backend = get_sip_state_backend()
-        allowed, reason = await backend.consume_invite_rate(
-            tenant_id, device_id, window=window, per_device=per_device, per_tenant=per_tenant
-        )
+        allowed, reason = await backend.consume_invite_rate(tenant_id, device_id, window=window, per_device=per_device, per_tenant=per_tenant)
     except Exception as rate_err:
         # 限流后端异常时默认拒绝（fail-closed），防止高并发下限流失效
         logger.error(f"INVITE rate limit backend error, denying request (fail-closed): {rate_err}")
@@ -691,6 +734,7 @@ def get_invite_rate_limit_metrics() -> dict:
             "blocked_tenant": int(invite_state.invite_rate_stats.get("blocked_tenant", 0) or 0),
         },
     }
+
 
 class SipInvite:
     def __init__(self, sip_server):
@@ -779,7 +823,9 @@ class SipInvite:
         transport = self.sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
         if transport is None:
             return False
-        await self._send_invite_common(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), is_playback=False, media_mode_override=fallback_mode)
+        await self._send_invite_common(
+            asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), is_playback=False, media_mode_override=fallback_mode
+        )
         logger.warning(f"Retried INVITE with fallback mode {fallback_mode} (from {current_mode}) for device {asset.gb_id}")
         return True
 
@@ -958,6 +1004,7 @@ class SipInvite:
                 setup_val = "passive"
 
         from app.sip.sdp import build_sdp as _build_sdp
+
         # P1-fix: Re-INVITE 的 f= 行应与初始 INVITE 保持一致，原 f=v/0 表示媒体参数全 0，
         # 部分设备（海康/大华）会因 f= 行参数缺失而拒绝 Re-INVITE 或切换到不兼容的编码
         _reinvite_f_line = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0"
@@ -985,9 +1032,7 @@ class SipInvite:
 
         try:
             async with AsyncSessionLocal() as session:
-                ss = (await session.execute(
-                    select(StreamSession).where(StreamSession.id == stream_session.id)
-                )).scalars().first()
+                ss = (await session.execute(select(StreamSession).where(StreamSession.id == stream_session.id))).scalars().first()
                 if ss:
                     ss.cseq = cseq_num
                     await session.commit()
@@ -1029,18 +1074,15 @@ class SipInvite:
         # 启动超时看门狗：设备 5s 不响应则回退原码流
         _STREAM_SWITCH_TIMEOUT = 5
         from app.sip.watchdog import start_stream_switch_watchdog
+
         _cid = stream_session.call_id or ""
         start_stream_switch_watchdog(
             call_id=_cid,
             timeout_seconds=_STREAM_SWITCH_TIMEOUT,
             on_timeout=lambda: self._do_stream_switch_rollback(_cid),
         )
-        logger.info(
-            f"[Stream Switch] Re-INVITE sent for {stream_session.call_id}, "
-            f"target={target_stream_type}, timeout={_STREAM_SWITCH_TIMEOUT}s"
-        )
+        logger.info(f"[Stream Switch] Re-INVITE sent for {stream_session.call_id}, target={target_stream_type}, timeout={_STREAM_SWITCH_TIMEOUT}s")
         return True
-
 
     async def _do_stream_switch_rollback(self, call_id: str, saved_target_type: str | None = None) -> None:
         logger.warning(f"[Stream Switch] Timeout for {call_id}, rolling back to original stream")
@@ -1060,6 +1102,7 @@ class SipInvite:
 
         try:
             from app.sip.watchdog import cancel_stream_switch_watchdog
+
             cancel_stream_switch_watchdog(call_id)
         except Exception as e:
             logger.warning(f"SIP Invite operation failed: {e}")
@@ -1078,6 +1121,7 @@ class SipInvite:
                     return
 
                 from app.sip.server import sip_server
+
                 transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
                 if not transport:
                     return
@@ -1117,8 +1161,10 @@ class SipInvite:
 
                 # FIX: [2026-07-03] 传入 stream_id/app_name 用于孤儿租约清理 [全栈工程师]
                 rtp_port, lease_id = await allocate_rtp_port_with_lease(
-                    session, target_node,
-                    stream_id=stream_session.stream, app_name=stream_session.app,
+                    session,
+                    target_node,
+                    stream_id=stream_session.stream,
+                    app_name=stream_session.app,
                 )
                 if not rtp_port:
                     logger.error("[HA Failover] Failed to allocate port on new node")
@@ -1127,7 +1173,7 @@ class SipInvite:
                 try:
                     # P0-02: target_node 可能是 ORM MediaNode(密文) 或 RuntimeMediaNode(明文)，
                     # 优先用 decrypted_secret；RuntimeMediaNode 无此属性则回退到 .secret（已是明文）
-                    _target_secret = getattr(target_node, 'decrypted_secret', None) or target_node.secret
+                    _target_secret = getattr(target_node, "decrypted_secret", None) or target_node.secret
                     # P0-fix [2026-07-17]: HA Failover Re-INVITE 必须正确映射 tcp_mode 三态
                     # 原代码对所有 TCP* 协议都传 tcp_mode=1（TCP-PASSIVE），TCP-ACTIVE 被降级，
                     # SDP 中 setup=active 与 ZLM RTP server passive 模式不一致，TCP-ACTIVE 流无法建立。
@@ -1135,7 +1181,7 @@ class SipInvite:
                     #   UDP           → tcp_mode=0
                     #   TCP-PASSIVE   → tcp_mode=1
                     #   TCP-ACTIVE    → tcp_mode=2
-                    _proto_str = str(getattr(stream_session, 'protocol', '') or '').upper().replace("-", "_")
+                    _proto_str = str(getattr(stream_session, "protocol", "") or "").upper().replace("-", "_")
                     if _proto_str.startswith("TCP_ACTIVE") or _proto_str == "TCP_ACTIVE":
                         _ha_tcp_mode = 2
                     elif _proto_str.startswith("TCP"):
@@ -1195,6 +1241,7 @@ class SipInvite:
                         setup_val = "passive"
 
                 from app.sip.sdp import build_sdp as _build_sdp
+
                 # P1-fix: HA 故障转移 Re-INVITE 的 f= 行应与初始 INVITE 保持一致
                 _ha_reinvite_f_line = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0"
                 sdp_str = _build_sdp(
@@ -1359,9 +1406,7 @@ class SipInvite:
         logger.info(f"[SipInvite BYE] Sent BYE to {device_id} call_id={call_id}")
         return True
 
-    async def send_cascade_invite(
-        self, asset, resource, transport_info: tuple, sdp_body: str, *, session_name: str = "Play"
-    ) -> dict:
+    async def send_cascade_invite(self, asset, resource, transport_info: tuple, sdp_body: str, *, session_name: str = "Play") -> dict:
         (addr, proto, transport) = transport_info
         channel_id = resource.gb_id
         call_id = f"cascade_{uuid.uuid4().hex[:16]}"
@@ -1371,6 +1416,7 @@ class SipInvite:
 
         upstream_sdp = sdp_body
         from app.sip.sdp import parse_sdp as _parse_sdp, pick_media as _pick_media, is_tcp_profile as _is_tcp_profile, build_sdp as _build_sdp
+
         parsed = _parse_sdp(upstream_sdp, fallback_ip=addr[0])
         media_info = _pick_media(parsed, "video")
         if media_info:
@@ -1419,8 +1465,10 @@ class SipInvite:
                     # FIX: [2026-07-03] 传入 stream_id/app_name 用于孤儿租约清理 [全栈工程师]
                     _cascade_stream_id = f"{channel_id}_{ssrc}"
                     _cascade_rtp_port, _cascade_lease_id = await allocate_rtp_port_with_lease(
-                        _c_session, _cascade_node,
-                        stream_id=_cascade_stream_id, app_name="cascade",
+                        _c_session,
+                        _cascade_node,
+                        stream_id=_cascade_stream_id,
+                        app_name="cascade",
                     )
                 if _cascade_rtp_port:
                     # P1-fix [2026-07-17]: 级联 INVITE 必须支持 TCP-ACTIVE 模式
@@ -1446,7 +1494,9 @@ class SipInvite:
                         stream_id=f"{channel_id}_{ssrc}",
                         ssrc="0",
                     )
-                    logger.info(f"[Cascade INVITE] Opened RTP server on node={_cascade_node.host}:{_cascade_rtp_port} tcp={_tcp_mode} (peer_setup={setup_attr})")
+                    logger.info(
+                        f"[Cascade INVITE] Opened RTP server on node={_cascade_node.host}:{_cascade_rtp_port} tcp={_tcp_mode} (peer_setup={setup_attr})"
+                    )
         except Exception as _rtp_err:
             logger.warning(f"[Cascade INVITE] Failed to create RTP server for cascade: {_rtp_err}")
             if _cascade_lease_id:
@@ -1470,6 +1520,7 @@ class SipInvite:
                     # 会导致后续 INVITE 全部失败（资源耗尽）。必须记录日志便于排查。
                     logger.error(f"[Cascade INVITE] SSRC release failed after RTP server creation failure: ssrc={ssrc} error={_ssrc_release_err}")
             from fastapi import HTTPException as _FastApiHTTPException
+
             raise _FastApiHTTPException(status_code=503, detail="Failed to allocate RTP port for cascade stream")
 
         setup_val = None
@@ -1497,7 +1548,16 @@ class SipInvite:
         ).encode("utf-8")
 
         event = asyncio.Event()
-        result_container = {"sdp_response": None, "status_code": None, "invite_ok": False, "to_tag": "", "from_tag": from_tag, "call_id": call_id, "ssrc": ssrc, "branch": branch}
+        result_container = {
+            "sdp_response": None,
+            "status_code": None,
+            "invite_ok": False,
+            "to_tag": "",
+            "from_tag": from_tag,
+            "call_id": call_id,
+            "ssrc": ssrc,
+            "branch": branch,
+        }
 
         async def _cascade_response_handler(msg: SipMessage, a: tuple, p: str, t):
             if msg.get_header("Call-ID") != call_id:
@@ -1519,7 +1579,7 @@ class SipInvite:
                         fire_and_forget(dialog_manager.create_dialog(call_id, from_tag_val, session_data={"cascade": True}))
                         if to_tag_val:
                             # GB28181协议 — 级联场景传递Record-Route头到dialog
-                            _cascade_rr = msg.get_header("Record-Route") if hasattr(msg, 'get_header') else None
+                            _cascade_rr = msg.get_header("Record-Route") if hasattr(msg, "get_header") else None
                             _cascade_route_set = [_cascade_rr] if _cascade_rr else None
                             fire_and_forget(dialog_manager.confirm_dialog(call_id, from_tag_val, to_tag_val, route_set=_cascade_route_set))
                 except Exception as dlg_err:
@@ -1562,6 +1622,7 @@ class SipInvite:
         self.sip_server.register_response_handler(_cascade_response_handler)
         try:
             from app.sip import transactions as sip_transactions
+
             tx_manager = getattr(sip_transactions, "client_tx_manager", None) or getattr(sip_transactions, "tx_manager", None)
             if tx_manager:
                 await tx_manager.send_request(req, addr, proto, transport)
@@ -1631,9 +1692,13 @@ class SipInvite:
             ack.method = "ACK"
             ack.uri = req.uri
             ack.version = "SIP/2.0"
-            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+            ack.headers["Via"] = (
+                f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+            )
             ack.headers["From"] = req.headers["From"]
-            ack.headers["To"] = f"<sip:{channel_id}@{sip_from_to_host()}>;tag={result_container['to_tag']}" if result_container["to_tag"] else req.headers["To"]
+            ack.headers["To"] = (
+                f"<sip:{channel_id}@{sip_from_to_host()}>;tag={result_container['to_tag']}" if result_container["to_tag"] else req.headers["To"]
+            )
             ack.headers["Call-ID"] = call_id
             # FIX [2026-07-17 P1]: ACK 的 CSeq 必须与对应 INVITE 的 CSeq 一致（RFC 3261 §22.2）
             ack.headers["CSeq"] = f"{_invite_cseq} ACK"
@@ -1680,9 +1745,7 @@ class SipInvite:
         invite_state.cascade_call_ids.pop(call_id, None)  # FIX [2026-07-17 P1-B3]: dict.pop 替代 set.discard
         return result_container
 
-    async def send_talk_invite(
-        self, asset, resource, transport_info: tuple, sdp_body: str
-    ) -> dict:
+    async def send_talk_invite(self, asset, resource, transport_info: tuple, sdp_body: str) -> dict:
         """
         发送双向语音对讲请求 (INVITE s=Talk)
         这里直接使用前端或者 ZLM 回传的 SDP 建立连接
@@ -1769,7 +1832,8 @@ class SipInvite:
             raise RuntimeError("sip_client_tx_manager_unavailable")
 
         await dialog_manager.create_dialog(
-            call_id, tag,
+            call_id,
+            tag,
             cseq=1,
             session_data={
                 "asset_id": asset_id,
@@ -1812,7 +1876,9 @@ class SipInvite:
             ack.method = "ACK"
             ack.uri = req.uri
             ack.version = "SIP/2.0"
-            ack.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+            ack.headers["Via"] = (
+                f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无后缀，兼容 EasyGBS 等非标准客户端
+            )
             ack.headers["From"] = req.headers["From"]
             ack.headers["To"] = resp.get_header("To") or req.headers["To"]
             ack.headers["Call-ID"] = req.headers["Call-ID"]
@@ -1840,13 +1906,7 @@ class SipInvite:
                 except Exception as e:
                     logger.warning(f"Exception: {e}")
 
-            return {
-                "app": app_name,
-                "stream": stream_id,
-                "call_id": call_id,
-                "sdp_response": resp.body,
-                "session_id": stream_session_id
-            }
+            return {"app": app_name, "stream": stream_id, "call_id": call_id, "sdp_response": resp.body, "session_id": stream_session_id}
         except Exception as e:
             logger.error(f"Talk INVITE failed: {e}")
             try:
@@ -1876,10 +1936,7 @@ class SipInvite:
         selection_reason = "unknown"
         try:
             db_nodes = await list_db_media_nodes(session)
-            if (
-                settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE
-                and settings.EMBEDDED_ZLM_ENABLED
-            ):
+            if settings.GB28181_AUTO_ENSURE_EMBEDDED_MEDIA_NODE and settings.EMBEDDED_ZLM_ENABLED:
                 ensured_id = await ensure_embedded_media_node(session)
                 if ensured_id:
                     db_nodes = await list_db_media_nodes(session)
@@ -1989,8 +2046,12 @@ class SipInvite:
                     async with AsyncSessionLocal() as lease_session:
                         # FIX: [2026-07-03] 传入 stream_id/app_name 用于孤儿租约清理 [全栈工程师]
                         allocated_port, attempt_lease_id = await allocate_rtp_port_with_lease(
-                            lease_session, db_node, start_from=start_from, exclude_ports=tried_ports,
-                            stream_id=stream_id, app_name=app_name,
+                            lease_session,
+                            db_node,
+                            start_from=start_from,
+                            exclude_ports=tried_ports,
+                            stream_id=stream_id,
+                            app_name=app_name,
                         )
                         if attempt_lease_id:
                             await lease_session.commit()
@@ -2005,6 +2066,7 @@ class SipInvite:
                             try:
                                 async with AsyncSessionLocal() as _cleanup_db:
                                     from app.core.media_nodes_db import cleanup_stale_leases as _cleanup_fn
+
                                     _cleaned = await _cleanup_fn(_cleanup_db, max_age_seconds=30, limit=200)
                                     if _cleaned > 0:
                                         logger.info(f"Port exhaustion: cleaned {_cleaned} stale leases on node {db_node.id}, retrying allocation")
@@ -2019,7 +2081,7 @@ class SipInvite:
                     media_port = int(allocated_port or 0)
                     # db_node 为 RuntimeMediaNode（由 _select_media_node 经 _to_runtime 解密），
                     # .secret 已是明文，可直接用于 ZLM API 鉴权。
-                    secret = (db_node.secret or settings.MEDIA_SERVER_SECRET or "")
+                    secret = db_node.secret or settings.MEDIA_SERVER_SECRET or ""
                     if not secret:
                         last_err_msg = f"node={db_node.id}, reason=empty_secret"
                         logger.error(f"ZLM openRtpServer skipped: secret is empty for node {db_node.id}")
@@ -2032,10 +2094,16 @@ class SipInvite:
                     # R25 Stream-3: ZLM HTTP 在无 DB session 持有期间执行
                     try:
                         zlm_res = await open_rtp_server(
-                            host=str(db_node.host), http_port=int(db_node.http_port or 0),
-                            secret=str(secret), port=int(media_port or 0), tcp_mode=int(tcp_mode),
-                            app=app_name, stream_id=stream_id, ssrc=zlm_expect_ssrc,
-                            re_use_port=False, enable_hls=1,  # P0-fix: 使用布尔值而非字符串 "0"
+                            host=str(db_node.host),
+                            http_port=int(db_node.http_port or 0),
+                            secret=str(secret),
+                            port=int(media_port or 0),
+                            tcp_mode=int(tcp_mode),
+                            app=app_name,
+                            stream_id=stream_id,
+                            ssrc=zlm_expect_ssrc,
+                            re_use_port=False,
+                            enable_hls=1,  # P0-fix: 使用布尔值而非字符串 "0"
                         )
                         ssrc_check_enabled = effective_ssrc_check
                         media_port = zlm_res.get("port", media_port)
@@ -2081,9 +2149,11 @@ class SipInvite:
                 if zlm_res:
                     break
             else:
-                media_port = int(getattr(db_node, "rtp_port", None) if getattr(db_node, "rtp_port", None) is not None else media_port)  # GB28181协议 — 0是合法端口值，不应被falsy跳过
+                media_port = int(
+                    getattr(db_node, "rtp_port", None) if getattr(db_node, "rtp_port", None) is not None else media_port
+                )  # GB28181协议 — 0是合法端口值，不应被falsy跳过
                 # db_node 为 RuntimeMediaNode，.secret 已是明文（同 range 模式）
-                secret = (db_node.secret or settings.MEDIA_SERVER_SECRET or "")
+                secret = db_node.secret or settings.MEDIA_SERVER_SECRET or ""
                 if not secret:
                     last_err_msg = f"node={db_node.id}, reason=empty_secret"
                     logger.error(f"ZLM openRtpServer skipped: secret is empty for node {db_node.id}")
@@ -2092,11 +2162,20 @@ class SipInvite:
                     # R25 Stream-3: single 模式无租约，ZLM HTTP 在无 DB session 期间执行
                     try:
                         zlm_res = await open_rtp_server(
-                            host=str(db_node.host), http_port=int(db_node.http_port or 0),
-                            secret=str(secret), port=int(media_port or 0), tcp_mode=int(tcp_mode),
-                            app=app_name, stream_id=stream_id, ssrc=zlm_expect_ssrc,
+                            host=str(db_node.host),
+                            http_port=int(db_node.http_port or 0),
+                            secret=str(secret),
+                            port=int(media_port or 0),
+                            tcp_mode=int(tcp_mode),
+                            app=app_name,
+                            stream_id=stream_id,
+                            ssrc=zlm_expect_ssrc,
                             re_use_port=(mode != "range"),  # P0-fix: 布尔值，避免字符串 "0"/"1" 误判
-                            enable_hls=1, enable_mp4=0, enable_rtsp=1, enable_rtmp=1, enable_flv=1,
+                            enable_hls=1,
+                            enable_mp4=0,
+                            enable_rtsp=1,
+                            enable_rtmp=1,
+                            enable_flv=1,
                         )
                         ssrc_check_enabled = effective_ssrc_check
                         media_port = zlm_res.get("port", media_port)
@@ -2175,17 +2254,42 @@ class SipInvite:
             # W-20 使用async with替代手动acquire/release，避免CancelledError时release未获取的锁
             async with _ch_lock:
                 return await self._send_invite_common_inner(
-                    asset, resource, transport_info, is_playback,
-                    start_time, end_time, media_mode_override, stream_type,
-                    zlm_ssrc_check, reuse_stream_session_id, download_speed,
-                    asset_id, asset_gb_id, tenant_id, channel_id, device_id,
+                    asset,
+                    resource,
+                    transport_info,
+                    is_playback,
+                    start_time,
+                    end_time,
+                    media_mode_override,
+                    stream_type,
+                    zlm_ssrc_check,
+                    reuse_stream_session_id,
+                    download_speed,
+                    asset_id,
+                    asset_gb_id,
+                    tenant_id,
+                    channel_id,
+                    device_id,
                 )
 
     async def _send_invite_common_inner(
-        self, asset, resource, transport_info, is_playback,
-        start_time, end_time, media_mode_override, stream_type,
-        zlm_ssrc_check, reuse_stream_session_id, download_speed,
-        asset_id, asset_gb_id, tenant_id, channel_id, device_id,
+        self,
+        asset,
+        resource,
+        transport_info,
+        is_playback,
+        start_time,
+        end_time,
+        media_mode_override,
+        stream_type,
+        zlm_ssrc_check,
+        reuse_stream_session_id,
+        download_speed,
+        asset_id,
+        asset_gb_id,
+        tenant_id,
+        channel_id,
+        device_id,
     ):
         addr, proto, transport = transport_info
         resource_id = str(getattr(resource, "id", "") or "")
@@ -2307,6 +2411,7 @@ class SipInvite:
 
         def build_sdp(port: int) -> str:
             from app.sip.sdp import build_sdp as _build_sdp
+
             f_line_val = f"f=v/2/4/{settings.GB28181_VIDEO_QUALITY}/1/0a/0/0/0" if not is_playback else ""
             u_line_val = f"u={channel_id}:0" if is_playback else ""
             setup_val = None
@@ -2379,9 +2484,7 @@ class SipInvite:
         db_node = None
         async with AsyncSessionLocal() as session:
             if reuse_stream_session_id:
-                reuse_session = (
-                    await session.execute(select(StreamSession).where(StreamSession.id == reuse_stream_session_id))
-                ).scalars().first()
+                reuse_session = (await session.execute(select(StreamSession).where(StreamSession.id == reuse_stream_session_id))).scalars().first()
                 if reuse_session:
                     reuse_session_snapshot = {
                         "id": str(getattr(reuse_session, "id", "") or ""),
@@ -2448,7 +2551,17 @@ class SipInvite:
                 tcp_mode = 2
 
             base_ssrc_check = True if zlm_ssrc_check is None else bool(zlm_ssrc_check)
-            zlm_res, media_port, media_ip, node_id, lease_id, ssrc_check_enabled, sdp_ip, selection_reason, last_err_msg = await self._open_zlm_rtp_server(
+            (
+                zlm_res,
+                media_port,
+                media_ip,
+                node_id,
+                lease_id,
+                ssrc_check_enabled,
+                sdp_ip,
+                selection_reason,
+                last_err_msg,
+            ) = await self._open_zlm_rtp_server(
                 db_node=db_node,
                 app_name=app_name,
                 stream_id=stream_id,
@@ -2465,9 +2578,7 @@ class SipInvite:
             if not zlm_res:
                 await unregister_ssrc_waiter(ssrc)
                 await ssrc_manager.release(ssrc)
-                raise RuntimeError(
-                    f"Call ZLM openRtpServer failed. No media node is ready to receive stream. last_error=({last_err_msg})"
-                )
+                raise RuntimeError(f"Call ZLM openRtpServer failed. No media node is ready to receive stream. last_error=({last_err_msg})")
 
         # Phase 3: DB 写 — 创建/更新 StreamSession、绑定租约、commit
         try:
@@ -2491,8 +2602,8 @@ class SipInvite:
                 stream_session = None
                 if reuse_stream_session_id:
                     stream_session = (
-                        await session.execute(select(StreamSession).where(StreamSession.id == reuse_stream_session_id))
-                    ).scalars().first()
+                        (await session.execute(select(StreamSession).where(StreamSession.id == reuse_stream_session_id))).scalars().first()
+                    )
                 if not stream_session:
                     stream_session = StreamSession(
                         app=session_app,
@@ -2576,7 +2687,8 @@ class SipInvite:
         # FIXED-P2: Dialog 创建和 SSRC 绑定添加异常保护，INVITE 已发出但追踪丢失时记录错误而非崩溃
         try:
             await dialog_manager.create_dialog(
-                call_id, tag,
+                call_id,
+                tag,
                 cseq=1,
                 session_data={
                     "asset_id": asset_id,
@@ -2622,6 +2734,7 @@ class SipInvite:
             timeout = settings.SIP_CASCADE_INVITE_TIMEOUT_SECONDS
         else:
             timeout = settings.SIP_INVITE_RESPONSE_TIMEOUT_SECONDS
+
         async def _on_timeout():
             # INVITE超时处理幂等性保护 — 防止watchdog与wait_invite_response双重超时竞态
             try:
@@ -2649,14 +2762,13 @@ class SipInvite:
                     # W-06-03 INVITE超时清理_REDIRECT_COUNTS，防止3xx重定向后超时条目残留
                     try:
                         from app.sip.response_handler import _REDIRECT_COUNTS
+
                         _REDIRECT_COUNTS.pop(call_id, None)
                     except Exception as _redirect_cleanup_err:
                         # FIX [2026-07-17 P2-8]: 描述性日志替代 "silently_swallowed_exception"
                         logger.warning(f"INVITE timeout: failed to cleanup _REDIRECT_COUNTS for call_id={call_id}: {_redirect_cleanup_err}")
                     async with AsyncSessionLocal() as session:
-                        stream_session = (
-                            await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))
-                        ).scalars().first()
+                        stream_session = (await session.execute(select(StreamSession).where(StreamSession.call_id == call_id))).scalars().first()
                         if not stream_session:
                             return
                         _app = str(getattr(stream_session, "app", "") or app_name)
@@ -2664,7 +2776,9 @@ class SipInvite:
                         _node_id = str(getattr(stream_session, "media_server_id", "") or "")
                         _lease_id = str(getattr(stream_session, "media_port_lease_id", "") or "")
                         if getattr(stream_session, "to_tag", None):
-                            logger.info(f"[InviteTimeout] Session {call_id} already has to_tag, device accepted INVITE, sending BYE instead of CANCEL")
+                            logger.info(
+                                f"[InviteTimeout] Session {call_id} already has to_tag, device accepted INVITE, sending BYE instead of CANCEL"
+                            )
                             await _send_bye_for_timeout(addr, proto, transport, call_id, tag, branch, channel_id, stream_session)
                         else:
                             await _send_cancel(addr, proto, transport, call_id, tag, branch, channel_id)
@@ -2678,6 +2792,7 @@ class SipInvite:
                     # GB28181协议 — 已通过_pending_event.set()通知wait_invite_response，无需再调用on_invite_response
                     try:
                         from app.sip.transactions import tx_key_from_request as _tx_key_fn
+
                         _client_txm = _get_client_tx_manager()
                         if _client_txm:
                             _tx_key = _tx_key_fn(req)
@@ -2696,6 +2811,7 @@ class SipInvite:
                         dialog_lock.release()
             except Exception as e:
                 logger.error(f"Error in invite timeout handler for {call_id}: {e}")
+
         # S-07 存储watchdog回调到pending条目，供3xx重定向后重置watchdog
         _pending_for_wd = invite_state.invite_pending.get(call_id)
         if _pending_for_wd:
@@ -2784,9 +2900,7 @@ class SipInvite:
         except Exception as _transport_err:
             # FIX [2026-07-19]: 禁止静默吞异常（项目硬约束：异常必须记录日志）。
             # 记录 warning 便于排查传输层问题；后续 if not transport 兜底返回 False。
-            logger.warning(
-                f"send_session_refresh_reinvite: get_transport({addr[0]}:{addr[1]}/{proto}) raised: {_transport_err}"
-            )
+            logger.warning(f"send_session_refresh_reinvite: get_transport({addr[0]}:{addr[1]}/{proto}) raised: {_transport_err}")
         if not transport:
             logger.warning(f"send_session_refresh_reinvite: no transport for {addr[0]}:{addr[1]}/{proto}")
             return False
@@ -2815,6 +2929,7 @@ class SipInvite:
         # P1-fix [2026-07-17]: 携带 Session-Expires 头域进行保活协商
         try:
             from app.sip.invite_server_state import build_session_expires_header
+
             req.headers["Session-Expires"] = build_session_expires_header(expires, refresher)
             req.headers["Min-SE"] = str(settings.SIP_SESSION_MIN_SE_SECONDS)
         except Exception as _se_hdr_err:
@@ -2838,6 +2953,7 @@ class SipInvite:
         except Exception as e:
             logger.warning(f"send_session_refresh_reinvite: failed to send re-INVITE call_id={call_id}: {e}")
             return False
+
 
 # Singleton
 sip_invite = None

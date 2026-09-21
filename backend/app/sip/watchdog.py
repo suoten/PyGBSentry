@@ -21,6 +21,7 @@
 
 模块导入绝不抛异常。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,6 +84,7 @@ def _get_running_loop() -> Optional[asyncio.AbstractEventLoop]:
 # 通用流看门狗
 # ---------------------------------------------------------------------------
 
+
 def start_watchdog(*, key: str, timeout_seconds: float, on_timeout: Callable) -> bool:
     """启动一个通用看门狗定时器。
 
@@ -135,6 +137,7 @@ def cancel_watchdog(key: str) -> None:
 # 码流切换看门狗
 # ---------------------------------------------------------------------------
 
+
 def start_stream_switch_watchdog(*, call_id: str, timeout_seconds: float, on_timeout: Callable) -> bool:
     """启动码流切换看门狗（按 call_id 索引，独立命名空间）。
 
@@ -186,6 +189,7 @@ def cancel_stream_switch_watchdog(call_id: str) -> None:
 # ---------------------------------------------------------------------------
 # 调试 / 维护
 # ---------------------------------------------------------------------------
+
 
 def watchdog_stats() -> dict:
     """返回当前看门狗计数（调试用）。"""

@@ -20,6 +20,7 @@ The ``response`` value is computed exactly as specified by RFC 2617 section 3.2.
 Nonce generation signs ``timestamp:random`` with HMAC-SHA256 so the server can
 verify that a returned nonce was actually issued by it (anti-replay / forgery).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -128,9 +129,9 @@ class DigestAuth:
         raw = auth_header.strip()
         # Strip leading scheme, e.g. "Digest " or "Basic "
         if raw.lower().startswith("digest"):
-            raw = raw[len("digest"):].lstrip()
+            raw = raw[len("digest") :].lstrip()
         elif raw.lower().startswith("basic"):
-            raw = raw[len("basic"):].lstrip()
+            raw = raw[len("basic") :].lstrip()
 
         params: dict[str, str] = {}
         for m in DigestAuth._PARAM_RE.finditer(raw):
@@ -305,12 +306,7 @@ class DigestAuth:
         # P1-fix [2026-07-17]: realm 解析顺序与 _send_register_401 保持一致
         # （SIP_REALM > SIP_DOMAIN > PROJECT_NAME > "PyGBSentry"），避免 challenge
         # 与 verify 之间 realm 不匹配导致永远认证失败。
-        realm = realm or (
-            settings.SIP_REALM
-            or settings.SIP_DOMAIN
-            or settings.PROJECT_NAME
-            or "PyGBSentry"
-        )
+        realm = realm or (settings.SIP_REALM or settings.SIP_DOMAIN or settings.PROJECT_NAME or "PyGBSentry")
         nonce = DigestAuth.generate_nonce()
         parts = [
             f'realm="{realm}"',
@@ -318,7 +314,7 @@ class DigestAuth:
             f"algorithm={algorithm}",
         ]
         if qop:
-            parts.append(f"qop=\"{qop}\"")
+            parts.append(f'qop="{qop}"')
         if opaque:
             parts.append(f'opaque="{opaque}"')
         if stale:

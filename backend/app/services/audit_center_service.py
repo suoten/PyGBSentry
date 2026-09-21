@@ -1,20 +1,21 @@
 import uuid
 from datetime import datetime, timezone
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
 
 from sqlalchemy import select, desc, and_, or_, func  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.operation_audit import OperationAudit
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from loguru import logger
-
-
 
 
 class AuditCenterService:
@@ -24,12 +25,14 @@ class AuditCenterService:
         读取配置并推送日志
         """
         from app.core.config import settings
+
         webhook_url = settings.AUDIT_WEBHOOK_URL
         webhook_timeout = settings.AUDIT_WEBHOOK_TIMEOUT
         if webhook_url:
             try:
                 # FIX: [2026-07-04] 使用进程级共享 HTTP 客户端，避免每次调用创建/销毁 AsyncClient 导致连接池泄漏 [可靠性工程师]
                 from app.core.http_client import get_http_client
+
                 client = await get_http_client()
                 await client.post(webhook_url, json=payload, timeout=float(webhook_timeout))
             except Exception as e:
@@ -53,6 +56,7 @@ class AuditCenterService:
             if k and v != "":
                 out[k] = v
         return out
+
     def _summary_field_condition(self, key: str, value: str):
         token = f"{key}={value}"
         return or_(
@@ -94,10 +98,12 @@ class AuditCenterService:
             # FIX: [2026-07-04] 原仅通过 summary 文本匹配 tenant_id=xxx，但 safe_auth_audit 将 tenant_id 写入
             # OperationAudit.tenant_id 专列而非 summary 文本，导致租户级审计日志隔离完全失效 [全栈工程师]
             # 修正：优先使用专列查询，兼容 summary 文本中包含 tenant_id 的旧记录
-            fixed_conditions.append(or_(
-                OperationAudit.tenant_id == tenant_id,
-                self._summary_field_condition("tenant_id", tenant_id),
-            ))
+            fixed_conditions.append(
+                or_(
+                    OperationAudit.tenant_id == tenant_id,
+                    self._summary_field_condition("tenant_id", tenant_id),
+                )
+            )
         if status_code is not None:
             fixed_conditions.append(self._summary_field_condition("status_code", str(status_code)))
 
@@ -274,20 +280,24 @@ class AuditCenterService:
         max_rows: int = 10000,
     ) -> str:
         """Export audit logs as CSV (same filters as list_logs)."""
-        stmt = self._build_filtered_stmt(
-            module=module,
-            action=action,
-            action_prefix=action_prefix,
-            operator=operator,
-            result=result,
-            plugin_id=plugin_id,
-            source=source,
-            tenant_id=tenant_id,
-            status_code=status_code,
-            status_family=status_family,
-            start_at=start_at,
-            end_at=end_at,
-        ).order_by(desc(OperationAudit.created_at)).limit(max_rows)
+        stmt = (
+            self._build_filtered_stmt(
+                module=module,
+                action=action,
+                action_prefix=action_prefix,
+                operator=operator,
+                result=result,
+                plugin_id=plugin_id,
+                source=source,
+                tenant_id=tenant_id,
+                status_code=status_code,
+                status_family=status_family,
+                start_at=start_at,
+                end_at=end_at,
+            )
+            .order_by(desc(OperationAudit.created_at))
+            .limit(max_rows)
+        )
         result_set = await db.execute(stmt)
         rows = result_set.scalars().all()
         lines = ["\ufeff时间,模块,动作,操作人,结果,插件ID,来源,租户,状态码,摘要"]
@@ -351,27 +361,23 @@ class AuditCenterService:
         total = int((await db.execute(total_stmt)).scalar() or 0)
 
         # 2. 失败数（SQL COUNT WHERE result='failed'）
-        failed_stmt = base_stmt_no_order.where(
-            OperationAudit.result == "failed"
-        ).with_only_columns(func.count())
+        failed_stmt = base_stmt_no_order.where(OperationAudit.result == "failed").with_only_columns(func.count())
         failed = int((await db.execute(failed_stmt)).scalar() or 0)
 
         # 3. Top 5 动作（SQL GROUP BY）
-        actions_stmt = base_stmt_no_order.with_only_columns(
-            OperationAudit.action, func.count().label("cnt")
-        ).group_by(OperationAudit.action).order_by(desc("cnt")).limit(5)
+        actions_stmt = (
+            base_stmt_no_order.with_only_columns(OperationAudit.action, func.count().label("cnt"))
+            .group_by(OperationAudit.action)
+            .order_by(desc("cnt"))
+            .limit(5)
+        )
         actions_result = await db.execute(actions_stmt)
-        top_actions = [
-            {"name": row[0] or "-", "count": row[1]}
-            for row in actions_result.all()
-        ]
+        top_actions = [{"name": row[0] or "-", "count": row[1]} for row in actions_result.all()]
 
         # 4. 状态码统计：status_code 存储在 summary 文本中，无法用 SQL 高效聚合。
         # 仅扫描最近 N 条记录进行解析，避免全表加载导致 OOM。
         _status_scan_limit = 10000
-        status_stmt = base_stmt.order_by(
-            desc(OperationAudit.created_at)
-        ).limit(_status_scan_limit)
+        status_stmt = base_stmt.order_by(desc(OperationAudit.created_at)).limit(_status_scan_limit)
         status_result = await db.execute(status_stmt)
         status_rows = status_result.scalars().all()
         status_count: dict[str, int] = {}

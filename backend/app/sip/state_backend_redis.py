@@ -113,6 +113,7 @@ class RedisSipStateBackend:
         """获取当前 Redis 客户端（每次调用获取最新引用，避免初始化时序问题）。"""
         try:
             from app.core.redis import redis_client
+
             return redis_client
         except ImportError:
             return None
@@ -344,9 +345,7 @@ class RedisSipStateBackend:
         cutoff = now - self._auth_failure_ttl
         cleaned = 0
         try:
-            async for key in client.scan_iter(
-                match=f"{self._auth_failure_prefix}*", count=200
-            ):
+            async for key in client.scan_iter(match=f"{self._auth_failure_prefix}*", count=200):
                 try:
                     removed = await client.zremrangebyscore(key, 0, cutoff)
                     cleaned += int(removed)

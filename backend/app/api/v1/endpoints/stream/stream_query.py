@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import asyncio
 import re
 
-_SAFE_NAME_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 router = APIRouter()
@@ -25,7 +25,7 @@ async def list_streams(
     limit: int = Query(100, ge=1, le=500, description="每页最大条数"),
     offset: int = Query(0, ge=0, description="偏移量"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     tenant_id = current_user.tenant_id or "default"
     now = datetime.now(timezone.utc)
@@ -77,9 +77,7 @@ async def list_streams(
     else:
         # 4. ZLM 不可用时，分页查询 DB 作为回退（避免全量加载）
         fallback_stmt = _apply_tenant_filter(select(StreamSession))
-        fallback_stmt = fallback_stmt.order_by(
-            StreamSession.app, StreamSession.stream
-        ).limit(limit).offset(offset)
+        fallback_stmt = fallback_stmt.order_by(StreamSession.app, StreamSession.stream).limit(limit).offset(offset)
         session_result = await db.execute(fallback_stmt)
         sessions_fallback = session_result.scalars().all()
 
@@ -109,7 +107,7 @@ async def list_streams(
                 "bytes_speed": int(item.get("bytesSpeed") or 0),
                 "is_proxy": int(item.get("originType") or 0) in {5, 6},
                 "asset_id": related.asset_id if related else None,
-                "resource_id": related.resource_id if related else None
+                "resource_id": related.resource_id if related else None,
             }
         )
     # ZLM 不可用时的回退：使用 DB 分页结果
@@ -133,7 +131,7 @@ async def list_streams(
                     "bytes_speed": 0,
                     "is_proxy": False,
                     "asset_id": item.asset_id,
-                    "resource_id": item.resource_id
+                    "resource_id": item.resource_id,
                 }
             )
     payload.sort(key=lambda x: (x["app"], x["stream"]))
@@ -144,7 +142,7 @@ async def list_streams(
     if sessions_fallback:
         paged = payload
     else:
-        paged = payload[offset:offset + limit]
+        paged = payload[offset : offset + limit]
     return {"items": paged, "total": total, "limit": limit, "offset": offset}
 
 
@@ -154,7 +152,7 @@ async def get_webrtc_url(
     app_name: str = Query("live"),
     transcode: bool = Query(False, description="是否强制丢弃B帧并转码为H264 Baseline"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)  # WebRTC端点缺少认证保护
+    current_user: User = Depends(deps.get_current_active_user),  # WebRTC端点缺少认证保护
 ):
     """
     获取 WebRTC 播放地址 (基于 WHEP 标准化协议) 及其 STUN/TURN 穿透凭证。
@@ -181,7 +179,7 @@ async def get_webrtc_url(
             if not _SAFE_NAME_RE.match(app_name) or not _SAFE_NAME_RE.match(stream_id):
                 raise HTTPException(status_code=400, detail="Invalid app_name or stream_id: must contain only alphanumeric, hyphens, underscores")
             # 原始流地址 (ZLM 本地 RTSP)
-            _media_host = settings.MEDIA_SERVER_HOST or ''  # I3 回退值不再硬编码127.0.0.1
+            _media_host = settings.MEDIA_SERVER_HOST or ""  # I3 回退值不再硬编码127.0.0.1
             # FIX: [2026-08-22 PN] 原引用不存在的配置项 STREAM_PUBLIC_RTSP_PORT →
             # AttributeError。实际配置项为 MEDIA_SERVER_RTSP_PORT。
             _rtsp_port = settings.MEDIA_SERVER_RTSP_PORT or 554
@@ -210,14 +208,6 @@ async def get_webrtc_url(
     _turn_username = settings.TURN_USERNAME
     _turn_password = settings.TURN_PASSWORD
     if settings.TURN_SERVER and _turn_username and _turn_password:
-        turn_servers.append({
-            "urls": [f"turn:{settings.TURN_SERVER}"],
-            "username": _turn_username,
-            "credential": _turn_password
-        })
+        turn_servers.append({"urls": [f"turn:{settings.TURN_SERVER}"], "username": _turn_username, "credential": _turn_password})
 
-    return {
-        "code": 0,
-        "whep_url": whep_url,
-        "ice_servers": turn_servers
-    }
+    return {"code": 0, "whep_url": whep_url, "ice_servers": turn_servers}

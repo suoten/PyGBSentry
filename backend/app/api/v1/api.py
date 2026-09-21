@@ -13,6 +13,7 @@ Resilient import strategy:
     skipped (a log line records the skip for operational visibility).
   * Modules that exist but expose no ``router`` attribute are likewise skipped.
 """
+
 # ruff: noqa: F821  — endpoint module names are dynamically injected via globals() in the loop below
 from __future__ import annotations
 
@@ -27,16 +28,57 @@ from app.core.config import settings
 # Names of endpoint modules imported from ``app.api.v1.endpoints``.
 # Order is preserved for deterministic router mounting.
 _ENDPOINT_MODULES = [
-    "hook", "devices", "control", "record", "device_record", "gb_record",
-    "record_schedule", "regions", "organizations", "login", "users",
-    "user_api_keys", "ops", "logs", "alarms", "talk", "map", "plugins",
-    "health", "work_orders", "billing", "integrations", "push_channels",
-    "trace_events", "system_config", "config_center", "release_center",
-    "audit_center", "channel_import", "platforms", "asset_management",
-    "network", "network_diagnostics", "reports", "setup", "demo", "metrics",
-    "apps", "command", "structured", "rtp", "roles", "proxy_compat", "media",
-    "blacklist", "ptz", "ai_gateway", "vod", "stream_optimization",
-    "ssl_cert", "sip_trace_ws",
+    "hook",
+    "devices",
+    "control",
+    "record",
+    "device_record",
+    "gb_record",
+    "record_schedule",
+    "regions",
+    "organizations",
+    "login",
+    "users",
+    "user_api_keys",
+    "ops",
+    "logs",
+    "alarms",
+    "talk",
+    "map",
+    "plugins",
+    "health",
+    "work_orders",
+    "billing",
+    "integrations",
+    "push_channels",
+    "trace_events",
+    "system_config",
+    "config_center",
+    "release_center",
+    "audit_center",
+    "channel_import",
+    "platforms",
+    "asset_management",
+    "network",
+    "network_diagnostics",
+    "reports",
+    "setup",
+    "demo",
+    "metrics",
+    "apps",
+    "command",
+    "structured",
+    "rtp",
+    "roles",
+    "proxy_compat",
+    "media",
+    "blacklist",
+    "ptz",
+    "ai_gateway",
+    "vod",
+    "stream_optimization",
+    "ssl_cert",
+    "sip_trace_ws",
 ]
 
 
@@ -55,6 +97,7 @@ def _load(name: str):
     routes returning 404 and no visible error in the logs. [全栈工程师]
     """
     import importlib.util
+
     try:
         spec = importlib.util.find_spec(f"app.api.v1.endpoints.{name}")
     except Exception:
@@ -104,6 +147,7 @@ except Exception as _e:
 api_router = APIRouter()
 # ARCHITECTURE: 统一使用 app.core.edition 进行版本判断，避免散落的 APP_EDITION 字符串比较
 from app.core.edition import is_server_edition as _is_server_edition_fn, edition_label
+
 is_server_edition = _is_server_edition_fn()
 
 
@@ -196,6 +240,7 @@ if not is_server_edition:
 #         /plugins/license/signing-key-rotation/*、/plugins/webhooks 等）。
 api_router.include_router(_route_stubs_oss.router, tags=["stubs-oss"])
 
+
 @api_router.get("/ping")
 def health_check():
     return {
@@ -208,23 +253,29 @@ def health_check():
 
 from fastapi.responses import RedirectResponse
 
+
 @api_router.get("/push_channels")
 @api_router.post("/push_channels")
 async def redirect_push_channels():
     return RedirectResponse(url="/api/v1/push-channels", status_code=307)
+
 
 @api_router.get("/record_schedule")
 @api_router.post("/record_schedule")
 async def redirect_record_schedule():
     return RedirectResponse(url="/api/v1/record-schedule", status_code=307)
 
+
 @api_router.get("/device_record")
 @api_router.post("/device_record")
 async def redirect_device_record():
     return RedirectResponse(url="/api/v1/device-record", status_code=307)
 
+
 @api_router.get("/gb_record")
 @api_router.post("/gb_record")
 async def redirect_gb_record():
     return RedirectResponse(url="/api/v1/gb-record", status_code=307)
+
+
 # 302→307，302会导致POST请求被浏览器转为GET丢失body，307保持原始HTTP方法

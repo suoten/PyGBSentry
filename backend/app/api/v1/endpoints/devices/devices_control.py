@@ -27,7 +27,7 @@ from app.core.http_client import get_http_client
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 from loguru import logger
 
-from . _common import (
+from ._common import (
     BatchChannelSnapPayload,
 )
 
@@ -85,6 +85,7 @@ async def _try_snap_async(host: str, http_port: int, secret: str, app: str, stre
     cap = None
     try:
         import cv2  # type: ignore
+
         # Explicitly use FFMPEG backend to avoid CAP_IMAGES fallback and assertion errors when connection refused
         cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
         with contextlib.suppress(Exception):
@@ -133,9 +134,8 @@ async def get_channel_snapshot(
     cleanup_ms = 0.0
     stage = "init"
     from sqlalchemy import or_
-    stmt = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id).where(
-        or_(Resource.gb_id == channel_id, Resource.id == channel_id)
-    )
+
+    stmt = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id).where(or_(Resource.gb_id == channel_id, Resource.id == channel_id))
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     db_t0 = time.perf_counter()
@@ -192,7 +192,9 @@ async def get_channel_snapshot(
             url = f"http://{host}:{http_port}/index/api/getMediaList"
             try:
                 # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-                r = await (await get_http_client()).post(url, data={"secret": sec, "app": "live"}, timeout=0.6)  # 同步requests→异步httpx，避免阻塞事件循环
+                r = await (await get_http_client()).post(
+                    url, data={"secret": sec, "app": "live"}, timeout=0.6
+                )  # 同步requests→异步httpx，避免阻塞事件循环
                 if r.status_code >= 400:
                     continue
                 payload = r.json()
@@ -214,7 +216,11 @@ async def get_channel_snapshot(
     if prefer_existing:
         existing_t0 = time.perf_counter()
         # 1. 优先从 StreamSession 中找活跃记录，这样最快且精确
-        ss_stmt = select(StreamSession).where(StreamSession.resource_id == resource.id, StreamSession.app == "live").order_by(StreamSession.start_time.desc())
+        ss_stmt = (
+            select(StreamSession)
+            .where(StreamSession.resource_id == resource.id, StreamSession.app == "live")
+            .order_by(StreamSession.start_time.desc())
+        )
         ss_res = await db.execute(ss_stmt)
         ss = ss_res.scalars().first()
         existing_node = None
@@ -285,8 +291,9 @@ async def get_channel_snapshot(
         # 如果不允许主动呼叫（如前端列表默认请求），且没有已有流/缓存
         # 直接返回 404 会导致前端 el-image 组件在控制台报错
         # 我们可以返回一个极小的透明 1x1 GIF，避免报错
-        transparent_gif = b'GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;'
+        transparent_gif = b"GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02D\x01\x00;"
         from fastapi.responses import Response
+
         stage = "allow_invite_false"
         logger.info(
             "snapshot_profile channel=%s stage=%s total_ms=%.2f db_ms=%.2f existing_lookup_ms=%.2f prefer_existing=%s allow_invite=%s force=%s",
@@ -359,7 +366,9 @@ async def get_channel_snapshot(
                             sec = str(node.get("secret") or settings.MEDIA_SERVER_SECRET or "")
                             url = f"http://{media_host}:{media_http_port}/index/api/getMediaList"
                             # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
-                            r = await (await get_http_client()).post(url, data={"secret": sec, "app": invited_app, "stream": invited_stream}, timeout=1)  # 同步requests→异步httpx，避免阻塞事件循环
+                            r = await (await get_http_client()).post(
+                                url, data={"secret": sec, "app": invited_app, "stream": invited_stream}, timeout=1
+                            )  # 同步requests→异步httpx，避免阻塞事件循环
                             if r.status_code == 200:
                                 data = r.json()
                                 if data.get("code") in (0, "0") and data.get("data"):
@@ -484,7 +493,7 @@ async def batch_channel_snapshot(
                             allow_invite=True,
                             force=True,
                             db=new_db,
-                            current_user=current_user
+                            current_user=current_user,
                         ),
                         timeout=item_timeout_seconds,
                     )
@@ -553,6 +562,7 @@ async def batch_channel_snapshot(
 
 
 # ==================== 设备控制/同步接口 ====================
+
 
 @router.post("/{device_id}/time-sync")
 async def device_time_sync(
@@ -684,10 +694,7 @@ async def sync_device_channels(
             asset.transport = _recovered_proto or asset.transport or "UDP"
             await db.commit()
         else:
-            raise HTTPException(
-                status_code=500,
-                detail="Device network information missing (not in Asset, ParentPlatform, or Keepalive cache)"
-            )
+            raise HTTPException(status_code=500, detail="Device network information missing (not in Asset, ParentPlatform, or Keepalive cache)")
 
     transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
     if transport is None:
@@ -714,7 +721,7 @@ async def sync_device_channels(
         "message": "Device channel sync request sent",  # i18n
         "device_id": device_id,
         "sn": None,
-        "note": "Channel info will be updated automatically after device responds"  # i18n
+        "note": "Channel info will be updated automatically after device responds",  # i18n
     }
 
 
@@ -749,16 +756,13 @@ async def query_device_info(
 
     # Send device info query
     catalog = catalog_singleton or Catalog(sip_server)
-    sn = await catalog.send_device_info_query(
-        asset,
-        ((asset.ip_addr, asset.port), asset.transport, transport)
-    )
+    sn = await catalog.send_device_info_query(asset, ((asset.ip_addr, asset.port), asset.transport, transport))
 
     return {
         "status": "ok",
         "message": "Device info query request sent",  # i18n
         "device_id": device_id,
-        "sn": sn
+        "sn": sn,
     }
 
 
@@ -793,16 +797,13 @@ async def query_device_status(
 
     # Send device status query
     catalog = catalog_singleton or Catalog(sip_server)
-    sn = await catalog.send_device_status_query(
-        asset,
-        ((asset.ip_addr, asset.port), asset.transport, transport)
-    )
+    sn = await catalog.send_device_status_query(asset, ((asset.ip_addr, asset.port), asset.transport, transport))
 
     return {
         "status": "ok",
         "message": "Device status query request sent",  # i18n
         "device_id": device_id,
-        "sn": sn
+        "sn": sn,
     }
 
 
@@ -1032,6 +1033,7 @@ async def config_download(
 
 # ==================== 移动位置订阅接口 ====================
 
+
 @router.post("/{device_id}/mobile-position/subscribe")
 async def mobile_position_subscribe(
     device_id: str,
@@ -1153,12 +1155,7 @@ async def get_device_position(
     if not asset:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    pos_stmt = (
-        select(DevicePosition)
-        .where(DevicePosition.device_id == asset.gb_id)
-        .order_by(DevicePosition.time.desc())
-        .limit(limit)
-    )
+    pos_stmt = select(DevicePosition).where(DevicePosition.device_id == asset.gb_id).order_by(DevicePosition.time.desc()).limit(limit)
     pos_result = await db.execute(pos_stmt)
     positions = pos_result.scalars().all()
 

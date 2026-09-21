@@ -8,6 +8,7 @@ without ever raising — an audit-logging failure must not break the auth flow.
 Used pervasively by ``api/deps.py``, ``core/ratelimit.py`` and most endpoint
 modules. Every call writes at most one row; all DB errors are caught and logged.
 """
+
 from __future__ import annotations
 
 from typing import Optional

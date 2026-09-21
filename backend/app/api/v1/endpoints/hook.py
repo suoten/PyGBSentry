@@ -64,7 +64,7 @@ def _prune_secret_cache() -> None:
     for k in expired:
         _ZLM_SECRET_CACHE.pop(k, None)
     if len(_ZLM_SECRET_CACHE) > _ZLM_SECRET_CACHE_MAX:
-        oldest = sorted(_ZLM_SECRET_CACHE.items(), key=lambda kv: kv[1][1])[:len(_ZLM_SECRET_CACHE) - _ZLM_SECRET_CACHE_MAX]
+        oldest = sorted(_ZLM_SECRET_CACHE.items(), key=lambda kv: kv[1][1])[: len(_ZLM_SECRET_CACHE) - _ZLM_SECRET_CACHE_MAX]
         for k, _ in oldest:
             _ZLM_SECRET_CACHE.pop(k, None)
 
@@ -134,13 +134,7 @@ async def verify_zlm_secret(request: Request, secret: str | None = None) -> bool
                 action="zlm_secret_verify",
                 operator="unauthenticated",
                 result="failed",
-                summary=(
-                    "tenant_id=default; "
-                    "source=zlm_hook; "
-                    "status_code=403; "
-                    "detail=invalid_secret; "
-                    "hint=webhook_secret_mismatch"
-                ),
+                summary=("tenant_id=default; source=zlm_hook; status_code=403; detail=invalid_secret; hint=webhook_secret_mismatch"),
             )
     except Exception as e:
         logger.warning(f"Hook callback operation failed: {e}")  # i18n
@@ -254,7 +248,17 @@ async def _touch_media_node_by_secret(secret: str | None, data: dict | None = No
         logger.warning(f"Hook callback operation failed: {e}")  # i18n
 
 
-async def _cleanup_sessions(*, app_name: str, stream_id: str, reason: str, ssrc: str = "", cascade_only: bool = False, hook_secret: str = "", hook_data: dict = None, grace_period_seconds: int = 0):
+async def _cleanup_sessions(
+    *,
+    app_name: str,
+    stream_id: str,
+    reason: str,
+    ssrc: str = "",
+    cascade_only: bool = False,
+    hook_secret: str = "",
+    hook_data: dict = None,
+    grace_period_seconds: int = 0,
+):
     """R24-01b: 不再持有 DB session 跨慢 I/O。
 
     Phase1: 独立 session 查询 StreamSession 列表，立即关闭归还连接
@@ -329,11 +333,17 @@ async def on_server_started(request: Request):
                 node = await _find_media_node_by_secret(session, secret)
                 if node:
                     node_id_str = str(node.id)
-                    stale_sessions = (await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.media_server_id == node_id_str,
+                    stale_sessions = (
+                        (
+                            await session.execute(
+                                select(StreamSession).where(
+                                    StreamSession.media_server_id == node_id_str,
+                                )
+                            )
                         )
-                    )).scalars().all()
+                        .scalars()
+                        .all()
+                    )
                     await session.commit()
             # Phase2+3: 对每个 stale_session 调用 release_stream_session（内部自管理 session）
             for ss in stale_sessions:
@@ -389,9 +399,7 @@ async def on_play(request: Request):
 
 def _log_play_auth_failure(app: str, stream: str, error_msg: str, data: dict) -> None:
     ip = (data if isinstance(data, dict) else {}).get("ip", "")
-    logger.warning(
-        f"on_play auth FAILED: app={app} stream={stream} ip={ip} error={error_msg}"
-    )
+    logger.warning(f"on_play auth FAILED: app={app} stream={stream} ip={ip} error={error_msg}")
     try:
         fire_and_forget(_audit_play_rejection(app, stream, error_msg, ip))  # P0-16: 保存引用防 GC + 异常日志
     except Exception as e:
@@ -446,13 +454,17 @@ async def on_publish(request: Request):
         try:
             async with AsyncSessionLocal() as session:
                 pc = (
-                    await session.execute(
-                        select(PushChannel).where(
-                            PushChannel.stream_name == str(stream_id),
-                            PushChannel.push_key_enabled,
+                    (
+                        await session.execute(
+                            select(PushChannel).where(
+                                PushChannel.stream_name == str(stream_id),
+                                PushChannel.push_key_enabled,
+                            )
                         )
                     )
-                ).scalars().first()
+                    .scalars()
+                    .first()
+                )
             if pc and pc.hashed_push_key and pc.push_key_prefix:
                 push_key_value = _extract_query_param(data if isinstance(data, dict) else {}, "pushKey")
                 parsed = parse_push_key(push_key_value)
@@ -502,6 +514,7 @@ async def on_stream_changed(request: Request):
     # Infer SSRC from stream_id if ZLM didn't provide it in the webhook
     if not ssrc and stream_id:
         from app.sip.ssrc_manager import ssrc_manager
+
         looked_up = await ssrc_manager.lookup_ssrc_by_stream(stream_id)
         if looked_up:
             ssrc = looked_up
@@ -522,19 +535,32 @@ async def on_stream_changed(request: Request):
     if app_name and stream_id:
         if is_unreg:
             await event_bus.publish_stream_unregistered(
-                app=app_name, stream=stream_id, ssrc=ssrc or "",
-                node_id="", raw_data=data if isinstance(data, dict) else {},
+                app=app_name,
+                stream=stream_id,
+                ssrc=ssrc or "",
+                node_id="",
+                raw_data=data if isinstance(data, dict) else {},
             )
         else:
             await event_bus.publish_stream_registered(
-                app=app_name, stream=stream_id, ssrc=ssrc or "",
-                node_id="", raw_data=data if isinstance(data, dict) else {},
+                app=app_name,
+                stream=stream_id,
+                ssrc=ssrc or "",
+                node_id="",
+                raw_data=data if isinstance(data, dict) else {},
             )
 
         try:
             if is_unreg:
                 # 流注销，清理会话（R24-01b: _cleanup_sessions 内部自管理 session，不再持有外部 db）
-                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_stream_changed_unreg", ssrc=ssrc, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
+                await _cleanup_sessions(
+                    app_name=app_name,
+                    stream_id=stream_id,
+                    reason="on_stream_changed_unreg",
+                    ssrc=ssrc,
+                    hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+                    hook_data=data if isinstance(data, dict) else None,
+                )
                 # 也通知插件：让媒体联动型插件可以停止分析/资源占用
                 if isinstance(data, dict):
                     try:
@@ -557,6 +583,7 @@ async def on_stream_changed(request: Request):
                 if ssrc:
                     try:
                         from app.sip.invite import notify_ssrc_waiters
+
                         await notify_ssrc_waiters(str(ssrc))
                         logger.info(f"[Hook] Fired SSRC waiter for ssrc={ssrc}, stream={stream_id}")
                     except Exception as e:
@@ -594,12 +621,23 @@ async def on_send_rtp_stopped(request: Request):
     ssrc = extract_first(data, ("ssrc",))
     if app_name and stream_id:
         await event_bus.publish_rtp_send_stopped(
-            app=app_name, stream=stream_id, ssrc=ssrc or "",
-            node_id="", raw_data=data if isinstance(data, dict) else {},
+            app=app_name,
+            stream=stream_id,
+            ssrc=ssrc or "",
+            node_id="",
+            raw_data=data if isinstance(data, dict) else {},
         )
         try:
             # R24-01b: _cleanup_sessions 内部自管理 session
-            await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_send_rtp_stopped", ssrc=ssrc, cascade_only=True, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
+            await _cleanup_sessions(
+                app_name=app_name,
+                stream_id=stream_id,
+                reason="on_send_rtp_stopped",
+                ssrc=ssrc,
+                cascade_only=True,
+                hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+                hook_data=data if isinstance(data, dict) else None,
+            )
         except Exception as e:
             logger.warning(f"Hook callback operation failed: {e}")  # i18n
     return await _ok()
@@ -632,14 +670,20 @@ async def on_rtp_server_timeout(request: Request):
                     # 被外层 `except Exception: logger.debug(...)` 静默吞掉，
                     # 导致宽限期检查永远失败——所有 RTP 超时都立即清理会话，
                     # 而非在 grace period 内重开 RTP 服务器等待设备 NAT 穿透。
-                    _grace_stmt = select(StreamSession).where(
-                        StreamSession.app == app_name,
-                        StreamSession.stream == stream_id,
-                    ).order_by(StreamSession.start_time.desc()).limit(1)
+                    _grace_stmt = (
+                        select(StreamSession)
+                        .where(
+                            StreamSession.app == app_name,
+                            StreamSession.stream == stream_id,
+                        )
+                        .order_by(StreamSession.start_time.desc())
+                        .limit(1)
+                    )
                     _grace_result = await _grace_db.execute(_grace_stmt)
                     _grace_session = _grace_result.scalars().first()
                     if _grace_session and _grace_session.start_time:
                         from datetime import datetime, timezone
+
                         # FIX [2026-07-17 P1]: start_time 列为 Column(DateTime)（naive，
                         # 无 tzinfo），而 datetime.now(timezone.utc) 为 tz-aware，
                         # 直接相减会抛 TypeError: can't subtract offset-naive and
@@ -662,6 +706,7 @@ async def on_rtp_server_timeout(request: Request):
                             # 现从原 StreamSession 读取节点信息与协议参数，确保重开与原会话一致。
                             try:
                                 from app.services.zlm_rtp_server_service import open_rtp_server
+
                                 _tcp_mode_val = 0
                                 _rtp_port = 0
                                 _zlm_host = str(settings.MEDIA_SERVER_HOST or "127.0.0.1")
@@ -678,6 +723,7 @@ async def on_rtp_server_timeout(request: Request):
                                     if _node_id:
                                         try:
                                             from app.core.media_nodes_db import get_db_media_node_by_id
+
                                             async with AsyncSessionLocal() as _node_db:
                                                 _node = await get_db_media_node_by_id(_node_db, _node_id) if _node_id else None
                                             if _node:
@@ -702,6 +748,7 @@ async def on_rtp_server_timeout(request: Request):
                                 if _tcp_mode_val == 2 and _grace_session:
                                     try:
                                         from app.services.zlm_rtp_server_service import connect_rtp_server
+
                                         _dev_ip = str(getattr(_grace_session, "media_ip", "") or "")
                                         _dev_port = int(getattr(_grace_session, "media_port", 0) or 0)
                                         if _dev_ip and _dev_port > 0:
@@ -716,11 +763,11 @@ async def on_rtp_server_timeout(request: Request):
                                             )
                                     except Exception as _connect_err:
                                         logger.warning(f"[RTP Timeout] TCP-ACTIVE connectRtpServer failed: {_connect_err}")
-                                logger.info(f"[RTP Timeout] Re-opened RTP server for {app_name}/{stream_id} (tcp_mode={_tcp_mode_val}, port={_rtp_port})")
-                            except Exception as _reopen_err:
-                                logger.warning(
-                                    f"[RTP Timeout] Failed to re-open RTP server for {app_name}/{stream_id}: {_reopen_err}"
+                                logger.info(
+                                    f"[RTP Timeout] Re-opened RTP server for {app_name}/{stream_id} (tcp_mode={_tcp_mode_val}, port={_rtp_port})"
                                 )
+                            except Exception as _reopen_err:
+                                logger.warning(f"[RTP Timeout] Failed to re-open RTP server for {app_name}/{stream_id}: {_reopen_err}")
                                 _should_skip_cleanup = False
             except Exception as _grace_err:
                 logger.debug(f"[RTP Timeout] Grace period check failed: {_grace_err}")
@@ -735,25 +782,35 @@ async def on_rtp_server_timeout(request: Request):
                 # R24-01b: _cleanup_sessions 内部自管理 session
                 # P0-RTP: 传递 grace_period_seconds 给 _cleanup_sessions，
                 # 让其跳过宽限期内创建的会话
-                await _cleanup_sessions(app_name=app_name, stream_id=stream_id, reason="on_rtp_server_timeout", ssrc=ssrc, hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None, grace_period_seconds=_grace_period)
+                await _cleanup_sessions(
+                    app_name=app_name,
+                    stream_id=stream_id,
+                    reason="on_rtp_server_timeout",
+                    ssrc=ssrc,
+                    hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+                    hook_data=data if isinstance(data, dict) else None,
+                    grace_period_seconds=_grace_period,
+                )
 
             # Notify frontend about stream drop
-            fire_and_forget(plugin_manager.emit("ON_MEDIA_STREAM_DROPPED", {
-                "app": app_name,
-                "stream": stream_id,
-                "reason": "rtp_timeout"
-            }))  # P0-16: 保存引用防 GC + 异常日志
+            fire_and_forget(
+                plugin_manager.emit("ON_MEDIA_STREAM_DROPPED", {"app": app_name, "stream": stream_id, "reason": "rtp_timeout"})
+            )  # P0-16: 保存引用防 GC + 异常日志
             # FIX: [2026-07-03] 通过告警 WebSocket 通道实时通知前端流中断，使前端可立即停止播放并提示用户 [可靠性工程师]
             try:
                 from app.api.v1.endpoints.alarms import alarm_manager
-                await alarm_manager.broadcast_alarm({
-                    "type": "stream_dropped",
-                    "app": app_name,
-                    "stream": stream_id,
-                    "reason": "rtp_timeout",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "message": f"Stream {stream_id} dropped due to RTP timeout",
-                }, "default")
+
+                await alarm_manager.broadcast_alarm(
+                    {
+                        "type": "stream_dropped",
+                        "app": app_name,
+                        "stream": stream_id,
+                        "reason": "rtp_timeout",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "message": f"Stream {stream_id} dropped due to RTP timeout",
+                    },
+                    "default",
+                )
             except Exception as _ws_notify_err:
                 logger.debug(f"Failed to broadcast stream drop via WebSocket: {_ws_notify_err}")
         except Exception as e:
@@ -788,8 +845,10 @@ async def on_stream_none_reader(request: Request):
         return {"code": 0, "close": False}
 
     await event_bus.publish_none_reader(
-        app=app_name, stream=stream_id,
-        node_id="", ssrc=ssrc or "",
+        app=app_name,
+        stream=stream_id,
+        node_id="",
+        ssrc=ssrc or "",
         raw_data=data if isinstance(data, dict) else {},
     )
 
@@ -804,20 +863,38 @@ async def on_stream_none_reader(request: Request):
     none_reader_delay = float(settings.ZLM_NONE_READER_DELAY_SECONDS or 0)
     if none_reader_delay > 0 and app_name == "live":
         logger.info(f"[none_reader] Delayed close for live stream: {app_name}/{stream_id}, delay={none_reader_delay}s")
-        _t = asyncio.create_task(_delayed_none_reader_cleanup(app_name, stream_id, ssrc, none_reader_delay, (await _hook_secret(request, data if isinstance(data, dict) else None)) or "", data if isinstance(data, dict) else None))
+        _t = asyncio.create_task(
+            _delayed_none_reader_cleanup(
+                app_name,
+                stream_id,
+                ssrc,
+                none_reader_delay,
+                (await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+                data if isinstance(data, dict) else None,
+            )
+        )
         _track_none_reader_task(_t)  # prevent GC of delayed cleanup task
         return {"code": 0, "close": False}
 
     try:
         # R24-01b: _cleanup_sessions 内部自管理 session
-        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="on_stream_none_reader", hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
+        await _cleanup_sessions(
+            app_name=app_name,
+            stream_id=stream_id,
+            ssrc=ssrc or "",
+            reason="on_stream_none_reader",
+            hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+            hook_data=data if isinstance(data, dict) else None,
+        )
     except Exception as e:
         logger.error(f"Error in on_stream_none_reader processing: {e}")
 
     return {"code": 0, "close": True}
 
 
-async def _delayed_none_reader_cleanup(app_name: str, stream_id: str, ssrc: str | None, delay: float, hook_secret: str, hook_data: dict | None) -> None:
+async def _delayed_none_reader_cleanup(
+    app_name: str, stream_id: str, ssrc: str | None, delay: float, hook_secret: str, hook_data: dict | None
+) -> None:
     try:
         await asyncio.sleep(delay)
         async with AsyncSessionLocal() as check_session:
@@ -841,11 +918,19 @@ async def _delayed_none_reader_cleanup(app_name: str, stream_id: str, ssrc: str 
             return
         try:
             from app.services.zlm_stream_control import close_zlm_stream
+
             await close_zlm_stream(app=app_name, stream=stream_id)
         except Exception as e:
             logger.warning(f"关闭ZLM流失败: {e}")
         # R24-01b: _cleanup_sessions 内部自管理 session
-        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="on_stream_none_reader_delayed", hook_secret=hook_secret, hook_data=hook_data)
+        await _cleanup_sessions(
+            app_name=app_name,
+            stream_id=stream_id,
+            ssrc=ssrc or "",
+            reason="on_stream_none_reader_delayed",
+            hook_secret=hook_secret,
+            hook_data=hook_data,
+        )
     except Exception as e:
         logger.error(f"Error in _delayed_none_reader_cleanup: {e}")
 
@@ -854,12 +939,15 @@ async def _check_zlm_has_viewers(app_name: str, stream_id: str, node_id: str = "
     try:
         from app.core.media_nodes_db import list_db_media_nodes, get_db_node_by_id
         from app.core.media_nodes import get_media_nodes
+
         nodes_to_check = []
         if node_id:
             async with AsyncSessionLocal() as session:
                 db_node = await get_db_node_by_id(session, node_id)
                 if db_node:
-                    nodes_to_check.append((str(db_node.host), int(db_node.http_port or 0), str(db_node.decrypted_secret or "")))  # P0-02: ORM 对象解密
+                    nodes_to_check.append(
+                        (str(db_node.host), int(db_node.http_port or 0), str(db_node.decrypted_secret or ""))
+                    )  # P0-02: ORM 对象解密
         if not nodes_to_check:
             for n in get_media_nodes():
                 nodes_to_check.append((str(n.get("host", "")), int(n.get("http_port", 0) or 0), str(n.get("secret", ""))))
@@ -871,6 +959,7 @@ async def _check_zlm_has_viewers(app_name: str, stream_id: str, node_id: str = "
             except Exception as e:
                 logger.warning(f"查询媒体节点列表失败: {e}")
         from app.services.zlm_rtp_server_service import get_shared_zlm_client, get_node_client
+
         for host, http_port, secret in nodes_to_check:
             if not host or http_port <= 0:
                 continue
@@ -915,37 +1004,48 @@ async def on_stream_not_found(request: Request):
 
     logger.info(
         "Stream not found for %s/%s. Possible causes: stream not yet registered, HLS not enabled, or RTP data not arrived. Triggering auto-recovery check.",
-        app_name, stream_id
+        app_name,
+        stream_id,
     )
     try:
         # R24-01b: _cleanup_sessions 内部自管理 session
-        await _cleanup_sessions(app_name=app_name, stream_id=stream_id, ssrc=ssrc or "", reason="stream_not_found_auto_recovery", hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "", hook_data=data if isinstance(data, dict) else None)
+        await _cleanup_sessions(
+            app_name=app_name,
+            stream_id=stream_id,
+            ssrc=ssrc or "",
+            reason="stream_not_found_auto_recovery",
+            hook_secret=(await _hook_secret(request, data if isinstance(data, dict) else None)) or "",
+            hook_data=data if isinstance(data, dict) else None,
+        )
     except Exception as e:
         logger.error(f"Error in on_stream_not_found processing: {e}")
 
     # Auto-play: if stream not found, check if there's a matching device channel and auto-invite
-    if settings.AUTO_PLAY_ENABLED if hasattr(settings, 'AUTO_PLAY_ENABLED') else False:
+    if settings.AUTO_PLAY_ENABLED if hasattr(settings, "AUTO_PLAY_ENABLED") else False:
         try:
             async with AsyncSessionLocal() as session:
                 # Try to find a resource matching the stream_id (which is typically the channel GB ID)
-                res = (await session.execute(
-                    select(Resource).where(Resource.gb_id == stream_id, Resource.node_type == "channel")
-                )).scalars().first()
+                res = (await session.execute(select(Resource).where(Resource.gb_id == stream_id, Resource.node_type == "channel"))).scalars().first()
                 if res:
-                    asset = (await session.execute(
-                        select(Asset).where(Asset.id == res.asset_id)
-                    )).scalars().first()
+                    asset = (await session.execute(select(Asset).where(Asset.id == res.asset_id))).scalars().first()
                     if asset and asset.status:
                         # Check if there's already an active stream session for this channel
-                        existing = (await session.execute(
-                            select(StreamSession).where(
-                                StreamSession.stream == stream_id,
-                                StreamSession.app == app_name,
+                        existing = (
+                            (
+                                await session.execute(
+                                    select(StreamSession).where(
+                                        StreamSession.stream == stream_id,
+                                        StreamSession.app == app_name,
+                                    )
+                                )
                             )
-                        )).scalars().first()
+                            .scalars()
+                            .first()
+                        )
                         if not existing:
                             logger.info(f"[AutoPlay] Stream not found for {app_name}/{stream_id}, auto-inviting device {asset.gb_id}")
                             from app.sip.invite import sip_invite
+
                             if sip_invite:
                                 fire_and_forget(
                                     sip_invite.send_invite(
@@ -959,6 +1059,7 @@ async def on_stream_not_found(request: Request):
             logger.warning(f"[AutoPlay] Auto-play failed for {app_name}/{stream_id}: {e}")
 
     return {"code": 0, "msg": "success"}
+
 
 @router.post("/on_record_mp4", dependencies=[Depends(verify_zlm_secret)])
 async def on_record_mp4(request: Request):
@@ -1090,18 +1191,20 @@ async def on_record_mp4(request: Request):
 
         # R25 Stream-2: S3 上传在 DB session 外执行
         if _s3_upload_pending:
+
             def _upload_to_s3():
                 if not os.path.exists(_s3_upload_raw_file_path):
                     return
                 import boto3
                 import botocore.exceptions
+
                 try:
                     s3_client = boto3.client(
-                        's3',
+                        "s3",
                         endpoint_url=_s3_upload_s3_endpoint,
                         aws_access_key_id=settings.S3_ACCESS_KEY,
                         aws_secret_access_key=settings.S3_SECRET_KEY,
-                        config=botocore.client.Config(signature_version='s3v4')
+                        config=botocore.client.Config(signature_version="s3v4"),
                     )
                     s3_key = f"record/{_s3_upload_app_name}/{_s3_upload_stream_id}/{_s3_upload_start_timestamp}.mp4"
                     s3_client.upload_file(_s3_upload_raw_file_path, _s3_upload_s3_bucket, s3_key)
@@ -1112,21 +1215,27 @@ async def on_record_mp4(request: Request):
                         logger.warning(f"Failed to remove local record file after S3 upload: {e}")
                 except Exception as e:
                     logger.error(f"Failed to upload record to S3: {e}")
+
             try:
                 await asyncio.to_thread(_upload_to_s3)
             except Exception as e:
                 logger.error(f"S3 upload thread error: {e}")
 
         if app_name == "download":
-            fire_and_forget(plugin_manager.emit("ON_DOWNLOAD_READY", {
-                "device_id": _download_ready_asset_gb_id,
-                "channel_id": _download_ready_resource_gb_id,
-                "stream": stream_id,
-                "file_path": _download_ready_effective_url,
-                "file_size": file_size,
-                "start_time": start_timestamp,
-                "time_len": duration
-            }))  # P0-16: 保存引用防 GC + 异常日志
+            fire_and_forget(
+                plugin_manager.emit(
+                    "ON_DOWNLOAD_READY",
+                    {
+                        "device_id": _download_ready_asset_gb_id,
+                        "channel_id": _download_ready_resource_gb_id,
+                        "stream": stream_id,
+                        "file_path": _download_ready_effective_url,
+                        "file_size": file_size,
+                        "start_time": start_timestamp,
+                        "time_len": duration,
+                    },
+                )
+            )  # P0-16: 保存引用防 GC + 异常日志
             logger.info(f"Download completed for {_download_ready_resource_gb_id}, URL: {_download_ready_effective_url}")
     except Exception as e:
         logger.error(f"Error handling on_record_mp4: {e}")

@@ -5,6 +5,7 @@
 and exceptions are logged via a done-callback. This is used by platform
 catalog push pacing and stream-strategy backoff timers.
 """
+
 from __future__ import annotations
 
 import asyncio

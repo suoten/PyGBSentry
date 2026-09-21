@@ -135,25 +135,16 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
 
     async with AsyncSessionLocal() as session:
         # Phase1: 查询父设备 Asset（获取 asset_id + tenant_id）
-        parent_asset = (
-            await session.execute(select(Asset).where(Asset.gb_id == device_id))
-        ).scalars().first()
+        parent_asset = (await session.execute(select(Asset).where(Asset.gb_id == device_id))).scalars().first()
         if not parent_asset:
             logger.warning(f"[catalog_notify] Parent device {device_id} not found, skipping notify")
             return
 
         # W-12 Catalog Notify 批量查询替代 N+1
-        all_item_ids = [
-            ((item.findtext("DeviceID") or "").strip())
-            for item in items
-            if (item.findtext("DeviceID") or "").strip()
-        ]
+        all_item_ids = [((item.findtext("DeviceID") or "").strip()) for item in items if (item.findtext("DeviceID") or "").strip()]
         if all_item_ids:
             existing_resources = {
-                r.gb_id: r
-                for r in (await session.execute(
-                    select(Resource).where(Resource.gb_id.in_(all_item_ids))
-                )).scalars().all()
+                r.gb_id: r for r in (await session.execute(select(Resource).where(Resource.gb_id.in_(all_item_ids)))).scalars().all()
             }
         else:
             existing_resources = {}
@@ -200,6 +191,7 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
                             # records_resource_id_fkey 外键违反（PG/MySQL）。
                             from app.models.record import Record as _Rec
                             from sqlalchemy import delete as _del
+
                             await session.execute(_del(_Rec).where(_Rec.resource_id == resource.id))
                             await session.delete(resource)
                             existing_resources.pop(item_id, None)
@@ -222,15 +214,19 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
 
         # 更新 runtime 状态
         try:
-            await patch_device_catalog_runtime(device_id, {
-                "catalog.notify_last_at": utc_now_iso(),
-                "catalog.notify_item_count": len(items),
-            })
+            await patch_device_catalog_runtime(
+                device_id,
+                {
+                    "catalog.notify_last_at": utc_now_iso(),
+                    "catalog.notify_item_count": len(items),
+                },
+            )
         except Exception as e:
             logger.warning(f"[catalog_notify] Failed to update runtime state: {e}")
 
         try:
             from app.sip.subscribe_manager import subscribe_manager
+
             changed_channels = []
             for item in items:
                 item_id = (item.findtext("DeviceID") or "").strip()
@@ -241,4 +237,3 @@ async def handle_catalog_notify_items(device_id: str, items: list) -> None:
                 await subscribe_manager.notify_catalog_change(device_id, changed_channels)
         except Exception as e:
             logger.warning(f"[catalog_notify] Failed to notify catalog change to subscribers: {e}")
-

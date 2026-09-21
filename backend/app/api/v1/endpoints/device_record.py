@@ -1,13 +1,16 @@
 from fastapi import Query, APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import uuid
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -42,11 +45,13 @@ _download_playback_map: dict[tuple[str, str], dict] = {}
 
 _inmem_queries: dict[str, dict] = {}
 
+
 def _evict_if_full(d: dict, max_size: int) -> None:
     if len(d) > max_size:
         keys_to_remove = list(d.keys())[: len(d) - max_size // 2]
         for k in keys_to_remove:
             d.pop(k, None)
+
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
@@ -225,7 +230,7 @@ async def _load_records_by_sn(sn: str) -> tuple[list[dict], dict]:
 def _slice(items: list, offset: int, limit: int) -> list:
     offset = max(0, int(offset or 0))
     limit = max(1, min(int(limit or 2000), 10000))
-    return items[offset: offset + limit]
+    return items[offset : offset + limit]
 
 
 def _parse_created_at(value: str | None) -> datetime:
@@ -494,8 +499,8 @@ async def _get_asset_and_resource_or_raise(
             status_code=404,
             detail={
                 "message": "Device not found. Please verify the device ID or check if the device has been deleted.",  # i18n
-                "reason_code": "asset_not_found"
-            }
+                "reason_code": "asset_not_found",
+            },
         )
 
     # 2. 检查设备在线状态
@@ -504,8 +509,8 @@ async def _get_asset_and_resource_or_raise(
             status_code=503,
             detail={
                 "message": f"Device {asset.name or asset.gb_id} is offline, cannot perform this operation.",  # i18n
-                "reason_code": "device_offline"
-            }
+                "reason_code": "device_offline",
+            },
         )
 
     # 3. 查找资源（通道）
@@ -518,8 +523,8 @@ async def _get_asset_and_resource_or_raise(
             status_code=404,
             detail={
                 "message": "Channel not found under this device. Please verify the channel ID.",  # i18n
-                "reason_code": "channel_not_found_under_device"
-            }
+                "reason_code": "channel_not_found_under_device",
+            },
         )
 
     return asset, resource
@@ -593,7 +598,9 @@ async def query_device_records(
     timeout_seconds = max(3, min(int(timeout_seconds or 15), 60))
     if not sip_record_module.sip_record:
         raise HTTPException(status_code=500, detail="SIP service not ready")
-    sn = await sip_record_module.sip_record.query_device_record(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), start_time, end_time)
+    sn = await sip_record_module.sip_record.query_device_record(
+        asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), start_time, end_time
+    )
 
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     while asyncio.get_running_loop().time() < deadline:
@@ -718,6 +725,7 @@ async def start_device_record_download(
                     _ss_row = (await _cleanup_db.execute(select(StreamSession).where(StreamSession.id == _ss_id))).scalars().first()
                     if _ss_row:
                         from app.api.v1.endpoints.stream import _release_stream_session
+
                         await _release_stream_session(_cleanup_db, _ss_row)
                         await _cleanup_db.commit()
             except Exception as _cleanup_err:
@@ -727,6 +735,7 @@ async def start_device_record_download(
     # R3-03 回放会话开始时初始化状态机为"playing"
     if task.call_id:
         from app.sip.playback_control import playback_control as _pb_ctrl
+
         if _pb_ctrl:
             # FIX: [2026-07-04] 传入 start_time 用于 NPT 相对时间计算 [全栈工程师]
             _pb_ctrl.set_playback_started(task.call_id, start_time=start_ts)
@@ -751,6 +760,7 @@ async def start_device_record_download(
                         _ss_row = (await _cleanup_db.execute(select(StreamSession).where(StreamSession.id == _ss_id))).scalars().first()
                         if _ss_row:
                             from app.api.v1.endpoints.stream import _release_stream_session
+
                             await _release_stream_session(_cleanup_db, _ss_row)
                             await _cleanup_db.commit()
                 except Exception as _cleanup_err:
@@ -806,6 +816,7 @@ async def stop_device_record_download(
     try:
         from app.api.v1.endpoints.stream import _release_stream_session
         from app.services.zlm_stream_control import close_zlm_stream
+
         session_row = None
         if task.stream_session_id:
             session_row = (await db.execute(select(StreamSession).where(StreamSession.id == task.stream_session_id))).scalars().first()
@@ -842,11 +853,15 @@ async def get_device_record_download_progress(
     task = get_or_404(await db.execute(stmt), detail="DeviceRecordDownloadTask not found")  # ORM查询结果空值判断
 
     total_seconds = max(0, int((task.end_time - task.start_time).total_seconds()))
-    records_stmt = select(Record).where(
-        Record.stream_id == task.stream,
-        Record.record_app == task.app,
-        Record.resource_id == task.resource_id,
-    ).order_by(Record.start_time.asc())
+    records_stmt = (
+        select(Record)
+        .where(
+            Record.stream_id == task.stream,
+            Record.record_app == task.app,
+            Record.resource_id == task.resource_id,
+        )
+        .order_by(Record.start_time.asc())
+    )
     if not current_user.is_superuser:
         records_stmt = records_stmt.where(Record.tenant_id == tenant_id)
     recs = (await db.execute(records_stmt)).scalars().all()
@@ -879,6 +894,7 @@ async def get_device_record_download_progress(
     if status == "done" and auto_stop:
         try:
             from app.api.v1.endpoints.stream import _release_stream_session
+
             session_row = None
             if task.stream_session_id:
                 session_row = (await db.execute(select(StreamSession).where(StreamSession.id == task.stream_session_id))).scalars().first()
@@ -904,6 +920,7 @@ async def get_device_record_download_progress(
 
 # ---- 录像下载回放控制端点 ----
 # 通过 PlaybackControl 单例发送 MANSRTSP 控制命令，对下载中的回放流执行暂停/恢复/拖动
+
 
 async def _get_download_playback_context(
     device_id: str, task_id: str, db: AsyncSession, current_user: User

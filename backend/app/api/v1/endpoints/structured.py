@@ -1,4 +1,5 @@
 """统一结构化检索 API（人脸/车牌/行为事件）。"""
+
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -83,13 +84,7 @@ async def structured_search(
 
     count_stmt = select(func.count()).select_from(StructuredEvent).where(and_(*conditions))
     total = (await db.execute(count_stmt)).scalar() or 0
-    stmt = (
-        select(StructuredEvent)
-        .where(and_(*conditions))
-        .order_by(desc(StructuredEvent.event_time))
-        .offset(skip)
-        .limit(limit)
-    )
+    stmt = select(StructuredEvent).where(and_(*conditions)).order_by(desc(StructuredEvent.event_time)).offset(skip).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
     items = [

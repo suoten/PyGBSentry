@@ -12,7 +12,6 @@ from app.models.asset import Asset
 from app.services.health_service import HealthService  # 仅重用其 webhook/email 辅助方法
 
 
-
 NotificationChannel = Literal["sms", "wecom", "feishu", "webhook"]
 
 
@@ -28,14 +27,10 @@ class NotificationService:
         # 复用 HealthService 中的 webhook/email 发送逻辑，避免重复造轮子
         self._helper = HealthService()
 
-    async def _get_alarm_with_asset(
-        self, alarm_id: str, db: AsyncSession
-    ) -> tuple[Alarm | None, Asset | None]:
+    async def _get_alarm_with_asset(self, alarm_id: str, db: AsyncSession) -> tuple[Alarm | None, Asset | None]:
         from app.models.asset import Asset  # 延迟导入避免循环
 
-        stmt = select(Alarm, Asset).outerjoin(
-            Asset, Asset.gb_id == Alarm.device_id
-        ).where(Alarm.id == alarm_id)
+        stmt = select(Alarm, Asset).outerjoin(Asset, Asset.gb_id == Alarm.device_id).where(Alarm.id == alarm_id)
         result = await db.execute(stmt)
         row = result.first()
         if not row:
@@ -43,9 +38,7 @@ class NotificationService:
         alarm, asset = row
         return alarm, asset
 
-    async def _match_notify_rules(
-        self, alarm: Alarm, db: AsyncSession
-    ) -> list[AlarmLinkRule]:
+    async def _match_notify_rules(self, alarm: Alarm, db: AsyncSession) -> list[AlarmLinkRule]:
         """复用现有联动规则，只挑出 link_notify=True 且匹配的规则。"""
         from datetime import datetime, timezone
 
@@ -79,9 +72,7 @@ class NotificationService:
             if rule.days:
                 try:
                     day = now.weekday()  # 0=周一
-                    allowed_days = {
-                        int(x) for x in str(rule.days).split(",") if x.strip()
-                    }
+                    allowed_days = {int(x) for x in str(rule.days).split(",") if x.strip()}
                     if allowed_days and day not in allowed_days:
                         continue
                 except Exception as e:

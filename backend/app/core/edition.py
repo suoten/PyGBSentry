@@ -15,6 +15,7 @@ Usage::
         # open-source fallback
         ...
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -45,6 +46,7 @@ def edition_label() -> str:
 
 # Feature flags — each commercial feature has a dedicated guard so that
 # individual features can be enabled/disabled independently in the future.
+
 
 def has_plugin_marketplace() -> bool:
     """Plugin Marketplace is a server-edition feature; OSS exposes 501 stubs."""

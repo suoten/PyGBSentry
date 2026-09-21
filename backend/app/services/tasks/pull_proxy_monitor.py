@@ -206,7 +206,7 @@ async def _run_loop():
 
                 media_list = await asyncio.to_thread(get_all_media_from_nodes)
                 running = {}
-                for item in (media_list or []):
+                for item in media_list or []:
                     try:
                         if str(item.get("app") or "") != "live":
                             continue
@@ -320,6 +320,3 @@ async def stop():
     if _http_client and not _http_client.is_closed:
         await _http_client.aclose()
         _http_client = None
-
-
-

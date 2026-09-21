@@ -9,6 +9,7 @@ Ticket format: ``base64url(payload_json).signature`` where signature is
 HMAC-SHA256(payload, SECRET_KEY). Tickets expire after ``_TTL_SECONDS`` and
 are single-use (consumed tickets are tracked in a bounded LRU set).
 """
+
 from __future__ import annotations
 
 import base64

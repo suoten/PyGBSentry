@@ -22,7 +22,6 @@ from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任�
 from app.core.plugin_manager import plugin_manager
 
 
-
 _VIA_BRANCH_RE = re.compile(r"(?:^|;)\s*branch=([^;]+)", re.IGNORECASE)
 _TO_TAG_RE = re.compile(r";\s*tag=", re.IGNORECASE)
 
@@ -76,6 +75,7 @@ def _stable_to_tag(call_id: str, cseq: str, method: str) -> str:
 
 def _create_basic_response(request: SipMessage, status_code: int, reason: str, received_addr: tuple | None) -> SipMessage:
     from app.sip.handlers import create_response
+
     return create_response(request, status_code, reason, received_addr or ("0.0.0.0", 0))  # tuple|None → tuple
 
 
@@ -86,11 +86,11 @@ class SipServer:
         self.tls_server = None  # SIP TLS (SIPS) server
         self.tls_ssl_context = None  # TLS 热加载：保存 SSLContext 引用
         self.tls_config = {}  # TLS 热加载：保存 TLS 配置参数
-        self.handlers = {} # Method -> Handler Func
-        self.response_handlers = [] # List of Handler Funcs
+        self.handlers = {}  # Method -> Handler Func
+        self.response_handlers = []  # List of Handler Funcs
         self.running = False
         self.semaphore = asyncio.Semaphore(settings.SIP_WORKER_CONCURRENCY)
-        self._tcp_clients = {} # (ip, port) -> writer
+        self._tcp_clients = {}  # (ip, port) -> writer
         self._response_cache = {}  # tx_key -> (SipMessage, ts)
         self._response_cache_lock = asyncio.Lock()
         self._response_cache_ttl = settings.SIP_RESPONSE_CACHE_TTL_SECONDS
@@ -179,20 +179,16 @@ class SipServer:
             # 增加IP-only回退计数器，超过阈值自动禁用
             ip_only_matches = [(k, w) for k, w in self._tcp_clients.items() if k[0] == ip]
             if ip_only_matches:
-                self._ip_only_fallback_count = getattr(self, '_ip_only_fallback_count', 0) + 1
+                self._ip_only_fallback_count = getattr(self, "_ip_only_fallback_count", 0) + 1
                 _max_fallback = settings.SIP_TCP_IP_ONLY_FALLBACK_MAX  # 可配置阈值
                 if self._ip_only_fallback_count > _max_fallback:
                     logger.warning(
-                        "[SIP TCP Routing] IP-only fallback used %d times, disabling due to likely NAT. "
-                        "Ensure devices register with correct port.",
-                        self._ip_only_fallback_count
+                        "[SIP TCP Routing] IP-only fallback used %d times, disabling due to likely NAT. Ensure devices register with correct port.",
+                        self._ip_only_fallback_count,
                     )
                     return None
                 if len(ip_only_matches) == 1:
-                    logger.debug(
-                        f"[SIP TCP Routing] Fallback to IP-only match for {ip}:{port}, "
-                        f"no exact port match available."
-                    )
+                    logger.debug(f"[SIP TCP Routing] Fallback to IP-only match for {ip}:{port}, no exact port match available.")
                     return ip_only_matches[0][1]
                 else:
                     logger.warning(
@@ -221,15 +217,12 @@ class SipServer:
         def datagram_received(self, data, addr):
             # FIX [2026-07-17 P1]: 超长 UDP 报文截断防护 + 对端 IP 记录
             if len(data) > self._UDP_MAX_SIZE:
-                logger.warning(
-                    f"UDP datagram too large ({len(data)} bytes > {self._UDP_MAX_SIZE}) "
-                    f"from {addr}, dropping"
-                )
+                logger.warning(f"UDP datagram too large ({len(data)} bytes > {self._UDP_MAX_SIZE}) from {addr}, dropping")
                 return
             self.server._schedule_process(data, addr, "UDP", self.server.udp_transport)
 
     async def _handle_tcp_client(self, reader, writer):
-        addr = writer.get_extra_info('peername')
+        addr = writer.get_extra_info("peername")
         _MAX_TCP_CLIENTS = settings.SIP_MAX_TCP_CLIENTS
         if len(self._tcp_clients) >= _MAX_TCP_CLIENTS:
             logger.warning(f"TCP connection limit reached ({_MAX_TCP_CLIENTS}), rejecting {addr}")
@@ -311,7 +304,7 @@ class SipServer:
                     header_part, rest = buffer.split(b"\r\n\r\n", 1)
                     content_length = 0
 
-                    header_lines = header_part.decode('utf-8', errors='ignore').split("\r\n")
+                    header_lines = header_part.decode("utf-8", errors="ignore").split("\r\n")
                     for line in header_lines:
                         if line.lower().startswith("content-length:"):
                             try:
@@ -364,6 +357,7 @@ class SipServer:
 
         # Use handlers.send_response for consistent UDP destination routing
         from app.sip.handlers import send_response
+
         await send_response(transport, proto, addr, resp)
 
     def _schedule_process(self, data, addr, proto, transport):
@@ -493,6 +487,7 @@ class SipServer:
             try:
                 await self._prune_response_cache()
                 from app.sip.transactions import server_tx_manager, client_tx_manager
+
                 await server_tx_manager.prune()  # W21 确认：server_tx_manager.prune() 已在此定时调用（每5秒）
                 client_tx_manager.prune()  # W21 确认：client_tx_manager.prune() 已在此定时调用（每5秒）
             except Exception as e:
@@ -500,11 +495,13 @@ class SipServer:
             # I10 定期清理 invite.py 中的全局字典，防止内存泄漏
             try:
                 from app.sip.invite import invite_state
+
                 invite_state.cleanup()
             except Exception as e:
                 logger.warning(f"Global dicts cleanup error: {e}")
             try:
                 from app.sip.record_handler import periodic_cleanup_record_caches
+
                 periodic_cleanup_record_caches()
             except Exception as e:
                 logger.warning(f"Record cache cleanup error: {e}")  # GB28181协议 — 全局字典清理失败应warning级别
@@ -524,6 +521,7 @@ class SipServer:
             if now - self._last_seen_requests_cleanup >= self._seen_requests_cleanup_interval:
                 try:
                     from app.sip.handlers import cleanup_seen_requests
+
                     await cleanup_seen_requests()
                 except Exception as e:
                     logger.warning(f"Seen requests cleanup error: {e}")
@@ -531,6 +529,7 @@ class SipServer:
             if now - self._last_auth_failure_cleanup >= self._auth_failure_cleanup_interval:
                 try:
                     from app.sip.state_backend import get_sip_state_backend
+
                     await get_sip_state_backend().cleanup_auth_failures()
                 except Exception as e:
                     logger.warning(f"Auth failure cleanup error: {e}")
@@ -538,6 +537,7 @@ class SipServer:
             if now - self._last_cleanup_locks_cleanup >= self._cleanup_locks_cleanup_interval:
                 try:
                     from app.sip.handlers import cleanup_stale_cleanup_locks
+
                     await cleanup_stale_cleanup_locks()
                 except Exception as e:
                     logger.warning(f"Cleanup locks cleanup error: {e}")
@@ -546,6 +546,7 @@ class SipServer:
             if now - getattr(self, "_last_stream_traces_cleanup", 0) >= 300:
                 try:
                     from app.api.v1.endpoints.stream._shared import cleanup_stream_traces
+
                     cleaned = cleanup_stream_traces()
                     if cleaned:
                         logger.debug(f"Stream traces cleanup: removed {cleaned} stale entries")
@@ -561,6 +562,7 @@ class SipServer:
         try:
             from app.services.tasks import device_watchdog
             import time as _time
+
             device_watchdog._last_offline_check_ts = _time.monotonic()
         except Exception as _watchdog_err:
             # FIX [2026-07-17 P2-6]: 描述性日志替代 "silently_swallowed_exception"
@@ -571,6 +573,7 @@ class SipServer:
             from app.models.resource import Resource
             from sqlalchemy import select, update
             import datetime
+
             now = datetime.datetime.now(datetime.timezone.utc)
             default_grace_seconds = settings.DEVICE_OFFLINE_GRACE_SECONDS
             # use per-device expires for grace calculation: grace = max(expires, default) * 1.5
@@ -583,12 +586,12 @@ class SipServer:
                 #      ParentPlatform 离线检测仍能调用（否则 NameError） [全栈工程师]
                 def _ensure_aware_utc(dt_val):
                     """将 offset-naive datetime 视为 UTC 并添加 tzinfo。"""
-                    if dt_val is not None and hasattr(dt_val, 'tzinfo') and dt_val.tzinfo is None:
+                    if dt_val is not None and hasattr(dt_val, "tzinfo") and dt_val.tzinfo is None:
                         return dt_val.replace(tzinfo=datetime.timezone.utc)
                     return dt_val
+
                 devices_result = await session.execute(
-                    select(Asset.id, Asset.last_keepalive, Asset.expires, Asset.register_time, Asset.heartbeat_interval)
-                    .where(
+                    select(Asset.id, Asset.last_keepalive, Asset.expires, Asset.register_time, Asset.heartbeat_interval).where(
                         Asset.status == 1,
                     )
                 )
@@ -629,9 +632,8 @@ class SipServer:
                     # 循环判定打架导致通道被周期性误标离线。现在标离线前先发 DeviceStatus
                     # 探测：有响应 → 刷新 last_keepalive 并恢复通道在线；确认无响应才标离线。
                     from app.services.health_service import health_service as _hs
-                    candidates = (await session.execute(
-                        select(Asset).where(Asset.id.in_(offline_ids))
-                    )).scalars().all()
+
+                    candidates = (await session.execute(select(Asset).where(Asset.id.in_(offline_ids)))).scalars().all()
                     _probe_sem = asyncio.Semaphore(5)
 
                     async def _probe_one(dev):
@@ -643,9 +645,7 @@ class SipServer:
 
                     recovered_ids: list = []
                     confirmed_offline: list = []
-                    for dev, probe_ok in await asyncio.gather(
-                        *[_probe_one(d) for d in candidates], return_exceptions=True
-                    ):
+                    for dev, probe_ok in await asyncio.gather(*[_probe_one(d) for d in candidates], return_exceptions=True):
                         if isinstance(dev, Exception) or not isinstance(dev, Asset):
                             continue
                         if probe_ok:
@@ -654,45 +654,27 @@ class SipServer:
                             confirmed_offline.append(dev.id)
 
                     if recovered_ids:
-                        await session.execute(
-                            update(Asset)
-                            .where(Asset.id.in_(recovered_ids))
-                            .values(last_keepalive=now, status=1)
-                        )
-                        await session.execute(
-                            update(Resource)
-                            .where(Resource.asset_id.in_(recovered_ids))
-                            .values(status=1)
-                        )
-                        logger.info(
-                            f"Device offline check: {len(recovered_ids)} device(s) responded to probe, "
-                            f"recovered online (channels restored)"
-                        )
+                        await session.execute(update(Asset).where(Asset.id.in_(recovered_ids)).values(last_keepalive=now, status=1))
+                        await session.execute(update(Resource).where(Resource.asset_id.in_(recovered_ids)).values(status=1))
+                        logger.info(f"Device offline check: {len(recovered_ids)} device(s) responded to probe, recovered online (channels restored)")
                     offline_ids = confirmed_offline
 
                 if offline_ids:
-                    result = await session.execute(
-                        update(Asset)
-                        .where(Asset.id.in_(offline_ids))
-                        .values(status=0)
-                    )
+                    result = await session.execute(update(Asset).where(Asset.id.in_(offline_ids)).values(status=0))
                     count = result.rowcount
                     # 设备离线后通道状态未更新 — 同时将关联 Resource 状态设为 0
-                    resource_result = await session.execute(
-                        update(Resource)
-                        .where(Resource.asset_id.in_(offline_ids))
-                        .values(status=0)
-                    )
+                    resource_result = await session.execute(update(Resource).where(Resource.asset_id.in_(offline_ids)).values(status=0))
                     resource_count = resource_result.rowcount
                     if count > 0:
                         await session.commit()
-                        logger.info(f"Device offline check: marked {count} device(s) as offline, {resource_count} resource(s) status set to 0 (default_grace={default_grace_seconds}s)")
+                        logger.info(
+                            f"Device offline check: marked {count} device(s) as offline, {resource_count} resource(s) status set to 0 (default_grace={default_grace_seconds}s)"
+                        )
                         # 设备离线后清理流会话和订阅，避免僵尸会话残留
                         from app.sip.handlers import _cleanup_device_resources
                         from app.models.asset import Asset as _Asset
-                        offline_gb_ids_result = await session.execute(
-                            select(_Asset.gb_id).where(_Asset.id.in_(offline_ids))
-                        )
+
+                        offline_gb_ids_result = await session.execute(select(_Asset.gb_id).where(_Asset.id.in_(offline_ids)))
                         for (gb_id,) in offline_gb_ids_result:
                             try:
                                 await _cleanup_device_resources(gb_id)
@@ -703,9 +685,11 @@ class SipServer:
                 #      导致向上级联链路静默中断。根因：离线巡检遗漏 ParentPlatform 表。 [全栈工程师]
                 try:
                     from app.models.platform import ParentPlatform
+
                     platforms_result = await session.execute(
-                        select(ParentPlatform.id, ParentPlatform.last_keepalive, ParentPlatform.keepalive_interval, ParentPlatform.server_gb_id)
-                        .where(ParentPlatform.is_online == True, ParentPlatform.enable == True)  # noqa: E712
+                        select(
+                            ParentPlatform.id, ParentPlatform.last_keepalive, ParentPlatform.keepalive_interval, ParentPlatform.server_gb_id
+                        ).where(ParentPlatform.is_online == True, ParentPlatform.enable == True)  # noqa: E712
                     )
                     offline_platform_ids = []
                     for prow in platforms_result:
@@ -718,9 +702,7 @@ class SipServer:
                             offline_platform_ids.append(prow.id)
                     if offline_platform_ids:
                         p_result = await session.execute(
-                            update(ParentPlatform)
-                            .where(ParentPlatform.id.in_(offline_platform_ids))
-                            .values(is_online=False)
+                            update(ParentPlatform).where(ParentPlatform.id.in_(offline_platform_ids)).values(is_online=False)
                         )
                         p_count = p_result.rowcount
                         if p_count > 0:
@@ -786,10 +768,11 @@ class SipServer:
             if settings.CLUSTER_ENABLED:
                 try:
                     from app.core.redis import ha_cluster
+
                     if ha_cluster:
                         # 从 SIP 消息中提取设备 GB ID
                         from_header = msg.get_header("From") or ""
-                        gb_id_match = re.search(r'sip:(\d+)@', from_header)
+                        gb_id_match = re.search(r"sip:(\d+)@", from_header)
                         gb_id = gb_id_match.group(1) if gb_id_match else None
                         if gb_id:
                             owner = await ha_cluster.get_device_owner_node(gb_id)
@@ -797,11 +780,14 @@ class SipServer:
                                 # 转发消息到归属节点
                                 raw_msg = data.decode("utf-8", errors="ignore") if isinstance(data, bytes) else str(data)
                                 method = msg.method or ""
-                                await ha_cluster.publish("invite_route", {
-                                    "target_node": owner,
-                                    "method": method,
-                                    "raw_message": raw_msg,
-                                })
+                                await ha_cluster.publish(
+                                    "invite_route",
+                                    {
+                                        "target_node": owner,
+                                        "method": method,
+                                        "raw_message": raw_msg,
+                                    },
+                                )
                                 return
                 except Exception as e:
                     logger.warning(f"Cluster route check failed: {e}")
@@ -825,7 +811,7 @@ class SipServer:
                 call_id = msg.get_header("Call-ID") or ""
                 # P2-fix: 放宽正则，允许 RFC 3261 §25.1 word 字符集（含 +:= 等）
                 # 部分设备/代理生成的 Call-ID 包含冒号或加号，原正则过严会误拒
-                if len(call_id) < 10 or not re.match(r'^[a-zA-Z0-9_.\-@+:;=]+$', call_id):
+                if len(call_id) < 10 or not re.match(r"^[a-zA-Z0-9_.\-@+:;=]+$", call_id):
                     logger.warning(f"[SIP L7 Firewall] Blocked suspicious BYE with abnormal Call-ID from {client_ip}")
                     return
             # ==========================================
@@ -833,18 +819,16 @@ class SipServer:
             # Emit SIP TRACE
             fire_and_forget(plugin_manager.emit("ON_SIP_RECV", msg, addr, proto))  # P0-16: 保存引用防 GC + 异常日志
 
-            if msg.method: # Request
+            if msg.method:  # Request
                 # R3-05 Via环路检测使用正则精确匹配host:port(RFC 3261 §18.2.1)，防止端口前缀误判
                 via_header = msg.get_header("Via") or ""
                 local_sip_addr = f"{sip_host_for_contact()}:{settings.SIP_PORT}"
-                _via_loop_pattern = re.compile(
-                    r'(?:^|[\s;/])' + re.escape(local_sip_addr) + r'(?:[:;\s]|$)',
-                    re.MULTILINE
-                )
+                _via_loop_pattern = re.compile(r"(?:^|[\s;/])" + re.escape(local_sip_addr) + r"(?:[:;\s]|$)", re.MULTILINE)
                 if _via_loop_pattern.search(via_header):
                     call_id = msg.get_header("Call-ID") or ""
                     logger.warning(f"[SIP Loop Protection] Via header contains local address, Call-ID={call_id}")
                     from app.sip.handlers import create_response, send_response
+
                     resp = create_response(msg, 482, "Loop Detected", received_addr=addr)
                     await send_response(transport, proto, addr, resp)
                     return
@@ -855,17 +839,23 @@ class SipServer:
                     try:
                         mf_val = int(max_forwards)
                         if mf_val <= 0:
-                            logger.warning(f"[SIP Loop Protection] Max-Forwards=0, rejecting request from {client_ip}, Call-ID={msg.get_header('Call-ID')}")
+                            logger.warning(
+                                f"[SIP Loop Protection] Max-Forwards=0, rejecting request from {client_ip}, Call-ID={msg.get_header('Call-ID')}"
+                            )
                             resp = _create_basic_response(msg, 483, "Too Many Hops", received_addr=addr)
                             from app.sip.handlers import send_response
+
                             await send_response(transport, proto, addr, resp)
                             return
                         msg.headers["Max-Forwards"] = str(mf_val - 1)
                         # Max-Forwards递减到0时未拒绝请求 — GB28181/SIP规范要求返回483 Too Many Hops
                         if mf_val - 1 <= 0:
-                            logger.warning(f"[SIP Loop Protection] Max-Forwards decremented to 0, rejecting request from {client_ip}, Call-ID={msg.get_header('Call-ID')}")
+                            logger.warning(
+                                f"[SIP Loop Protection] Max-Forwards decremented to 0, rejecting request from {client_ip}, Call-ID={msg.get_header('Call-ID')}"
+                            )
                             resp = _create_basic_response(msg, 483, "Too Many Hops", received_addr=addr)
                             from app.sip.handlers import send_response
+
                             await send_response(transport, proto, addr, resp)
                             return
                     except (ValueError, TypeError) as e:
@@ -875,6 +865,7 @@ class SipServer:
                 # 信令路由循环防护 — 重复请求检测（Call-ID + CSeq）
                 # FIX-LEAK: 改用锁保护的 check_and_record_seen_request()，消除并发读写竞态
                 from app.sip.handlers import check_and_record_seen_request
+
                 call_id = msg.get_header("Call-ID") or ""
                 cseq = msg.get_header("CSeq") or ""
                 dedup_key = f"{call_id}~{cseq}"
@@ -902,11 +893,13 @@ class SipServer:
                     if allow:
                         resp.headers["Allow"] = ", ".join(allow)
                     from app.sip.handlers import send_response
+
                     await send_response(transport, proto, addr, resp)
-            else: # Response
+            else:  # Response
                 # P0-fix: 移除 contextlib.suppress 静默吞异常，改为带日志的 try/except
                 try:
                     from app.sip.transactions import tx_manager
+
                     tx_manager.resolve_from_response(msg)
                 except Exception as tx_err:
                     _cid = msg.get_header("Call-ID") or "?"
@@ -928,6 +921,7 @@ class SipServer:
             try:
                 if msg is not None and getattr(msg, "method", None):
                     from app.sip.handlers import send_response, create_response
+
                     resp = create_response(msg, 500, "Server Internal Error")
                     await send_response(transport, proto, addr, resp)
             except Exception as inner_e:
@@ -941,6 +935,7 @@ class SipServer:
             from app.models.ip_blacklist import IpBlacklist
             from sqlalchemy import select
             from sqlalchemy.exc import IntegrityError
+
             async with AsyncSessionLocal() as session:
                 exist = await session.execute(select(IpBlacklist).where(IpBlacklist.ip == ip))
                 if not exist.scalars().first():
@@ -971,6 +966,7 @@ class SipServer:
             from app.db.session import AsyncSessionLocal
             from app.models.ip_blacklist import IpBlacklist
             from sqlalchemy import select
+
             async with AsyncSessionLocal() as session:
                 res = await session.execute(select(IpBlacklist.ip))
                 ips = res.scalars().all()
@@ -993,6 +989,7 @@ class SipServer:
         """
         import ssl
         import os
+
         try:
             tls_cert = self.tls_config.get("cert") or settings.SIPS_CERT_FILE
             tls_key = self.tls_config.get("key") or settings.SIPS_KEY_FILE
@@ -1018,9 +1015,7 @@ class SipServer:
             logger.info(f"[TLS] Certificate reloaded: cert={tls_cert}")
 
             # 先建后拆：先创建新TLS服务器，成功后再关闭旧的
-            new_server = await asyncio.start_server(
-                self._handle_tcp_client, sip_ip, tls_port, ssl=new_context, reuse_address=True
-            )
+            new_server = await asyncio.start_server(self._handle_tcp_client, sip_ip, tls_port, ssl=new_context, reuse_address=True)
             old_server = self.tls_server
             self.tls_server = new_server
             self.tls_ssl_context = new_context
@@ -1056,6 +1051,7 @@ class SipServer:
                 _udp_sock = self.udp_transport.get_extra_info("socket")
                 if _udp_sock is not None:
                     import socket as _socket_mod
+
                     _rcvbuf = settings.SIP_UDP_RCVBUF
                     _sndbuf = settings.SIP_UDP_SNDBUF
                     for _optname, _val, _label in (
@@ -1091,6 +1087,7 @@ class SipServer:
                 if settings.ENABLE_SIPS and tls_cert and tls_key:
                     import ssl
                     import os
+
                     if os.path.exists(tls_cert) and os.path.exists(tls_key):
                         try:
                             ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
@@ -1110,8 +1107,11 @@ class SipServer:
                             ssl_context = None
 
                 self.tcp_server = await asyncio.start_server(
-                    self._handle_tcp_client, sip_ip, settings.SIP_PORT,
-                    reuse_address=True, backlog=settings.SIP_TCP_BACKLOG,
+                    self._handle_tcp_client,
+                    sip_ip,
+                    settings.SIP_PORT,
+                    reuse_address=True,
+                    backlog=settings.SIP_TCP_BACKLOG,
                 )
                 logger.info(f"SIP UDP/TCP Listening on {sip_ip}:{settings.SIP_PORT}")
 
@@ -1125,8 +1125,12 @@ class SipServer:
                 }
                 if ssl_context:
                     self.tls_server = await asyncio.start_server(
-                        self._handle_tcp_client, sip_ip, tls_port, ssl=ssl_context,
-                        reuse_address=True, backlog=settings.SIP_TCP_BACKLOG,
+                        self._handle_tcp_client,
+                        sip_ip,
+                        tls_port,
+                        ssl=ssl_context,
+                        reuse_address=True,
+                        backlog=settings.SIP_TCP_BACKLOG,
                     )
                     logger.info(f"SIP TLS (SIPS) Listening on {sip_ip}:{tls_port}")
 
@@ -1137,20 +1141,19 @@ class SipServer:
                 # FIX [2026-07-19 P2]: 为每个 worker 注册 done_callback，
                 # 确保任务意外退出（如 CancelledError 之外的异常）可被感知，
                 # 符合项目硬约束"禁止裸 asyncio.create_task"。
-                self._workers = [
-                    self._track_background_task(self._worker_loop())
-                    for _ in range(worker_count)
-                ]
+                self._workers = [self._track_background_task(self._worker_loop()) for _ in range(worker_count)]
 
                 self._track_background_task(self._prune_loop())
 
                 try:
                     from app.sip.dialog_manager import dialog_manager
+
                     self._track_background_task(dialog_manager.cleanup_loop())
                 except Exception as e:
                     logger.warning(f"Failed to start DialogManager cleanup_loop: {e}")
                 try:
                     from app.sip.ssrc_manager import ssrc_manager
+
                     self._track_background_task(ssrc_manager.cleanup_loop())
                     try:
                         restored = await ssrc_manager.restore_from_db()
@@ -1177,8 +1180,7 @@ class SipServer:
                 # P0-SIP: 端口占用时重试，而非立即失败
                 if _bind_attempt <= _max_retries and e.errno in {errno.EADDRINUSE, 98, 10048}:
                     logger.warning(
-                        f"SIP bind attempt {_bind_attempt}/{_max_retries} failed: {err_text}, "
-                        f"retrying in {settings.SIP_BIND_RETRY_DELAY}s..."
+                        f"SIP bind attempt {_bind_attempt}/{_max_retries} failed: {err_text}, retrying in {settings.SIP_BIND_RETRY_DELAY}s..."
                     )
                     await asyncio.sleep(settings.SIP_BIND_RETRY_DELAY)
                     continue
@@ -1194,10 +1196,7 @@ class SipServer:
                 self.running = False
                 # P0-SIP: 非端口占用异常也重试
                 if _bind_attempt <= _max_retries:
-                    logger.warning(
-                        f"SIP start attempt {_bind_attempt}/{_max_retries} failed: {e}, "
-                        f"retrying in {settings.SIP_BIND_RETRY_DELAY}s..."
-                    )
+                    logger.warning(f"SIP start attempt {_bind_attempt}/{_max_retries} failed: {e}, retrying in {settings.SIP_BIND_RETRY_DELAY}s...")
                     await asyncio.sleep(settings.SIP_BIND_RETRY_DELAY)
                     continue
                 raise
@@ -1247,5 +1246,6 @@ class SipServer:
 
         if self._workers:
             await asyncio.gather(*self._workers, return_exceptions=True)
+
 
 sip_server = SipServer()

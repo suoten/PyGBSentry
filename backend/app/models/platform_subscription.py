@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -47,6 +48,4 @@ class PlatformSubscription(Base):
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
-    __table_args__ = (
-        UniqueConstraint("platform_id", "event", name="uq_platform_subscriptions_platform_event"),
-    )
+    __table_args__ = (UniqueConstraint("platform_id", "event", name="uq_platform_subscriptions_platform_event"),)

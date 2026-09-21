@@ -78,4 +78,3 @@ def safe_extract_tar(
         dest = base / name
         _ensure_within_base(base, dest)
         tar_ref.extract(m, base)
-

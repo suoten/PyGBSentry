@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 try:
     from app.core.metrics import CIRCUIT_BREAKER_STATE, CIRCUIT_BREAKER_FAILURES
+
     _metrics_available = True
 except ImportError:
     _metrics_available = False
@@ -40,9 +41,7 @@ class CircuitBreaker:
         self._state = new_state
         if _metrics_available:
             try:
-                CIRCUIT_BREAKER_STATE.labels(node=self.name).set(
-                    {"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0)
-                )
+                CIRCUIT_BREAKER_STATE.labels(node=self.name).set({"closed": 0, "open": 1, "half_open": 2}.get(new_state.value, 0))
             except Exception as _metric_err:
                 # FIX [2026-07-17 P3-22]: 描述性日志替代静默吞异常
                 logger.debug(f"CircuitBreaker [{self.name}]: failed to update state metric: {_metric_err}")
@@ -94,8 +93,7 @@ class CircuitBreaker:
                 if self._failure_count >= self.failure_threshold:
                     self._transition(CircuitState.OPEN)
                     logger.warning(
-                        f"CircuitBreaker [{self.name}] CLOSED -> OPEN "
-                        f"(failures={self._failure_count}, threshold={self.failure_threshold})"
+                        f"CircuitBreaker [{self.name}] CLOSED -> OPEN (failures={self._failure_count}, threshold={self.failure_threshold})"
                     )
 
     def stats(self) -> dict:
@@ -118,6 +116,7 @@ class ZlmNodeClientManager:
         async with self._lock:
             if node_id not in self._clients:
                 import httpx
+
                 client = httpx.AsyncClient(
                     timeout=httpx.Timeout(5.0, connect=3.0),
                     limits=httpx.Limits(max_connections=50, max_keepalive_connections=10),
@@ -166,10 +165,7 @@ class ZlmNodeClientManager:
         # 等敏感参数拼到 URL query，违反项目硬约束。此方法当前未被调用（死代码），
         # 但保留 GET 通道是潜在陷阱。现在 data=None 时抛出 ValueError，强制调用方使用 POST。
         if data is None:
-            raise ValueError(
-                f"call_zlm_api requires 'data' (POST body); GET channel removed for security. "
-                f"node={node_id} api={api_path}"
-            )
+            raise ValueError(f"call_zlm_api requires 'data' (POST body); GET channel removed for security. node={node_id} api={api_path}")
         breaker = self._breakers.get(node_id)
         if breaker and not await breaker.allow_request():
             logger.warning(f"ZLM API call blocked by circuit breaker for node {node_id}: {api_path}")

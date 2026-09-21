@@ -7,6 +7,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -30,6 +31,4 @@ class PlatformCatalogResource(Base):
     virtual_name = Column(String(128), nullable=True)
     virtual_parent_id = Column(String(64), nullable=True)
 
-    __table_args__ = (
-        UniqueConstraint("platform_id", "resource_id", name="uq_platform_catalog_resource"),
-    )
+    __table_args__ = (UniqueConstraint("platform_id", "resource_id", name="uq_platform_catalog_resource"),)

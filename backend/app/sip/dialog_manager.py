@@ -48,6 +48,7 @@ class DialogManager:
         # P2-6: 硬编码上限配置化 — 通过 settings 覆盖默认值
         try:
             from app.core.config import settings
+
             if max_dialogs is None:
                 max_dialogs = settings.SIP_DIALOG_MAX_COUNT
             if ttl_seconds is None:
@@ -66,6 +67,7 @@ class DialogManager:
         self._redis_persist: bool = False
         try:
             from app.core.config import settings
+
             self._redis_persist = (settings.SIP_STATE_BACKEND or "local").strip().lower() == "redis"
         except Exception:
             self._redis_persist = False
@@ -85,6 +87,7 @@ class DialogManager:
         """Internal helper:  get redis."""
         try:
             from app.core.redis import redis_client
+
             if redis_client:
                 return redis_client
         except Exception as _redis_err:
@@ -413,10 +416,7 @@ class DialogManager:
             async with dialog._lock:
                 # 首次（remote_seq==0）直接接受；后续必须严格递增
                 if dialog.remote_seq > 0 and remote_cseq <= dialog.remote_seq:
-                    logger.warning(
-                        f"dialog CSeq monotonic violation: call_id={call_id} "
-                        f"remote_seq={dialog.remote_seq} received={remote_cseq}"
-                    )
+                    logger.warning(f"dialog CSeq monotonic violation: call_id={call_id} remote_seq={dialog.remote_seq} received={remote_cseq}")
                     return False
                 if remote_cseq > dialog.remote_seq:
                     dialog.remote_seq = remote_cseq
@@ -572,7 +572,7 @@ class DialogManager:
         local_is_refresher = (refresher == local_role) and refresher in ("uac", "uas")
         # 未指定 refresher 时按 RFC 4028 默认 UAC 刷新
         if not refresher:
-            local_is_refresher = (local_role == "uac")
+            local_is_refresher = local_role == "uac"
 
         try:
             if local_is_refresher:
@@ -675,10 +675,7 @@ class DialogManager:
     async def _evict_oldest(self) -> None:
         """Internal helper:  evict oldest."""
         now = time.time()
-        expired = [
-            k for k, d in self._dialogs.items()
-            if d.is_terminated() or (now - d.updated_at) > self._ttl_seconds
-        ]
+        expired = [k for k, d in self._dialogs.items() if d.is_terminated() or (now - d.updated_at) > self._ttl_seconds]
         for k in expired:
             self._dialogs.pop(k, None)
         if len(self._dialogs) > self._max_dialogs:
@@ -686,9 +683,7 @@ class DialogManager:
             # 否则活跃通话可能被意外终止
             over = len(self._dialogs) - self._max_dialogs + 100
             # 先从非 CONFIRMED 的 dialog 中驱逐（按 updated_at 最旧优先）
-            non_confirmed = [
-                (k, d) for k, d in self._dialogs.items() if not d.is_confirmed()
-            ]
+            non_confirmed = [(k, d) for k, d in self._dialogs.items() if not d.is_confirmed()]
             non_confirmed.sort(key=lambda x: x[1].updated_at)
             evicted = 0
             for k, d in non_confirmed:
@@ -698,14 +693,11 @@ class DialogManager:
                 evicted += 1
             # 如果非 CONFIRMED 不足以腾出空间，才驱逐 CONFIRMED（最后手段）
             if evicted < over:
-                confirmed = [
-                    (k, d) for k, d in self._dialogs.items() if d.is_confirmed()
-                ]
+                confirmed = [(k, d) for k, d in self._dialogs.items() if d.is_confirmed()]
                 confirmed.sort(key=lambda x: x[1].updated_at)
-                for k, d in confirmed[:over - evicted]:
+                for k, d in confirmed[: over - evicted]:
                     logger.warning(
-                        f"S-05: Forced eviction of CONFIRMED dialog {k} "
-                        f"(capacity limit {self._max_dialogs}, current {len(self._dialogs)})"
+                        f"S-05: Forced eviction of CONFIRMED dialog {k} (capacity limit {self._max_dialogs}, current {len(self._dialogs)})"
                     )
                     self._dialogs.pop(k, None)
 

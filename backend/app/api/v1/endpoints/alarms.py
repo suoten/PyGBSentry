@@ -23,9 +23,9 @@ from datetime import datetime, timedelta, timezone
 router = APIRouter()
 
 
-
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
+
 
 class AlarmManager:
     def __init__(self):
@@ -46,6 +46,7 @@ class AlarmManager:
                 await connection.send_text(json.dumps(alarm_data))
             except (RuntimeError, ConnectionError, OSError):
                 self.active_connections = [(ws, tid) for ws, tid in self.active_connections if ws is not connection]
+
 
 alarm_manager = AlarmManager()
 schema_ready = False
@@ -102,6 +103,7 @@ class AlarmListResponse(BaseModel):
 
 class AlarmEscalationAction(BaseModel):
     note: Optional[str] = None
+
 
 class SlaOverview(BaseModel):
     total_open: int
@@ -161,6 +163,7 @@ class AlarmDashboardPresetAuditItem(BaseModel):
     summary: str
     preset_count: int
 
+
 def _build_alarm_item(alarm: Alarm, escalation: AlarmEscalation | None) -> dict:
     return {
         "id": alarm.id,
@@ -187,6 +190,7 @@ def _dashboard_preset_setting_key(user: User) -> str:
     tid = (user.tenant_id or "default").strip() or "default"
     return f"mobile.alarm.dashboard.presets.{tid}"
 
+
 async def ensure_alarm_escalation(alarm_id: str, db: AsyncSession) -> AlarmEscalation:
     stmt = select(AlarmEscalation).where(AlarmEscalation.alarm_id == alarm_id)
     result = await db.execute(stmt)
@@ -199,6 +203,7 @@ async def ensure_alarm_escalation(alarm_id: str, db: AsyncSession) -> AlarmEscal
     await db.refresh(item)
     return item
 
+
 _escalation_schema_lock = asyncio.Lock()
 
 
@@ -209,7 +214,8 @@ async def ensure_alarm_escalation_schema(db: AsyncSession):
     async with _escalation_schema_lock:
         if schema_ready:
             return
-        await db.execute(text("""
+        await db.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS alarm_escalations (
                 id VARCHAR(32) PRIMARY KEY,
                 alarm_id VARCHAR(32) UNIQUE NOT NULL,
@@ -223,7 +229,8 @@ async def ensure_alarm_escalation_schema(db: AsyncSession):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """))
+        """)
+        )
         dialect = ""
         try:
             d = getattr(db.bind, "dialect", None)
@@ -274,6 +281,7 @@ def _build_notification_item(row: AlarmNotification) -> dict:
         "sent_at": row.sent_at.isoformat() if row.sent_at else None,
     }
 
+
 @router.get("", response_model=AlarmListResponse)
 async def get_alarms(
     skip: int = Query(0, ge=0),
@@ -307,12 +315,7 @@ async def get_alarms(
     if min_escalation_level > 0:
         conditions.append(func.coalesce(AlarmEscalation.escalation_level, 0) >= int(min_escalation_level))
 
-    count_stmt = (
-        select(func.count())
-        .select_from(Alarm)
-        .outerjoin(AlarmEscalation, AlarmEscalation.alarm_id == Alarm.id)
-        .where(and_(*conditions))
-    )
+    count_stmt = select(func.count()).select_from(Alarm).outerjoin(AlarmEscalation, AlarmEscalation.alarm_id == Alarm.id).where(and_(*conditions))
     total = int((await db.execute(count_stmt)).scalar() or 0)
 
     stmt = (
@@ -382,13 +385,7 @@ async def get_alarm_notifications(
     count_stmt = select(func.count()).select_from(AlarmNotification).where(and_(*conditions))
     total = int((await db.execute(count_stmt)).scalar() or 0)
 
-    stmt = (
-        select(AlarmNotification)
-        .where(and_(*conditions))
-        .order_by(desc(AlarmNotification.sent_at))
-        .offset(skip)
-        .limit(limit)
-    )
+    stmt = select(AlarmNotification).where(and_(*conditions)).order_by(desc(AlarmNotification.sent_at)).offset(skip).limit(limit)
     result = await db.execute(stmt)
     rows = result.scalars().all()
     items = [_build_notification_item(r) for r in rows]
@@ -400,6 +397,7 @@ async def get_alarm_notifications(
         "start_time": start_time,
         "end_time": end_time,
     }
+
 
 @router.get("/sla/overview", response_model=SlaOverview)
 async def get_sla_overview(
@@ -638,7 +636,7 @@ async def get_sla_presets(
 async def update_sla_presets(
     payload: AlarmDashboardPresetPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     key = _dashboard_preset_setting_key(current_user)
     items = payload.items[:30]
@@ -666,10 +664,7 @@ async def update_sla_presets(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"preset_count={len(compact_items)}; "
-            f"preset_names={','.join([x['name'].replace(';', '.') for x in compact_items[:5]])}"
-        ),
+        extra_summary=(f"preset_count={len(compact_items)}; preset_names={','.join([x['name'].replace(';', '.') for x in compact_items[:5]])}"),
     )
     return {"items": compact_items}
 
@@ -678,7 +673,7 @@ async def update_sla_presets(
 async def get_sla_preset_audits(
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     safe_limit = max(1, min(int(limit or 10), 50))
     tenant_id = _audit_tid(current_user)
@@ -714,6 +709,7 @@ async def get_sla_preset_audits(
             )
         )
     return output
+
 
 @router.post("/{alarm_id}/ack")
 async def acknowledge_alarm(
@@ -755,6 +751,7 @@ async def acknowledge_alarm(
     try:
         from app.services.platform_service import platform_service as _platform_svc
         from app.models.platform import ParentPlatform
+
         if _platform_svc:
             plat_stmt = select(ParentPlatform).where(
                 ParentPlatform.tenant_id == (alarm.tenant_id or "default"),
@@ -788,6 +785,7 @@ async def acknowledge_alarm(
         extra_summary=f"alarm_id={alarm_id}; state={escalation.state or ''}",
     )
     return {"ok": True, "alarm_id": alarm_id, "state": escalation.state}
+
 
 @router.post("/{alarm_id}/escalate")
 async def escalate_alarm(
@@ -843,6 +841,7 @@ async def escalate_alarm(
     try:
         from app.services.platform_service import platform_service as _platform_svc
         from app.models.platform import ParentPlatform
+
         if _platform_svc:
             plat_stmt = select(ParentPlatform).where(
                 ParentPlatform.tenant_id == (alarm.tenant_id or "default"),
@@ -873,10 +872,7 @@ async def escalate_alarm(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"alarm_id={alarm_id}; escalation_level={escalation.escalation_level}; "
-            f"escalation_count={escalation.escalation_count}"
-        ),
+        extra_summary=(f"alarm_id={alarm_id}; escalation_level={escalation.escalation_level}; escalation_count={escalation.escalation_count}"),
     )
     return {
         "ok": True,
@@ -910,7 +906,7 @@ class AlarmConfigPayload(BaseModel):
 async def update_alarm_config(
     payload: AlarmConfigPayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     """开启/关闭报警录像联动。开启后，设备上报报警时会触发 HOOK_ALARM_RECORD_LINK，插件可拉流录像。"""
     r = await db.execute(select(SystemSetting).where(SystemSetting.setting_key == ALARM_RECORD_LINK_KEY))
@@ -957,9 +953,7 @@ async def list_alarm_link_rules(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     tenant_id = current_user.tenant_id or "default"
-    stmt = select(AlarmLinkRule).where(AlarmLinkRule.tenant_id == tenant_id).order_by(
-        desc(AlarmLinkRule.enabled), desc(AlarmLinkRule.created_at)
-    )
+    stmt = select(AlarmLinkRule).where(AlarmLinkRule.tenant_id == tenant_id).order_by(desc(AlarmLinkRule.enabled), desc(AlarmLinkRule.created_at))
     result = await db.execute(stmt)
     rows = result.scalars().all()
     return [
@@ -987,7 +981,7 @@ async def list_alarm_link_rules(
 async def create_alarm_link_rule(
     payload: AlarmLinkRulePayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
     item = AlarmLinkRule(
@@ -1027,12 +1021,10 @@ async def update_alarm_link_rule(
     rule_id: str,
     payload: AlarmLinkRulePayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
-    stmt = select(AlarmLinkRule).where(
-        AlarmLinkRule.id == rule_id, AlarmLinkRule.tenant_id == tenant_id
-    )
+    stmt = select(AlarmLinkRule).where(AlarmLinkRule.id == rule_id, AlarmLinkRule.tenant_id == tenant_id)
     result = await db.execute(stmt)
     item = result.scalars().first()
     if not item:
@@ -1081,12 +1073,10 @@ async def update_alarm_link_rule(
 async def delete_alarm_link_rule(
     rule_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("alarms.handle"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("alarms.handle")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
-    stmt = select(AlarmLinkRule).where(
-        AlarmLinkRule.id == rule_id, AlarmLinkRule.tenant_id == tenant_id
-    )
+    stmt = select(AlarmLinkRule).where(AlarmLinkRule.id == rule_id, AlarmLinkRule.tenant_id == tenant_id)
     result = await db.execute(stmt)
     item = result.scalars().first()
     if not item:
@@ -1136,6 +1126,7 @@ async def websocket_alarms(websocket: WebSocket, ticket: str = ""):
         await websocket.close(code=4001, reason="Missing ticket")
         return
     from app.core.ws_ticket import consume_ws_ticket
+
     payload = await consume_ws_ticket(ticket)
     if not payload or not payload.get("sub"):
         logger.warning(f"alarms_ws: rejected - invalid/expired ticket (client={client_ip})")

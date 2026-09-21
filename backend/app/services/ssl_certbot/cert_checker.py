@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from loguru import logger
 
 
-
-
 class CertStatus(StrEnum):
     VALID = "valid"
     EXPIRING_SOON = "expiring_soon"
@@ -42,7 +40,13 @@ async def check_cert_status(cert_file_path: str, domain: str) -> CertInfo:
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "openssl", "x509", "-in", cert_file_path, "-noout", "-dates", "-startdate",
+            "openssl",
+            "x509",
+            "-in",
+            cert_file_path,
+            "-noout",
+            "-dates",
+            "-startdate",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

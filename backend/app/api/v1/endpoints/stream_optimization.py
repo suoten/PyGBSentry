@@ -21,6 +21,7 @@ router = APIRouter()
 
 class StreamPlayRequest(BaseModel):
     """实时预览播放请求"""
+
     device_id: str = Field(..., description="设备ID")
     channel_id: str = Field(..., description="通道ID")
     protocol_preference: str = Field("auto", description="协议偏好: auto, flv, hls, webrtc")
@@ -31,6 +32,7 @@ class StreamPlayRequest(BaseModel):
 
 class StreamQualityReport(BaseModel):
     """质量上报"""
+
     session_id: str
     fps: float = 0
     bitrate_kbps: float = 0
@@ -47,6 +49,7 @@ class StreamQualityReport(BaseModel):
 
 class StreamHealthResponse(BaseModel):
     """流健康状态"""
+
     session_id: str
     status: str
     health_score: float
@@ -90,9 +93,7 @@ async def optimized_stream_play(
     # 查询通道
     stmt = select(Resource).where(Resource.gb_id == channel_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     resource = result.scalars().first()
 
@@ -105,6 +106,7 @@ async def optimized_stream_play(
 
     # 生成会话ID
     import uuid
+
     session_id = str(uuid.uuid4())[:16]
 
     # 选择最优协议
@@ -116,7 +118,7 @@ async def optimized_stream_play(
         device_id=device_id,
         channel_id=channel_id,
         protocol=recommended_protocol,
-        transport="TCP"  # 默认使用 TCP 更稳定
+        transport="TCP",  # 默认使用 TCP 更稳定
     )
 
     # 返回播放信息（实际播放逻辑由前端调用 play_stream API）
@@ -128,7 +130,7 @@ async def optimized_stream_play(
         "quality_mode": quality_mode,
         "play_url": None,  # 前端需要调用 play_stream 获取实际 URL
         "stats_url": f"/api/v1/stream-opt/health/{session_id}",
-        "quality_report_url": "/api/v1/stream-opt/quality-report"
+        "quality_report_url": "/api/v1/stream-opt/quality-report",
     }
 
 
@@ -152,7 +154,7 @@ async def report_stream_quality(
             packet_loss_rate=report.packet_loss_rate,
             buffer_ms=report.buffer_ms,
             dropped_frames=report.dropped_frames,
-            error_count=report.error_count
+            error_count=report.error_count,
         )
         await stream_quality_monitor.add_sample(report.session_id, sample)
         health = await stream_quality_monitor.get_session_health(report.session_id)
@@ -203,9 +205,7 @@ async def get_stream_lines(
     # 查询通道
     stmt = select(Resource).where(Resource.gb_id == channel_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     resource = result.scalars().first()
 
@@ -228,7 +228,7 @@ async def get_stream_lines(
             "description": "高清画质，适合带宽充足场景",
             "estimated_bitrate": 4000,  # kbps
             "estimated_quality": "high",
-            "recommended": True
+            "recommended": True,
         },
         {
             "id": "sub",
@@ -236,27 +236,22 @@ async def get_stream_lines(
             "description": "标清画质，适合低带宽场景",
             "estimated_bitrate": 1500,  # kbps
             "estimated_quality": "medium",
-            "recommended": False
-        }
+            "recommended": False,
+        },
     ]
 
     # 检查设备能力
-    if hasattr(asset, 'stream_mode'):
-        mode = str(asset.stream_mode or '').lower()
-        if mode == 'main':
-            lines = [line for line in lines if line['id'] == 'main']
-        elif mode == 'sub':
-            lines = [line for line in lines if line['id'] == 'sub']
+    if hasattr(asset, "stream_mode"):
+        mode = str(asset.stream_mode or "").lower()
+        if mode == "main":
+            lines = [line for line in lines if line["id"] == "main"]
+        elif mode == "sub":
+            lines = [line for line in lines if line["id"] == "sub"]
 
     # 推荐线路
-    recommended = next((line for line in lines if line.get('recommended')), lines[0] if lines else None)
+    recommended = next((line for line in lines if line.get("recommended")), lines[0] if lines else None)
 
-    return {
-        "device_id": device_id,
-        "channel_id": channel_id,
-        "lines": lines,
-        "recommended": recommended
-    }
+    return {"device_id": device_id, "channel_id": channel_id, "lines": lines, "recommended": recommended}
 
 
 @router.post("/reconnect/{session_id}")
@@ -304,10 +299,7 @@ async def get_stream_stats(
     return stats
 
 
-def _select_best_protocol(
-    preference: str,
-    quality_mode: str
-) -> str:
+def _select_best_protocol(preference: str, quality_mode: str) -> str:
     """
     选择最优协议
 
@@ -345,7 +337,7 @@ async def get_protocol_info():
             "compatibility": "高",
             "quality": "无损",
             "requires_https": False,
-            "buffer_recommend": "500-1000ms"
+            "buffer_recommend": "500-1000ms",
         },
         {
             "id": "hls",
@@ -355,7 +347,7 @@ async def get_protocol_info():
             "compatibility": "极高",
             "quality": "可分段自适应",
             "requires_https": False,
-            "buffer_recommend": "1000-3000ms"
+            "buffer_recommend": "1000-3000ms",
         },
         {
             "id": "webrtc",
@@ -365,15 +357,11 @@ async def get_protocol_info():
             "compatibility": "中",
             "quality": "中等",
             "requires_https": True,
-            "buffer_recommend": "200-500ms"
-        }
+            "buffer_recommend": "200-500ms",
+        },
     ]
 
-    return {
-        "protocols": protocols,
-        "recommended": "http_flv",
-        "recommendation": "对于大多数实时预览场景，推荐使用 HTTP-FLV 协议，延迟低且稳定"
-    }
+    return {"protocols": protocols, "recommended": "http_flv", "recommendation": "对于大多数实时预览场景，推荐使用 HTTP-FLV 协议，延迟低且稳定"}
 
 
 @router.get("/optimization-tips")
@@ -388,60 +376,28 @@ async def get_optimization_tips():
                 {
                     "title": "优先使用 TCP 协议",
                     "description": "UDP 在不稳定网络下容易丢包导致花屏，TCP 有重传机制更稳定",
-                    "applicable": "所有网络环境"
+                    "applicable": "所有网络环境",
                 },
-                {
-                    "title": "内网优先直连",
-                    "description": "内网设备直连可获得最低延迟，避免经过公网中转",
-                    "applicable": "局域网场景"
-                },
-                {
-                    "title": "选择合适码率",
-                    "description": "主码流适合带宽充足场景，子码流适合移动网络",
-                    "applicable": "所有网络环境"
-                }
-            ]
+                {"title": "内网优先直连", "description": "内网设备直连可获得最低延迟，避免经过公网中转", "applicable": "局域网场景"},
+                {"title": "选择合适码率", "description": "主码流适合带宽充足场景，子码流适合移动网络", "applicable": "所有网络环境"},
+            ],
         },
         {
             "category": "播放器优化",
             "items": [
-                {
-                    "title": "合理设置缓冲时间",
-                    "description": "实时预览建议 500-1000ms，录像回放可更长(2-5s)",
-                    "applicable": "bufferTime 参数调整"
-                },
-                {
-                    "title": "启用自动重连",
-                    "description": "网络波动时自动重连，保持观看连续性",
-                    "applicable": "所有场景"
-                },
-                {
-                    "title": "禁用低延迟模式",
-                    "description": "HLS 播放器的 lowLatencyMode 会增加卡顿，点播场景建议关闭",
-                    "applicable": "HLS 协议"
-                }
-            ]
+                {"title": "合理设置缓冲时间", "description": "实时预览建议 500-1000ms，录像回放可更长(2-5s)", "applicable": "bufferTime 参数调整"},
+                {"title": "启用自动重连", "description": "网络波动时自动重连，保持观看连续性", "applicable": "所有场景"},
+                {"title": "禁用低延迟模式", "description": "HLS 播放器的 lowLatencyMode 会增加卡顿，点播场景建议关闭", "applicable": "HLS 协议"},
+            ],
         },
         {
             "category": "花屏解决",
             "items": [
-                {
-                    "title": "检查 GOP 配置",
-                    "description": "设备编码器 GOP 过大会导致花屏恢复慢，建议 1-2 秒",
-                    "applicable": "设备端配置"
-                },
-                {
-                    "title": "增加关键帧间隔容忍度",
-                    "description": "部分设备关键帧不标准，需要播放器有更好的容错",
-                    "applicable": "播放器配置"
-                },
-                {
-                    "title": "切换到 TCP 协议",
-                    "description": "UDP 丢包是花屏主要原因，切换到 TCP 通常可以解决",
-                    "applicable": "花屏问题"
-                }
-            ]
-        }
+                {"title": "检查 GOP 配置", "description": "设备编码器 GOP 过大会导致花屏恢复慢，建议 1-2 秒", "applicable": "设备端配置"},
+                {"title": "增加关键帧间隔容忍度", "description": "部分设备关键帧不标准，需要播放器有更好的容错", "applicable": "播放器配置"},
+                {"title": "切换到 TCP 协议", "description": "UDP 丢包是花屏主要原因，切换到 TCP 通常可以解决", "applicable": "花屏问题"},
+            ],
+        },
     ]
 
     return {"tips": tips}

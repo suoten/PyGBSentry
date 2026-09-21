@@ -482,7 +482,7 @@
               <el-table-column prop="id" :label="t('reportPage.reportIdLabel')" width="220" />
               <el-table-column prop="name" :label="t('reportPage.reportNameLabel')" />
               <el-table-column prop="source" :label="t('reportPage.sourceLabel')" width="140">
-                <template #default="{ row }">
+                <template #default>
                   <el-tag size="small" type="success">{{ t('reportPage.pluginReportSuite') }}</el-tag>
                 </template>
               </el-table-column>

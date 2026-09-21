@@ -13,11 +13,14 @@ from app.core.async_utils import fire_and_forget
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
+
     def _uuid7_impl():
         return uuid.uuid4()
 
+
 def _uuid7():
     return _uuid7_impl().hex[:8]
+
 
 # P2-13: 使用 Redis 类型别名替代 Any，提升类型安全
 redis_client: Optional[redis.Redis] = None
@@ -25,6 +28,7 @@ redis_client: Optional[redis.Redis] = None
 REDIS_RECONNECT_INTERVAL_SECONDS: int = 10
 
 _redis_watchdog_task: Optional[asyncio.Task] = None
+
 
 async def init_redis():
     """Initialize Redis connection."""
@@ -39,11 +43,9 @@ async def init_redis():
         # 支持 Redis Sentinel 连接模式
         if settings.REDIS_SENTINEL_HOSTS:
             from redis.sentinel import Sentinel
+
             sentinel_addrs = [
-                (h.strip(), int(p.strip()))
-                for h_p in settings.REDIS_SENTINEL_HOSTS.split(",")
-                if ":" in h_p
-                for h, p in [h_p.strip().split(":", 1)]
+                (h.strip(), int(p.strip())) for h_p in settings.REDIS_SENTINEL_HOSTS.split(",") if ":" in h_p for h, p in [h_p.strip().split(":", 1)]
             ]
             sentinel = Sentinel(
                 sentinel_addrs,
@@ -65,6 +67,7 @@ async def init_redis():
             )
         elif settings.REDIS_CLUSTER_MODE:
             from redis import cluster as _redis_cluster
+
             redis_client = _redis_cluster.RedisCluster(
                 host=settings.REDIS_HOST,
                 port=settings.REDIS_PORT,
@@ -270,6 +273,7 @@ class RedisHACluster:
             }
             try:
                 import psutil
+
                 load_info["cpu"] = psutil.cpu_percent(interval=0)
                 load_info["mem"] = psutil.virtual_memory().percent
             except ImportError:
@@ -277,6 +281,7 @@ class RedisHACluster:
             # 尝试获取活跃流数
             try:
                 from app.services.media_manager import media_manager
+
                 if media_manager:
                     load_info["streams"] = getattr(media_manager, "active_stream_count", 0)
             except Exception as _mm_err:
@@ -304,10 +309,7 @@ class RedisHACluster:
                     await redis_client.hset("pygbsentry:nodes", self.node_id, time.time())
                     now = time.time()
                     all_nodes = await redis_client.hgetall("pygbsentry:nodes")
-                    stale_nodes = [
-                        nid for nid, ts_str in all_nodes.items()
-                        if nid != self.node_id and now - float(ts_str or 0) > 60
-                    ]
+                    stale_nodes = [nid for nid, ts_str in all_nodes.items() if nid != self.node_id and now - float(ts_str or 0) > 60]
                     if stale_nodes:
                         await redis_client.hdel("pygbsentry:nodes", *stale_nodes)
                         logger.info(f"[Cluster HA] Cleaned {len(stale_nodes)} stale node(s)")
@@ -402,12 +404,14 @@ class RedisHACluster:
         if not channel_name:
             logger.warning(f"[Cluster HA] Unknown channel type for publish: {channel_type}")
             return
-        payload = json.dumps({
-            "source_node": self.node_id,
-            "timestamp": time.time(),
-            "type": channel_type,
-            "data": data,
-        })
+        payload = json.dumps(
+            {
+                "source_node": self.node_id,
+                "timestamp": time.time(),
+                "type": channel_type,
+                "data": data,
+            }
+        )
         try:
             await redis_client.publish(channel_name, payload)
         except Exception as e:
@@ -421,11 +425,14 @@ class RedisHACluster:
             change_type: 'channel_added', 'channel_removed', 'name_changed', 'status_changed'.
             details: Optional dict with additional info.
         """
-        await self.publish("device_change", {
-            "gb_id": gb_id,
-            "change_type": change_type,
-            "details": details or {},
-        })
+        await self.publish(
+            "device_change",
+            {
+                "gb_id": gb_id,
+                "change_type": change_type,
+                "details": details or {},
+            },
+        )
 
     async def broadcast_media_node_status(self, node_id: str, status: str, load: dict = None) -> None:
         """Broadcast a media node (ZLM) status change.
@@ -435,11 +442,14 @@ class RedisHACluster:
             status: 'online', 'offline'.
             load: Optional dict with load info.
         """
-        await self.publish("media_node_status", {
-            "node_id": node_id,
-            "status": status,
-            "load": load or {},
-        })
+        await self.publish(
+            "media_node_status",
+            {
+                "node_id": node_id,
+                "status": status,
+                "load": load or {},
+            },
+        )
 
     async def request_invite_route(self, gb_id: str, callback_channel: str) -> None:
         """Request cross-node INVITE routing for a device.
@@ -448,11 +458,14 @@ class RedisHACluster:
             gb_id: The target device/channel GB ID.
             callback_channel: A unique channel name where the owning node should respond.
         """
-        await self.publish("invite_route", {
-            "gb_id": gb_id,
-            "callback_channel": callback_channel,
-            "requester_node": self.node_id,
-        })
+        await self.publish(
+            "invite_route",
+            {
+                "gb_id": gb_id,
+                "callback_channel": callback_channel,
+                "requester_node": self.node_id,
+            },
+        )
 
     async def broadcast_record_result(self, query_key: str, records: list, source_node: str = "") -> None:
         """Broadcast recording query results for aggregation.
@@ -462,11 +475,14 @@ class RedisHACluster:
             records: List of record dicts.
             source_node: The node that produced these results.
         """
-        await self.publish("record_result", {
-            "query_key": query_key,
-            "records": records,
-            "source_node": source_node or self.node_id,
-        })
+        await self.publish(
+            "record_result",
+            {
+                "query_key": query_key,
+                "records": records,
+                "source_node": source_node or self.node_id,
+            },
+        )
 
     async def broadcast_config_reload(self, config_keys: list = None) -> None:
         """Broadcast a configuration hot-reload signal.
@@ -474,9 +490,12 @@ class RedisHACluster:
         Args:
             config_keys: Optional list of specific config keys that changed.
         """
-        await self.publish("config_reload", {
-            "config_keys": config_keys or [],
-        })
+        await self.publish(
+            "config_reload",
+            {
+                "config_keys": config_keys or [],
+            },
+        )
 
     async def get_device_owner_node(self, gb_id: str) -> Optional[str]:
         """Look up which cluster node owns a given device.

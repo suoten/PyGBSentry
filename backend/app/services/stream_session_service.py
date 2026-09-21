@@ -221,6 +221,7 @@ async def _release_stream_session_no_db(
             # Phase2-A: 记录 stream health（独立 session，立即关闭）
             if reason == "media_stream_not_ready" or reason == "media_node_unreachable" or reason == "invite_timeout":
                 from app.sip.response_handler import _record_stream_health
+
                 try:
                     async with AsyncSessionLocal() as health_db:
                         await _record_stream_health(health_db, stream_session, 503 if reason != "invite_timeout" else 408)
@@ -248,15 +249,14 @@ async def _release_stream_session_no_db(
                 try:
                     if app_name == "cascade_bypass":
                         from types import SimpleNamespace
+
                         cascade_dialog = SimpleNamespace(
                             call_id=getattr(stream_session, "cascade_call_id", None) or call_id,
                             from_tag=getattr(stream_session, "cascade_from_tag", None) or from_tag,
                             to_tag=getattr(stream_session, "cascade_to_tag", None) or str(getattr(stream_session, "to_tag", "") or ""),
                             cseq=1,
                         )
-                        await sip_invite_module.sip_invite.send_bye(
-                            asset, cascade_dialog, channel_id, wait_response=False, timeout_seconds=3.0
-                        )
+                        await sip_invite_module.sip_invite.send_bye(asset, cascade_dialog, channel_id, wait_response=False, timeout_seconds=3.0)
                     else:
                         bye_sent = await sip_invite_module.sip_invite.send_bye(
                             asset, stream_session, channel_id, wait_response=wait_bye_response, timeout_seconds=5.0
@@ -270,6 +270,7 @@ async def _release_stream_session_no_db(
             if ssrc_val:
                 try:
                     from app.sip.ssrc_manager import ssrc_manager
+
                     await ssrc_manager.release(ssrc_val)
                 except Exception as e:
                     logger.warning(f"[ReleaseStreamSession] Failed to release SSRC {ssrc_val}: {e}")
@@ -279,6 +280,7 @@ async def _release_stream_session_no_db(
             try:
                 if call_id and from_tag:
                     from app.sip.dialog_manager import dialog_manager
+
                     await dialog_manager.terminate_dialog(call_id, from_tag)
             except Exception as e:
                 logger.warning(f"[ReleaseStreamSession] Dialog terminate failed: {e}")
@@ -338,9 +340,7 @@ async def release_stream_session(db: AsyncSession, stream_session: StreamSession
     resource = None
     if stream_session.resource_id:
         try:
-            resource = (
-                await db.execute(select(Resource).where(Resource.id == stream_session.resource_id))
-            ).scalars().first()
+            resource = (await db.execute(select(Resource).where(Resource.id == stream_session.resource_id))).scalars().first()
         except Exception as e:
             logger.warning(f"[ReleaseStreamSession] Failed to query Resource {stream_session.resource_id}: {e}")
 
@@ -357,8 +357,11 @@ async def release_stream_session(db: AsyncSession, stream_session: StreamSession
 
     # Phase2+3: 慢 I/O + 独立 session 写操作
     await _release_stream_session_no_db(
-        stream_session, reason=reason, wait_bye_response=wait_bye_response,
-        asset=asset, resource=resource,
+        stream_session,
+        reason=reason,
+        wait_bye_response=wait_bye_response,
+        asset=asset,
+        resource=resource,
     )
 
 
@@ -403,15 +406,14 @@ async def _finalize_stream_session_no_db(
                 if asset and sip_invite_module.sip_invite:
                     with contextlib.suppress(Exception):
                         from types import SimpleNamespace
+
                         cascade_dialog = SimpleNamespace(
                             call_id=getattr(stream_session, "cascade_call_id", None) or str(getattr(stream_session, "call_id", "") or ""),
                             from_tag=getattr(stream_session, "cascade_from_tag", None) or from_tag,
                             to_tag=getattr(stream_session, "cascade_to_tag", None) or str(getattr(stream_session, "to_tag", "") or ""),
                             cseq=1,
                         )
-                        await sip_invite_module.sip_invite.send_bye(
-                            asset, cascade_dialog, channel_id, wait_response=False, timeout_seconds=3.0
-                        )
+                        await sip_invite_module.sip_invite.send_bye(asset, cascade_dialog, channel_id, wait_response=False, timeout_seconds=3.0)
                 with contextlib.suppress(Exception):
                     await close_stream(stream_session.app, stream_session.stream, getattr(stream_session, "media_server_id", None))
                 bypass_lease_id = getattr(stream_session, "media_port_lease_id", None)
@@ -432,6 +434,7 @@ async def _finalize_stream_session_no_db(
                 if bypass_ssrc:
                     with contextlib.suppress(Exception):
                         from app.sip.ssrc_manager import ssrc_manager
+
                         await ssrc_manager.release(bypass_ssrc)
                 return
 
@@ -449,6 +452,7 @@ async def _finalize_stream_session_no_db(
             # Phase2-A: 记录 stream health（独立 session，立即关闭）
             if reason == "media_stream_not_ready" or reason == "media_node_unreachable" or reason == "invite_timeout":
                 from app.sip.response_handler import _record_stream_health
+
                 try:
                     async with AsyncSessionLocal() as health_db:
                         await _record_stream_health(health_db, stream_session, 503 if reason != "invite_timeout" else 408)
@@ -459,9 +463,7 @@ async def _finalize_stream_session_no_db(
             # Phase2-B: 发送 SIP BYE（3s 超时）- 无 DB session 持有
             if asset and sip_invite_module.sip_invite:
                 with contextlib.suppress(Exception):
-                    await sip_invite_module.sip_invite.send_bye(
-                        asset, stream_session, channel_id, wait_response=False, timeout_seconds=3.0
-                    )
+                    await sip_invite_module.sip_invite.send_bye(asset, stream_session, channel_id, wait_response=False, timeout_seconds=3.0)
 
             # Phase2-C: close_stream（ZLM HTTP 2s）- 无 DB session 持有
             with contextlib.suppress(Exception):
@@ -471,6 +473,7 @@ async def _finalize_stream_session_no_db(
             if finalize_ssrc:
                 with contextlib.suppress(Exception):
                     from app.sip.ssrc_manager import ssrc_manager
+
                     await ssrc_manager.release(finalize_ssrc)
 
             # Phase3: 独立 session 执行 DB 写操作
@@ -525,9 +528,7 @@ async def finalize_stream_session(db: AsyncSession, stream_session: StreamSessio
     resource = None
     if stream_session.resource_id:
         try:
-            resource = (
-                await db.execute(select(Resource).where(Resource.id == stream_session.resource_id))
-            ).scalars().first()
+            resource = (await db.execute(select(Resource).where(Resource.id == stream_session.resource_id))).scalars().first()
         except Exception as e:
             logger.warning(f"[FinalizeStreamSession] Failed to query Resource {stream_session.resource_id}: {e}")
 
@@ -539,5 +540,8 @@ async def finalize_stream_session(db: AsyncSession, stream_session: StreamSessio
 
     # Phase2+3: 慢 I/O + 独立 session 写操作
     await _finalize_stream_session_no_db(
-        stream_session, reason=reason, asset=asset, resource=resource,
+        stream_session,
+        reason=reason,
+        asset=asset,
+        resource=resource,
     )

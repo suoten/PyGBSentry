@@ -4,6 +4,7 @@ A push key has the format ``<prefix>.<raw_secret>`` where ``prefix`` is a
 short public identifier stored on the PushChannel and ``raw_secret`` is the
 client-held secret. Only the HMAC of the full key is persisted.
 """
+
 from __future__ import annotations
 
 import hashlib

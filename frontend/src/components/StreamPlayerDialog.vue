@@ -227,7 +227,7 @@ const reportQualityMetrics = async () => {
   if (!streamMetrics.value) return
   try {
     await api.post('/api/v1/stream-opt/quality-report', {
-      session_id: playStreamId || 'unknown',
+      session_id: playStreamId.value || 'unknown',
       ...streamMetrics.value
     })
   } catch {

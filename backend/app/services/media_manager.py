@@ -17,6 +17,7 @@ from urllib import request as urllib_request, parse as urllib_parse
 from loguru import logger
 from app.core.config import settings
 from app.core.archive import safe_extract_zip, safe_extract_tar, UnsafeArchiveError
+
 # P0-16 [2026-07-17]: 使用项目统一的 fire_and_forget 替代裸 create_task
 from app.core.async_utils import fire_and_forget
 from app.db.session import AsyncSessionLocal
@@ -55,6 +56,7 @@ ZLM_ZLTOOLKIT_ZIP_MIRRORS = [
 # - ZLM_FALLBACK_BINARY_URL (例如 https://.../ZLMediaKit-linux64.tar.gz 或 .zip)
 # 默认关闭，避免指向不存在的链接导致“看似自动部署但实际失败”。
 
+
 class MediaManager:
     def _normalize_rtp_port_range(self, raw: str | None, fallback_port: int) -> str:
         text = str(raw or "").strip()
@@ -88,8 +90,13 @@ class MediaManager:
                     "Docker environment: RTP port range too large ({}-{}, {} ports), "
                     "auto-capped to {}-{} ({} ports, DOCKER_RTP_PORT_RANGE_MAX={}). "
                     "Ensure docker-compose.yml maps the same range.",
-                    start, original_end, original_end - start + 1,
-                    start, end, max_ports, max_ports,
+                    start,
+                    original_end,
+                    original_end - start + 1,
+                    start,
+                    end,
+                    max_ports,
+                    max_ports,
                 )
 
         self._effective_rtp_range = (start, end)
@@ -135,7 +142,7 @@ class MediaManager:
                     if len(fields) >= 3 and fields[1] == "00000000":
                         hex_ip = fields[2]
                         if len(hex_ip) == 8:
-                            octets = [str(int(hex_ip[i:i+2], 16)) for i in range(6, -1, -2)]
+                            octets = [str(int(hex_ip[i : i + 2], 16)) for i in range(6, -1, -2)]
                             return ".".join(octets)
         except Exception as e:
             logger.warning(f"Failed to detect Docker gateway IP: {e}")
@@ -209,8 +216,7 @@ class MediaManager:
             gateway_ip = self._detect_docker_gateway_ip()
             if gateway_ip:
                 logger.info(
-                    "Docker environment detected: BACKEND_PUBLIC_HOST is loopback, "
-                    f"auto-detected container gateway IP={gateway_ip} for ZLM webhook"
+                    f"Docker environment detected: BACKEND_PUBLIC_HOST is loopback, auto-detected container gateway IP={gateway_ip} for ZLM webhook"
                 )
                 return f"http://{gateway_ip}:{settings.BACKEND_PUBLIC_PORT}{settings.API_V1_STR}/hook"
             else:
@@ -266,9 +272,7 @@ class MediaManager:
                     info["active_media_node_id"] = None
 
                 result = await session.execute(
-                    select(func.count(MediaNode.id)).where(
-                        or_(MediaNode.is_embedded.is_(False), MediaNode.is_embedded.is_(None))
-                    )
+                    select(func.count(MediaNode.id)).where(or_(MediaNode.is_embedded.is_(False), MediaNode.is_embedded.is_(None)))
                 )
                 cnt = int(result.scalar() or 0)
                 info["db_media_nodes_count"] = cnt
@@ -474,7 +478,9 @@ class MediaManager:
         except Exception as e:
             raise RuntimeError(f"ZLM package download failed: {e}") from e
 
-    def _run_cmd_stream(self, cmd: list[str], cwd: str | None = None, env: dict[str, str] | None = None, timeout: int = 300, prefix: str = "cmd") -> None:
+    def _run_cmd_stream(
+        self, cmd: list[str], cwd: str | None = None, env: dict[str, str] | None = None, timeout: int = 300, prefix: str = "cmd"
+    ) -> None:
         """
         以流式方式执行命令并把 stdout/stderr 实时写入日志，避免“看起来卡住”。
         """
@@ -632,11 +638,12 @@ class MediaManager:
             return
 
         import psutil
+
         logger.warning(f"Port {port} is occupied, attempting to terminate the occupying process...")
         killed = False
         try:
-            for conn in psutil.net_connections(kind='tcp'):
-                if conn.laddr and conn.laddr.port == port and conn.status == 'LISTEN':
+            for conn in psutil.net_connections(kind="tcp"):
+                if conn.laddr and conn.laddr.port == port and conn.status == "LISTEN":
                     if conn.pid:
                         try:
                             p = psutil.Process(conn.pid)
@@ -644,7 +651,9 @@ class MediaManager:
                                 continue
                             proc_name = (p.name() or "").lower()
                             if proc_name in self._PROTECTED_PROCESS_NAMES:
-                                logger.warning(f"Skipping protected process {proc_name} (PID: {p.pid}) on port {port}, will use fallback port instead")
+                                logger.warning(
+                                    f"Skipping protected process {proc_name} (PID: {p.pid}) on port {port}, will use fallback port instead"
+                                )
                                 continue
                             logger.info(f"Terminating process {p.name()} (PID: {p.pid}) on port {port}...")
                             p.terminate()
@@ -788,10 +797,7 @@ class MediaManager:
         if os.path.isdir(toolkit_dir) and os.listdir(toolkit_dir):
             return True
 
-        url = (
-            (settings.ZLM_ZLTOOLKIT_ZIP_URL or "").strip()
-            or str(os.getenv(ZLM_ZLTOOLKIT_ZIP_URL_ENV, "")).strip()
-        )
+        url = (settings.ZLM_ZLTOOLKIT_ZIP_URL or "").strip() or str(os.getenv(ZLM_ZLTOOLKIT_ZIP_URL_ENV, "")).strip()
         if not url:
             # FIX [2026-07-22 P1]: 未显式配置时默认从 Gitee/GitHub 镜像自动选最快，
             # 原实现直接报错要求用户手工配置 ZLM_ZLTOOLKIT_ZIP_URL，导致 zip 源码链路必失败。
@@ -899,9 +905,7 @@ class MediaManager:
                     results[u] = lat
 
         if not results:
-            logger.warning(
-                "All ZLM mirrors unreachable during probe; using first candidate: {}", candidates[0]
-            )
+            logger.warning("All ZLM mirrors unreachable during probe; using first candidate: {}", candidates[0])
             return candidates[0]
 
         best_url, best_lat = min(results.items(), key=lambda kv: kv[1])
@@ -915,9 +919,7 @@ class MediaManager:
 
     async def _pick_fastest_mirror_async(self, urls: list[str]) -> str:
         """_pick_fastest_mirror 的异步包装（探测为阻塞 HTTP，放线程池执行）。"""
-        return await asyncio.get_running_loop().run_in_executor(
-            None, self._pick_fastest_mirror, urls
-        )
+        return await asyncio.get_running_loop().run_in_executor(None, self._pick_fastest_mirror, urls)
 
     def _mirror_auto_select_enabled(self) -> bool:
         try:
@@ -932,18 +934,11 @@ class MediaManager:
         1) git clone（支持 submodules，推荐）
         2) zip 下载（可能缺 submodules，需要额外补齐）
         """
-        git_url = (
-            (settings.ZLM_GIT_URL or "").strip()
-            or str(os.getenv(ZLM_GIT_URL_ENV, "")).strip()
-        )
+        git_url = (settings.ZLM_GIT_URL or "").strip() or str(os.getenv(ZLM_GIT_URL_ENV, "")).strip()
         if not git_url and self._mirror_auto_select_enabled():
             # 用户未显式指定 git 源：并发探测 Gitee/GitHub 镜像，选最快（国内通常 Gitee 更快）
             git_url = await self._pick_fastest_mirror_async(ZLM_GIT_URL_MIRRORS)
-        git_ref = (
-            (settings.ZLM_GIT_REF or "").strip()
-            or str(os.getenv(ZLM_GIT_REF_ENV, "")).strip()
-            or "master"
-        )
+        git_ref = (settings.ZLM_GIT_REF or "").strip() or str(os.getenv(ZLM_GIT_REF_ENV, "")).strip() or "master"
         if git_url:
             repo_dir = os.path.join(src_dir, "ZLMediaKit-git")
             # FIX [2026-07-29 P0]: 如果源码已存在且完整（含 CMakeLists.txt），跳过 clone。
@@ -988,8 +983,7 @@ class MediaManager:
                     # 仍指向 GitHub，submodule update 可能失败。原实现直接丢弃整个 clone 回退
                     # zip；现保留 clone 结果，由后续 _ensure_zltoolkit 从最快镜像补齐 ZLToolKit。
                     logger.warning(
-                        f"Git submodule update failed ({sub_e}); keeping cloned repo and "
-                        "will fill ZLToolKit via mirror zip in _ensure_zltoolkit."
+                        f"Git submodule update failed ({sub_e}); keeping cloned repo and will fill ZLToolKit via mirror zip in _ensure_zltoolkit."
                     )
                 return repo_dir
             except subprocess.CalledProcessError as e:
@@ -1001,10 +995,7 @@ class MediaManager:
 
         # zip 下载
         pkg = os.path.join(src_dir, "zlm_master.zip")
-        src_url = (
-            (settings.ZLM_SOURCE_ZIP_URL or "").strip()
-            or str(os.getenv(ZLM_SOURCE_ZIP_URL_ENV, "")).strip()
-        )
+        src_url = (settings.ZLM_SOURCE_ZIP_URL or "").strip() or str(os.getenv(ZLM_SOURCE_ZIP_URL_ENV, "")).strip()
         if not src_url:
             if self._mirror_auto_select_enabled():
                 # 并发探测 Gitee/GitHub zip 镜像，选最快
@@ -1443,19 +1434,13 @@ class MediaManager:
                 await self._ensure_port_free(https_port)
         if rtsps_port > 0:
             if not self._is_tcp_port_free(rtsps_port):
-                logger.warning(
-                    f"ZLM RTSPS port {rtsps_port} is occupied. "
-                    f"Falling back to sslport=0 (RTSPS disabled) to avoid ZLM startup failure."
-                )
+                logger.warning(f"ZLM RTSPS port {rtsps_port} is occupied. Falling back to sslport=0 (RTSPS disabled) to avoid ZLM startup failure.")
                 rtsps_port = 0
             else:
                 await self._ensure_port_free(rtsps_port)
         if rtmps_port > 0:
             if not self._is_tcp_port_free(rtmps_port):
-                logger.warning(
-                    f"ZLM RTMPS port {rtmps_port} is occupied. "
-                    f"Falling back to sslport=0 (RTMPS disabled) to avoid ZLM startup failure."
-                )
+                logger.warning(f"ZLM RTMPS port {rtmps_port} is occupied. Falling back to sslport=0 (RTMPS disabled) to avoid ZLM startup failure.")
                 rtmps_port = 0
             else:
                 await self._ensure_port_free(rtmps_port)
@@ -1492,6 +1477,7 @@ class MediaManager:
         # 否则 secret 含 +/=//& 等特殊字符时会破坏 URL 解析。
         # FastAPI request.query_params.get() 会自动 URL-decode，校验侧无需改动。
         from urllib.parse import quote as _url_quote
+
         _api_secret_q = _url_quote(str(api_secret), safe="")
         webhook_base = self._resolve_webhook_base(node)
         config.set("hook", "enable", "1")
@@ -1545,6 +1531,7 @@ class MediaManager:
         # ZLM 启动后后端开始监听，webhook 回调将正常工作。
         try:
             from urllib.request import Request as _Req
+
             req = _Req(url, method="HEAD")
             with urllib_request.urlopen(req, timeout=2) as resp:
                 if resp.status < 500:
@@ -1593,9 +1580,7 @@ class MediaManager:
                     # 2) 后续所有使用 decrypted_secret 的代码路径降级回退到 MEDIA_SERVER_SECRET
                     # 3) 启动期 phase_check_secret_consistency 校验失败（decrypted_secret 返回 None）
                     # 比较时也必须解密后再比，避免 "密文 != 明文" 永远为 True 导致每次启动都重写。
-                    _current_plain_secret = (
-                        getattr(node, "decrypted_secret", None) or ""
-                    )
+                    _current_plain_secret = getattr(node, "decrypted_secret", None) or ""
                     if _current_plain_secret != desired_secret:
                         node.decrypted_secret = desired_secret  # setter 自动加密
                         changed = True
@@ -1744,10 +1729,7 @@ class MediaManager:
                     # 而 PyGBSentry 调用 ZLM API 时传明文 MEDIA_SERVER_SECRET，导致全部 401；
                     # 同时 ZLM hook 回调 URL 中携带密文 ?secret=，PyGBSentry verify_zlm_secret
                     # 比对明文失败，所有 on_publish/on_play/on_stream_changed 回调被拒，流无法建立。
-                    _plain_secret_for_cfg = (
-                        getattr(db_node, "decrypted_secret", None)
-                        or str(settings.MEDIA_SERVER_SECRET or "")
-                    )
+                    _plain_secret_for_cfg = getattr(db_node, "decrypted_secret", None) or str(settings.MEDIA_SERVER_SECRET or "")
                     node_cfg = {
                         "ip": db_node.host,
                         "http_port": db_node.http_port,
@@ -1819,7 +1801,7 @@ class MediaManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 # On Windows, we might want to hide the window
-                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0
+                creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == "Windows" else 0,
             )
             self._running = True
             logger.info(f"ZLMediaKit started with PID {self.process.pid}")
@@ -1863,6 +1845,7 @@ class MediaManager:
         如果不等待就绪，后续 API 调用会 "All connection attempts failed"。
         """
         import httpx
+
         port = settings.MEDIA_SERVER_HTTP_PORT
         host = str(settings.MEDIA_SERVER_HOST or "127.0.0.1").strip() or "127.0.0.1"
         secret = str(settings.MEDIA_SERVER_SECRET or "").strip()
@@ -1894,12 +1877,7 @@ class MediaManager:
             host = str(settings.MEDIA_SERVER_HOST or "").strip()  # I3 回退值不再硬编码127.0.0.1
             url = f"http://{host}:{port}/index/api/webrtc"
             # SDP o= line hardcoded 127.0.0.1 → use host from settings
-            placeholder_sdp = (
-                "v=0\r\n"
-                f"o=- 0 0 IN IP4 {host}\r\n"
-                "s=-\r\n"
-                "t=0 0\r\n"
-            )
+            placeholder_sdp = f"v=0\r\no=- 0 0 IN IP4 {host}\r\ns=-\r\nt=0 0\r\n"
             # P0-fix [2026-07-17]: 禁止通过 URL 查询参数传递 ZLM secret（项目硬约束）
             # 原 `params["secret"] = _webrtc_secret` + `urlencode(params)` 让 secret 出现在
             # 反向代理日志、urllib 调试日志中。ZLM /index/api/webrtc 接口要求 body 为 raw SDP，
@@ -2006,9 +1984,11 @@ class MediaManager:
                     logger.error(f"ZLMediaKit process exited (code={code}) and max restarts ({_MAX_RESTARTS}) reached. Not restarting.")
                     self._running = False
                     return
-                delay = min(_RESTART_BASE_DELAY * (2 ** self._restart_count), 120)
+                delay = min(_RESTART_BASE_DELAY * (2**self._restart_count), 120)
                 self._restart_count += 1
-                logger.warning(f"ZLMediaKit process exited unexpectedly (code={code}). Restarting in {delay}s (attempt {self._restart_count}/{_MAX_RESTARTS})...")
+                logger.warning(
+                    f"ZLMediaKit process exited unexpectedly (code={code}). Restarting in {delay}s (attempt {self._restart_count}/{_MAX_RESTARTS})..."
+                )
                 try:
                     self._stdout_stop.set()
                 except Exception as e:
@@ -2033,6 +2013,7 @@ class MediaManager:
 
             await asyncio.sleep(1)
 
+
 # Singleton
 media_manager = MediaManager()
 
@@ -2048,6 +2029,7 @@ def get_media_server_info() -> dict:
     """
     try:
         from app.core.media_nodes import get_media_nodes
+
         nodes = get_media_nodes()
         if nodes:
             n = nodes[0]

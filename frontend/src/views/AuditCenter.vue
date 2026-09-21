@@ -1587,6 +1587,7 @@ const search = async (
     refreshSuccessStreak.value = 0
     refreshFailureStreak.value += 1
   } finally {
+    // eslint-disable-next-line no-unsafe-finally -- 既有设计：过期请求序号直接短路，不覆盖新请求的状态
     if (requestSeq !== searchRequestSeq.value) return
     lastRefreshDurationMs.value = Math.max(0, Date.now() - startedAt)
     loading.value = false

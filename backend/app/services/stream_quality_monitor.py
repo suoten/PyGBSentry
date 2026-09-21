@@ -13,19 +13,19 @@ from enum import Enum
 from typing import Optional, Callable
 
 
-
-
 class StreamHealthLevel(Enum):
     """流健康等级"""
+
     EXCELLENT = "excellent"  # 极好，无任何问题
-    HEALTHY = "healthy"       # 健康，轻微波动
-    DEGRADED = "degraded"    # 降级，有卡顿
-    POOR = "poor"            # 较差，经常卡顿
-    CRITICAL = "critical"     # 危险，可能断流
+    HEALTHY = "healthy"  # 健康，轻微波动
+    DEGRADED = "degraded"  # 降级，有卡顿
+    POOR = "poor"  # 较差，经常卡顿
+    CRITICAL = "critical"  # 危险，可能断流
 
 
 class StreamProtocol(Enum):
     """流协议"""
+
     RTSP = "rtsp"
     RTMP = "rtmp"
     HTTP_FLV = "http_flv"
@@ -38,6 +38,7 @@ class StreamProtocol(Enum):
 @dataclass
 class StreamQualitySample:
     """流质量采样"""
+
     timestamp: float = field(default_factory=time.time)
 
     # 基本信息
@@ -76,6 +77,7 @@ class StreamQualitySample:
 @dataclass
 class StreamSession:
     """流会话"""
+
     session_id: str
     device_id: str
     channel_id: str
@@ -116,7 +118,7 @@ class StreamQualityMonitor:
     5. 协议自适应
     """
 
-    _instance: Optional['StreamQualityMonitor'] = None
+    _instance: Optional["StreamQualityMonitor"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -135,27 +137,21 @@ class StreamQualityMonitor:
 
         # 采样配置
         self.sampling_interval = 1.0  # 采样间隔(秒)
-        self.sample_window_size = 30   # 采样窗口大小
+        self.sample_window_size = 30  # 采样窗口大小
 
         # 质量阈值
         self.thresholds = {
-            'fps_min': 20,           # 最低 FPS
-            'fps_drop_max': 5,        # 最大 FPS 波动
-            'packet_loss_max': 0.02,   # 最大丢包率 2%
-            'jitter_max': 50,        # 最大抖动 ms
-            'latency_max': 1000,       # 最大延迟 ms
-            'buffer_min': 500,        # 最小缓冲 ms
-            'health_score_min': 70,   # 健康分最低阈值
+            "fps_min": 20,  # 最低 FPS
+            "fps_drop_max": 5,  # 最大 FPS 波动
+            "packet_loss_max": 0.02,  # 最大丢包率 2%
+            "jitter_max": 50,  # 最大抖动 ms
+            "latency_max": 1000,  # 最大延迟 ms
+            "buffer_min": 500,  # 最小缓冲 ms
+            "health_score_min": 70,  # 健康分最低阈值
         }
 
         # 统计
-        self._stats = {
-            'total_sessions': 0,
-            'active_sessions': 0,
-            'total_reconnects': 0,
-            'avg_health_score': 0.0,
-            'alerts_triggered': 0
-        }
+        self._stats = {"total_sessions": 0, "active_sessions": 0, "total_reconnects": 0, "avg_health_score": 0.0, "alerts_triggered": 0}
 
         # 回调函数
         self._quality_callbacks: dict[str, Callable] = {}
@@ -168,12 +164,7 @@ class StreamQualityMonitor:
         logger.info("StreamQualityMonitor initialized")
 
     async def create_session(
-        self,
-        session_id: str,
-        device_id: str,
-        channel_id: str,
-        protocol: str = "http_flv",
-        transport: str = "TCP"
+        self, session_id: str, device_id: str, channel_id: str, protocol: str = "http_flv", transport: str = "TCP"
     ) -> StreamSession:
         """创建流会话"""
         session = StreamSession(
@@ -181,14 +172,14 @@ class StreamQualityMonitor:
             device_id=device_id,
             channel_id=channel_id,
             protocol=StreamProtocol(protocol) if protocol in [p.value for p in StreamProtocol] else StreamProtocol.HTTP_FLV,
-            transport=transport
+            transport=transport,
         )
 
         async with self._sessions_lock:
             self._sessions[session_id] = session
 
-        self._stats['total_sessions'] += 1
-        self._stats['active_sessions'] = len(self._sessions)
+        self._stats["total_sessions"] += 1
+        self._stats["active_sessions"] = len(self._sessions)
 
         logger.info(f"StreamQualityMonitor: Session created {session_id} for {device_id}/{channel_id}")
         return session
@@ -204,16 +195,12 @@ class StreamQualityMonitor:
             if session_id in self._sessions:
                 self._sessions[session_id].status = "stopped"
                 del self._sessions[session_id]
-                self._stats['active_sessions'] = len(self._sessions)
+                self._stats["active_sessions"] = len(self._sessions)
                 # W-18 清理冷却计时器残留
                 self._last_bitrate_switch_time.pop(session_id, None)
                 logger.info(f"StreamQualityMonitor: Session closed {session_id}")
 
-    async def add_sample(
-        self,
-        session_id: str,
-        sample: StreamQualitySample
-    ):
+    async def add_sample(self, session_id: str, sample: StreamQualitySample):
         """
         添加质量采样
 
@@ -272,11 +259,7 @@ class StreamQualityMonitor:
 
         return sample
 
-    def _calculate_health_score(
-        self,
-        session: StreamSession,
-        sample: StreamQualitySample
-    ) -> float:
+    def _calculate_health_score(self, session: StreamSession, sample: StreamQualitySample) -> float:
         """
         计算综合健康评分 (0-100)
 
@@ -311,8 +294,8 @@ class StreamQualityMonitor:
             score -= min(15, excess / 100)
 
         # 缓冲不足 (最多扣 15)
-        if sample.buffer_ms < self.thresholds['buffer_min']:
-            deficit = self.thresholds['buffer_min'] - sample.buffer_ms
+        if sample.buffer_ms < self.thresholds["buffer_min"]:
+            deficit = self.thresholds["buffer_min"] - sample.buffer_ms
             score -= min(15, deficit / 50)
 
         # 错误惩罚 (最多扣 10)
@@ -333,59 +316,55 @@ class StreamQualityMonitor:
         else:
             return StreamHealthLevel.CRITICAL
 
-    async def _check_and_alert(
-        self,
-        session: StreamSession,
-        sample: StreamQualitySample
-    ):
+    async def _check_and_alert(self, session: StreamSession, sample: StreamQualitySample):
         """检查并触发告警"""
         alerts = []
 
         # FPS 过低
-        if sample.fps > 0 and sample.fps < self.thresholds['fps_min']:
-            alerts.append({
-                'type': 'fps_low',
-                'level': 'warning',
-                'message': f"FPS 过低: {sample.fps:.1f}",
-                'suggestion': '可能存在网络抖动或编码器问题'
-            })
+        if sample.fps > 0 and sample.fps < self.thresholds["fps_min"]:
+            alerts.append(
+                {"type": "fps_low", "level": "warning", "message": f"FPS 过低: {sample.fps:.1f}", "suggestion": "可能存在网络抖动或编码器问题"}
+            )
 
         # 丢包率过高
-        if sample.packet_loss_rate > self.thresholds['packet_loss_max']:
-            alerts.append({
-                'type': 'packet_loss',
-                'level': 'warning',
-                'message': f"丢包率过高: {sample.packet_loss_rate * 100:.2f}%",
-                'suggestion': '检查网络质量，考虑切换到 TCP 协议'
-            })
+        if sample.packet_loss_rate > self.thresholds["packet_loss_max"]:
+            alerts.append(
+                {
+                    "type": "packet_loss",
+                    "level": "warning",
+                    "message": f"丢包率过高: {sample.packet_loss_rate * 100:.2f}%",
+                    "suggestion": "检查网络质量，考虑切换到 TCP 协议",
+                }
+            )
 
         # 缓冲不足
-        if sample.buffer_ms < self.thresholds['buffer_min']:
-            alerts.append({
-                'type': 'buffer_starving',
-                'level': 'critical' if sample.buffer_ms < 200 else 'warning',
-                'message': f"缓冲不足: {sample.buffer_ms:.0f}ms",
-                'suggestion': '降低码率或增加缓冲时间'
-            })
+        if sample.buffer_ms < self.thresholds["buffer_min"]:
+            alerts.append(
+                {
+                    "type": "buffer_starving",
+                    "level": "critical" if sample.buffer_ms < 200 else "warning",
+                    "message": f"缓冲不足: {sample.buffer_ms:.0f}ms",
+                    "suggestion": "降低码率或增加缓冲时间",
+                }
+            )
 
         # 健康分过低
-        if sample.health_score < self.thresholds['health_score_min']:
-            alerts.append({
-                'type': 'health_low',
-                'level': 'critical',
-                'message': f"健康分过低: {sample.health_score:.1f}",
-                'suggestion': '建议切换到更稳定的协议或线路'
-            })
+        if sample.health_score < self.thresholds["health_score_min"]:
+            alerts.append(
+                {
+                    "type": "health_low",
+                    "level": "critical",
+                    "message": f"健康分过低: {sample.health_score:.1f}",
+                    "suggestion": "建议切换到更稳定的协议或线路",
+                }
+            )
 
         # 触发告警
         if alerts:
-            self._stats['alerts_triggered'] += len(alerts)
+            self._stats["alerts_triggered"] += len(alerts)
 
             for alert in alerts:
-                logger.warning(
-                    f"StreamQualityMonitor: Alert for {session.session_id}: "
-                    f"{alert['type']} - {alert['message']}"
-                )
+                logger.warning(f"StreamQualityMonitor: Alert for {session.session_id}: {alert['type']} - {alert['message']}")
 
                 for callback in self._alert_callbacks:
                     try:
@@ -404,6 +383,7 @@ class StreamQualityMonitor:
                 try:
                     from app.services.stream_strategy import stream_strategy
                     from app.db.session import AsyncSessionLocal
+
                     async with AsyncSessionLocal() as db:
                         await stream_strategy.auto_switch_bitrate(session.session_id, db)
                     self._last_bitrate_switch_time[session.session_id] = now
@@ -412,11 +392,7 @@ class StreamQualityMonitor:
             else:
                 logger.debug(f"Bitrate switch cooldown active for {session.session_id}, skipping")
 
-    async def register_quality_callback(
-        self,
-        session_id: str,
-        callback: Callable
-    ):
+    async def register_quality_callback(self, session_id: str, callback: Callable):
         """注册质量回调"""
         self._quality_callbacks[session_id] = callback
 
@@ -436,11 +412,7 @@ class StreamQualityMonitor:
 
     def get_stats(self) -> dict:
         """获取统计信息"""
-        return {
-            **self._stats,
-            'session_count': len(self._sessions),
-            'thresholds': self.thresholds
-        }
+        return {**self._stats, "session_count": len(self._sessions), "thresholds": self.thresholds}
 
     async def get_dashboard_snapshot(self, per_session_sample_limit: int = 30) -> dict:
         """获取看板快照（会话最新状态 + 近期样本）"""
@@ -495,40 +467,36 @@ class StreamQualityMonitor:
         sample = session.latest_sample
 
         return {
-            'session_id': session_id,
-            'status': session.status,
-            'health_score': sample.health_score,
-            'health_level': sample.health_level.value,
-            'fps': sample.fps,
-            'bitrate_kbps': sample.bitrate_kbps,
-            'packet_loss_rate': sample.packet_loss_rate,
-            'jitter_ms': sample.jitter_ms,
-            'buffer_ms': sample.buffer_ms,
-            'buffer_state': sample.buffer_state,
-            'latency_ms': sample.latency_ms,
-            'resolution': f"{sample.video_width}x{sample.video_height}",
-            'uptime_seconds': session.uptime_seconds,
-            'recommendations': self._get_recommendations(session, sample)
+            "session_id": session_id,
+            "status": session.status,
+            "health_score": sample.health_score,
+            "health_level": sample.health_level.value,
+            "fps": sample.fps,
+            "bitrate_kbps": sample.bitrate_kbps,
+            "packet_loss_rate": sample.packet_loss_rate,
+            "jitter_ms": sample.jitter_ms,
+            "buffer_ms": sample.buffer_ms,
+            "buffer_state": sample.buffer_state,
+            "latency_ms": sample.latency_ms,
+            "resolution": f"{sample.video_width}x{sample.video_height}",
+            "uptime_seconds": session.uptime_seconds,
+            "recommendations": self._get_recommendations(session, sample),
         }
 
-    def _get_recommendations(
-        self,
-        session: StreamSession,
-        sample: StreamQualitySample
-    ) -> list[str]:
+    def _get_recommendations(self, session: StreamSession, sample: StreamQualitySample) -> list[str]:
         """获取优化建议"""
         recommendations = []
 
-        if sample.fps < self.thresholds['fps_min']:
+        if sample.fps < self.thresholds["fps_min"]:
             recommendations.append("建议降低视频码率或切换到主码流")
 
-        if sample.packet_loss_rate > self.thresholds['packet_loss_max']:
+        if sample.packet_loss_rate > self.thresholds["packet_loss_max"]:
             recommendations.append("建议切换到 TCP 协议，UDP 在不稳定网络下丢包严重")
 
-        if sample.jitter_ms > self.thresholds['jitter_max']:
+        if sample.jitter_ms > self.thresholds["jitter_max"]:
             recommendations.append("网络抖动较大，建议启用流量整形或增加缓冲")
 
-        if sample.buffer_ms < self.thresholds['buffer_min']:
+        if sample.buffer_ms < self.thresholds["buffer_min"]:
             recommendations.append("建议增加播放器缓冲时间(当前 bufferTime 参数)")
 
         if sample.health_score < 60:
@@ -543,7 +511,7 @@ class StreamQualityMonitor:
         """报告重连事件"""
         session = await self.get_session(session_id)
         if session:
-            self._stats['total_reconnects'] += 1
+            self._stats["total_reconnects"] += 1
             session.status = "reconnecting"
             if session.latest_sample:
                 session.latest_sample.disconnect_count += 1

@@ -53,7 +53,10 @@ async def _control_audit(
 class PTZRequest(BaseModel):
     command: str  # left, right, up, down, zoomin, zoomout, stop, dragzoomin, dragzoomout, absolute, focus_near, focus_far, focus_stop, iris_open, iris_close, iris_stop, preset_set, preset_goto, preset_clear, cruise_start, cruise_stop, cruise_add_preset, cruise_del_preset, cruise_set_speed, cruise_set_time, scan_start, scan_stop, scan_set_speed, scan_set_left_limit, scan_set_right_limit, wiper_on, wiper_off, aux_on, aux_off, record_start, record_stop, guard_on, guard_off, reset_alarm
     speed: int = 50
-    drag_data: dict | None = None  # { "length": 720, "width": 1280, "mid_point_x": 640, "mid_point_y": 360, "length_x": 100, "length_y": 100, "preset_id": 1, "cruise_id": 1, "scan_id": 0, "aux_id": 2, "stay_time": 5 }
+    drag_data: dict | None = (
+        None  # { "length": 720, "width": 1280, "mid_point_x": 640, "mid_point_y": 360, "length_x": 100, "length_y": 100, "preset_id": 1, "cruise_id": 1, "scan_id": 0, "aux_id": 2, "stay_time": 5 }
+    )
+
 
 class PresetRequest(BaseModel):
     preset_id: int  # 1-255
@@ -76,6 +79,7 @@ class ControlStateUpdateRequest(BaseModel):
     cruise_stay_time: int | None = None
     scan_id: int = 0
     scan_speed: int | None = None
+
 
 async def _get_asset_resource(db: AsyncSession, device_id: str, channel_id: str, current_user: User):
     stmt = select(Asset).where(Asset.gb_id == device_id)
@@ -134,6 +138,7 @@ async def _save_json_setting(db: AsyncSession, key: str, value) -> None:
         row = SystemSetting(setting_key=key, setting_value=encoded)
         db.add(row)
     await db.commit()
+
 
 @router.post("/{device_id}/{channel_id}/ptz")
 async def control_ptz(
@@ -195,12 +200,7 @@ async def control_ptz(
     if _throttled:
         return {"status": "ok", "action": "throttled", "command": ptz.command, "throttled": True}
     await sip_ptz.send_ptz(
-        asset,
-        resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        ptz.command,
-        ptz.speed,
-        drag_data=ptz.drag_data
+        asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), ptz.command, ptz.speed, drag_data=ptz.drag_data
     )
     await _control_audit(
         db,
@@ -386,10 +386,7 @@ async def delete_preset(
     await sip_ptz.send_preset_delete(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), preset_id)
     key = _preset_setting_key(device_id, channel_id)
     preset_list = await _load_json_setting(db, key, [])
-    preset_list = [
-        item for item in preset_list
-        if not (isinstance(item, dict) and int(item.get("preset_id", 0)) == preset_id)
-    ]
+    preset_list = [item for item in preset_list if not (isinstance(item, dict) and int(item.get("preset_id", 0)) == preset_id)]
     await _save_json_setting(db, key, preset_list)
     await _control_audit(
         db,
@@ -428,6 +425,7 @@ async def query_preset(
         if transport is None:
             raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
         import app.sip.commander as sip_commander_module
+
         if not getattr(sip_commander_module, "sip_commander", None):
             raise HTTPException(status_code=503, detail="SIP service not ready")
         sn = await sip_commander_module.sip_commander.send_preset_query(
@@ -472,24 +470,29 @@ async def list_preset(
 
 # ==================== 设备控制接口 ====================
 
+
 class GuardRequest(BaseModel):
     """布防/撤防请求"""
+
     guard_cmd: str  # "SetGuard" 或 "ResetGuard"
 
 
 class RecordControlRequest(BaseModel):
     """录像控制请求"""
+
     record_cmd: str  # "Record" 或 "StopRecord"
 
 
 class AlarmResetRequest(BaseModel):
     """报警复位请求"""
+
     alarm_method: str = ""
     alarm_type: str = ""
 
 
 class DragZoomRequest(BaseModel):
     """框选缩放请求"""  # GB28181 DragZoom框选缩放 — API请求模型
+
     zoom_cmd: str  # "DragZoomIn" 或 "DragZoomOut"
     left_top_x: int  # 框选左上角X坐标
     left_top_y: int  # 框选左上角Y坐标
@@ -558,11 +561,7 @@ async def device_guard(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
-    await device_control.send_guard(
-        asset, resource.gb_id,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.guard_cmd
-    )
+    await device_control.send_guard(asset, resource.gb_id, ((asset.ip_addr, asset.port), asset.transport, transport), body.guard_cmd)
 
     action = "SetGuard" if body.guard_cmd == "SetGuard" else "ResetGuard"  # W-19 中文→英文
     await _control_audit(
@@ -629,10 +628,7 @@ async def device_teleboot(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
-    await device_control.send_teleboot(
-        asset,
-        ((asset.ip_addr, asset.port), asset.transport, transport)
-    )
+    await device_control.send_teleboot(asset, ((asset.ip_addr, asset.port), asset.transport, transport))
 
     await _control_audit(
         db,
@@ -707,11 +703,7 @@ async def device_record_control(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
-    await device_control.send_record_control(
-        asset, resource.gb_id,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.record_cmd
-    )
+    await device_control.send_record_control(asset, resource.gb_id, ((asset.ip_addr, asset.port), asset.transport, transport), body.record_cmd)
 
     action = "StartRecord" if body.record_cmd == "Record" else "StopRecord"  # W-19 中文→英文
     await _control_audit(
@@ -775,10 +767,7 @@ async def device_alarm_reset(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     await device_control.send_alarm_reset(
-        asset, resource.gb_id,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.alarm_method,
-        body.alarm_type
+        asset, resource.gb_id, ((asset.ip_addr, asset.port), asset.transport, transport), body.alarm_method, body.alarm_type
     )
 
     await _control_audit(
@@ -856,11 +845,14 @@ async def device_drag_zoom(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     await device_control.send_drag_zoom(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         body.zoom_cmd,
-        body.left_top_x, body.left_top_y,
-        body.right_bottom_x, body.right_bottom_y,
+        body.left_top_x,
+        body.left_top_y,
+        body.right_bottom_x,
+        body.right_bottom_y,
     )
 
     action = "DragZoomIn" if body.zoom_cmd == "DragZoomIn" else "DragZoomOut"  # W-19 中文→英文
@@ -923,10 +915,7 @@ async def device_iframe_request(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
-    await device_control.send_iframe_request(
-        asset, resource.gb_id,
-        ((asset.ip_addr, asset.port), asset.transport, transport)
-    )
+    await device_control.send_iframe_request(asset, resource.gb_id, ((asset.ip_addr, asset.port), asset.transport, transport))
 
     await _control_audit(
         db,
@@ -942,8 +931,10 @@ async def device_iframe_request(
 
 # ==================== 看守位控制接口 ====================
 
+
 class HomePositionRequest(BaseModel):
     """看守位控制请求"""
+
     enabled: bool = True
     preset_index: int = 1  # 1-255
     reset_time: int = 5  # seconds
@@ -972,7 +963,8 @@ async def device_home_position(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     await device_control.send_home_position(
-        asset, resource.gb_id,
+        asset,
+        resource.gb_id,
         ((asset.ip_addr, asset.port), asset.transport, transport),
         enabled=body.enabled,
         preset_index=body.preset_index,
@@ -994,14 +986,17 @@ async def device_home_position(
 
 # ==================== 光圈/聚焦控制接口 ====================
 
+
 class IrisRequest(BaseModel):
     """光圈控制请求"""
+
     command: str  # "in"(光圈大), "out"(光圈小), "stop"
     speed: int = 128  # 0-255
 
 
 class FocusRequest(BaseModel):
     """聚焦控制请求"""
+
     command: str  # "near"(近焦), "far"(远焦), "stop"
     speed: int = 128  # 0-255
 
@@ -1066,11 +1061,7 @@ async def control_iris(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     sip_ptz = _require_sip_ptz()
-    await sip_ptz.send_iris(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.command, body.speed
-    )
+    await sip_ptz.send_iris(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), body.command, body.speed)
 
     action_map = {"in": "IrisOpen", "out": "IrisClose", "stop": "IrisStop"}  # W-19 中文→英文
     await _control_audit(
@@ -1145,11 +1136,7 @@ async def control_focus(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     sip_ptz = _require_sip_ptz()
-    await sip_ptz.send_focus(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.command, body.speed
-    )
+    await sip_ptz.send_focus(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), body.command, body.speed)
 
     action_map = {"near": "FocusNear", "far": "FocusFar", "stop": "FocusStop"}  # W-19 中文→英文
     await _control_audit(
@@ -1166,8 +1153,10 @@ async def control_focus(
 
 # ==================== 巡航/扫描控制接口 ====================
 
+
 class CruiseRequest(BaseModel):
     """巡航控制请求"""
+
     cruise_id: int  # 巡航组号 1-255
     preset_id: int = 1  # 预置位号 1-255
     action: str  # "add", "delete", "set_speed", "set_time", "start", "stop", "delete_group"
@@ -1177,6 +1166,7 @@ class CruiseRequest(BaseModel):
 
 class ScanRequest(BaseModel):
     """扫描控制请求"""
+
     scan_id: int  # 扫描组号 0-255
     action: str  # "start", "stop", "set_left", "set_right", "set_speed"
     speed: int = 128  # 扫描速度 1-4095
@@ -1269,9 +1259,14 @@ async def control_cruise(
 
     sip_ptz = _require_sip_ptz()
     await sip_ptz.send_cruise(
-        asset, resource,
+        asset,
+        resource,
         ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.cruise_id, body.preset_id, body.action, body.speed, body.stay_time
+        body.cruise_id,
+        body.preset_id,
+        body.action,
+        body.speed,
+        body.stay_time,
     )
     key = _cruise_setting_key(device_id, channel_id, body.cruise_id)
     cruise_points = await _load_json_setting(db, key, [])
@@ -1281,10 +1276,7 @@ async def control_cruise(
             cruise_points.append({"preset_id": body.preset_id, "preset_name": str(body.preset_id)})
             await _save_json_setting(db, key, cruise_points)
     elif body.action == "delete":
-        cruise_points = [
-            item for item in cruise_points
-            if not (isinstance(item, dict) and int(item.get("preset_id", 0)) == body.preset_id)
-        ]
+        cruise_points = [item for item in cruise_points if not (isinstance(item, dict) and int(item.get("preset_id", 0)) == body.preset_id)]
         await _save_json_setting(db, key, cruise_points)
     elif body.action == "delete_group":
         await _save_json_setting(db, key, [])
@@ -1304,7 +1296,7 @@ async def control_cruise(
         "set_time": "SetCruiseStayTime",
         "start": "StartCruise",
         "stop": "StopCruise",
-        "delete_group": "DeleteCruiseGroup"
+        "delete_group": "DeleteCruiseGroup",
     }
     await _control_audit(
         db,
@@ -1315,12 +1307,7 @@ async def control_cruise(
         detail="ok",
         extra_summary=f"device_id={device_id}; channel_id={channel_id}; cruise_action={body.action}; cruise_id={body.cruise_id}",
     )
-    return {
-        "status": "ok",
-        "action": action_map[body.action],
-        "cruise_id": body.cruise_id,
-        "preset_id": body.preset_id
-    }
+    return {"status": "ok", "action": action_map[body.action], "cruise_id": body.cruise_id, "preset_id": body.preset_id}
 
 
 @router.get("/{device_id}/{channel_id}/cruise/{cruise_id}/points")
@@ -1426,11 +1413,7 @@ async def control_scan(
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
 
     sip_ptz = _require_sip_ptz()
-    await sip_ptz.send_scan(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.scan_id, body.action, body.speed
-    )
+    await sip_ptz.send_scan(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), body.scan_id, body.action, body.speed)
     if body.action == "set_speed":
         scan_key = _scan_setting_key(device_id, channel_id, body.scan_id)
         await _save_json_setting(db, scan_key, {"scan_id": body.scan_id, "speed": int(body.speed)})
@@ -1440,7 +1423,7 @@ async def control_scan(
         "stop": "StopScan",
         "set_left": "SetScanLeftLimit",
         "set_right": "SetScanRightLimit",
-        "set_speed": "SetScanSpeed"
+        "set_speed": "SetScanSpeed",
     }
     await _control_audit(
         db,
@@ -1451,11 +1434,7 @@ async def control_scan(
         detail="ok",
         extra_summary=f"device_id={device_id}; channel_id={channel_id}; scan_action={body.action}; scan_id={body.scan_id}",
     )
-    return {
-        "status": "ok",
-        "action": action_map[body.action],
-        "scan_id": body.scan_id
-    }
+    return {"status": "ok", "action": action_map[body.action], "scan_id": body.scan_id}
 
 
 @router.get("/{device_id}/{channel_id}/scan/{scan_id}/config")
@@ -1678,11 +1657,7 @@ async def control_wiper(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
     sip_ptz = _require_sip_ptz()
-    await sip_ptz.send_wiper(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.command
-    )
+    await sip_ptz.send_wiper(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), body.command)
     action_map = {"on": "WiperOn", "off": "WiperOff", "stop": "WiperStop"}  # W-13 中文action→英文
     await _control_audit(
         db,
@@ -1763,11 +1738,7 @@ async def control_aux_switch(
         )
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
     sip_ptz = _require_sip_ptz()
-    await sip_ptz.send_aux_switch(
-        asset, resource,
-        ((asset.ip_addr, asset.port), asset.transport, transport),
-        body.aux_id, body.command
-    )
+    await sip_ptz.send_aux_switch(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), body.aux_id, body.command)
     action = "AuxSwitchOn" if body.command == "on" else "AuxSwitchOff"  # W-13 中文action→英文
     await _control_audit(
         db,

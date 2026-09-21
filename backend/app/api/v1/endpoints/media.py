@@ -47,17 +47,11 @@ def _extract_codec_payload(item: dict) -> dict:
     resolution = f"{width}x{height}" if width > 0 and height > 0 else ""
 
     video_bitrate = _to_int(
-        video_track.get("bit_rate")
-        or video_track.get("bitrate")
-        or item.get("vBitRate")
-        or item.get("vbitrate"),
+        video_track.get("bit_rate") or video_track.get("bitrate") or item.get("vBitRate") or item.get("vbitrate"),
         0,
     )
     audio_bitrate = _to_int(
-        audio_track.get("bit_rate")
-        or audio_track.get("bitrate")
-        or item.get("aBitRate")
-        or item.get("abitrate"),
+        audio_track.get("bit_rate") or audio_track.get("bitrate") or item.get("aBitRate") or item.get("abitrate"),
         0,
     )
     total_bitrate = _to_int(item.get("bytesSpeed"), 0) * 8

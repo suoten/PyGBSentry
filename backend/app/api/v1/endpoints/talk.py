@@ -70,7 +70,7 @@ def create_rtp_packet(payload: bytes, ssrc: int, seq: int, timestamp: int) -> by
     # V=2, P=0, X=0, CC=0, M=0, PT=8 (PCMA)
     header = bytearray(12)
     header[0] = 0x80
-    header[1] = 0x08 # Payload Type 8 (PCMA)
+    header[1] = 0x08  # Payload Type 8 (PCMA)
 
     # Sequence Number
     header[2] = (seq >> 8) & 0xFF
@@ -90,6 +90,7 @@ def create_rtp_packet(payload: bytes, ssrc: int, seq: int, timestamp: int) -> by
 
     return header + payload
 
+
 @router.websocket("/ws/talk/{device_id}")
 async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Query(default=""), db: AsyncSession = Depends(get_db)):
     # P0-6: 改用短期一次性 ws-ticket 认证，消除 URL 暴露 JWT token
@@ -98,6 +99,7 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
         await websocket.close(code=4401, reason="Authentication required")
         return
     from app.core.ws_ticket import consume_ws_ticket
+
     jwt_payload = await consume_ws_ticket(ticket)
     if not jwt_payload or not jwt_payload.get("sub"):
         await websocket.close(code=4401, reason="Invalid or expired ticket")
@@ -140,7 +142,6 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
     else:
         transport = sip_server.tcp_server  # M-06 TCP传输时保留transport="TCP"而非设为None
 
-
     if not transport:
         await websocket.close(code=1011, reason="SIP transport unavailable")
         return
@@ -154,7 +155,9 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
     sock = None  # FIX: [2026-07-04] 初始化 sock 变量，避免 finally 中 NameError [全栈工程师]
     _rtp_pusher_started = False  # 标记是否已启动 ZLM RTP pusher
     try:
-        session_info = await sip_talk_module.sip_talk.send_broadcast_invite(asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport))
+        session_info = await sip_talk_module.sip_talk.send_broadcast_invite(
+            asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport)
+        )
         # FIX: [2026-07-04] 使用 ZLM 路由音频，不再使用原始 socket 直接发送 [全栈工程师]
         ssrc_int = int(session_info["ssrc"])
         call_id = session_info.get("call_id")
@@ -164,9 +167,10 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
 
         # 创建 UDP socket 用于向 ZLM RTP 端口发送音频
         import socket as _socket
+
         sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        sock.bind(('0.0.0.0', 0))
+        sock.bind(("0.0.0.0", 0))
 
         target_ip = asset.ip_addr
         target_port = settings.SIP_TALK_DEFAULT_PORT
@@ -183,12 +187,13 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
             # 修复：先通过 ZLM RTP proxy 接收后端音频，再用 startSendRtp 转发到设备。
             try:
                 from app.services.zlm_stream_control import start_rtp_pusher
+
                 _broadcast_app = "broadcast"
                 _broadcast_stream = f"broadcast_{call_id}"
                 _pusher_ok = await start_rtp_pusher(
                     host=zlm_host,
                     http_port=zlm_http_port,
-                    secret=settings.MEDIA_SERVER_SECRET or '',
+                    secret=settings.MEDIA_SERVER_SECRET or "",
                     app=_broadcast_app,
                     stream=_broadcast_stream,
                     dst_ip=target_ip,
@@ -224,7 +229,7 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
             sock.sendto(packet, (zlm_host, zlm_rtp_port))
 
             seq = (seq + 1) % 65536
-            timestamp += len(alaw_data) # 1 byte = 1 sample for G.711
+            timestamp += len(alaw_data)  # 1 byte = 1 sample for G.711
 
     except WebSocketDisconnect:
         logger.info("Talk session ended")
@@ -235,7 +240,8 @@ async def websocket_talk(websocket: WebSocket, device_id: str, ticket: str = Que
         if _rtp_pusher_started:
             try:
                 from app.services.zlm_stream_control import stop_rtp_pusher
-                await stop_rtp_pusher(zlm_host, zlm_http_port, settings.MEDIA_SERVER_SECRET or '', "broadcast", f"broadcast_{call_id}")
+
+                await stop_rtp_pusher(zlm_host, zlm_http_port, settings.MEDIA_SERVER_SECRET or "", "broadcast", f"broadcast_{call_id}")
             except Exception as _stop_err:
                 logger.warning(f"Broadcast stop_rtp_pusher error: {_stop_err}")
         if call_id:
@@ -272,6 +278,7 @@ async def websocket_bidirectional_talk(
         await websocket.close(code=4401, reason="Authentication required")
         return
     from app.core.ws_ticket import consume_ws_ticket
+
     jwt_payload = await consume_ws_ticket(ticket)
     if not jwt_payload or not jwt_payload.get("sub"):
         await websocket.close(code=4401, reason="Invalid or expired ticket")
@@ -363,10 +370,11 @@ async def websocket_bidirectional_talk(
             # 修复：与广播端点对齐，在获取设备 RTP 地址后创建 start_rtp_pusher。
             try:
                 from app.services.zlm_stream_control import start_rtp_pusher
+
                 _pusher_ok = await start_rtp_pusher(
                     host=zlm_host,
                     http_port=zlm_http_port,
-                    secret=settings.MEDIA_SERVER_SECRET or '',
+                    secret=settings.MEDIA_SERVER_SECRET or "",
                     app="talk",
                     stream=zlm_stream_id,
                     dst_ip=target_ip,
@@ -385,21 +393,24 @@ async def websocket_bidirectional_talk(
         # 5. 通过 WebSocket 发送 ZLM 流信息给前端（前端用于拉取设备回传音频）
         whep_url = f"http://{zlm_host}:{zlm_http_port}/index/api/whep?app=talk&stream={zlm_stream_id}"
         hls_url = f"http://{zlm_host}:{zlm_http_port}/live/talk/{zlm_stream_id}.m3u8"
-        await websocket.send_json({
-            "type": "session_ready",
-            "call_id": call_id,
-            "ssrc": ssrc_str,
-            "whip_url": whip_url,
-            "whep_url": whep_url,
-            "hls_url": hls_url,
-            "zlm_stream_id": zlm_stream_id,
-        })
+        await websocket.send_json(
+            {
+                "type": "session_ready",
+                "call_id": call_id,
+                "ssrc": ssrc_str,
+                "whip_url": whip_url,
+                "whep_url": whep_url,
+                "hls_url": hls_url,
+                "zlm_stream_id": zlm_stream_id,
+            }
+        )
 
         # 6. 创建 UDP socket 用于向 ZLM RTP 端口发送音频
         import socket as _socket
+
         sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
         sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        sock.bind(('0.0.0.0', 0))
+        sock.bind(("0.0.0.0", 0))
 
         zlm_rtp_port = settings.MEDIA_SERVER_RTP_PROXY_PORT
         ssrc_int = int(ssrc_str) if ssrc_str and ssrc_str.isdigit() else 0
@@ -426,15 +437,12 @@ async def websocket_bidirectional_talk(
         if _rtp_pusher_started:
             try:
                 from app.services.zlm_stream_control import stop_rtp_pusher
-                _zlm_host = locals().get('zlm_host', settings.MEDIA_SERVER_HOST)
-                _zlm_http_port = locals().get('zlm_http_port', int(settings.MEDIA_SERVER_HTTP_PORT or 0))
-                _zlm_stream_id = locals().get('zlm_stream_id', '')
+
+                _zlm_host = locals().get("zlm_host", settings.MEDIA_SERVER_HOST)
+                _zlm_http_port = locals().get("zlm_http_port", int(settings.MEDIA_SERVER_HTTP_PORT or 0))
+                _zlm_stream_id = locals().get("zlm_stream_id", "")
                 if _zlm_stream_id:
-                    await stop_rtp_pusher(
-                        _zlm_host, _zlm_http_port,
-                        settings.MEDIA_SERVER_SECRET or '',
-                        "talk", _zlm_stream_id
-                    )
+                    await stop_rtp_pusher(_zlm_host, _zlm_http_port, settings.MEDIA_SERVER_SECRET or "", "talk", _zlm_stream_id)
             except Exception as _stop_err:
                 logger.warning(f"Bidirectional talk stop_rtp_pusher error: {_stop_err}")
         if call_id:
@@ -448,7 +456,7 @@ async def websocket_bidirectional_talk(
             except Exception as e:
                 logger.warning(f"Bidirectional talk BYE failed: {e}")
             _unregister_talk_pending(call_id)
-        if 'sock' in locals():
+        if "sock" in locals():
             try:
                 sock.close()
             except Exception as _sock_err:

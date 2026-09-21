@@ -4,8 +4,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 from app.core.config import settings
 
 
-
-
 class CertbotSettings(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool = False

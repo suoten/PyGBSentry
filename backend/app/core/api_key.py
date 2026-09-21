@@ -46,4 +46,3 @@ def secure_compare(a: str, b: str) -> bool:
     except Exception as e:
         logger.warning(f"API key validation error (may mask DB issue): {e}")
         return False
-

@@ -1,4 +1,5 @@
 """录像计划 API：按通道配置定时/移动侦测/报警联动/手动录像策略；录像存储配置。"""
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -26,6 +27,7 @@ router = APIRouter()
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
+
 
 RECORD_STORAGE_ROOT_KEY = "record_storage_root"
 RECORD_STORAGE_NODES_KEY = "record_storage_nodes"
@@ -60,9 +62,11 @@ async def list_schedules(
     if plan_type:
         stmt = stmt.where(RecordSchedule.plan_type == plan_type)
     if not current_user.is_superuser:
-        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
-            Asset, Asset.id == Resource.asset_id
-        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        stmt = (
+            stmt.join(Resource, Resource.id == RecordSchedule.resource_id)
+            .join(Asset, Asset.id == Resource.asset_id)
+            .where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        )
     result = await db.execute(stmt.order_by(RecordSchedule.priority.desc(), RecordSchedule.created_at.desc()))
     rows = result.scalars().all()
     out = []
@@ -71,16 +75,18 @@ async def list_schedules(
             tr = json.loads(r.time_ranges) if r.time_ranges else []
         except Exception:
             tr = []
-        out.append({
-            "id": r.id,
-            "resource_id": r.resource_id,
-            "plan_type": r.plan_type,
-            "enabled": r.enabled,
-            "time_ranges": tr,
-            "priority": r.priority,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
-        })
+        out.append(
+            {
+                "id": r.id,
+                "resource_id": r.resource_id,
+                "plan_type": r.plan_type,
+                "enabled": r.enabled,
+                "time_ranges": tr,
+                "priority": r.priority,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            }
+        )
     return out
 
 
@@ -93,9 +99,7 @@ async def create_schedule(
     """新建录像计划。"""
     stmt = select(Resource).where(Resource.id == payload.resource_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     res = (await db.execute(stmt)).scalars().first()
     if not res:
         await safe_auth_audit(
@@ -131,10 +135,7 @@ async def create_schedule(
         tenant_id=_audit_tid(current_user),
         status_code=201,
         detail="ok",
-        extra_summary=(
-            f"schedule_id={plan.id}; resource_id={plan.resource_id}; "
-            f"plan_type={plan.plan_type or ''}; enabled={bool(plan.enabled)}"
-        ),
+        extra_summary=(f"schedule_id={plan.id}; resource_id={plan.resource_id}; plan_type={plan.plan_type or ''}; enabled={bool(plan.enabled)}"),
     )
     return {"id": plan.id, "resource_id": plan.resource_id, "plan_type": plan.plan_type, "enabled": plan.enabled}
 
@@ -193,9 +194,6 @@ async def update_storage_config(
         extra_summary=f"storage_root_set={bool(value)}; path_hint={root_hint}",
     )
     return {"storage_root": value}
-
-
-
 
 
 @router.get("/storage-nodes")
@@ -286,6 +284,7 @@ async def list_schedule_runtimes(
 # 与存储节点端点不可用。把单段通配路由 /{schedule_id} 移到静态路由之后注册。
 # ---------------------------------------------------------------------------
 
+
 @router.put("/{schedule_id}")
 async def update_schedule(
     schedule_id: str,
@@ -296,9 +295,11 @@ async def update_schedule(
     """更新录像计划。"""
     stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
-            Asset, Asset.id == Resource.asset_id
-        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        stmt = (
+            stmt.join(Resource, Resource.id == RecordSchedule.resource_id)
+            .join(Asset, Asset.id == Resource.asset_id)
+            .where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        )
     row = (await db.execute(stmt)).scalars().first()
     if not row:
         await safe_auth_audit(
@@ -347,9 +348,11 @@ async def delete_schedule(
     """删除录像计划。"""
     stmt = select(RecordSchedule).where(RecordSchedule.id == schedule_id)
     if not current_user.is_superuser:
-        stmt = stmt.join(Resource, Resource.id == RecordSchedule.resource_id).join(
-            Asset, Asset.id == Resource.asset_id
-        ).where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        stmt = (
+            stmt.join(Resource, Resource.id == RecordSchedule.resource_id)
+            .join(Asset, Asset.id == Resource.asset_id)
+            .where(Asset.tenant_id == (current_user.tenant_id or "default"))
+        )
     row = (await db.execute(stmt)).scalars().first()
     if not row:
         await safe_auth_audit(
@@ -409,7 +412,9 @@ async def _start_record(proxy_host: str, proxy_http_port: int, proxy_secret: str
     url = f"http://{proxy_host}:{proxy_http_port}/index/api/startRecord"
     try:
         # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
-        r = await (await get_http_client()).post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
+        r = await (await get_http_client()).post(
+            url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5
+        )  # 同步requests→异步httpx，避免阻塞事件循环
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
         raise RuntimeError(f"startRecord request failed: {e}") from e
     # requests.get无try-catch，ZLM离线时ConnectionError未捕获
@@ -424,7 +429,9 @@ async def _stop_record(proxy_host: str, proxy_http_port: int, proxy_secret: str,
     url = f"http://{proxy_host}:{proxy_http_port}/index/api/stopRecord"
     try:
         # P-SEC: secret 通过 POST body 传递，避免出现在 URL/代理日志中
-        r = await (await get_http_client()).post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5)  # 同步requests→异步httpx，避免阻塞事件循环
+        r = await (await get_http_client()).post(
+            url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1}, timeout=5
+        )  # 同步requests→异步httpx，避免阻塞事件循环
     except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPError) as e:
         raise RuntimeError(f"stopRecord request failed: {e}") from e
     # requests.get无try-catch，ZLM离线时ConnectionError未捕获
@@ -536,10 +543,7 @@ async def force_start_schedule(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok" if rt.last_action_ok else "zlm_action_failed",
-        extra_summary=(
-            f"schedule_id={schedule_id}; resource_id={sch.resource_id}; minutes={minutes}; "
-            f"last_action_ok={bool(rt.last_action_ok)}"
-        ),
+        extra_summary=(f"schedule_id={schedule_id}; resource_id={sch.resource_id}; minutes={minutes}; last_action_ok={bool(rt.last_action_ok)}"),
     )
     return {"ok": True, "forced_until": until.isoformat()}
 
@@ -644,9 +648,6 @@ async def force_stop_schedule(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok" if rt.last_action_ok else "zlm_action_failed",
-        extra_summary=(
-            f"schedule_id={schedule_id}; resource_id={sch.resource_id}; minutes={minutes}; "
-            f"last_action_ok={bool(rt.last_action_ok)}"
-        ),
+        extra_summary=(f"schedule_id={schedule_id}; resource_id={sch.resource_id}; minutes={minutes}; last_action_ok={bool(rt.last_action_ok)}"),
     )
     return {"ok": True, "forced_until": until.isoformat()}

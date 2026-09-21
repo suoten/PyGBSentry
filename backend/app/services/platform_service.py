@@ -9,6 +9,8 @@ from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任�
 def _safe_create_task(coro):
     # P0-16: 委托给 fire_and_forget，保存引用防 GC + 异常日志
     return fire_and_forget(coro)
+
+
 from app.models.platform_runtime import PlatformRuntime
 from app.models.resource import Resource
 from app.models.platform_catalog_resource import PlatformCatalogResource
@@ -30,7 +32,6 @@ from app.sip.send import send_sip_bytes
 from app.sip.sdp import build_sdp as _build_sdp
 
 
-
 def _parse_host_port(value: str) -> tuple[str, int] | None:
     raw = (value or "").strip()
     if not raw:
@@ -42,6 +43,7 @@ def _parse_host_port(value: str) -> tuple[str, int] | None:
     if m:
         return (m.group(1), int(m.group(2)))
     return None
+
 
 def _parse_sip_uri_host_port(value: str) -> tuple[str, int] | None:
     raw = (value or "").strip()
@@ -96,14 +98,15 @@ def _sip_trace_log(event: str, **fields):
     logger.info(f"SIP_TRACE {payload}")
     schedule_store_sip_trace(payload)
 
+
 class PlatformService:
     def __init__(self, sip_server):
         self.sip_server = sip_server
-        self.platforms = {} # GBID -> Platform Info
+        self.platforms = {}  # GBID -> Platform Info
         self.running = False
         # W-22: PlatformService状态字典操作添加锁保护
         self._state_lock = asyncio.Lock()
-        self._reg_states = {} # CallID -> {platform_id, status, last_auth}
+        self._reg_states = {}  # CallID -> {platform_id, status, last_auth}
         self._outbound_tcp = {}  # (ip, port) -> asyncio.StreamWriter
         self._keepalive_miss_count = {}  # server_gb_id -> int
         # FIX: [2026-07-16 P0] keepalive CSeq 单调递增计数器（每平台独立）
@@ -188,9 +191,13 @@ class PlatformService:
             return
         if not p or not p.enable:
             return
-        await self._runtime_patch(p.tenant_id or "default", platform_id, {
-            "action.last_manual_register_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
+        await self._runtime_patch(
+            p.tenant_id or "default",
+            platform_id,
+            {
+                "action.last_manual_register_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            },
+        )
         await self._register(p)
 
     async def trigger_push_catalog(self, platform_id: str) -> None:
@@ -204,9 +211,13 @@ class PlatformService:
             return
         if not p or not p.enable:
             return
-        await self._runtime_patch(p.tenant_id or "default", platform_id, {
-            "action.last_manual_push_catalog_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        })
+        await self._runtime_patch(
+            p.tenant_id or "default",
+            platform_id,
+            {
+                "action.last_manual_push_catalog_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            },
+        )
         _safe_create_task(self._push_catalog(platform_id))
 
     async def trigger_notify(self, platform_id: str, event: str, xml_body: str) -> None:
@@ -215,24 +226,27 @@ class PlatformService:
             return
         try:
             async with AsyncSessionLocal() as session:
-                p = (
-                    await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))
-                ).scalars().first()
+                p = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                 if not p or not p.is_online:
                     return
                 from app.models.platform_subscription import PlatformSubscription
+
                 now_dt = datetime.datetime.now(datetime.timezone.utc)
                 sub = (
-                    await session.execute(
-                        select(PlatformSubscription).where(
-                            PlatformSubscription.tenant_id == (p.tenant_id or "default"),
-                            PlatformSubscription.platform_id == platform_id,
-                            PlatformSubscription.event == ev0,
-                            PlatformSubscription.expires_at.is_not(None),
-                            PlatformSubscription.expires_at > now_dt,
+                    (
+                        await session.execute(
+                            select(PlatformSubscription).where(
+                                PlatformSubscription.tenant_id == (p.tenant_id or "default"),
+                                PlatformSubscription.platform_id == platform_id,
+                                PlatformSubscription.event == ev0,
+                                PlatformSubscription.expires_at.is_not(None),
+                                PlatformSubscription.expires_at > now_dt,
+                            )
                         )
                     )
-                ).scalars().first()
+                    .scalars()
+                    .first()
+                )
                 if not sub:
                     return
                 if not (sub.last_call_id or "") or not (sub.remote_from_tag or "") or not (sub.local_to_tag or ""):
@@ -258,7 +272,9 @@ class PlatformService:
         req.uri = uri
 
         # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
-        req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性，兼容非标准客户端
+        req.headers["Via"] = (
+            f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性，兼容非标准客户端
+        )
         req.headers["Max-Forwards"] = "70"
         req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={sub.local_to_tag}"
         req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>;tag={sub.remote_from_tag}"
@@ -288,15 +304,15 @@ class PlatformService:
         try:
             dst = _parse_host_port(str(sub.last_addr or "")) or _parse_sip_uri_host_port(uri) or (p.server_ip, int(p.server_port))
             _safe_create_task(
-                    self._send_sip_request_and_wait(
-                        req=req,
-                        ip=dst[0],
-                        port=int(dst[1]),
-                        proto=req_proto,
-                        timeout_seconds=2.2,
-                        retries=1,
-                    )
+                self._send_sip_request_and_wait(
+                    req=req,
+                    ip=dst[0],
+                    port=int(dst[1]),
+                    proto=req_proto,
+                    timeout_seconds=2.2,
+                    retries=1,
                 )
+            )
             _sip_trace_log(
                 "platform_notify_sent",
                 trace_id=trace_id,
@@ -313,9 +329,9 @@ class PlatformService:
         try:
             async with AsyncSessionLocal() as session:
                 stmt = select(PlatformRuntime).where(
-                PlatformRuntime.platform_id == platform_id,
-                PlatformRuntime.tenant_id == tenant_id,
-            )
+                    PlatformRuntime.platform_id == platform_id,
+                    PlatformRuntime.tenant_id == tenant_id,
+                )
             result = await session.execute(stmt)
             runtime = result.scalars().first()
             data: dict = {}
@@ -368,6 +384,7 @@ class PlatformService:
 
         try:
             from app.services.platform_subscription_service import platform_subscription_service
+
             await platform_subscription_service.remove_all_for_platform(
                 tenant_id=tenant_id,
                 platform_id=platform_id,
@@ -378,38 +395,51 @@ class PlatformService:
 
         try:
             from app.services.stream_session_service import stop_cascade_push_session, release_stream_session
+
             async with AsyncSessionLocal() as session:
                 # S-12: 平台离线时清理cascade_push、cascade_bypass及匹配platform_id的所有会话
                 # 1) 清理 cascade_push 会话
                 rows = (
-                    await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.cascade_platform_id == platform_id,
-                            StreamSession.from_tag == "cascade_push",
+                    (
+                        await session.execute(
+                            select(StreamSession).where(
+                                StreamSession.cascade_platform_id == platform_id,
+                                StreamSession.from_tag == "cascade_push",
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 for s in rows:
                     await stop_cascade_push_session(session, s, reason=reason or "platform_offline")
                 # 2) 清理 cascade_bypass 会话
                 bypass_rows = (
-                    await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.cascade_platform_id == platform_id,
-                            StreamSession.app == "cascade_bypass",
+                    (
+                        await session.execute(
+                            select(StreamSession).where(
+                                StreamSession.cascade_platform_id == platform_id,
+                                StreamSession.app == "cascade_bypass",
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 for s in bypass_rows:
                     await release_stream_session(session, s, reason=reason or "platform_offline")
                 # 3) 清理其他匹配 platform_id 的会话
                 other_rows = (
-                    await session.execute(
-                        select(StreamSession).where(
-                            StreamSession.cascade_platform_id == platform_id,
+                    (
+                        await session.execute(
+                            select(StreamSession).where(
+                                StreamSession.cascade_platform_id == platform_id,
+                            )
                         )
                     )
-                ).scalars().all()
+                    .scalars()
+                    .all()
+                )
                 cleaned_ids = {s.id for s in rows} | {s.id for s in bypass_rows}
                 for s in other_rows:
                     if s.id not in cleaned_ids:
@@ -430,10 +460,14 @@ class PlatformService:
             ack_keys_to_remove = [k for k in self._catalog_ack_counter if k[1] == platform_id]
             for k in ack_keys_to_remove:
                 self._catalog_ack_counter.pop(k, None)
-        await self._runtime_patch(tenant_id, platform_id, {
-            "offline.cleanup_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "offline.cleanup_reason": str(reason or ""),
-        })
+        await self._runtime_patch(
+            tenant_id,
+            platform_id,
+            {
+                "offline.cleanup_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "offline.cleanup_reason": str(reason or ""),
+            },
+        )
 
     async def _handle_response(self, message: SipMessage, addr: tuple, proto: str, transport):
         """
@@ -475,11 +509,10 @@ class PlatformService:
             if server_gb_id:
                 self._keepalive_miss_count[server_gb_id] = 0
                 async with AsyncSessionLocal() as session:
-                    stmt = update(ParentPlatform).where(
-                        ParentPlatform.server_gb_id == server_gb_id
-                    ).values(
-                        is_online=True,
-                        last_keepalive=datetime.datetime.now(datetime.timezone.utc)
+                    stmt = (
+                        update(ParentPlatform)
+                        .where(ParentPlatform.server_gb_id == server_gb_id)
+                        .values(is_online=True, last_keepalive=datetime.datetime.now(datetime.timezone.utc))
                     )
                     await session.execute(stmt)
                     await session.commit()
@@ -487,12 +520,16 @@ class PlatformService:
                     p_result = await session.execute(select(ParentPlatform).where(ParentPlatform.server_gb_id == server_gb_id))
                     p = p_result.scalars().first()
                 if p:
-                    await self._runtime_patch(p.tenant_id or "default", p.id, {
-                        "keepalive.last_ack_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "keepalive.last_ack_addr": str(addr),
-                        "keepalive.last_ack_transport": str(proto or ""),
-                        "keepalive.miss_count": 0,
-                    })
+                    await self._runtime_patch(
+                        p.tenant_id or "default",
+                        p.id,
+                        {
+                            "keepalive.last_ack_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "keepalive.last_ack_addr": str(addr),
+                            "keepalive.last_ack_transport": str(proto or ""),
+                            "keepalive.miss_count": 0,
+                        },
+                    )
                 _sip_trace_log(
                     "platform_keepalive_ack",
                     trace_id=call_id,
@@ -508,6 +545,7 @@ class PlatformService:
         if method == "NOTIFY" and int(message.status_code or 0) == 200:
             try:
                 from app.services.platform_subscription_service import platform_subscription_service
+
                 await platform_subscription_service.mark_notify_by_call_id(call_id=call_id)
             except Exception as e:
                 logger.warning(f"Error: {e}")
@@ -530,23 +568,35 @@ class PlatformService:
                 if status_code == 200:
                     counter["ok"] = int(counter.get("ok") or 0) + 1
                 self._catalog_ack_counter[key] = counter
-            await self._runtime_patch(tenant_id, platform_id, {
-                "catalog.last_ack_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "catalog.last_ack_call_id": call_id,
-                "catalog.last_ack_status_code": status_code,
-                "catalog.ack_ok_count": int(counter.get("ok") or 0),
-                "catalog.ack_total": int(counter.get("total") or 0),
-            })
+            await self._runtime_patch(
+                tenant_id,
+                platform_id,
+                {
+                    "catalog.last_ack_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "catalog.last_ack_call_id": call_id,
+                    "catalog.last_ack_status_code": status_code,
+                    "catalog.ack_ok_count": int(counter.get("ok") or 0),
+                    "catalog.ack_total": int(counter.get("total") or 0),
+                },
+            )
             if status_code != 200:
-                await self._runtime_patch(tenant_id, platform_id, {
-                    "catalog.last_push_ok": False,
-                    "catalog.last_push_error": f"catalog_ack_failed status={status_code}",
-                })
+                await self._runtime_patch(
+                    tenant_id,
+                    platform_id,
+                    {
+                        "catalog.last_push_ok": False,
+                        "catalog.last_push_error": f"catalog_ack_failed status={status_code}",
+                    },
+                )
             if int(counter.get("total") or 0) > 0 and int(counter.get("ok") or 0) >= int(counter.get("total") or 0):
-                await self._runtime_patch(tenant_id, platform_id, {
-                    "catalog.last_ack_finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "catalog.last_ack_ok": True,
-                })
+                await self._runtime_patch(
+                    tenant_id,
+                    platform_id,
+                    {
+                        "catalog.last_ack_finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "catalog.last_ack_ok": True,
+                    },
+                )
                 async with self._state_lock:
                     self._catalog_ack_counter.pop(key, None)
             _sip_trace_log(
@@ -560,7 +610,7 @@ class PlatformService:
             return
 
     async def _start_session_tasks(self, platform_id: str):
-        if not hasattr(self, '_active_keepalive_tasks'):
+        if not hasattr(self, "_active_keepalive_tasks"):
             self._active_keepalive_tasks: dict[str, asyncio.Task] = {}
         old_task = self._active_keepalive_tasks.get(platform_id)
         if not old_task or old_task.done():
@@ -577,18 +627,27 @@ class PlatformService:
         delay = getattr(p, "catalog_push_delay_seconds", None) or 0
         if delay > 0:
             from app.core.delay_queue import run_after
+
             if p:
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "catalog.first_push_scheduled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "catalog.first_push_delay_seconds": float(delay),
-                })
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "catalog.first_push_scheduled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "catalog.first_push_delay_seconds": float(delay),
+                    },
+                )
             run_after(float(delay), self._push_catalog(platform_id))
         else:
             if p:
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "catalog.first_push_scheduled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "catalog.first_push_delay_seconds": 0,
-                })
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "catalog.first_push_scheduled_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "catalog.first_push_delay_seconds": 0,
+                    },
+                )
             _safe_create_task(self._push_catalog(platform_id))
 
     async def _keepalive_loop(self, platform_id: str):
@@ -611,7 +670,9 @@ class PlatformService:
                 elapsed_since_ok = time.time() - last_ok_time
                 if last_ok_time > 0 and elapsed_since_ok >= register_interval * 0.8:
                     try:
-                        logger.info(f"[PlatformService] Register renewal due for {p.server_gb_id}, elapsed={elapsed_since_ok:.0f}s, interval={register_interval}s")
+                        logger.info(
+                            f"[PlatformService] Register renewal due for {p.server_gb_id}, elapsed={elapsed_since_ok:.0f}s, interval={register_interval}s"
+                        )
                         await self._register(p)
                     except Exception as e:
                         logger.warning(f"[PlatformService] Register renewal failed for {p.server_gb_id}: {e}")
@@ -629,17 +690,23 @@ class PlatformService:
                     )
                     try:
                         await session.execute(
-                            update(ParentPlatform).where(ParentPlatform.id == platform_id).values(
+                            update(ParentPlatform)
+                            .where(ParentPlatform.id == platform_id)
+                            .values(
                                 is_online=False,
                             )
                         )
                         await session.commit()
                     except Exception:
                         await session.rollback()
-                    await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                        "keepalive.offline_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "keepalive.offline_reason": f"miss_threshold_reached miss={miss} threshold={threshold}",
-                    })
+                    await self._runtime_patch(
+                        p.tenant_id or "default",
+                        platform_id,
+                        {
+                            "keepalive.offline_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "keepalive.offline_reason": f"miss_threshold_reached miss={miss} threshold={threshold}",
+                        },
+                    )
                     _safe_create_task(self.handle_platform_offline(platform_id, reason="keepalive_miss_threshold"))
                     self._keepalive_miss_count[p.server_gb_id] = 0
                     # FIX [2026-07-17 P1]: 重连指数退避 — 避免上级平台离线时每 60s 重试导致信令风暴。
@@ -683,11 +750,15 @@ class PlatformService:
         req.uri = f"sip:{p.server_gb_id}@{p.server_ip}:{p.server_port}"
         req_proto = _platform_proto(p)
         # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
-        req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+        req.headers["Via"] = (
+            f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+        )
         req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
         req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
         # 每次唯一 Call-ID，避免 CSeq 单调性约束冲突
-        req.headers["Call-ID"] = f"keep_{p.server_gb_id}_{keepalive_seq}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP(可能为0.0.0.0)
+        req.headers["Call-ID"] = (
+            f"keep_{p.server_gb_id}_{keepalive_seq}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP(可能为0.0.0.0)
+        )
         req.headers["CSeq"] = f"{keepalive_seq} MESSAGE"
         req.headers["Content-Type"] = "Application/MANSCDP+xml"
 
@@ -695,12 +766,16 @@ class PlatformService:
         trace_id = _attach_trace_header(req)
         self._keepalive_miss_count[p.server_gb_id] = self._keepalive_miss_count.get(p.server_gb_id, 0) + 1
         _safe_create_task(self._send_keepalive_tx(p, req, req_proto))
-        await self._runtime_patch(p.tenant_id or "default", p.id, {
-            "keepalive.last_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "keepalive.last_sent_call_id": f"keep_{p.server_gb_id}@{sip_via_host()}",
-            "keepalive.last_sent_transport": req_proto,
-            "keepalive.miss_count": self._keepalive_miss_count.get(p.server_gb_id, 0),
-        })
+        await self._runtime_patch(
+            p.tenant_id or "default",
+            p.id,
+            {
+                "keepalive.last_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "keepalive.last_sent_call_id": f"keep_{p.server_gb_id}@{sip_via_host()}",
+                "keepalive.last_sent_transport": req_proto,
+                "keepalive.miss_count": self._keepalive_miss_count.get(p.server_gb_id, 0),
+            },
+        )
         logger.info(f"[trace_id={trace_id}] Sent platform keepalive to {p.server_gb_id}")
         _sip_trace_log(
             "platform_keepalive_sent",
@@ -724,20 +799,32 @@ class PlatformService:
                 timeout_seconds=settings.SIP_PLATFORM_KEEPALIVE_TIMEOUT_SECONDS,
                 retries=settings.SIP_PLATFORM_KEEPALIVE_RETRIES,
             )
-            await self._runtime_patch(p.tenant_id or "default", p.id, {
-                "keepalive.last_tx_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "keepalive.last_tx_status_code": int(resp.status_code or 0),
-                "keepalive.last_tx_rtt_ms": int(meta.get("rtt_ms") or 0),
-                "keepalive.last_tx_attempts": int(meta.get("attempts") or 0),
-            })
+            await self._runtime_patch(
+                p.tenant_id or "default",
+                p.id,
+                {
+                    "keepalive.last_tx_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "keepalive.last_tx_status_code": int(resp.status_code or 0),
+                    "keepalive.last_tx_rtt_ms": int(meta.get("rtt_ms") or 0),
+                    "keepalive.last_tx_attempts": int(meta.get("attempts") or 0),
+                },
+            )
         except asyncio.TimeoutError:
-            await self._runtime_patch(p.tenant_id or "default", p.id, {
-                "keepalive.last_tx_timeout_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            })
+            await self._runtime_patch(
+                p.tenant_id or "default",
+                p.id,
+                {
+                    "keepalive.last_tx_timeout_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                },
+            )
         except Exception:
-            await self._runtime_patch(p.tenant_id or "default", p.id, {
-                "keepalive.last_tx_error_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            })
+            await self._runtime_patch(
+                p.tenant_id or "default",
+                p.id,
+                {
+                    "keepalive.last_tx_error_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                },
+            )
 
     async def _push_catalog(self, platform_id: str):
         """
@@ -767,8 +854,7 @@ class PlatformService:
                 _page_size = 500
                 _offset = 0
                 while True:
-                    page = (await session.execute(
-                        stmt.offset(_offset).limit(_page_size))).scalars().all()
+                    page = (await session.execute(stmt.offset(_offset).limit(_page_size))).scalars().all()
                     if not page:
                         break
                     resources.extend(page)
@@ -776,35 +862,47 @@ class PlatformService:
                         break
                     _offset += _page_size
                 if not resources:
-                    await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                        "catalog.last_push_started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "catalog.last_push_ok": True,
-                        "catalog.last_push_error": "",
-                        "catalog.scope_count": len(scope_ids),
-                        "catalog.total_count": 0,
-                        "catalog.batch_total": 0,
-                        "catalog.batch_idx": 0,
-                    })
+                    await self._runtime_patch(
+                        p.tenant_id or "default",
+                        platform_id,
+                        {
+                            "catalog.last_push_started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "catalog.last_push_ok": True,
+                            "catalog.last_push_error": "",
+                            "catalog.scope_count": len(scope_ids),
+                            "catalog.total_count": 0,
+                            "catalog.batch_total": 0,
+                            "catalog.batch_idx": 0,
+                        },
+                    )
                     return
 
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "catalog.last_push_started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "catalog.last_push_ok": False,
-                    "catalog.last_push_error": "",
-                    "catalog.scope_count": len(scope_ids),
-                    "catalog.total_count": len(resources),
-                    "catalog.batch_idx": 0,
-                    "catalog.ack_ok_count": 0,
-                    "catalog.ack_total": 0,
-                })
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "catalog.last_push_started_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "catalog.last_push_ok": False,
+                        "catalog.last_push_error": "",
+                        "catalog.scope_count": len(scope_ids),
+                        "catalog.total_count": len(resources),
+                        "catalog.batch_idx": 0,
+                        "catalog.ack_ok_count": 0,
+                        "catalog.ack_total": 0,
+                    },
+                )
                 batch_size = getattr(p, "catalog_batch_size", None) or 0
                 if batch_size <= 0:
                     batch_size = len(resources)
-                batches = [resources[i:i + batch_size] for i in range(0, len(resources), batch_size)]
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "catalog.batch_total": len(batches),
-                    "catalog.batch_size": int(batch_size),
-                })
+                batches = [resources[i : i + batch_size] for i in range(0, len(resources), batch_size)]
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "catalog.batch_total": len(batches),
+                        "catalog.batch_size": int(batch_size),
+                    },
+                )
                 async with self._state_lock:
                     self._catalog_ack_counter[(p.tenant_id or "default", platform_id)] = {"total": len(batches), "ok": 0, "last_status_code": None}
 
@@ -815,7 +913,12 @@ class PlatformService:
                 # Push administrative divisions as catalog items before channel items
                 try:
                     from app.models.region import Region
-                    region_stmt = select(Region).where(Resource.tenant_id == (p.tenant_id or "default") if hasattr(Region, 'tenant_id') else True).order_by(Region.level.asc(), Region.code.asc())
+
+                    region_stmt = (
+                        select(Region)
+                        .where(Resource.tenant_id == (p.tenant_id or "default") if hasattr(Region, "tenant_id") else True)
+                        .order_by(Region.level.asc(), Region.code.asc())
+                    )
                     region_result = await session.execute(region_stmt)
                     regions = region_result.scalars().all()
                     if regions:
@@ -857,16 +960,26 @@ class PlatformService:
                         region_req.body = region_xml
                         req_proto = _platform_proto(p)
                         # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
-                        region_req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
-                        region_req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                        region_req.headers["Via"] = (
+                            f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                        )
+                        region_req.headers["From"] = (
+                            f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                        )
                         region_req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
-                        region_req.headers["Call-ID"] = f"cat_rg_{p.server_gb_id}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP
+                        region_req.headers["Call-ID"] = (
+                            f"cat_rg_{p.server_gb_id}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP
+                        )
                         region_req.headers["CSeq"] = f"{region_sn} MESSAGE"
                         _attach_trace_header(region_req)
                         try:
                             await self._send_sip_request_and_wait(
-                                req=region_req, ip=p.server_ip, port=p.server_port,
-                                proto=req_proto, timeout_seconds=2.2, retries=1,
+                                req=region_req,
+                                ip=p.server_ip,
+                                port=p.server_port,
+                                proto=req_proto,
+                                timeout_seconds=2.2,
+                                retries=1,
                             )
                             logger.info(f"[PlatformService] Pushed {len(regions)} region items to platform {platform_id}")
                         except Exception as rg_err:
@@ -932,8 +1045,12 @@ class PlatformService:
                     req.body = xml_body
                     req_proto = _platform_proto(p)
                     # FIX [2026-07-17 P1-A2]: Via 使用 sip_host_for_contact() 以支持 NAT 回路由
-                    req.headers["Via"] = f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
-                    req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                    req.headers["Via"] = (
+                        f"SIP/2.0/{req_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                    )
+                    req.headers["From"] = (
+                        f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-21 P0]: 无前缀+64位随机性
+                    )
                     req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>"
                     call_id = f"cat_{p.server_gb_id}_{batch_idx}@{sip_via_host()}"  # FIX [2026-07-21 P0]: 使用 sip_host_for_contact() 而非 SIP_IP
                     req.headers["Call-ID"] = call_id
@@ -955,30 +1072,46 @@ class PlatformService:
                             timeout_seconds=2.2,
                             retries=2,
                         )
-                        await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                            "catalog.last_batch_status_code": int(resp.status_code or 0),
-                            "catalog.last_batch_rtt_ms": int(meta.get("rtt_ms") or 0),
-                            "catalog.last_batch_attempts": int(meta.get("attempts") or 0),
-                        })
+                        await self._runtime_patch(
+                            p.tenant_id or "default",
+                            platform_id,
+                            {
+                                "catalog.last_batch_status_code": int(resp.status_code or 0),
+                                "catalog.last_batch_rtt_ms": int(meta.get("rtt_ms") or 0),
+                                "catalog.last_batch_attempts": int(meta.get("attempts") or 0),
+                            },
+                        )
                         if int(resp.status_code or 0) != 200:
-                            await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                                "catalog.last_push_ok": False,
-                                "catalog.last_push_error": f"catalog_batch_failed status={int(resp.status_code or 0)}",
-                            })
+                            await self._runtime_patch(
+                                p.tenant_id or "default",
+                                platform_id,
+                                {
+                                    "catalog.last_push_ok": False,
+                                    "catalog.last_push_error": f"catalog_batch_failed status={int(resp.status_code or 0)}",
+                                },
+                            )
                             push_ok = False
                             break
                     except asyncio.TimeoutError as e:
-                        await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                            "catalog.last_push_ok": False,
-                            "catalog.last_push_error": f"catalog_batch_timeout: {e}",
-                        })
+                        await self._runtime_patch(
+                            p.tenant_id or "default",
+                            platform_id,
+                            {
+                                "catalog.last_push_ok": False,
+                                "catalog.last_push_error": f"catalog_batch_timeout: {e}",
+                            },
+                        )
                         push_ok = False
                         break
-                    await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                        "catalog.last_batch_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "catalog.batch_idx": batch_idx + 1,
-                        "catalog.last_batch_call_id": call_id,
-                    })
+                    await self._runtime_patch(
+                        p.tenant_id or "default",
+                        platform_id,
+                        {
+                            "catalog.last_batch_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "catalog.batch_idx": batch_idx + 1,
+                            "catalog.last_batch_call_id": call_id,
+                        },
+                    )
                     logger.info(f"[trace_id={trace_id}] Sent platform catalog batch {batch_idx + 1}/{len(batches)} to {p.server_gb_id}")
                     _sip_trace_log(
                         "platform_catalog_sent",
@@ -1011,11 +1144,15 @@ class PlatformService:
                 tenant_id = (p.tenant_id if p else "default") or "default"
             except Exception:
                 tenant_id = "default"
-            await self._runtime_patch(tenant_id, platform_id, {
-                "catalog.last_push_finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "catalog.last_push_ok": False,
-                "catalog.last_push_error": f"push_catalog_failed {str(e)[:200]}",
-            })
+            await self._runtime_patch(
+                tenant_id,
+                platform_id,
+                {
+                    "catalog.last_push_finished_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "catalog.last_push_ok": False,
+                    "catalog.last_push_error": f"push_catalog_failed {str(e)[:200]}",
+                },
+            )
             _sip_trace_log(
                 "platform_catalog_failed",
                 trace_id=f"cat_{platform_id}",
@@ -1048,9 +1185,7 @@ class PlatformService:
                 # FIX: [2026-08-22 P1] get_or_404 签名为 (result, detail)，原
                 # get_or_404(session, ParentPlatform, platform_id) 必抛 TypeError
                 # 被吞掉（方法从未真正执行过）。改为直接查询。
-                p = (await session.execute(
-                    select(ParentPlatform).where(ParentPlatform.id == platform_id)
-                )).scalars().first()
+                p = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                 if not p:
                     return
                 if not p.is_online:
@@ -1060,14 +1195,21 @@ class PlatformService:
                 # 目录订阅状态实际存于 PlatformSubscription 表（event="catalog" 且未过期），
                 # 按模型真实字段重写订阅条件。
                 from app.models.platform_subscription import PlatformSubscription
-                sub = (await session.execute(
-                    select(PlatformSubscription).where(
-                        PlatformSubscription.platform_id == platform_id,
-                        PlatformSubscription.event == "catalog",
-                        PlatformSubscription.expires_at.is_not(None),
-                        PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
+
+                sub = (
+                    (
+                        await session.execute(
+                            select(PlatformSubscription).where(
+                                PlatformSubscription.platform_id == platform_id,
+                                PlatformSubscription.event == "catalog",
+                                PlatformSubscription.expires_at.is_not(None),
+                                PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
+                            )
+                        )
                     )
-                )).scalars().first()
+                    .scalars()
+                    .first()
+                )
                 if not sub:
                     return
                 from app.core.config import settings, sip_host_for_contact, sip_via_host
@@ -1161,9 +1303,7 @@ class PlatformService:
                 # FIX: [2026-08-22 P1] get_or_404 签名为 (result, detail)，原
                 # get_or_404(session, ParentPlatform, platform_id) 必抛 TypeError
                 # 被吞掉（TimeSync 从未真正发送过）。改为直接查询。
-                p = (await session.execute(
-                    select(ParentPlatform).where(ParentPlatform.id == platform_id)
-                )).scalars().first()
+                p = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                 if not p:
                     return
                 if not p.is_online:
@@ -1247,9 +1387,13 @@ class PlatformService:
                                     self._mark_register_failed(p)
                                 if not self._should_attempt_reconnect(p):
                                     continue
-                            await self._runtime_patch(p.tenant_id or "default", p.id, {
-                                "register.last_auto_attempt_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                            })
+                            await self._runtime_patch(
+                                p.tenant_id or "default",
+                                p.id,
+                                {
+                                    "register.last_auto_attempt_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                                },
+                            )
                             await self._register(p)
 
             except Exception as e:
@@ -1285,13 +1429,17 @@ class PlatformService:
             except Exception:
                 state["cseq"] = 1
             self._reg_states[call_id] = state
-        await self._runtime_patch(p.tenant_id or "default", p.id, {
-            "register.last_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "register.last_call_id": call_id,
-            "register.last_target": f"{p.server_ip}:{p.server_port}",
-            "register.last_transport": _platform_proto(p),
-            "register.last_has_auth": bool(auth_header),
-        })
+        await self._runtime_patch(
+            p.tenant_id or "default",
+            p.id,
+            {
+                "register.last_sent_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "register.last_call_id": call_id,
+                "register.last_target": f"{p.server_ip}:{p.server_port}",
+                "register.last_transport": _platform_proto(p),
+                "register.last_has_auth": bool(auth_header),
+            },
+        )
 
         req = SipMessage()
         req.method = "REGISTER"
@@ -1397,17 +1545,23 @@ class PlatformService:
                 retries=2,
             )
             # FIX: [2026-07-03] 传递 _auth_depth 参数，使 401 重注册时的递归深度计数器能正确传递 [全栈工程师]
-            await self._handle_register_response(resp, (p.server_ip, p.server_port), req_proto, call_id, p.id, state.get("sent_mono", 0.0), _auth_depth)
+            await self._handle_register_response(
+                resp, (p.server_ip, p.server_port), req_proto, call_id, p.id, state.get("sent_mono", 0.0), _auth_depth
+            )
         except asyncio.TimeoutError:
             rtt_ms = int((time.monotonic() - state.get("sent_mono", time.monotonic())) * 1000)
-            await self._runtime_patch(p.tenant_id or "default", p.id, {
-                "register.last_failed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                "register.last_status_code": 408,
-                "register.last_error": "register_timeout",
-                "register.last_addr": f"{p.server_ip}:{p.server_port}",
-                "register.last_transport": str(req_proto or ""),
-                "register.last_rtt_ms": rtt_ms,
-            })
+            await self._runtime_patch(
+                p.tenant_id or "default",
+                p.id,
+                {
+                    "register.last_failed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "register.last_status_code": 408,
+                    "register.last_error": "register_timeout",
+                    "register.last_addr": f"{p.server_ip}:{p.server_port}",
+                    "register.last_transport": str(req_proto or ""),
+                    "register.last_rtt_ms": rtt_ms,
+                },
+            )
             _sip_trace_log(
                 "platform_register_timeout",
                 trace_id=call_id,
@@ -1416,7 +1570,9 @@ class PlatformService:
         except Exception as e:
             logger.error(f"Error sending REGISTER to platform {p.server_gb_id}: {e}")
 
-    async def _handle_register_response(self, message: SipMessage, addr: tuple, proto: str, call_id: str, platform_id: str, sent_mono: float, _auth_depth: int = 0):  # FIX: [2026-07-03] 补齐 _auth_depth 参数，原签名缺失导致 line 1228 引用未定义变量 NameError，401 挑战重注册永远失败 [全栈工程师]
+    async def _handle_register_response(
+        self, message: SipMessage, addr: tuple, proto: str, call_id: str, platform_id: str, sent_mono: float, _auth_depth: int = 0
+    ):  # FIX: [2026-07-03] 补齐 _auth_depth 参数，原签名缺失导致 line 1228 引用未定义变量 NameError，401 挑战重注册永远失败 [全栈工程师]
         _sip_trace_log(
             "platform_response_received",
             trace_id=call_id,
@@ -1450,14 +1606,18 @@ class PlatformService:
                 p = result.scalars().first()
                 if p:
                     rtt_ms = int((time.monotonic() - sent_mono) * 1000) if sent_mono > 0 else 0
-                    await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                        "register.last_challenge_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                        "register.last_status_code": 401,
-                        "register.last_www_auth": (auth_header or "")[:256],
-                        "register.last_addr": str(addr),
-                        "register.last_transport": str(proto or ""),
-                        "register.last_rtt_ms": rtt_ms,
-                    })
+                    await self._runtime_patch(
+                        p.tenant_id or "default",
+                        platform_id,
+                        {
+                            "register.last_challenge_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                            "register.last_status_code": 401,
+                            "register.last_www_auth": (auth_header or "")[:256],
+                            "register.last_addr": str(addr),
+                            "register.last_transport": str(proto or ""),
+                            "register.last_rtt_ms": rtt_ms,
+                        },
+                    )
                     await self._register(p, auth_header=auth_header, call_id=call_id, _auth_depth=_auth_depth + 1)  # S-04 pass depth counter
 
         elif message.status_code == 200:
@@ -1468,9 +1628,10 @@ class PlatformService:
                     state["last_ok_time"] = time.time()
 
             async with AsyncSessionLocal() as session:
-                stmt = update(ParentPlatform).where(ParentPlatform.id == platform_id).values(
-                    is_online=True,
-                    last_keepalive=datetime.datetime.now(datetime.timezone.utc)
+                stmt = (
+                    update(ParentPlatform)
+                    .where(ParentPlatform.id == platform_id)
+                    .values(is_online=True, last_keepalive=datetime.datetime.now(datetime.timezone.utc))
                 )
                 await session.execute(stmt)
                 await session.commit()
@@ -1486,14 +1647,18 @@ class PlatformService:
                     self._keepalive_miss_count[_server_gb_id] = 0
                 # FIX [2026-07-17 P1]: 注册成功，重置重连退避计数器
                 self._mark_register_success(p)
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "register.last_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "register.last_status_code": 200,
-                    "register.last_addr": str(addr),
-                    "register.last_transport": str(proto or ""),
-                    "register.last_rtt_ms": rtt_ms,
-                    "keepalive.miss_count": 0,
-                })
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "register.last_ok_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "register.last_status_code": 200,
+                        "register.last_addr": str(addr),
+                        "register.last_transport": str(proto or ""),
+                        "register.last_rtt_ms": rtt_ms,
+                        "keepalive.miss_count": 0,
+                    },
+                )
             logger.info(f"Successfully registered to parent platform {platform_id}")
 
             # Start Keepalive & Catalog Push
@@ -1504,14 +1669,18 @@ class PlatformService:
                 p = p_result.scalars().first()
             if p:
                 rtt_ms = int((time.monotonic() - sent_mono) * 1000) if sent_mono > 0 else 0
-                await self._runtime_patch(p.tenant_id or "default", platform_id, {
-                    "register.last_failed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                    "register.last_status_code": int(message.status_code or 0),
-                    "register.last_error": f"register_failed status={int(message.status_code or 0)}",
-                    "register.last_addr": str(addr),
-                    "register.last_transport": str(proto or ""),
-                    "register.last_rtt_ms": rtt_ms,
-                })
+                await self._runtime_patch(
+                    p.tenant_id or "default",
+                    platform_id,
+                    {
+                        "register.last_failed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "register.last_status_code": int(message.status_code or 0),
+                        "register.last_error": f"register_failed status={int(message.status_code or 0)}",
+                        "register.last_addr": str(addr),
+                        "register.last_transport": str(proto or ""),
+                        "register.last_rtt_ms": rtt_ms,
+                    },
+                )
             _sip_trace_log(
                 "platform_register_failed",
                 trace_id=call_id,
@@ -1592,7 +1761,9 @@ class PlatformService:
             return
         await send_sip_bytes(proto, transport, addr, msg.to_bytes())
 
-    async def send_invite_response(self, platform: ParentPlatform, request: SipMessage, sdp_ip: str, sdp_port: int, ssrc: str, is_tcp: bool = False) -> None:
+    async def send_invite_response(
+        self, platform: ParentPlatform, request: SipMessage, sdp_ip: str, sdp_port: int, ssrc: str, is_tcp: bool = False
+    ) -> None:
         """Respond to a cascade INVITE from a parent platform with 200 OK + SDP."""
         addr = (platform.server_ip, platform.server_port)
         proto = _platform_proto(platform)
@@ -1625,28 +1796,49 @@ class PlatformService:
                     break
         media_proto = "TCP/RTP/AVP" if is_tcp else "RTP/AVP"
         setup_val = "active" if is_tcp else None
-        sdp = _build_sdp(origin_id=channel_id, session_name=session_name, connection_ip=sdp_ip, media_type="video", media_port=sdp_port, media_profile=media_proto, direction="sendonly", ssrc=ssrc, setup=setup_val, time_range=t_line, extended_rtpmap=True)
+        sdp = _build_sdp(
+            origin_id=channel_id,
+            session_name=session_name,
+            connection_ip=sdp_ip,
+            media_type="video",
+            media_port=sdp_port,
+            media_profile=media_proto,
+            direction="sendonly",
+            ssrc=ssrc,
+            setup=setup_val,
+            time_range=t_line,
+            extended_rtpmap=True,
+        )
         resp.body = sdp
         await self._send_sip_message(proto, addr, resp)
         logger.info(f"[PlatformService] Sent 200 OK (INVITE) to {platform.server_gb_id}, port={sdp_port}")
 
-    async def send_alarm_notify(self, platform: ParentPlatform, device_id: str, channel_id: str, alarm_type: str, priority: str, description: str, alarm_time_iso: str) -> None:
+    async def send_alarm_notify(
+        self, platform: ParentPlatform, device_id: str, channel_id: str, alarm_type: str, priority: str, description: str, alarm_time_iso: str
+    ) -> None:
         """Send an alarm notification to a parent platform."""
         # W-16 检查上级平台是否订阅了Alarm事件，未订阅则跳过
         try:
             from app.models.platform_subscription import PlatformSubscription
             from sqlalchemy import select as _sel
+
             async with AsyncSessionLocal() as _chk_session:
                 # FIX: [2026-08-22 P1] PlatformSubscription 实际列名为 event
                 # （原查询 event_type 不存在的列，必抛 AttributeError 被吞掉，
                 # 导致无论有无 Alarm 订阅都会继续发送告警）
-                _sub = (await _chk_session.execute(
-                    _sel(PlatformSubscription).where(
-                        PlatformSubscription.platform_id == platform.id,
-                        PlatformSubscription.event == "Alarm",
-                        PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
+                _sub = (
+                    (
+                        await _chk_session.execute(
+                            _sel(PlatformSubscription).where(
+                                PlatformSubscription.platform_id == platform.id,
+                                PlatformSubscription.event == "Alarm",
+                                PlatformSubscription.expires_at > datetime.datetime.now(datetime.timezone.utc),
+                            )
+                        )
                     )
-                )).scalars().first()
+                    .scalars()
+                    .first()
+                )
                 if not _sub:
                     logger.debug(f"[PlatformService] Platform {platform.server_gb_id} has no active Alarm subscription, skipping notify")
                     return
@@ -1710,7 +1902,7 @@ class PlatformService:
 <Owner>{_xml_escape(ch_owner)}</Owner>
 <CivilCode>{_xml_escape(ch_civil_code)}</CivilCode>
 <Address>{_xml_escape(ch_address)}</Address>
-<Parental>{1 if ch_node_type == 'directory' else 0}</Parental>
+<Parental>{1 if ch_node_type == "directory" else 0}</Parental>
 <ParentID>{_xml_escape(ch_parent_gb_id)}</ParentID>
 <SafetyWay>0</SafetyWay>
 <RegisterWay>1</RegisterWay>
@@ -1761,8 +1953,17 @@ class PlatformService:
         sub_obj = None
         try:
             from app.models.platform_subscription import PlatformSubscription
+
             async with AsyncSessionLocal() as session:
-                sub_result = await session.execute(select(PlatformSubscription).where(PlatformSubscription.platform_id == platform.id, PlatformSubscription.event == "catalog", PlatformSubscription.expires_seconds > 0).order_by(PlatformSubscription.id.desc()))
+                sub_result = await session.execute(
+                    select(PlatformSubscription)
+                    .where(
+                        PlatformSubscription.platform_id == platform.id,
+                        PlatformSubscription.event == "catalog",
+                        PlatformSubscription.expires_seconds > 0,
+                    )
+                    .order_by(PlatformSubscription.id.desc())
+                )
                 sub_obj = sub_result.scalars().first()
                 if sub_obj:
                     sub_call_id = str(getattr(sub_obj, "last_call_id", "") or "")
@@ -1794,7 +1995,7 @@ class PlatformService:
 <Owner>{_xml_escape(ch_owner)}</Owner>
 <CivilCode>{_xml_escape(ch_civil_code)}</CivilCode>
 <Address>{_xml_escape(ch_address)}</Address>
-<Parental>{1 if ch_node_type == 'directory' else 0}</Parental>
+<Parental>{1 if ch_node_type == "directory" else 0}</Parental>
 <ParentID>{_xml_escape(ch_parent_gb_id)}</ParentID>
 <SafetyWay>0</SafetyWay>
 <RegisterWay>1</RegisterWay>
@@ -1834,6 +2035,7 @@ class PlatformService:
             try:
                 async with AsyncSessionLocal() as session:
                     from app.models.platform_subscription import PlatformSubscription
+
                     db_sub = (await session.execute(select(PlatformSubscription).where(PlatformSubscription.id == sub_obj.id))).scalars().first()
                     if db_sub:
                         db_sub.notify_cseq = sub_cseq
@@ -1847,11 +2049,14 @@ class PlatformService:
         from app.models.resource import Resource
         from app.models.asset import Asset
         from app.sip.server import sip_server as _sip_server
+
         real_gb_id = channel_id
         resource_id = None
         asset_id = None
         async with AsyncSessionLocal() as session:
-            mapping = (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            mapping = (
+                (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            )
             if mapping:
                 mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
                 if mapped_resource:
@@ -1914,10 +2119,13 @@ class PlatformService:
         """Forward a ConfigDownload query from upstream platform to the real device."""
         from app.models.resource import Resource
         from app.models.asset import Asset
+
         real_gb_id = channel_id
         asset_id = None
         async with AsyncSessionLocal() as session:
-            mapping = (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            mapping = (
+                (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            )
             if mapping:
                 mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
                 if mapped_resource:
@@ -1948,7 +2156,7 @@ class PlatformService:
 <CmdType>ConfigDownload</CmdType>
 <SN>{local_sn}</SN>
 <DeviceID>{_xml_escape(real_gb_id)}</DeviceID>
-<ConfigType>{_xml_escape(config_type or 'BasicParam')}</ConfigType>
+<ConfigType>{_xml_escape(config_type or "BasicParam")}</ConfigType>
 </Query>
 """
         req = SipMessage()
@@ -1969,15 +2177,20 @@ class PlatformService:
         logger.info(f"[PlatformService] Forwarded ConfigDownload to device {device_gb_id}, channel={real_gb_id}, type={config_type}")
         return True
 
-    async def forward_cascade_record_query(self, platform: ParentPlatform, channel_id: str, start_time: str, end_time: str, query_type: str, sn: str) -> bool:
+    async def forward_cascade_record_query(
+        self, platform: ParentPlatform, channel_id: str, start_time: str, end_time: str, query_type: str, sn: str
+    ) -> bool:
         """Forward a RecordInfo query from upstream platform to the real device."""
         from app.models.resource import Resource
         from app.models.asset import Asset
+
         real_gb_id = channel_id
         resource_id = None
         asset_id = None
         async with AsyncSessionLocal() as session:
-            mapping = (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            mapping = (
+                (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            )
             if mapping:
                 mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
                 if mapped_resource:
@@ -2012,7 +2225,7 @@ class PlatformService:
 <DeviceID>{_xml_escape(real_gb_id)}</DeviceID>
 <StartTime>{_xml_escape(start_time)}</StartTime>
 <EndTime>{_xml_escape(end_time)}</EndTime>
-<Type>{_xml_escape(query_type or 'all')}</Type>
+<Type>{_xml_escape(query_type or "all")}</Type>
 </Query>
 """
         req = SipMessage()
@@ -2030,8 +2243,17 @@ class PlatformService:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         req.body = xml_body
         await self._send_sip_message(device_proto, (device_ip, device_port), req)
-        self._cascade_record_queries[local_sn] = {"platform_id": str(platform.id), "server_gb_id": platform.server_gb_id, "original_sn": sn, "original_channel_id": channel_id, "real_channel_id": real_gb_id, "created_at": time.monotonic()}
-        logger.info(f"[PlatformService] Forwarded RecordInfo query to device {device_gb_id}, channel={real_gb_id}, local_sn={local_sn}, original_sn={sn}")
+        self._cascade_record_queries[local_sn] = {
+            "platform_id": str(platform.id),
+            "server_gb_id": platform.server_gb_id,
+            "original_sn": sn,
+            "original_channel_id": channel_id,
+            "real_channel_id": real_gb_id,
+            "created_at": time.monotonic(),
+        }
+        logger.info(
+            f"[PlatformService] Forwarded RecordInfo query to device {device_gb_id}, channel={real_gb_id}, local_sn={local_sn}, original_sn={sn}"
+        )
         return True
 
     async def forward_cascade_record_response(self, local_sn: int, xml_body: str) -> None:
@@ -2040,6 +2262,7 @@ class PlatformService:
         if not query_info:
             return
         from app.core.xml_utils import parse_xml, get_xml_text
+
         root = parse_xml(xml_body)
         if root is None:
             return
@@ -2145,29 +2368,24 @@ class PlatformService:
         asset_id = None
         async with AsyncSessionLocal() as session:
             # 1) 检查是否为级联虚拟 GB ID，若是则映射到真实 Resource
-            mapping = (await session.execute(
-                select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == target_device_id)
-            )).scalars().first()
+            mapping = (
+                (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == target_device_id)))
+                .scalars()
+                .first()
+            )
             if mapping:
-                mapped_resource = (await session.execute(
-                    select(Resource).where(Resource.id == mapping.resource_id)
-                )).scalars().first()
+                mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
                 if mapped_resource:
                     real_gb_id = mapped_resource.gb_id
                     asset_id = mapped_resource.asset_id
             # 2) 若未映射，直接按 GB ID 查 Resource
             if not asset_id:
-                res = (await session.execute(
-                    select(Resource).where(Resource.gb_id == target_device_id)
-                )).scalars().first()
+                res = (await session.execute(select(Resource).where(Resource.gb_id == target_device_id))).scalars().first()
                 if res:
                     real_gb_id = res.gb_id
                     asset_id = res.asset_id
             if not asset_id:
-                logger.warning(
-                    f"[PlatformService] Cannot forward Broadcast from {source_platform_gb_id}: "
-                    f"no asset for target {target_device_id}"
-                )
+                logger.warning(f"[PlatformService] Cannot forward Broadcast from {source_platform_gb_id}: no asset for target {target_device_id}")
                 return False
             # 3) 加载 Asset 获取传输信息
             asset = (await session.execute(select(Asset).where(Asset.id == asset_id))).scalars().first()
@@ -2186,10 +2404,7 @@ class PlatformService:
 
         transport = _sip_server.get_transport(device_ip, device_port, device_proto)
         if not transport:
-            logger.warning(
-                f"[PlatformService] Cannot forward Broadcast: no transport to "
-                f"{device_ip}:{device_port}/{device_proto}"
-            )
+            logger.warning(f"[PlatformService] Cannot forward Broadcast: no transport to {device_ip}:{device_port}/{device_proto}")
             return False
 
         # 构建 Broadcast Notify XML（GB28181-2016 §A.2.2）
@@ -2220,15 +2435,13 @@ class PlatformService:
         try:
             await self._send_sip_message(device_proto, (device_ip, device_port), req)
             logger.info(
-                f"[PlatformService] Forwarded Broadcast to device {device_gb_id}, "
-                f"target={real_gb_id}, source_platform={source_platform_gb_id}"
+                f"[PlatformService] Forwarded Broadcast to device {device_gb_id}, target={real_gb_id}, source_platform={source_platform_gb_id}"
             )
             return True
         except Exception as e:
-            logger.warning(
-                f"[PlatformService] Failed to forward Broadcast to {device_gb_id}: {e}"
-            )
+            logger.warning(f"[PlatformService] Failed to forward Broadcast to {device_gb_id}: {e}")
             return False
+
 
 # Singleton
 platform_service = None

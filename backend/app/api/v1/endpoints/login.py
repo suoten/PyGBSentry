@@ -96,7 +96,7 @@ async def refresh_token(
                 "role": user.role or ("owner" if user.is_superuser else "viewer"),
                 "is_superuser": user.is_superuser,
                 "tenant_id": user.tenant_id or "default",
-            }
+            },
         )
         # P1-4: HttpOnly Cookie 双轨 — refresh 时同步轮转 cookie
         response = JSONResponse(content={"access_token": new_access_token, "token_type": "bearer"})
@@ -134,6 +134,7 @@ async def logout(request: Request, response: Response) -> Any:
             if user_id and exp:
                 from app.core.redis import get_redis
                 import time as _time
+
                 redis = await get_redis()
                 if redis is not None:
                     ttl = max(1, int(exp) - int(_time.time()))
@@ -304,12 +305,8 @@ async def register_user(
         detail="ok",
         extra_summary=f"user_id={user.id}; role={user.role or 'viewer'}",
     )
-    return {
-        "id": user.id,
-        "username": user.username,
-        "tenant_id": user.tenant_id,
-        "role": user.role
-    }
+    return {"id": user.id, "username": user.username, "tenant_id": user.tenant_id, "role": user.role}
+
 
 @router.post("/login/access-token")
 @limiter.limit("10/5 minutes")
@@ -432,10 +429,13 @@ async def login_access_token(
                 status_code=400,
                 detail="otp_required",
             )
-            raise HTTPException(status_code=400, detail="OTP_REQUIRED")  # FIX: [2026-07-03] 返回机器可读 code 与前端 Login.vue 约定对齐（原返回英文字符串前端无法识别 OTP 流程） [全栈工程师]
+            raise HTTPException(
+                status_code=400, detail="OTP_REQUIRED"
+            )  # FIX: [2026-07-03] 返回机器可读 code 与前端 Login.vue 约定对齐（原返回英文字符串前端无法识别 OTP 流程） [全栈工程师]
         secret = getattr(user, "totp_secret", None)
         if secret:
             from app.core.totp import decrypt_totp_secret
+
             try:
                 secret = decrypt_totp_secret(secret)
             except Exception:
@@ -452,7 +452,9 @@ async def login_access_token(
                 status_code=400,
                 detail="otp_invalid",
             )
-            raise HTTPException(status_code=400, detail="OTP_INVALID")  # FIX: [2026-07-03] 前端 Login.vue 匹配 'OTP_INVALID'，原返回人类可读字符串致 OTP 错误提示不触发 [全栈工程师]
+            raise HTTPException(
+                status_code=400, detail="OTP_INVALID"
+            )  # FIX: [2026-07-03] 前端 Login.vue 匹配 'OTP_INVALID'，原返回人类可读字符串致 OTP 错误提示不触发 [全栈工程师]
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     user.last_login = datetime.now(timezone.utc)  # datetime.utcnow() 已弃用(Python 3.12+) → datetime.now(timezone.utc)
@@ -482,19 +484,13 @@ async def login_access_token(
     access_token = security.create_access_token(
         _user_id,
         expires_delta=access_token_expires,
-        extra_payload={
-            "tenant_id": _tenant_id,
-            "role": _user_role or ("owner" if _is_superuser else "viewer"),
-            "is_superuser": _is_superuser
-        }
+        extra_payload={"tenant_id": _tenant_id, "role": _user_role or ("owner" if _is_superuser else "viewer"), "is_superuser": _is_superuser},
     )
     refresh_token = security.create_refresh_token(_user_id)
 
     trial_info = {}
     try:
-        sub_stmt = select(TenantSubscription).where(
-            TenantSubscription.tenant_id == _tenant_id
-        )
+        sub_stmt = select(TenantSubscription).where(TenantSubscription.tenant_id == _tenant_id)
         sub_result = await db.execute(sub_stmt)
         sub = sub_result.scalars().first()
         if sub and sub.status == "trial" and sub.trial_ends_at:

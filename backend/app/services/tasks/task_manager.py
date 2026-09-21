@@ -9,6 +9,7 @@
 
 所有任务通过 :class:`asyncio.Task` 跟踪，``stop_all`` 时逐一 cancel 并等待退出。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,6 +38,7 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     # 1. 设备心跳看门狗
     try:
         from app.services.tasks import device_watchdog
+
         await device_watchdog.start()
         _stop_callbacks.append(device_watchdog.stop)
         logger.info("Background task started: device_watchdog")
@@ -46,6 +48,7 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     # 2. 录像过期清理（可选，DB 不可用时静默跳过）
     try:
         from app.services.record_cleanup import start_record_cleanup_loop
+
         task = asyncio.create_task(start_record_cleanup_loop())
         _tasks.append(task)
         _stop_callbacks.append(lambda: _cancel_task(task))
@@ -58,6 +61,7 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     # 3. Catalog 定时刷新（自动同步设备新增/删除通道）
     try:
         from app.services.tasks import catalog_refresh
+
         await catalog_refresh.start()
         _stop_callbacks.append(catalog_refresh.stop)
         logger.info("Background task started: catalog_refresh")

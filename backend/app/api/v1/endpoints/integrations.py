@@ -297,6 +297,7 @@ def _normalize_protocol(value: str) -> str:
 
 def _build_hook_base_url(node: MediaNode | None) -> str:
     """用于 ZLM hook 回调的 base URL（优先 hook_base_url，其次 hook_ip，否则回退全局对外地址）。"""
+
     def _is_loopback_host(v: str | None) -> bool:
         host = (v or "").strip().lower()
         return host in {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
@@ -370,6 +371,7 @@ def _build_zlm_hook_urls(base: str, secret: str) -> dict[str, str]:
     会自动 URL-decode，校验侧无需改动。
     """
     from urllib.parse import quote as _url_quote
+
     _q = _url_quote(str(secret or ""), safe="")
     return {
         "on_server_started": f"{base}/on_server_started?secret={_q}",
@@ -477,7 +479,7 @@ async def _check_media_node(node: MediaNode) -> tuple[bool, float]:
     try:
         # FIX: [2026-07-16 P0] 1) 使用 decrypted_secret 读取明文而非密文列；
         # 2) ZLM API secret 必须通过 POST 请求体传递，禁止 URL 查询参数
-        sec = (node.decrypted_secret or str(settings.MEDIA_SERVER_SECRET or "").strip() or "")
+        sec = node.decrypted_secret or str(settings.MEDIA_SERVER_SECRET or "").strip() or ""
         client = await _get_zlm_client()
         response = await client.post(url, data={"secret": sec}, timeout=3.0)
         if response.status_code >= 400:
@@ -507,9 +509,7 @@ async def list_media_nodes(
     now = datetime.now(timezone.utc)
     offline_seconds = 120
     try:
-        sres = await db.execute(
-            select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds")
-        )
+        sres = await db.execute(select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds"))
         setting = sres.scalars().first()
         if setting and setting.setting_value:
             offline_seconds = max(10, min(int(setting.setting_value), 24 * 3600))
@@ -530,46 +530,46 @@ async def list_media_nodes(
             computed_online = bool(node.is_online)
         public_host = (getattr(node, "stream_ip", None) or node.public_ip or node.ip or "").strip() or node.ip
         public_http_port = settings.STREAM_PUBLIC_HTTP_PORT or int(node.http_port or 0)
-        payload.append({
-            "id": node.id,
-            "ip": node.ip,
-            "public_ip": node.public_ip,
-            "is_active": bool(active_id and node.id == active_id),
-            "stream_ip": getattr(node, "stream_ip", None),
-            "computed_public_host": public_host,
-            "computed_public_http_port": public_http_port,
-            "hook_base_url": computed_hook_base,
-            "hook_base_url_raw": getattr(node, "hook_base_url", None),
-            "hook_ip": getattr(node, "hook_ip", None),
-            "sdp_ip": getattr(node, "sdp_ip", None),
-            "computed_hook_base_url": computed_hook_base,
-            "http_port": node.http_port,
-            "https_port": getattr(node, "https_port", 0),
-            "rtsp_port": node.rtsp_port,
-            "rtsps_port": getattr(node, "rtsps_port", 0),
-            "rtmp_port": node.rtmp_port,
-            "rtmps_port": getattr(node, "rtmps_port", 0),
-            "rtp_proxy_port": node.rtp_proxy_port,
-            "rtp_port_mode": getattr(node, "rtp_port_mode", "single"),
-            "rtp_port_range_start": getattr(node, "rtp_port_range_start", 0),
-            "rtp_port_range_end": getattr(node, "rtp_port_range_end", 0),
-            "record_mgr_port": getattr(node, "record_mgr_port", 0),
-            "record_file_second": getattr(node, "record_file_second", 0),
-            "record_sample_ms": getattr(node, "record_sample_ms", 0),
-            "protocol_mp4_max_second": getattr(node, "protocol_mp4_max_second", 0),
-            # FIX [2026-07-17 P0]: node.secret 列存 AES-256-GCM 密文，对密文脱敏毫无意义，
-            # 必须用 decrypted_secret 取明文再脱敏，否则前端看到的是密文片段。
-            "secret": _mask_secret(getattr(node, "decrypted_secret", None) or ""),
-            "is_online": bool(computed_online),
-            "load": node.load,
-            "last_seen_at": last_seen.isoformat() if last_seen else None,
-            "last_probe_error": getattr(node, "last_probe_error", None),
-            "is_embedded": node.is_embedded,
-            "auto_config_enabled": getattr(node, "auto_config_enabled", False),
-            "zlm_ssl_configured": bool(
-                (getattr(node, "zlm_ssl_merged_pem", None) or "").strip()
-            ),
-        })
+        payload.append(
+            {
+                "id": node.id,
+                "ip": node.ip,
+                "public_ip": node.public_ip,
+                "is_active": bool(active_id and node.id == active_id),
+                "stream_ip": getattr(node, "stream_ip", None),
+                "computed_public_host": public_host,
+                "computed_public_http_port": public_http_port,
+                "hook_base_url": computed_hook_base,
+                "hook_base_url_raw": getattr(node, "hook_base_url", None),
+                "hook_ip": getattr(node, "hook_ip", None),
+                "sdp_ip": getattr(node, "sdp_ip", None),
+                "computed_hook_base_url": computed_hook_base,
+                "http_port": node.http_port,
+                "https_port": getattr(node, "https_port", 0),
+                "rtsp_port": node.rtsp_port,
+                "rtsps_port": getattr(node, "rtsps_port", 0),
+                "rtmp_port": node.rtmp_port,
+                "rtmps_port": getattr(node, "rtmps_port", 0),
+                "rtp_proxy_port": node.rtp_proxy_port,
+                "rtp_port_mode": getattr(node, "rtp_port_mode", "single"),
+                "rtp_port_range_start": getattr(node, "rtp_port_range_start", 0),
+                "rtp_port_range_end": getattr(node, "rtp_port_range_end", 0),
+                "record_mgr_port": getattr(node, "record_mgr_port", 0),
+                "record_file_second": getattr(node, "record_file_second", 0),
+                "record_sample_ms": getattr(node, "record_sample_ms", 0),
+                "protocol_mp4_max_second": getattr(node, "protocol_mp4_max_second", 0),
+                # FIX [2026-07-17 P0]: node.secret 列存 AES-256-GCM 密文，对密文脱敏毫无意义，
+                # 必须用 decrypted_secret 取明文再脱敏，否则前端看到的是密文片段。
+                "secret": _mask_secret(getattr(node, "decrypted_secret", None) or ""),
+                "is_online": bool(computed_online),
+                "load": node.load,
+                "last_seen_at": last_seen.isoformat() if last_seen else None,
+                "last_probe_error": getattr(node, "last_probe_error", None),
+                "is_embedded": node.is_embedded,
+                "auto_config_enabled": getattr(node, "auto_config_enabled", False),
+                "zlm_ssl_configured": bool((getattr(node, "zlm_ssl_merged_pem", None) or "").strip()),
+            }
+        )
     return payload
 
 
@@ -580,9 +580,7 @@ async def get_media_nodes_offline_threshold(
 ):
     """获取媒体节点离线判定阈值（秒）。"""
     default = 120
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds")
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds"))
     setting = result.scalars().first()
     value = default
     try:
@@ -606,9 +604,7 @@ async def set_media_nodes_offline_threshold(
 ):
     """设置媒体节点离线判定阈值（秒）。"""
     value = max(10, min(int(payload.offline_seconds or 120), 24 * 3600))
-    result = await db.execute(
-        select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds")
-    )
+    result = await db.execute(select(SystemSetting).where(SystemSetting.setting_key == "media_nodes.offline_seconds"))
     setting = result.scalars().first()
     if not setting:
         setting = SystemSetting(setting_key="media_nodes.offline_seconds", setting_value=str(value))
@@ -763,10 +759,7 @@ async def get_port_pool_status(
             )
         else:
             total = 1
-            lease_stmt = (
-                select(func.count(MediaPortLease.id))
-                .where(MediaPortLease.media_server_id == node.id)
-            )
+            lease_stmt = select(func.count(MediaPortLease.id)).where(MediaPortLease.media_server_id == node.id)
 
         lease_result = await db.execute(lease_stmt)
         leased = int(lease_result.scalar() or 0)
@@ -777,16 +770,18 @@ async def get_port_pool_status(
         if utilization > 95:
             warnings.append(f"端口即将耗尽！当前使用率 {utilization}%")
 
-        result.append({
-            "node_id": node.id,
-            "node_name": getattr(node, "name", node.id) or node.id,
-            "mode": mode,
-            "total_ports": total,
-            "leased_ports": leased,
-            "available_ports": max(0, total - leased),
-            "utilization_rate": utilization,
-            "warnings": warnings,
-        })
+        result.append(
+            {
+                "node_id": node.id,
+                "node_name": getattr(node, "name", node.id) or node.id,
+                "mode": mode,
+                "total_ports": total,
+                "leased_ports": leased,
+                "available_ports": max(0, total - leased),
+                "utilization_rate": utilization,
+                "warnings": warnings,
+            }
+        )
 
     return {"nodes": result}
 
@@ -820,11 +815,7 @@ async def cleanup_media_node_leases(
     cleaned = int(cleaned_orphan or 0) + int(cleaned_invalid_bound or 0)
     await db.commit()
     try:
-        operator = (
-            getattr(current_user, "username", None)
-            or getattr(current_user, "email", None)
-            or str(getattr(current_user, "id", "unknown"))
-        )
+        operator = getattr(current_user, "username", None) or getattr(current_user, "email", None) or str(getattr(current_user, "id", "unknown"))
         await audit_center_service.log(
             db=db,
             module="media_nodes",
@@ -844,6 +835,7 @@ async def cleanup_media_node_leases(
         "cleaned_orphan": int(cleaned_orphan or 0),
         "cleaned_invalid_bound": int(cleaned_invalid_bound or 0),
     }
+
 
 @router.post("/media-nodes")
 async def create_media_node(
@@ -1313,10 +1305,7 @@ async def activate_media_node(
 
 
 @router.get("/sources")
-async def list_access_sources(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
-):
+async def list_access_sources(db: AsyncSession = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
     stmt = select(AccessSource)
     if not current_user.is_superuser:
         stmt = stmt.where(AccessSource.tenant_id == (current_user.tenant_id or "default"))
@@ -1340,7 +1329,7 @@ async def list_access_sources(
             "gb_name": getattr(item, "gb_name", None),
             "gb_parent_gb_id": getattr(item, "gb_parent_gb_id", None),
             "gb_resource_id": getattr(item, "gb_resource_id", None),
-            "extra": item.extra or {}
+            "extra": item.extra or {},
         }
         for item in records
     ]
@@ -1764,11 +1753,17 @@ async def set_access_source_desired_state(
         )
         raise HTTPException(status_code=400, detail="state only supports running/stopped")
     now_iso = datetime.now(timezone.utc).isoformat()
-    await _update_source_runtime(db, source, {
-        "desired.state": state,
-        "desired.updated_at": now_iso,
-        "desired.updated_by": getattr(current_user, "username", None) or getattr(current_user, "email", None) or str(getattr(current_user, "id", "")),
-    })
+    await _update_source_runtime(
+        db,
+        source,
+        {
+            "desired.state": state,
+            "desired.updated_at": now_iso,
+            "desired.updated_by": getattr(current_user, "username", None)
+            or getattr(current_user, "email", None)
+            or str(getattr(current_user, "id", "")),
+        },
+    )
     stream_name = normalize_stream_name(source.stream_name or source.name or source.id, fallback=source.id)
     if payload.enforce and state == "stopped":
         try:
@@ -1778,25 +1773,37 @@ async def set_access_source_desired_state(
             except Exception as e:
                 logger.debug(f"非关键操作失败: {e}")
             prefix = "runtime.rtmp" if protocol == "RTMP" else "runtime.proxy"
-            await _update_source_runtime(db, source, {
-                f"{prefix}.last_enforce_stop_at": now_iso,
-                f"{prefix}.last_enforce_stop_ok": True,
-                f"{prefix}.last_enforce_stop_message": "",
-            })
+            await _update_source_runtime(
+                db,
+                source,
+                {
+                    f"{prefix}.last_enforce_stop_at": now_iso,
+                    f"{prefix}.last_enforce_stop_ok": True,
+                    f"{prefix}.last_enforce_stop_message": "",
+                },
+            )
         except Exception as e:
             prefix = "runtime.rtmp" if protocol == "RTMP" else "runtime.proxy"
-            await _update_source_runtime(db, source, {
-                f"{prefix}.last_enforce_stop_at": now_iso,
-                f"{prefix}.last_enforce_stop_ok": False,
-                f"{prefix}.last_enforce_stop_message": str(e)[:200],
-            })
+            await _update_source_runtime(
+                db,
+                source,
+                {
+                    f"{prefix}.last_enforce_stop_at": now_iso,
+                    f"{prefix}.last_enforce_stop_ok": False,
+                    f"{prefix}.last_enforce_stop_message": str(e)[:200],
+                },
+            )
     if payload.enforce and state == "running":
         if protocol == "RTMP":
-            await _update_source_runtime(db, source, {
-                "runtime.rtmp.last_enforce_start_at": now_iso,
-                "runtime.rtmp.last_enforce_start_ok": False,
-                "runtime.rtmp.last_enforce_start_message": "RTMP 推流需外部推流端发起，平台无法主动拉起",
-            })
+            await _update_source_runtime(
+                db,
+                source,
+                {
+                    "runtime.rtmp.last_enforce_start_at": now_iso,
+                    "runtime.rtmp.last_enforce_start_ok": False,
+                    "runtime.rtmp.last_enforce_start_message": "RTMP 推流需外部推流端发起，平台无法主动拉起",
+                },
+            )
         else:
             target_url = ""
             if protocol == "RTSP":
@@ -1824,11 +1831,15 @@ async def set_access_source_desired_state(
             elif protocol == "SDK":
                 direct = (source.extra or {}).get("play_url")
                 if not direct:
-                    await _update_source_runtime(db, source, {
-                        "runtime.proxy.last_enforce_start_at": now_iso,
-                        "runtime.proxy.last_enforce_start_ok": False,
-                        "runtime.proxy.last_enforce_start_message": "SDK integration source requires extra.play_url",
-                    })
+                    await _update_source_runtime(
+                        db,
+                        source,
+                        {
+                            "runtime.proxy.last_enforce_start_at": now_iso,
+                            "runtime.proxy.last_enforce_start_ok": False,
+                            "runtime.proxy.last_enforce_start_message": "SDK integration source requires extra.play_url",
+                        },
+                    )
                     raise HTTPException(status_code=400, detail="SDK integration source requires extra.play_url")
                 target_url = str(direct)
 
@@ -1860,32 +1871,35 @@ async def set_access_source_desired_state(
 
                 output_url = f"rtmp://{proxy_host}:{proxy_rtmp_port}/live/{stream_name}"
                 cmd_tpl = str(cmd_row.cmd_template or "")
-                cmd = (
-                    cmd_tpl.replace("{input}", target_url)
-                    .replace("{output}", output_url)
-                    .replace("{stream}", stream_name)
-                    .replace("{app}", "live")
-                )
+                cmd = cmd_tpl.replace("{input}", target_url).replace("{output}", output_url).replace("{stream}", stream_name).replace("{app}", "live")
                 try:
                     ffmpeg_proxy_manager.start(source.id, cmd)
-                    await _update_source_runtime(db, source, {
-                        "runtime.proxy.last_enforce_start_at": now_iso,
-                        "runtime.proxy.last_enforce_start_ok": True,
-                        "runtime.proxy.last_enforce_start_message": "",
-                        "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_rtmp_port}",
-                        "runtime.proxy.last_start_reason": f"manual_enforce ffmpeg reason={selection_reason}",
-                        "runtime.proxy.last_target_url": str(target_url)[:200],
-                        "runtime.proxy.mode": "ffmpeg",
-                        "runtime.proxy.ffmpeg_cmd_key": str(cmd_row.id),
-                    })
+                    await _update_source_runtime(
+                        db,
+                        source,
+                        {
+                            "runtime.proxy.last_enforce_start_at": now_iso,
+                            "runtime.proxy.last_enforce_start_ok": True,
+                            "runtime.proxy.last_enforce_start_message": "",
+                            "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_rtmp_port}",
+                            "runtime.proxy.last_start_reason": f"manual_enforce ffmpeg reason={selection_reason}",
+                            "runtime.proxy.last_target_url": str(target_url)[:200],
+                            "runtime.proxy.mode": "ffmpeg",
+                            "runtime.proxy.ffmpeg_cmd_key": str(cmd_row.id),
+                        },
+                    )
                 except Exception as e:
-                    await _update_source_runtime(db, source, {
-                        "runtime.proxy.last_enforce_start_at": now_iso,
-                        "runtime.proxy.last_enforce_start_ok": False,
-                        "runtime.proxy.last_enforce_start_message": str(e)[:200],
-                        "runtime.proxy.mode": "ffmpeg",
-                        "runtime.proxy.ffmpeg_cmd_key": str(cmd_row.id),
-                    })
+                    await _update_source_runtime(
+                        db,
+                        source,
+                        {
+                            "runtime.proxy.last_enforce_start_at": now_iso,
+                            "runtime.proxy.last_enforce_start_ok": False,
+                            "runtime.proxy.last_enforce_start_message": str(e)[:200],
+                            "runtime.proxy.mode": "ffmpeg",
+                            "runtime.proxy.ffmpeg_cmd_key": str(cmd_row.id),
+                        },
+                    )
                     raise HTTPException(status_code=502, detail=f"FFmpeg start failed: {str(e)}")
                 await safe_auth_audit(
                     db,
@@ -1923,18 +1937,18 @@ async def set_access_source_desired_state(
                 client = await _get_zlm_client()
                 # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
                 response = await client.post(
-                        proxy_url,
-                        data={
-                            "secret": proxy_secret,
-                            "vhost": "__defaultVhost__",
-                            "app": "live",
-                            "stream": stream_name,
-                            "url": target_url,
-                            "enable_hls": 1,
-                            "enable_mp4": 0,
-                            "rtp_type": 0,
-                        },
-                    )
+                    proxy_url,
+                    data={
+                        "secret": proxy_secret,
+                        "vhost": "__defaultVhost__",
+                        "app": "live",
+                        "stream": stream_name,
+                        "url": target_url,
+                        "enable_hls": 1,
+                        "enable_mp4": 0,
+                        "rtp_type": 0,
+                    },
+                )
                 if response.status_code >= 400:
                     raise HTTPException(status_code=502, detail=f"Proxy request failed: {response.status_code}")  # i18n
                 body = response.json()
@@ -1947,29 +1961,41 @@ async def set_access_source_desired_state(
                     if ":" in head:
                         user = head.split(":", 1)[0]
                         safe_target = f"{prefix}://{user}:***@{rest.split('@', 1)[1]}"
-                await _update_source_runtime(db, source, {
-                    "runtime.proxy.last_enforce_start_at": now_iso,
-                    "runtime.proxy.last_enforce_start_ok": True,
-                    "runtime.proxy.last_enforce_start_message": "",
-                    "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
-                    "runtime.proxy.last_start_reason": f"manual_enforce reason={selection_reason}",
-                    "runtime.proxy.last_target_url": safe_target[:200],
-                })
+                await _update_source_runtime(
+                    db,
+                    source,
+                    {
+                        "runtime.proxy.last_enforce_start_at": now_iso,
+                        "runtime.proxy.last_enforce_start_ok": True,
+                        "runtime.proxy.last_enforce_start_message": "",
+                        "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
+                        "runtime.proxy.last_start_reason": f"manual_enforce reason={selection_reason}",
+                        "runtime.proxy.last_target_url": safe_target[:200],
+                    },
+                )
             except HTTPException as he:
-                await _update_source_runtime(db, source, {
-                    "runtime.proxy.last_enforce_start_at": now_iso,
-                    "runtime.proxy.last_enforce_start_ok": False,
-                    "runtime.proxy.last_enforce_start_message": str(he.detail)[:200],
-                    "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
-                })
+                await _update_source_runtime(
+                    db,
+                    source,
+                    {
+                        "runtime.proxy.last_enforce_start_at": now_iso,
+                        "runtime.proxy.last_enforce_start_ok": False,
+                        "runtime.proxy.last_enforce_start_message": str(he.detail)[:200],
+                        "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
+                    },
+                )
                 raise
             except Exception as e:
-                await _update_source_runtime(db, source, {
-                    "runtime.proxy.last_enforce_start_at": now_iso,
-                    "runtime.proxy.last_enforce_start_ok": False,
-                    "runtime.proxy.last_enforce_start_message": str(e)[:200],
-                    "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
-                })
+                await _update_source_runtime(
+                    db,
+                    source,
+                    {
+                        "runtime.proxy.last_enforce_start_at": now_iso,
+                        "runtime.proxy.last_enforce_start_ok": False,
+                        "runtime.proxy.last_enforce_start_message": str(e)[:200],
+                        "runtime.proxy.last_start_node": f"{proxy_host}:{proxy_http_port}",
+                    },
+                )
                 raise HTTPException(status_code=502, detail=f"Proxy request error: {str(e)}")  # i18n
     await safe_auth_audit(
         db,
@@ -2059,33 +2085,41 @@ async def test_access_source(
     protocol = source.protocol.upper()
     now_iso = datetime.now(timezone.utc).isoformat()
     if protocol in {"ONVIF", "RTSP"}:
-        await _update_source_runtime(db, source, {
-            "runtime.last_test_at": now_iso,
-            "runtime.last_test_ok": True,
-            "runtime.last_test_message": "Parameters saved, you can test playback directly",  # i18n
-        })
+        await _update_source_runtime(
+            db,
+            source,
+            {
+                "runtime.last_test_at": now_iso,
+                "runtime.last_test_ok": True,
+                "runtime.last_test_message": "Parameters saved, you can test playback directly",  # i18n
+            },
+        )
         return {"ok": True, "message": "Parameters saved, you can test playback directly"}  # i18n
     if protocol == "SDK":
-        await _update_source_runtime(db, source, {
+        await _update_source_runtime(
+            db,
+            source,
+            {
+                "runtime.last_test_at": now_iso,
+                "runtime.last_test_ok": True,
+                "runtime.last_test_message": "SDK source saved, please verify plugin or SDK gateway is available",  # i18n
+            },
+        )
+        return {"ok": True, "message": "SDK source saved, please verify plugin or SDK gateway is available"}  # i18n
+    await _update_source_runtime(
+        db,
+        source,
+        {
             "runtime.last_test_at": now_iso,
             "runtime.last_test_ok": True,
-            "runtime.last_test_message": "SDK source saved, please verify plugin or SDK gateway is available",  # i18n
-        })
-        return {"ok": True, "message": "SDK source saved, please verify plugin or SDK gateway is available"}  # i18n
-    await _update_source_runtime(db, source, {
-        "runtime.last_test_at": now_iso,
-        "runtime.last_test_ok": True,
-        "runtime.last_test_message": "GB28181 is verified through device registration flow",  # i18n
-    })
+            "runtime.last_test_message": "GB28181 is verified through device registration flow",  # i18n
+        },
+    )
     return {"ok": True, "message": "GB28181 is verified through device registration flow"}  # i18n
 
 
 @router.post("/sources/{source_id}/play")
-async def play_access_source(
-    source_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
-):
+async def play_access_source(source_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
     stmt = select(AccessSource).where(AccessSource.id == source_id, AccessSource.enabled)
     if not current_user.is_superuser:
         stmt = stmt.where(AccessSource.tenant_id == (current_user.tenant_id or "default"))
@@ -2120,11 +2154,15 @@ async def play_access_source(
     elif protocol == "SDK":
         direct = (source.extra or {}).get("play_url")
         if not direct:
-            await _update_source_runtime(db, source, {
-                "runtime.last_play_at": now_iso,
-                "runtime.last_play_ok": False,
-                "runtime.last_play_error": "SDK integration source requires extra.play_url",
-            })
+            await _update_source_runtime(
+                db,
+                source,
+                {
+                    "runtime.last_play_at": now_iso,
+                    "runtime.last_play_ok": False,
+                    "runtime.last_play_error": "SDK integration source requires extra.play_url",
+                },
+            )
             raise HTTPException(status_code=400, detail="SDK integration source requires extra.play_url")
         target_url = str(direct)
     elif protocol == "RTMP":
@@ -2164,11 +2202,15 @@ async def play_access_source(
             "webrtc": f"http://{media_host}:{media_port}/index/api/webrtc?app=live&stream={stream_name}&type=play",
         }
     else:
-        await _update_source_runtime(db, source, {
-            "runtime.last_play_at": now_iso,
-            "runtime.last_play_ok": False,
-            "runtime.last_play_error": "GB28181 access requires device/channel playback API",  # i18n
-        })
+        await _update_source_runtime(
+            db,
+            source,
+            {
+                "runtime.last_play_at": now_iso,
+                "runtime.last_play_ok": False,
+                "runtime.last_play_error": "GB28181 access requires device/channel playback API",  # i18n
+            },
+        )
         raise HTTPException(status_code=400, detail="For GB28181 access, please use the device/channel playback API")  # i18n
 
     # 代理拉流：优先使用运维中心配置的活动媒体节点，否则自动选一个节点；最后回退全局配置
@@ -2210,42 +2252,50 @@ async def play_access_source(
         client = await _get_zlm_client()
         # FIX [2026-07-17 P1-D1]: secret 通过 POST body 传递
         response = await client.post(
-                proxy_url,
-                data={
-                    "secret": proxy_secret,
-                    "vhost": "__defaultVhost__",
-                    "app": "live",
-                    "stream": stream_name,
-                    "url": target_url,
-                    "enable_hls": 1,
-                    "enable_mp4": 0,
-                    "rtp_type": 0
-                },
-            )
+            proxy_url,
+            data={
+                "secret": proxy_secret,
+                "vhost": "__defaultVhost__",
+                "app": "live",
+                "stream": stream_name,
+                "url": target_url,
+                "enable_hls": 1,
+                "enable_mp4": 0,
+                "rtp_type": 0,
+            },
+        )
         if response.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Proxy request failed: {response.status_code}")  # i18n
         body = response.json()
         if body.get("code") not in {0, "0"}:
             raise HTTPException(status_code=502, detail=f"Proxy request failed: {body.get('msg') or body}")  # i18n
     except HTTPException as he:
-        await _update_source_runtime(db, source, {
-            "runtime.last_play_at": now_iso,
-            "runtime.last_play_ok": False,
-            "runtime.last_play_error": str(he.detail),
-            "runtime.last_play_stream": stream_name,
-            "runtime.last_play_target_url": target_url,
-            "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
-        })
+        await _update_source_runtime(
+            db,
+            source,
+            {
+                "runtime.last_play_at": now_iso,
+                "runtime.last_play_ok": False,
+                "runtime.last_play_error": str(he.detail),
+                "runtime.last_play_stream": stream_name,
+                "runtime.last_play_target_url": target_url,
+                "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
+            },
+        )
         raise
     except Exception as e:
-        await _update_source_runtime(db, source, {
-            "runtime.last_play_at": now_iso,
-            "runtime.last_play_ok": False,
-            "runtime.last_play_error": f"Proxy request error: {str(e)}",  # i18n
-            "runtime.last_play_stream": stream_name,
-            "runtime.last_play_target_url": target_url,
-            "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
-        })
+        await _update_source_runtime(
+            db,
+            source,
+            {
+                "runtime.last_play_at": now_iso,
+                "runtime.last_play_ok": False,
+                "runtime.last_play_error": f"Proxy request error: {str(e)}",  # i18n
+                "runtime.last_play_stream": stream_name,
+                "runtime.last_play_target_url": target_url,
+                "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
+            },
+        )
         raise HTTPException(status_code=502, detail=f"Proxy request error: {str(e)}")  # i18n
     media_host = public_host
     media_port = public_http_port
@@ -2255,15 +2305,19 @@ async def play_access_source(
         "codec": str((source.extra or {}).get("codec") or "h264").lower(),
         "flv": f"http://{media_host}:{media_port}/live/{stream_name}.live.flv",
         "hls": f"http://{media_host}:{media_port}/live/{stream_name}/hls.m3u8",
-        "webrtc": f"http://{media_host}:{media_port}/index/api/webrtc?app=live&stream={stream_name}&type=play"
+        "webrtc": f"http://{media_host}:{media_port}/index/api/webrtc?app=live&stream={stream_name}&type=play",
     }
-    await _update_source_runtime(db, source, {
-        "runtime.last_play_at": now_iso,
-        "runtime.last_play_ok": True,
-        "runtime.last_play_error": "",
-        "runtime.last_play_stream": stream_name,
-        "runtime.last_play_target_url": target_url,
-        "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
-        "runtime.last_play_urls": {"flv": payload["flv"], "hls": payload["hls"], "webrtc": payload["webrtc"]},
-    })
+    await _update_source_runtime(
+        db,
+        source,
+        {
+            "runtime.last_play_at": now_iso,
+            "runtime.last_play_ok": True,
+            "runtime.last_play_error": "",
+            "runtime.last_play_stream": stream_name,
+            "runtime.last_play_target_url": target_url,
+            "runtime.last_play_node": f"{proxy_host}:{proxy_http_port}",
+            "runtime.last_play_urls": {"flv": payload["flv"], "hls": payload["hls"], "webrtc": payload["webrtc"]},
+        },
+    )
     return payload

@@ -4,7 +4,6 @@ from loguru import logger
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 
-
 async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed_msg=None, *, await_drain: bool = False) -> bool:
     """
     Send raw SIP bytes over UDP or TCP.
@@ -21,7 +20,7 @@ async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed
         True if the bytes were sent (or queued for TCP), False on failure.
         R24-03: 之前静默吞异常导致调用方无法感知发送失败，PTZ 命令静默丢失。
     """
-    if transport is None or getattr(transport, 'is_closing', lambda: False)():
+    if transport is None or getattr(transport, "is_closing", lambda: False)():
         logger.warning(f"[send_sip_bytes] transport is None or closing, cannot send to {addr}")
         return False
 
@@ -31,9 +30,11 @@ async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed
     if __debug__:
         try:
             from app.core.plugin_manager import plugin_manager
+
             msg = parsed_msg
             if msg is None:
                 from app.sip.message import SipMessage
+
                 msg = SipMessage.parse(data)
             fire_and_forget(plugin_manager.emit("ON_SIP_SEND", msg, addr, p))  # P0-16: 保存引用防 GC + 异常日志
         except Exception as e:
@@ -48,7 +49,7 @@ async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed
             return False
     try:
         transport.write(data)
-        if hasattr(transport, 'drain') and asyncio.iscoroutinefunction(transport.drain):
+        if hasattr(transport, "drain") and asyncio.iscoroutinefunction(transport.drain):
             try:
                 loop = asyncio.get_running_loop()
                 if await_drain:
@@ -56,6 +57,7 @@ async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed
                     await transport.drain()
                 else:
                     task = loop.create_task(transport.drain())
+
                     # FIX [2026-07-17 P2-7]: 原回调 t.exception() 被调用但未记录日志，异常被静默吞掉。
                     # 改为在回调中记录 warning 日志，确保 TCP drain 失败可被排查。
                     def _log_drain_exc(t: asyncio.Task) -> None:
@@ -63,6 +65,7 @@ async def send_sip_bytes(proto: str, transport, addr: tuple, data: bytes, parsed
                             exc = t.exception()
                             if exc:
                                 logger.warning(f"[send_sip_bytes] TCP drain failed: {exc}")
+
                     task.add_done_callback(_log_drain_exc)
             except RuntimeError as _drain_rt_err:
                 # FIX [2026-07-17 P2-7]: 描述性日志替代 "RuntimeError: {e}"
@@ -118,9 +121,6 @@ def validate_required_headers(message) -> bool:
 
     if missing:
         call_id = message.get_header("Call-ID") if hasattr(message, "get_header") else "?"
-        logger.warning(
-            f"SIP request missing required headers: method={method} "
-            f"call_id={call_id} missing={missing}"
-        )
+        logger.warning(f"SIP request missing required headers: method={method} call_id={call_id} missing={missing}")
         return False
     return True

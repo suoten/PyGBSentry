@@ -12,6 +12,7 @@ from app.services.auth_audit import safe_auth_audit
 
 router = APIRouter()
 
+
 class WorkOrderCreate(BaseModel):
     alarm_id: Optional[str] = None
     title: str
@@ -37,6 +38,7 @@ class WorkOrderCreate(BaseModel):
         if v and len(v) < 4:
             raise ValueError("Description must be at least 4 characters")
         return v
+
 
 class WorkOrderUpdate(BaseModel):
     title: Optional[str] = None
@@ -66,14 +68,18 @@ class WorkOrderUpdate(BaseModel):
             raise ValueError("Description must be at least 4 characters")
         return v
 
+
 def _scope_tenant_id(user: User) -> str:
     return user.tenant_id or "default"
+
 
 def _can_edit_content(status: str) -> bool:
     return status in {"open", "in_progress", "resolved"}
 
+
 def _can_delete(status: str) -> bool:
     return status == "closed"
+
 
 def _status_transition_allowed(current: str, target: str) -> bool:
     if current == target:
@@ -85,6 +91,7 @@ def _status_transition_allowed(current: str, target: str) -> bool:
         "closed": set(),
     }
     return target in allowed.get(current, set())
+
 
 @router.get("")
 async def list_work_orders(
@@ -100,6 +107,7 @@ async def list_work_orders(
         stmt = stmt.where(WorkOrder.status == status)
     result = await db.execute(stmt)
     return result.scalars().all()
+
 
 @router.post("")
 async def create_work_order(
@@ -131,12 +139,10 @@ async def create_work_order(
         tenant_id=tid,
         status_code=201,
         detail="ok",
-        extra_summary=(
-            f"work_order_id={item.id}; priority={item.priority or ''}; "
-            f"alarm_id={item.alarm_id or ''}"
-        ),
+        extra_summary=(f"work_order_id={item.id}; priority={item.priority or ''}; alarm_id={item.alarm_id or ''}"),
     )
     return item
+
 
 @router.put("/{work_order_id}")
 async def update_work_order(
@@ -206,6 +212,7 @@ async def update_work_order(
         extra_summary=f"work_order_id={item.id}; status={item.status or ''}",
     )
     return item
+
 
 @router.delete("/{work_order_id}")
 async def delete_work_order(

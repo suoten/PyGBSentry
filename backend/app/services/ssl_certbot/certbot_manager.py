@@ -4,6 +4,7 @@
 启动续期定时器。该模块在 Windows 平台上为 no-op（``platform_supported=False``），
 且整体调用被 ``main.py`` 的 ``try/except`` 包裹，不会阻断启动。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,9 +23,11 @@ from app.services.ssl_certbot.certbot_config import CertbotSettings
 # force_renew() 函数，但 ConvergeLoop Round 0 删除了它们，导致
 # /api/v1/ssl-cert/* 全部 404。以下是兼容当前代码库的实现。[全栈工程师]
 
+
 @dataclass
 class CertInfo:
     """SSL 证书状态信息（供 ssl_cert 端点使用）。"""
+
     domain: str = ""
     status: str = "disabled"
     not_before: Optional[datetime] = None
@@ -39,6 +42,7 @@ class CertInfo:
 def _load_settings() -> CertbotSettings:
     """从全局 settings 加载 certbot 配置。"""
     from app.core.config import settings
+
     return CertbotSettings(
         enabled=settings.SSL_CERTBOT_ENABLED,
         domain=settings.SSL_CERTBOT_DOMAIN or "",
@@ -105,7 +109,9 @@ async def _renew_loop(interval_seconds: int) -> None:
             await asyncio.sleep(interval_seconds)
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    "certbot", "renew", "--quiet",
+                    "certbot",
+                    "renew",
+                    "--quiet",
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -113,10 +119,7 @@ async def _renew_loop(interval_seconds: int) -> None:
                 if proc.returncode == 0:
                     logger.info("SSL certbot renew check completed: no action needed")
                 else:
-                    logger.warning(
-                        f"SSL certbot renew failed: exit={proc.returncode} "
-                        f"stderr={stderr.decode('utf-8', errors='ignore')[:500]}"
-                    )
+                    logger.warning(f"SSL certbot renew failed: exit={proc.returncode} stderr={stderr.decode('utf-8', errors='ignore')[:500]}")
             except Exception as e:
                 logger.warning(f"SSL certbot renew check error: {e}")
     except asyncio.CancelledError:
@@ -153,6 +156,7 @@ async def get_status() -> CertInfo:
     # 尝试通过 cert_checker 检查实际证书状态
     try:
         from app.services.ssl_certbot.cert_checker import check_cert_status
+
         cert_path = f"/etc/letsencrypt/live/{cfg.domain}/cert.pem"
         info = await check_cert_status(cert_path, cfg.domain)
         _last_cert_info = info
@@ -181,7 +185,9 @@ async def force_renew() -> tuple[bool, str]:
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "certbot", "renew", "--force-renewal",
+            "certbot",
+            "renew",
+            "--force-renewal",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

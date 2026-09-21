@@ -20,6 +20,7 @@
    - 返回 ``just_locked=True`` → 返回 423，写 ``account_locked_after_attempts`` 审计。
 3. 登录成功时调用 :func:`reset_login_failures` 重置计数。
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone

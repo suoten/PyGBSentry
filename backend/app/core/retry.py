@@ -43,18 +43,13 @@ def retry_async(
                 except tuple(retryable_exceptions) as e:
                     last_exception = e
                     if attempt >= max_attempts:
-                        logger.warning(
-                            f"retry_async: {func.__name__} failed after {max_attempts} attempts: {e}"
-                        )
+                        logger.warning(f"retry_async: {func.__name__} failed after {max_attempts} attempts: {e}")
                         raise
                     delay = min(base_delay * (exponential_base ** (attempt - 1)), max_delay)
                     if jitter:
                         delay = delay * random.uniform(0.5, 1.5)
                     delay = min(delay, max_delay)
-                    logger.debug(
-                        f"retry_async: {func.__name__} attempt {attempt}/{max_attempts} failed: {e}, "
-                        f"retrying in {delay:.2f}s"
-                    )
+                    logger.debug(f"retry_async: {func.__name__} attempt {attempt}/{max_attempts} failed: {e}, retrying in {delay:.2f}s")
                     if on_retry:
                         try:
                             on_retry(attempt, e, delay)
@@ -93,17 +88,12 @@ async def retry_async_call(
         except tuple(retryable_exceptions) as e:
             last_exception = e
             if attempt >= max_attempts:
-                logger.warning(
-                    f"retry_async_call: {func.__name__} failed after {max_attempts} attempts: {e}"
-                )
+                logger.warning(f"retry_async_call: {func.__name__} failed after {max_attempts} attempts: {e}")
                 raise
             delay = min(base_delay * (exponential_base ** (attempt - 1)), max_delay)
             if jitter:
                 delay = delay * random.uniform(0.5, 1.5)
             delay = min(delay, max_delay)
-            logger.debug(
-                f"retry_async_call: {func.__name__} attempt {attempt}/{max_attempts} failed: {e}, "
-                f"retrying in {delay:.2f}s"
-            )
+            logger.debug(f"retry_async_call: {func.__name__} attempt {attempt}/{max_attempts} failed: {e}, retrying in {delay:.2f}s")
             await asyncio.sleep(delay)
     raise last_exception  # type: ignore[misc]

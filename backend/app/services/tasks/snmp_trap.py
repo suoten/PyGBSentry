@@ -3,6 +3,7 @@ SNMP Trap 上报服务。
 报警触发时，将告警内容转换为 SNMP Trap 数据报，发送到网管系统。
 依赖 pysnmp（pip install pysnmp）。
 """
+
 import asyncio
 import datetime
 import json
@@ -15,7 +16,6 @@ from sqlalchemy import select  # TECH_DEBT: 直接依赖具体实现，未来改
 from app.core.plugin_manager import HOOK_ON_ALARM
 from app.db.session import AsyncSessionLocal
 from app.models.system_setting import SystemSetting
-
 
 
 PLUGIN_ID = "snmp_trap"
@@ -61,9 +61,7 @@ async def _get_cfg() -> dict:
     if _cfg_cache and (now - _cfg_ts) < _cfg_ttl:
         return _cfg_cache
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
     any_enabled = False
     cfg = dict(_DEFAULT_CONFIG)
@@ -127,12 +125,23 @@ async def _send_trap(cfg: dict, alarm) -> bool:
 
     try:
         from pysnmp.hlapi import (  # noqa: F401
-            SnmpEngine, UdpTransportTarget, CommunityData, ContextData,
-            sendNotification, notificationType, ObjectIdentity, ObjectType,
+            SnmpEngine,
+            UdpTransportTarget,
+            CommunityData,
+            ContextData,
+            sendNotification,
+            notificationType,
+            ObjectIdentity,
+            ObjectType,
         )
+
         error_indication, error_status, error_index, var_bind_table = await asyncio.to_thread(
             _do_send_trap_sync,
-            trap_host, trap_port, community, snmp_version, varbinds,
+            trap_host,
+            trap_port,
+            community,
+            snmp_version,
+            varbinds,
         )
         if error_indication:
             logger.warning("[SNMPTrap] Send failed: %s", error_indication)
@@ -153,9 +162,16 @@ async def _send_trap(cfg: dict, alarm) -> bool:
 
 def _do_send_trap_sync(trap_host, trap_port, community, snmp_version, varbinds):
     from pysnmp.hlapi import (
-        SnmpEngine, UdpTransportTarget, CommunityData, ContextData,
-        sendNotification, notificationType, ObjectIdentity, ObjectType,
+        SnmpEngine,
+        UdpTransportTarget,
+        CommunityData,
+        ContextData,
+        sendNotification,
+        notificationType,
+        ObjectIdentity,
+        ObjectType,
     )
+
     if snmp_version == "3":
         CommunityData(community, mpModel=3)
     else:
@@ -167,12 +183,7 @@ def _do_send_trap_sync(trap_host, trap_port, community, snmp_version, varbinds):
         UdpTransportTarget((trap_host, trap_port), timeout=3, retries=1),
         ContextData(),
         "trap",
-        notificationType(
-            *[
-                ObjectType(ObjectIdentity(oid), val)
-                for oid, typ, val in varbinds
-            ]
-        ),
+        notificationType(*[ObjectType(ObjectIdentity(oid), val) for oid, typ, val in varbinds]),
     )
     error_indication, error_status, error_index, var_bind_table = next(iterator)
     return error_indication, error_status, error_index, var_bind_table

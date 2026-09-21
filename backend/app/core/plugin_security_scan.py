@@ -15,6 +15,7 @@
 - dependency_source_risk: git+ 依赖源
 - dependency_index_risk: 自定义索引源
 """
+
 import os
 import posixpath
 import re
@@ -22,7 +23,6 @@ import zipfile
 
 from app.core.config import settings
 from loguru import logger
-
 
 
 _PLUGIN_SECURITY_SCAN_PATTERNS: list[tuple[str, re.Pattern]] = [
@@ -41,7 +41,10 @@ _PLUGIN_SECURITY_SCAN_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("dangerous_call:type_metaclass", re.compile(r"\btype\s*\([^)]*\)\s*(?![\s]*[,\)]?\s*(?:globals|locals|vars|bases))")),
     ("dangerous_call:object_newstyle", re.compile(r"object\s*\.\s*(?:__subclasses__|__bases__|__mro__|__dict__)")),
     ("dangerous_call:__builtins__", re.compile(r"__builtins__")),
-    ("dangerous_call:getattr_chain", re.compile(r"getattr\s*\(\s*[^,]+,\s*['\"](?:__class__|__bases__|__mro__|__globals__|__code__|__closure__|__func__|__self__)")),
+    (
+        "dangerous_call:getattr_chain",
+        re.compile(r"getattr\s*\(\s*[^,]+,\s*['\"](?:__class__|__bases__|__mro__|__globals__|__code__|__closure__|__func__|__self__)"),
+    ),
     ("dangerous_call:setattr_dynamic", re.compile(r"setattr\s*\(\s*[^,]+,\s*['\"][^'\"]+['\"],\s*[^)]+\)")),
     ("dangerous_call:memoryview", re.compile(r"\bmemoryview\s*\(")),
     ("dangerous_call:buffer", re.compile(r"\bbuffer\s*\(")),
@@ -105,14 +108,9 @@ def scan_zip_for_security_risks(zip_ref: zipfile.ZipFile, file_list: list[str]) 
     config_files = [
         n
         for n in (file_list or [])
-        if isinstance(n, str)
-        and (
-            n.lower().endswith("pyproject.toml")
-            or n.lower().endswith("setup.cfg")
-            or n.lower().endswith("setup.py")
-        )
+        if isinstance(n, str) and (n.lower().endswith("pyproject.toml") or n.lower().endswith("setup.cfg") or n.lower().endswith("setup.py"))
     ]
-    for name in config_files[:min(max_files, 10)]:
+    for name in config_files[: min(max_files, 10)]:
         if len(hits) >= max_hits:
             return hits
         try:
@@ -223,11 +221,7 @@ def scan_zip_for_security_risks(zip_ref: zipfile.ZipFile, file_list: list[str]) 
             if len(hits) >= max_hits:
                 return
 
-    req_files = [
-        n
-        for n in (file_list or [])
-        if isinstance(n, str) and n.lower().endswith("requirements.txt")
-    ]
+    req_files = [n for n in (file_list or []) if isinstance(n, str) and n.lower().endswith("requirements.txt")]
     req_files.extend(
         [
             n
@@ -239,7 +233,7 @@ def scan_zip_for_security_risks(zip_ref: zipfile.ZipFile, file_list: list[str]) 
         ]
     )
     scanned: set[str] = set()
-    for root in req_files[:min(max_files, 10)]:
+    for root in req_files[: min(max_files, 10)]:
         _scan_requirements_file(_normalize_zip_path(root), scanned=scanned, depth=0)
         if len(hits) >= max_hits:
             return hits

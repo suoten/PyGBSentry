@@ -1,4 +1,5 @@
 """网络诊断工具：Ping / Traceroute / 端口探测 / SIP探测 / 流媒体探测。"""
+
 import asyncio
 import ipaddress
 import platform
@@ -68,6 +69,7 @@ _IS_WINDOWS = platform.system().lower() == "windows"
 # 1. POST /ping — Ping 诊断
 # ---------------------------------------------------------------------------
 
+
 @router.post("/ping", summary="Ping diagnosis")
 async def ping_diagnosis(
     host: str = Query(..., description="Target host IP or domain"),
@@ -90,9 +92,7 @@ async def ping_diagnosis(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=count * timeout + 10
-        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=count * timeout + 10)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Ping command timed out")
     except FileNotFoundError:
@@ -177,6 +177,7 @@ def _parse_ping_output(output: str) -> dict:
 # 2. POST /traceroute — Traceroute 诊断
 # ---------------------------------------------------------------------------
 
+
 @router.post("/traceroute", summary="Traceroute diagnosis")
 async def traceroute_diagnosis(
     host: str = Query(..., description="Target host IP or domain"),
@@ -199,9 +200,7 @@ async def traceroute_diagnosis(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=max_hops * timeout + 30
-        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=max_hops * timeout + 30)
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Traceroute command timed out")
     except FileNotFoundError:
@@ -268,6 +267,7 @@ def _parse_traceroute_output(output: str) -> list[dict]:
 # 3. POST /port-probe — 端口探测
 # ---------------------------------------------------------------------------
 
+
 @router.post("/port-probe", summary="TCP port probe")
 async def port_probe(
     host: str = Query(..., description="Target host IP or domain"),
@@ -320,6 +320,7 @@ async def port_probe(
 # ---------------------------------------------------------------------------
 # 4. POST /sip-probe — SIP 服务探测
 # ---------------------------------------------------------------------------
+
 
 @router.post("/sip-probe", summary="SIP server probe")
 async def sip_server_probe(
@@ -423,9 +424,7 @@ async def _sip_probe_udp(host: str, port: int, data: bytes, timeout: float) -> d
 async def _sip_probe_tcp(host: str, port: int, data: bytes, timeout: float) -> dict:
     """通过 TCP 发送 SIP OPTIONS 并等待响应。"""
     try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection(host, port), timeout=timeout
-        )
+        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
     except (asyncio.TimeoutError, ConnectionRefusedError, OSError) as exc:
         return {"reachable": False, "reason": str(exc)}
 
@@ -470,6 +469,7 @@ def _parse_sip_response(response: str) -> dict:
 # ---------------------------------------------------------------------------
 # 5. POST /media-probe — 流媒体服务探测
 # ---------------------------------------------------------------------------
+
 
 @router.post("/media-probe", summary="Media server probe")
 async def media_server_probe(

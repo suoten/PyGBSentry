@@ -101,9 +101,7 @@ async def _get_runtime_cfg() -> dict:
     if _cfg_cache and (now - _cfg_ts) < _cfg_ttl_sec:
         return _cfg_cache
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
     merged = dict(_DEFAULT_BASE_CONFIG)
     any_enabled = False
@@ -112,6 +110,7 @@ async def _get_runtime_cfg() -> dict:
     for r in rows:
         try:
             import json
+
             parsed = json.loads(r.setting_value or "{}")
             if not isinstance(parsed, dict):
                 continue
@@ -226,9 +225,7 @@ async def run_tour():
                             ok=True,
                         )
                     except Exception as ex:
-                        logger.error(
-                            f"[PTZTour] send_preset device={asset.gb_id} preset={preset_id}: {ex}"
-                        )
+                        logger.error(f"[PTZTour] send_preset device={asset.gb_id} preset={preset_id}: {ex}")
                         _append_ptz_event(
                             device_gb=str(asset.gb_id or ""),
                             channel_gb=str(resource.gb_id or ""),

@@ -1,4 +1,5 @@
 """会商会话指令：以报警为会商会话，记录指挥指令。"""
+
 from sqlalchemy import Column, String, Text, DateTime
 from sqlalchemy.sql import func
 from app.db.base import Base
@@ -8,6 +9,7 @@ try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:
     _uuid7_impl = uuid.uuid4
+
 
 def generate_uuid():
     return _uuid7_impl().hex

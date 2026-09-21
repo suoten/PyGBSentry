@@ -4,6 +4,7 @@
 配置项：
   targets: [{"type": "kafka"|"rabbitmq", "url": "...", "topic": "...", "exchange": "...", "routing_key": "...", "enabled": true}, ...]
 """
+
 import datetime
 import json
 from loguru import logger
@@ -14,12 +15,14 @@ from typing import Any
 from sqlalchemy import select  # TECH_DEBT: 直接依赖具体实现，未来改为Protocol接口注入
 
 from app.core.plugin_manager import (
-    HOOK_ON_ALARM, HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE,
-    HOOK_ON_STREAM_START, HOOK_ON_STREAM_STOP,
+    HOOK_ON_ALARM,
+    HOOK_ON_DEVICE_REGISTER,
+    HOOK_ON_DEVICE_OFFLINE,
+    HOOK_ON_STREAM_START,
+    HOOK_ON_STREAM_STOP,
 )
 from app.db.session import AsyncSessionLocal
 from app.models.system_setting import SystemSetting
-
 
 
 PLUGIN_ID = "event_bridge"
@@ -62,9 +65,7 @@ async def _get_cfg() -> dict:
     if _cfg_cache and (now - _cfg_ts) < _cfg_ttl:
         return _cfg_cache
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
     any_enabled = False
     cfg = dict(_DEFAULT_CONFIG)
@@ -141,6 +142,7 @@ async def _send_kafka(target: dict, event_type: str, msg_bytes: bytes) -> None:
     if producer is None:
         try:
             from kafka import KafkaProducer
+
             producer = KafkaProducer(
                 bootstrap_servers=bootstrap_servers,
                 value_serializer=lambda v: v,
@@ -178,6 +180,7 @@ async def _send_rabbitmq(target: dict, event_type: str, msg_bytes: bytes) -> Non
     if channel is None:
         try:
             import pika
+
             params = pika.URLParameters(url)
             conn = pika.BlockingConnection(params)
             channel = conn.channel()
@@ -209,57 +212,72 @@ async def on_alarm(alarm) -> None:
     device_id = str(getattr(alarm, "device_id", "") or "")
     channel_id = str(getattr(alarm, "channel_id", "") or device_id)
     t = getattr(alarm, "time", None)
-    await _publish("alarm", {
-        "device_id": device_id,
-        "channel_id": channel_id,
-        "alarm_type": str(getattr(alarm, "alarm_type", "") or "Alarm"),
-        "priority": str(getattr(alarm, "priority", "4") or "4"),
-        "description": str(getattr(alarm, "description", "") or ""),
-        "alarm_time": t.isoformat() if t and hasattr(t, "isoformat") else datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "status": str(getattr(alarm, "status", "") or "0"),
-        "tenant_id": getattr(alarm, "tenant_id", "default") or "default",
-    })
+    await _publish(
+        "alarm",
+        {
+            "device_id": device_id,
+            "channel_id": channel_id,
+            "alarm_type": str(getattr(alarm, "alarm_type", "") or "Alarm"),
+            "priority": str(getattr(alarm, "priority", "4") or "4"),
+            "description": str(getattr(alarm, "description", "") or ""),
+            "alarm_time": t.isoformat() if t and hasattr(t, "isoformat") else datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "status": str(getattr(alarm, "status", "") or "0"),
+            "tenant_id": getattr(alarm, "tenant_id", "default") or "default",
+        },
+    )
 
 
 async def on_device_register(device_id) -> None:
-    await _publish("device_online", {
-        "device_id": str(device_id or "").strip(),
-        "status": "online",
-        "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _publish(
+        "device_online",
+        {
+            "device_id": str(device_id or "").strip(),
+            "status": "online",
+            "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 async def on_device_offline(device_id) -> None:
-    await _publish("device_offline", {
-        "device_id": str(device_id or "").strip(),
-        "status": "offline",
-        "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _publish(
+        "device_offline",
+        {
+            "device_id": str(device_id or "").strip(),
+            "status": "offline",
+            "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 async def on_stream_start(session) -> None:
-    await _publish("stream_start", {
-        "stream": str(getattr(session, "stream", "") or ""),
-        "app": str(getattr(session, "app", "") or ""),
-        "resource_id": str(getattr(session, "resource_id", "") or ""),
-        "media_ip": str(getattr(session, "media_ip", "") or ""),
-        "media_port": int(getattr(session, "media_port", 0) or 0),
-        "ssrc": str(getattr(session, "ssrc", "") or ""),
-        "start_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _publish(
+        "stream_start",
+        {
+            "stream": str(getattr(session, "stream", "") or ""),
+            "app": str(getattr(session, "app", "") or ""),
+            "resource_id": str(getattr(session, "resource_id", "") or ""),
+            "media_ip": str(getattr(session, "media_ip", "") or ""),
+            "media_port": int(getattr(session, "media_port", 0) or 0),
+            "ssrc": str(getattr(session, "ssrc", "") or ""),
+            "start_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 async def on_stream_stop(session) -> None:
-    await _publish("stream_stop", {
-        "stream": str(getattr(session, "stream", "") or ""),
-        "app": str(getattr(session, "app", "") or ""),
-        "resource_id": str(getattr(session, "resource_id", "") or ""),
-        "stop_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "tenant_id": "default",
-    })
+    await _publish(
+        "stream_stop",
+        {
+            "stream": str(getattr(session, "stream", "") or ""),
+            "app": str(getattr(session, "app", "") or ""),
+            "resource_id": str(getattr(session, "resource_id", "") or ""),
+            "stop_time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "tenant_id": "default",
+        },
+    )
 
 
 async def start() -> None:

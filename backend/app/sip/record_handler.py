@@ -29,14 +29,15 @@ def _cleanup_record_caches() -> None:
         record_query_cache.pop(k, None)
     if len(record_query_meta_cache) > _record_cache_max_size:
         oldest = sorted(record_query_meta_cache.items(), key=lambda x: x[1].get("_ts", 0))
-        for k, _ in oldest[:len(oldest) - _record_cache_max_size // 2]:
+        for k, _ in oldest[: len(oldest) - _record_cache_max_size // 2]:
             record_query_cache.pop(k, None)
             record_query_meta_cache.pop(k, None)
     if len(record_query_cache) > _record_cache_max_size:
-        oldest_keys = list(record_query_cache.keys())[:len(record_query_cache) - _record_cache_max_size // 2]
+        oldest_keys = list(record_query_cache.keys())[: len(record_query_cache) - _record_cache_max_size // 2]
         for k in oldest_keys:
             record_query_cache.pop(k, None)
             record_query_meta_cache.pop(k, None)
+
 
 def periodic_cleanup_record_caches() -> None:
     global _last_record_cache_cleanup
@@ -49,6 +50,7 @@ def periodic_cleanup_record_caches() -> None:
         st = _record_agg.get(k) or {}
         if (now - float(st.get("last_at") or 0.0)) > _record_agg_ttl_seconds:
             _record_agg.pop(k, None)
+
 
 async def handle_record_info_response(xml_body: str, device_id: str):
     """
@@ -63,6 +65,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
     if sn and sn.isdigit():
         try:
             import app.services.platform_service as _ps_mod
+
             svc = getattr(_ps_mod, "platform_service", None)
             if svc and int(sn) in svc._cascade_record_queries:
                 await svc.forward_cascade_record_response(int(sn), xml_body)
@@ -112,7 +115,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
         agg_key = (str(device_id or ""), str(sn))
         # Size limit for _record_agg to prevent unbounded memory growth
         if len(_record_agg) > 1000:
-            sorted_keys = sorted(_record_agg.keys(), key=lambda k: _record_agg[k].get('_created_at', 0))
+            sorted_keys = sorted(_record_agg.keys(), key=lambda k: _record_agg[k].get("_created_at", 0))
             for k in sorted_keys[:200]:
                 _record_agg.pop(k, None)
         st = _record_agg.get(agg_key) or {"seen": set(), "records": [], "sum_num": 0, "last_at": now, "_created_at": now}
@@ -146,7 +149,7 @@ async def handle_record_info_response(xml_body: str, device_id: str):
 
             # Detect gaps > 5 seconds
             for i in range(1, len(merged)):
-                prev = merged[i-1]
+                prev = merged[i - 1]
                 curr = merged[i]
                 prev_end = parse_dt(str(prev.get("end_time") or ""))
                 curr_start = parse_dt(str(curr.get("start_time") or ""))

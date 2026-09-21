@@ -11,26 +11,31 @@ from cryptography.hazmat.primitives import serialization
 from app.core.config import settings
 
 
-
 try:
     from app.core._license_native import verify_license_core as _native_verify_license_core
+
     USE_NATIVE_VERIFY = True
 except ImportError:
     USE_NATIVE_VERIFY = False
 
+
 def _canonical_payload(data: dict[str, Any]) -> str:
     return json.dumps(data, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
 
 def _compute_signature(data: dict[str, Any], secret: str) -> str:
     payload = _canonical_payload(data)
     return hashlib.sha256(f"{payload}.{secret}".encode("utf-8")).hexdigest()
 
+
 def _b64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).decode("utf-8").rstrip("=")
+
 
 def _b64url_decode(value: str) -> bytes:
     padding = "=" * ((4 - len(value) % 4) % 4)
     return base64.urlsafe_b64decode((value + padding).encode("utf-8"))
+
 
 def verify_signed_payload(data: dict[str, Any], signature: str, secret: str | None) -> bool:
     if not secret or not signature:
@@ -38,17 +43,20 @@ def verify_signed_payload(data: dict[str, Any], signature: str, secret: str | No
     expected = _compute_signature(data, secret)
     return hmac.compare_digest(signature, expected)
 
+
 def _load_private_key(pem_text: str) -> Ed25519PrivateKey:
     key = serialization.load_pem_private_key(pem_text.encode("utf-8"), password=None)
     if not isinstance(key, Ed25519PrivateKey):
         raise ValueError("invalid_private_key_type")
     return key
 
+
 def _load_public_key(pem_text: str) -> Ed25519PublicKey:
     key = serialization.load_pem_public_key(pem_text.encode("utf-8"))
     if not isinstance(key, Ed25519PublicKey):
         raise ValueError("invalid_public_key_type")
     return key
+
 
 def verify_ed25519_signature(data: dict[str, Any], signature: str, public_key_pem: str | None) -> bool:
     if not signature or not public_key_pem:
@@ -60,6 +68,7 @@ def verify_ed25519_signature(data: dict[str, Any], signature: str, public_key_pe
     except (ValueError, TypeError, InvalidSignature):
         return False
 
+
 def sign_license_payload(license_data: dict[str, Any], private_key_pem: str | None) -> dict[str, Any]:
     if not private_key_pem:
         raise ValueError("missing_private_key")
@@ -70,6 +79,7 @@ def sign_license_payload(license_data: dict[str, Any], private_key_pem: str | No
     signature = private_key.sign(_canonical_payload(payload).encode("utf-8"))
     payload["signature"] = _b64url_encode(signature)
     return payload
+
 
 def generate_ed25519_keypair() -> dict[str, str]:
     private_key = Ed25519PrivateKey.generate()
@@ -85,6 +95,7 @@ def generate_ed25519_keypair() -> dict[str, str]:
     ).decode("utf-8")
     return {"private_key_pem": private_pem, "public_key_pem": public_pem}
 
+
 def parse_iso_datetime(value: str | None) -> datetime.datetime | None:
     if not value:
         return None
@@ -99,6 +110,7 @@ def parse_iso_datetime(value: str | None) -> datetime.datetime | None:
     except (ValueError, TypeError):
         return None
 
+
 def _get_current_machine_code() -> str:
     """获取当前机器码，基于主机的 MAC 地址和主机名生成。"""
     import platform
@@ -106,7 +118,7 @@ def _get_current_machine_code() -> str:
 
     try:
         mac = uuid.getnode()
-        mac_str = ":".join( [("%012x" % mac)[i : i + 2] for i in range(0, 12, 2)])
+        mac_str = ":".join([("%012x" % mac)[i : i + 2] for i in range(0, 12, 2)])
         hostname = platform.node()
         raw = f"{mac_str}@{hostname}"
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -189,6 +201,7 @@ def _verify_license_payload_python(
                 if instance_id:
                     try:
                         from app.core.plugin_manager import plugin_manager
+
                         current_instance_id = str(plugin_manager.get_oss_instance_id() or "")
                     except Exception:
                         current_instance_id = ""

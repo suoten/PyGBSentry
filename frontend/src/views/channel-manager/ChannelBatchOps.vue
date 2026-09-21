@@ -55,21 +55,25 @@
   <AppDialog :model-value="props.civilCodeDialogVisible" @update:model-value="(v: boolean) => emit('update:civilCodeDialogVisible', v)" :title="civilCodeDialogTitle" size="medium">
     <el-form :model="civilCodeForm" label-width="100px">
       <el-form-item :label="t('channelBatch.province')">
+        <!-- eslint-disable-next-line vue/no-mutating-props -- 既有两步表单设计：父组件直接消费该对象 -->
         <el-select v-model="civilCodeForm.province" filterable :placeholder="t('channelBatch.selectProvinceCode')" style="width: 100%">
           <el-option v-for="item in provinceOptions" :key="item.code" :label="`${item.name} - ${item.code}`" :value="item.code" />
         </el-select>
       </el-form-item>
       <el-form-item :label="t('channelBatch.cityCode')">
+        <!-- eslint-disable-next-line vue/no-mutating-props -- 既有两步表单设计：父组件直接消费该对象 -->
         <el-select v-model="civilCodeForm.city" filterable allow-create default-first-option :placeholder="t('channelBatch.selectCityCode')" style="width: 100%">
           <el-option v-for="item in cityOptions" :key="item.code" :label="`${item.name} - ${item.code}`" :value="item.code" />
         </el-select>
       </el-form-item>
       <el-form-item :label="t('channelBatch.districtCode')">
+        <!-- eslint-disable-next-line vue/no-mutating-props -- 既有两步表单设计：父组件直接消费该对象 -->
         <el-select v-model="civilCodeForm.district" filterable allow-create default-first-option :placeholder="t('channelBatch.selectDistrictCode')" style="width: 100%">
           <el-option v-for="item in districtOptions" :key="item.code" :label="`${item.name} - ${item.code}`" :value="item.code" />
         </el-select>
       </el-form-item>
       <el-form-item :label="t('channelBatch.lastTwoDigits')">
+        <!-- eslint-disable-next-line vue/no-mutating-props -- 既有两步表单设计：父组件直接消费该对象 -->
         <el-input v-model="civilCodeForm.suffix" maxlength="2" :placeholder="t('channelBatch.twoDigitsPlaceholder')" />
       </el-form-item>
       <el-form-item :label="t('channelBatch.codePreview')">

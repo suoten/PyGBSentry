@@ -127,8 +127,7 @@ async def start_main_sub_stream_for_plugin(
         status_code=200,
         detail="ok",
         extra_summary=(
-            f"channel_gb_id={channel_gb_id}; stream_type={norm}; "
-            f"stream_session_id={result.get('stream_session_id')}; ssrc={result.get('ssrc')}"
+            f"channel_gb_id={channel_gb_id}; stream_type={norm}; stream_session_id={result.get('stream_session_id')}; ssrc={result.get('ssrc')}"
         ),
     )
     return result
@@ -149,9 +148,7 @@ async def ensure_main_sub_stream_for_plugin(
     """
     if ssrc:
         try:
-            exists = (
-                await db.execute(select(StreamSession).where(StreamSession.ssrc == str(ssrc)))
-            ).scalars().first()
+            exists = (await db.execute(select(StreamSession).where(StreamSession.ssrc == str(ssrc)))).scalars().first()
             if exists:
                 return {"already_exists": True, "stream_session_id": getattr(exists, "id", None), "ssrc": ssrc}
         except Exception as e:
@@ -214,4 +211,3 @@ async def stop_stream_for_plugin(
         detail="ok",
         extra_summary=f"stream_session_id={stream_session_id}; reason={reason}",
     )
-

@@ -10,7 +10,6 @@ from app.db.session import AsyncSessionLocal
 from app.models.system_setting import SystemSetting
 
 
-
 PLUGIN_ID = "sip_logger"
 
 _DEFAULT_BASE_CONFIG = {
@@ -30,9 +29,7 @@ async def _get_runtime_cfg() -> dict:
         return _cfg_cache
 
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
 
     merged = dict(_DEFAULT_BASE_CONFIG)
@@ -58,6 +55,7 @@ async def _get_runtime_cfg() -> dict:
     _cfg_cache = merged
     _cfg_ts = now
     return _cfg_cache
+
 
 async def _write_sip_audit(message, addr, proto, direction: str):
     """
@@ -102,6 +100,7 @@ async def log_sip_send(message, addr, proto):
 
 def register(pm) -> None:
     from app.core.plugin_manager import HOOK_ON_SIP_RECEIVE, HOOK_ON_SIP_SEND
+
     pm.register_hook(HOOK_ON_SIP_RECEIVE, log_sip_receive)
     pm.register_hook(HOOK_ON_SIP_SEND, log_sip_send)
     logger.info("[SIPLogger] Hook registered: HOOK_ON_SIP_RECEIVE, HOOK_ON_SIP_SEND")

@@ -8,6 +8,7 @@
 SIP/媒体相关模块（``app.sip.invite``、``app.services.media_manager``）惰性导入，
 失败时返回 HTTPException 而非抛出未捕获异常。
 """
+
 from __future__ import annotations
 
 from typing import Optional
@@ -65,13 +66,9 @@ async def start_play(
         # 2. 定位设备
         asset = None
         if resource.asset_id:
-            asset = (
-                await db.execute(select(Asset).where(Asset.id == resource.asset_id))
-            ).scalars().first()
+            asset = (await db.execute(select(Asset).where(Asset.id == resource.asset_id))).scalars().first()
         if asset is None and body.device_id:
-            asset = (
-                await db.execute(select(Asset).where(Asset.gb_id == body.device_id))
-            ).scalars().first()
+            asset = (await db.execute(select(Asset).where(Asset.gb_id == body.device_id))).scalars().first()
         if not asset:
             raise HTTPException(status_code=404, detail="Device not found")
         if not asset.ip_addr:
@@ -80,6 +77,7 @@ async def start_play(
         # 3. 惰性导入 SIP invite 单例
         import app.sip.invite as sip_invite_module  # noqa: WPS433
         from app.sip.server import sip_server  # noqa: WPS433
+
         sip_invite = getattr(sip_invite_module, "sip_invite", None)
         if sip_invite is None:
             raise HTTPException(status_code=503, detail="SIP service not ready")
@@ -118,6 +116,7 @@ async def start_play(
             if node_id:
                 from app.core.media_nodes_db import get_db_media_node_by_id  # noqa: WPS433
                 from app.core.media_nodes import get_node_by_id  # noqa: WPS433
+
                 db_node = await get_db_media_node_by_id(db, node_id)
                 node = None if db_node else get_node_by_id(node_id)
                 if db_node:
@@ -137,6 +136,7 @@ async def start_play(
         # 复用 stream_play.py 的 _wait_zlm_stream_ready 逻辑，最长等待 5 秒。
         try:
             from app.api.v1.endpoints.stream._shared import _wait_zlm_stream_ready
+
             _max_attempts = settings.PLAY_START_STREAM_READY_MAX_ATTEMPTS
             _interval = settings.PLAY_START_STREAM_READY_INTERVAL
             _zlm_ok, _stream_ready, _media_item, _detail = await _wait_zlm_stream_ready(

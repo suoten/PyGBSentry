@@ -22,6 +22,7 @@ def _extract_via_branch(via_value: str) -> str:
     m = _VIA_BRANCH_RE.search(via_value)
     return (m.group(1) or "").strip() if m else ""
 
+
 def _extract_via_transport(via_value: str) -> str:
     if not via_value:
         return ""
@@ -87,6 +88,7 @@ class SipServerTransaction:
     timers: list[asyncio.Handle] | None = None
     ttl: float = 32.0  # 动态属性 _ttl 改为正式 dataclass 字段
 
+
 class SipServerTransactionManager:
     # S-04 SipServerTransactionManager全部方法添加锁保护，消除并发竞态
     def __init__(self):
@@ -101,7 +103,7 @@ class SipServerTransactionManager:
             if key in self._tx:
                 return self._tx[key], False
 
-            is_invite = (request.method == "INVITE")
+            is_invite = request.method == "INVITE"
             ttl = self._invite_ttl if is_invite else self._default_ttl
             tx = SipServerTransaction(key=key, created_at=time.monotonic(), request=request, timers=[], ttl=ttl)  # 使用正式字段替代动态属性
             self._tx[key] = tx
@@ -116,7 +118,7 @@ class SipServerTransactionManager:
             tx.last_response = response
             status = int(response.status_code or 0)
 
-            is_invite = (tx.request.method == "INVITE")
+            is_invite = tx.request.method == "INVITE"
 
             if 100 <= status <= 199:
                 if tx.state not in ("Accepted", "Confirmed"):
@@ -157,6 +159,7 @@ class SipServerTransactionManager:
                             for t in tx_j.timers:
                                 t.cancel()
                         logger.debug(f"[TimerJ] Non-INVITE transaction terminated after Timer J: key={key}")
+
             fire_and_forget(_async_on_timer_j())  # P0-16: 保存引用防 GC + 异常日志
 
         handle = loop.call_later(timeout, _on_timer_j)
@@ -215,6 +218,7 @@ class SipServerTransactionManager:
                             for t in tx_i.timers:
                                 t.cancel()
                         logger.debug(f"[TimerI] Transaction deleted after ACK retransmission wait: key={key}")
+
             fire_and_forget(_async_on_timer_i())  # P0-16: 保存引用防 GC + 异常日志
 
         handle = loop.call_later(timeout, _on_timer_i)
@@ -252,6 +256,7 @@ class SipServerTransactionManager:
                 for t in tx.timers:
                     t.cancel()
                 tx.timers = []
+
     # INVITE事务状态机不完整 — Confirmed状态不再重传200 OK
     async def handle_retransmission(self, tx: SipServerTransaction, addr: tuple, proto: str, transport) -> bool:
         async with self._lock:
@@ -282,7 +287,9 @@ class SipServerTransactionManager:
                     for t in tx.timers:
                         t.cancel()
 
+
 server_tx_manager = SipServerTransactionManager()
+
 
 @dataclass
 class SipClientTransaction:
@@ -459,7 +466,7 @@ class SipClientTransactionManager:
             # 注意：不取消 tx.timeout_timer，让Timer B/F继续运行等待最终响应
             # 通过 _provisional_result 属性传递 1xx，不 resolve future
             # （future 只能 set_result 一次，留给最终响应）
-            if not hasattr(tx, 'provisional_responses'):
+            if not hasattr(tx, "provisional_responses"):
                 tx.provisional_responses = []
             tx.provisional_responses.append(response)
             return True
@@ -513,7 +520,7 @@ class SipClientTransactionManager:
                 # 检查是否已经收到回复，收到回复就停止重传
                 if fut.done():
                     return
-                if getattr(transport, 'is_closing', lambda: False)():
+                if getattr(transport, "is_closing", lambda: False)():
                     return
                 if is_udp:
                     transport.sendto(data, addr)
@@ -548,6 +555,7 @@ class SipClientTransactionManager:
                         # S-06 超时定时器已触发，无需再cancel自身
                         if tx and not tx.future.done():
                             tx.future.cancel()
+
                 fire_and_forget(_clean())  # P0-16: 保存引用防 GC + 异常日志
 
             # S-06 将最终超时定时器(Timer B/F)存储在timeout_timer而非timers列表，
@@ -571,6 +579,7 @@ class SipClientTransactionManager:
                     h.cancel()
             if tx and not tx.future.done():
                 tx.future.cancel()
+
 
 client_tx_manager = SipClientTransactionManager()
 tx_manager = client_tx_manager

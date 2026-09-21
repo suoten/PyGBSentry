@@ -107,7 +107,7 @@ async def list_roles(
 async def create_role(
     payload: RoleCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("roles.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("roles.manage")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
     await ensure_system_roles(db, tenant_id)
@@ -172,7 +172,7 @@ async def update_role(
     role_id: str,
     payload: RoleCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("roles.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("roles.manage")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
     row = (await db.execute(select(Role).where(Role.id == role_id, Role.tenant_id == tenant_id))).scalars().first()
@@ -248,7 +248,7 @@ async def update_role(
 async def delete_role(
     role_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_permission("roles.manage"))  # 角色检查→权限码检查,
+    current_user: User = Depends(deps.require_permission("roles.manage")),  # 角色检查→权限码检查,
 ):
     tenant_id = current_user.tenant_id or "default"
     row = (await db.execute(select(Role).where(Role.id == role_id, Role.tenant_id == tenant_id))).scalars().first()

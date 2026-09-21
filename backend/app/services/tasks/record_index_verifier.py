@@ -102,12 +102,7 @@ async def _run_loop():
             now_naive = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
             async with AsyncSessionLocal() as session:
                 node_cache: dict[str, object] = {}
-                stmt = (
-                    select(Record)
-                    .where(Record.created_at >= cutoff_naive)
-                    .order_by(Record.created_at.desc())
-                    .limit(batch_size)
-                )
+                stmt = select(Record).where(Record.created_at >= cutoff_naive).order_by(Record.created_at.desc()).limit(batch_size)
                 rows = (await session.execute(stmt)).scalars().all()
                 if not rows:
                     await asyncio.sleep(interval)
@@ -145,13 +140,9 @@ async def _run_loop():
                     changed = True
                     if ok:
                         note = "auto_repaired" if str(err or "") == "auto_repaired" else "ok"
-                        _append_riv_event(
-                            record_id=rid, ok=True, code=code, note=note, err=None
-                        )
+                        _append_riv_event(record_id=rid, ok=True, code=code, note=note, err=None)
                     else:
-                        _append_riv_event(
-                            record_id=rid, ok=False, code=code, note="fail", err=str(err or "")
-                        )
+                        _append_riv_event(record_id=rid, ok=False, code=code, note="fail", err=str(err or ""))
 
                 if changed:
                     try:
@@ -182,5 +173,3 @@ async def stop():
     except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
         logger.warning("(asyncio.CancelledError, asyncio.TimeoutError, Exception) occurred")
     _task = None
-
-

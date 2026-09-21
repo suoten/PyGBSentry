@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
 
@@ -72,6 +73,7 @@ class MediaNode(Base):
             self.secret = None
             return
         self.secret = encrypt_field(plaintext, purpose="media_secret")
+
     zlm_ssl_merged_pem = Column(Text, nullable=True)
 
     is_online = Column(Boolean, default=False)

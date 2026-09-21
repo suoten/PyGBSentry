@@ -14,15 +14,12 @@ import asyncio
 import time as _ptz_time
 
 # PTZ 紧急操作白名单（来自 settings.PTZ_EMERGENCY_WHITELIST，逗号分隔的 GB ID）
-_PTZ_EMERGENCY_WHITELIST: set[str] = set(
-    s.strip()
-    for s in str(settings.PTZ_EMERGENCY_WHITELIST or "").split(",")
-    if s.strip()
-)
+_PTZ_EMERGENCY_WHITELIST: set[str] = set(s.strip() for s in str(settings.PTZ_EMERGENCY_WHITELIST or "").split(",") if s.strip())
 
 
 class _PtzRateLimiter:
     """Per-device PTZ command rate limiter with latest-command-priority strategy."""
+
     def __init__(self, min_interval: float = 0.1):
         self._min_interval = min_interval
         self._last_send: dict[str, float] = {}  # device_id -> last_send_time
@@ -51,6 +48,7 @@ class _PtzRateLimiter:
                 return False
         self._last_send[device_id] = _ptz_time.monotonic()
         return True
+
 
 _ptz_rate_limiter = _PtzRateLimiter(min_interval=settings.PTZ_MIN_INTERVAL_SECONDS)
 
@@ -90,6 +88,7 @@ def _sip_trace_log(event: str, **fields):
     logger.info(f"SIP_TRACE {payload}")
     schedule_store_sip_trace(payload)
 
+
 class SipPtz:
     def __init__(self, sip_server):
         self.sip_server = sip_server
@@ -120,8 +119,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"  # FIX [2026-07-22 P1]: 去后缀+SIP_DOMAIN，兼容非标准客户端
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -136,7 +139,9 @@ class SipPtz:
         logger.info(f"[trace_id={trace_id}] Sent {log_label} to {channel_id}")
         return trace_id, proto, addr
 
-    async def send_ptz(self, asset, resource, transport_info: tuple, command: str, speed: int = 50, drag_data: dict = None, is_emergency: bool = False):
+    async def send_ptz(
+        self, asset, resource, transport_info: tuple, command: str, speed: int = 50, drag_data: dict = None, is_emergency: bool = False
+    ):
         """Send PTZ Control Message - supports standard PTZ and DragZoom 3D positioning.
 
         is_emergency: 紧急操作标记（紧急白名单快速通道预留），原控制逻辑不变。
@@ -162,6 +167,7 @@ class SipPtz:
                     return max(lo, min(hi, v))
                 except (TypeError, ValueError):
                     return default
+
             length = _safe_int(drag_data.get("length", 720), 720)
             width = _safe_int(drag_data.get("width", 1280), 1280)
             mid_point_x = _safe_int(drag_data.get("midPointX", 640), 640)
@@ -207,9 +213,9 @@ class SipPtz:
             # Map command to GB28181 CmdCode
             # GB4 PTZ扩展命令 — GB28181标准命令集
             cmd_code = 0x00
-            param1 = 0 # Pan Speed
-            param2 = 0 # Tilt Speed
-            combine_code2 = 0 # Zoom Speed (High 4 bits)
+            param1 = 0  # Pan Speed
+            param2 = 0  # Tilt Speed
+            combine_code2 = 0  # Zoom Speed (High 4 bits)
 
             if command == "stop":
                 logger.debug("PTZ stop command received, sending zero-velocity stop")  # PTZ stop 命令为空操作
@@ -277,28 +283,28 @@ class SipPtz:
             elif command == "preset_clear":
                 ptz_hex = self._get_preset_delete_cmd(max(1, _preset_id))
             elif command == "cruise_start":
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, 'start')
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, "start")
             elif command == "cruise_stop":
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, 'stop')
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, "stop")
             elif command == "cruise_add_preset":
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), max(1, _preset_id), 'add')
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), max(1, _preset_id), "add")
             elif command == "cruise_del_preset":
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), max(1, _preset_id), 'delete')
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), max(1, _preset_id), "delete")
             elif command == "cruise_set_speed":
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, 'set_speed', speed=speed)
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, "set_speed", speed=speed)
             elif command == "cruise_set_time":
                 _stay_time = int((drag_data or {}).get("stay_time", 5)) if drag_data else 5
-                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, 'set_time', stay_time=_stay_time)
+                ptz_hex = self._get_cruise_cmd(max(1, _cruise_id), 1, "set_time", stay_time=_stay_time)
             elif command == "scan_start":
-                ptz_hex = self._get_scan_cmd(max(0, _scan_id), 'start')
+                ptz_hex = self._get_scan_cmd(max(0, _scan_id), "start")
             elif command == "scan_stop":
-                ptz_hex = self._get_scan_cmd(max(0, _scan_id), 'stop')
+                ptz_hex = self._get_scan_cmd(max(0, _scan_id), "stop")
             elif command == "scan_set_speed":
-                ptz_hex = self._get_scan_cmd(max(0, _scan_id), 'set_speed', speed=speed)
+                ptz_hex = self._get_scan_cmd(max(0, _scan_id), "set_speed", speed=speed)
             elif command == "scan_set_left_limit":
-                ptz_hex = self._get_scan_cmd(max(0, _scan_id), 'set_left')
+                ptz_hex = self._get_scan_cmd(max(0, _scan_id), "set_left")
             elif command == "scan_set_right_limit":
-                ptz_hex = self._get_scan_cmd(max(0, _scan_id), 'set_right')
+                ptz_hex = self._get_scan_cmd(max(0, _scan_id), "set_right")
             elif command == "wiper_on":
                 ptz_hex = self._get_wiper_cmd("on")
             elif command == "wiper_off":
@@ -311,6 +317,7 @@ class SipPtz:
             elif command in ("record_start", "record_stop", "guard_on", "guard_off", "reset_alarm"):
                 # These commands use DeviceControl XML (not PTZCmd), delegate to device_control
                 from app.sip.device_control import device_control
+
                 if device_control:
                     _transport_info = ((asset.ip_addr, asset.port), asset.transport, transport)
                     if command == "record_start":
@@ -341,8 +348,12 @@ class SipPtz:
         req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
 
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -415,8 +426,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -461,8 +476,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -507,8 +526,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -547,10 +570,10 @@ class SipPtz:
         cmd_code 保持 0x00，与 send_ptz 主入口的 iris_open/iris_close 映射一致。
         """
         # 光圈速度占用 CombineCode2 高 4 位（0-15），低 4 位保留为 0
-        if command == 'in':
+        if command == "in":
             # 光圈增大：CombineCode2 高 4 位 = 0x10
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x10]
-        elif command == 'out':
+        elif command == "out":
             # 光圈减小：CombineCode2 高 4 位 = 0x20
             cmd = [0xA5, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x20]
         else:  # stop
@@ -582,8 +605,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -622,10 +649,10 @@ class SipPtz:
         - bit6 = 0x40 = 聚焦增大（远焦 focus_far）
         与 send_ptz 主入口的 focus_near/focus_far 映射一致。
         """
-        if command == 'near':
+        if command == "near":
             # 近焦：CmdCode bit7 = 0x80
             cmd = [0xA5, 0x0F, 0x01, 0x80, 0x00, 0x00, 0x00]
-        elif command == 'far':
+        elif command == "far":
             # 远焦：CmdCode bit6 = 0x40
             cmd = [0xA5, 0x0F, 0x01, 0x40, 0x00, 0x00, 0x00]
         else:  # stop
@@ -657,8 +684,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -697,31 +728,31 @@ class SipPtz:
         cruise_id = max(1, min(255, int(cruise_id)))
         preset_id = max(1, min(255, int(preset_id)))
 
-        if action == 'add':
+        if action == "add":
             # 巡航添加指令扩展为8字节，GB28181标准PTZCmd固定8字节格式
             cmd = [0xA5, 0x0F, 0x01, 0x82, cruise_id, preset_id, 0x00]
-        elif action == 'delete':
+        elif action == "delete":
             # 巡航删除指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x83, cruise_id, preset_id, 0x00]
-        elif action == 'set_speed':
+        elif action == "set_speed":
             # 设置巡航速度: A5 0F 01 84 [cruise_id] [speed_h] [speed_l]
             speed = max(1, min(4095, int(speed)))
             speed_h = (speed >> 8) & 0xFF
             speed_l = speed & 0xFF
             cmd = [0xA5, 0x0F, 0x01, 0x84, cruise_id, speed_h, speed_l]
-        elif action == 'set_time':
+        elif action == "set_time":
             # 设置停留时间: A5 0F 01 85 [cruise_id] [time_h] [time_l]
             stay_time = max(1, min(4095, int(stay_time)))
             time_h = (stay_time >> 8) & 0xFF
             time_l = stay_time & 0xFF
             cmd = [0xA5, 0x0F, 0x01, 0x85, cruise_id, time_h, time_l]
-        elif action == 'start':
+        elif action == "start":
             # 开始巡航指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x86, cruise_id, 0x00, 0x00]
-        elif action == 'stop':
+        elif action == "stop":
             # 停止巡航指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x87, cruise_id, 0x00, 0x00]
-        elif action == 'delete_group':
+        elif action == "delete_group":
             # 删除巡航组指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x88, cruise_id, 0x00, 0x00]
         else:
@@ -732,7 +763,9 @@ class SipPtz:
         cmd.append(checksum)
         return "".join([f"{b:02X}" for b in cmd])
 
-    async def send_cruise(self, asset, resource, transport_info: tuple, cruise_id: int, preset_id: int, action: str, speed: int = 128, stay_time: int = 5):
+    async def send_cruise(
+        self, asset, resource, transport_info: tuple, cruise_id: int, preset_id: int, action: str, speed: int = 128, stay_time: int = 5
+    ):
         """."""
         addr, proto, transport = transport_info
         channel_id = resource.gb_id
@@ -754,8 +787,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -790,19 +827,19 @@ class SipPtz:
         """
         scan_id = max(0, min(255, int(scan_id)))
 
-        if action == 'start':
+        if action == "start":
             # 扫描开始指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x99, scan_id, 0x00, 0x00]
-        elif action == 'stop':
+        elif action == "stop":
             # 扫描停止指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x9A, scan_id, 0x00, 0x00]
-        elif action == 'set_left':
+        elif action == "set_left":
             # 设置左边界指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x9B, scan_id, 0x00, 0x00]
-        elif action == 'set_right':
+        elif action == "set_right":
             # 设置右边界指令扩展为8字节
             cmd = [0xA5, 0x0F, 0x01, 0x9C, scan_id, 0x00, 0x00]
-        elif action == 'set_speed':
+        elif action == "set_speed":
             # 设置扫描速度: A5 0F 01 9D [scan_id] [speed_h] [speed_l]
             speed = max(1, min(4095, int(speed)))
             speed_h = (speed >> 8) & 0xFF
@@ -838,8 +875,12 @@ class SipPtz:
         req.method = "MESSAGE"
         req.uri = f"sip:{asset.gb_id}@{addr[0]}:{addr[1]}"
         req.version = "SIP/2.0"
-        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
-        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        req.headers["Via"] = (
+            f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: branch 64位随机（RFC 3261 §8.1.1.7），SN 重启归零会撞 branch
+        )
+        req.headers["From"] = (
+            f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"  # FIX [2026-07-22 P1]: tag 64位随机（RFC 3261 §19.3）
+        )
         req.headers["To"] = f"<sip:{asset.gb_id}@{sip_from_to_host()}>"
         req.headers["Call-ID"] = f"{secrets.token_hex(8)}@{sip_via_host()}"
         req.headers["CSeq"] = f"{sn} MESSAGE"  # FIX [2026-07-17 P1-A3]: CSeq 单调递增 (RFC 3261 §22.2)
@@ -897,9 +938,7 @@ class SipPtz:
 <Info><ControlPriority>5</ControlPriority></Info>
 </Control>
 """
-        trace_id, proto, addr = await self._send_device_control_xml(
-            asset, channel_id, transport_info, xml_body, "wiper", f"WIPER {command}"
-        )
+        trace_id, proto, addr = await self._send_device_control_xml(asset, channel_id, transport_info, xml_body, "wiper", f"WIPER {command}")
         _sip_trace_log(
             "device_wiper_sent",
             trace_id=trace_id,
@@ -952,6 +991,7 @@ class SipPtz:
             proto=proto,
             addr=str(addr),
         )
+
 
 # Singleton
 sip_ptz = None

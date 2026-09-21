@@ -3,6 +3,7 @@ API 网关回调服务。
 报警/设备状态变更时，将标准化事件以 HTTP POST 回调到用户配置的 API 地址。
 支持多租户、多回调地址配置。
 """
+
 import asyncio
 import datetime
 import json
@@ -16,7 +17,6 @@ from sqlalchemy import select  # TECH_DEBT: 直接依赖具体实现，未来改
 from app.core.plugin_manager import HOOK_ON_ALARM, HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE
 from app.db.session import AsyncSessionLocal
 from app.models.system_setting import SystemSetting
-
 
 
 PLUGIN_ID = "api_gateway"
@@ -62,9 +62,7 @@ async def _get_cfg() -> dict:
     if _cfg_cache and (now - _cfg_ts) < _cfg_ttl:
         return _cfg_cache
     async with AsyncSessionLocal() as db:
-        stmt = select(SystemSetting).where(
-            SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}")
-        )
+        stmt = select(SystemSetting).where(SystemSetting.setting_key.like(f"plugin_runtime_config.%.{PLUGIN_ID}"))
         rows = (await db.execute(stmt)).scalars().all()
     any_enabled = False
     cfg = dict(_DEFAULT_CONFIG)
@@ -93,6 +91,7 @@ async def _get_cfg() -> dict:
 def _sign_payload(body: str, secret: str) -> str:
     import hashlib
     import hmac
+
     if not secret:
         return ""
     return hmac.new(secret.encode(), body.encode(), hashlib.sha256).hexdigest()
@@ -110,9 +109,7 @@ async def _do_callback(url: str, payload: dict, secret: str, timeout: int, retri
         headers["X-Signature"] = sig
     for attempt in range(retries + 1):
         try:
-            r = await asyncio.to_thread(
-                _requests.post, url, data=body, headers=headers, timeout=timeout
-            )
+            r = await asyncio.to_thread(_requests.post, url, data=body, headers=headers, timeout=timeout)
             if 200 <= r.status_code < 300:
                 _append_log(payload.get("event_type", ""), url, r.status_code, ok=True)
                 return True

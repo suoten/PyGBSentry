@@ -16,6 +16,7 @@ GB28181 在 RFC 4566 基础上扩展了两条非标准属性行：
     * :func:`is_tcp_profile` —— 判断媒体 proto 是否为 TCP 传输。
     * :func:`opposite_setup` —— TCP 主动/被动模式翻转（用于 INVITE/200 OK 协商）。
 """
+
 from __future__ import annotations
 
 import re
@@ -56,9 +57,7 @@ _C_LINE_RE = re.compile(r"^c=IN\s+IP[46]\s+([0-9a-fA-F\.:]+)", re.IGNORECASE)
 # 属性行：a=<attr> 或 a=<attr>:<value>
 _A_LINE_RE = re.compile(r"^a=([^:]+)(?::(.*))?$")
 # o=<username> <sess-id> <sess-version> IN IP4 <addr>
-_O_LINE_RE = re.compile(
-    r"^o=(\S+)\s+(\S+)\s+(\S+)\s+IN\s+IP[46]\s+([0-9a-fA-F\.:]+)", re.IGNORECASE
-)
+_O_LINE_RE = re.compile(r"^o=(\S+)\s+(\S+)\s+(\S+)\s+IN\s+IP[46]\s+([0-9a-fA-F\.:]+)", re.IGNORECASE)
 
 
 def parse_sdp(sdp_text: str, fallback_ip: str = "") -> dict:
@@ -273,6 +272,7 @@ def _consume_attribute(value: str, current_media: dict | None, result: dict) -> 
 # 媒体选择
 # ---------------------------------------------------------------------------
 
+
 def pick_media(parsed: dict, media_type: str) -> Optional[dict]:
     """从 :func:`parse_sdp` 结果中按媒体类型取出第一条媒体描述。
 
@@ -318,6 +318,7 @@ def opposite_setup(setup: str) -> str:
 # ---------------------------------------------------------------------------
 # 构造
 # ---------------------------------------------------------------------------
+
 
 def build_sdp(
     *,

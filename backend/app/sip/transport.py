@@ -12,7 +12,6 @@ from app.sip.message import SipMessage
 from app.core.async_utils import fire_and_forget  # P0-16: 安全的火-忘任务
 
 
-
 warnings.warn(
     "app.sip.transport is deprecated and not used by SipServer. "
     "Server uses its own UdpProtocol and _handle_tcp_client instead. "
@@ -20,6 +19,7 @@ warnings.warn(
     DeprecationWarning,
     stacklevel=2,
 )
+
 
 class UdpTransport(asyncio.DatagramProtocol):
     def __init__(self, message_callback: Callable[[SipMessage, tuple, str, object], None]):
@@ -30,8 +30,8 @@ class UdpTransport(asyncio.DatagramProtocol):
     def connection_made(self, transport):
         """Connection made."""
         self.transport = transport
-        transport.get_extra_info('socket')
-        addr = transport.get_extra_info('sockname')
+        transport.get_extra_info("socket")
+        addr = transport.get_extra_info("sockname")
         logger.info(f"SIP UDP Transport listening on {addr}")
 
     def datagram_received(self, data: bytes, addr: tuple):
@@ -57,6 +57,7 @@ class UdpTransport(asyncio.DatagramProtocol):
         """Connection lost."""
         logger.info(f"SIP UDP Transport connection lost: {exc}")
 
+
 class TcpProtocol(asyncio.Protocol):
     MAX_BUFFER_SIZE = 65536
 
@@ -70,7 +71,7 @@ class TcpProtocol(asyncio.Protocol):
     def connection_made(self, transport):
         """Connection made."""
         self.transport = transport
-        peername = transport.get_extra_info('peername')
+        peername = transport.get_extra_info("peername")
         logger.info(f"SIP TCP Connection from {peername}")
 
     def data_received(self, data: bytes):
@@ -89,12 +90,12 @@ class TcpProtocol(asyncio.Protocol):
             headers_raw = self.buffer[:header_end]
 
             try:
-                headers_str = headers_raw.decode('utf-8', errors='strict')
+                headers_str = headers_raw.decode("utf-8", errors="strict")
             except UnicodeDecodeError:
                 try:
-                    headers_str = headers_raw.decode('gb18030', errors='strict')
+                    headers_str = headers_raw.decode("gb18030", errors="strict")
                 except UnicodeDecodeError:
-                    headers_str = headers_raw.decode('latin-1')
+                    headers_str = headers_raw.decode("latin-1")
 
             content_length = 0
             found_content_length = False
@@ -124,7 +125,7 @@ class TcpProtocol(asyncio.Protocol):
                 self.buffer = self.buffer[total_len:]
 
                 try:
-                    addr = self.transport.get_extra_info('peername') if self.transport else None  # FIXED: transport 可为 None
+                    addr = self.transport.get_extra_info("peername") if self.transport else None  # FIXED: transport 可为 None
                     if addr is None:
                         return
                     message = SipMessage.parse(msg_data)

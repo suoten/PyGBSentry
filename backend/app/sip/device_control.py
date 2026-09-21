@@ -2,6 +2,7 @@
 GB28181 设备控制模块
 支持：布?撤防、报警复位、远程重启、录像控制、强制关键帧?
 """
+
 import itertools
 from app.sip.message import SipMessage
 
@@ -24,6 +25,7 @@ _SIP_ALLOW_HEADER = "INVITE, ACK, CANCEL, BYE, OPTIONS, INFO, SUBSCRIBE, NOTIFY,
 
 from xml.sax.saxutils import escape as _xml_escape
 from app.core.config import settings, sip_host_for_contact, sip_via_host, sip_from_to_host
+
 # 统一使用 sip_trace 模块的 trace 函数，消除重复定义
 from app.sip.sip_trace import sip_trace_log as _sip_trace_log
 from app.sip.send import send_sip_bytes
@@ -368,7 +370,6 @@ class DeviceControl:
             proto=proto,
             addr=str(addr),
         )
-
 
     async def send_config_download(
         self,

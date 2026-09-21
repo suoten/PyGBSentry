@@ -27,6 +27,7 @@ from typing import Any
 
 router = APIRouter()
 
+
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 
@@ -96,6 +97,7 @@ def _is_url_ssrf_blocked(url: str) -> tuple[bool, str]:
     """FIXED: [2026-07-10] S-01 SSRF 防护 — 纯 IP 解析检查（无 HTTP 请求），供下载流程复用 [安全工程师]"""
     import ipaddress
     import socket
+
     value = (url or "").strip()
     parsed = urllib.parse.urlparse(value)
     if parsed.scheme not in {"http", "https"}:
@@ -233,7 +235,9 @@ async def _stream_record_download(
                 if ssrf_blocked:
                     raise HTTPException(status_code=400, detail=f"Recording download blocked (SSRF protection): {ssrf_reason}")
                 try:
-                    upstream = await (await get_http_client()).get(repaired, timeout=5, follow_redirects=True)  # 同步requests→异步httpx，避免阻塞事件循环
+                    upstream = await (await get_http_client()).get(
+                        repaired, timeout=5, follow_redirects=True
+                    )  # 同步requests→异步httpx，避免阻塞事件循环
                     target_url = repaired
                 except Exception:
                     raise HTTPException(status_code=502, detail=f"Recording download link unreachable: {str(e)[:200]}")
@@ -254,7 +258,9 @@ async def _stream_record_download(
                 if ssrf_blocked:
                     raise HTTPException(status_code=400, detail=f"Recording download blocked (SSRF protection): {ssrf_reason}")
                 try:
-                    retry = await (await get_http_client()).get(repaired, timeout=5, follow_redirects=True)  # 同步requests→异步httpx，避免阻塞事件循环
+                    retry = await (await get_http_client()).get(
+                        repaired, timeout=5, follow_redirects=True
+                    )  # 同步requests→异步httpx，避免阻塞事件循环
                 except Exception as e:
                     raise HTTPException(status_code=502, detail=f"Recording download link unreachable: {str(e)[:200]}")
                 retry_status = int(getattr(retry, "status_code", 0) or 0)
@@ -319,6 +325,7 @@ async def _stream_record_download(
         headers["Content-Length"] = str(local_path.stat().st_size)
     return StreamingResponse(_iter_file(), media_type="video/mp4", headers=headers)
 
+
 @router.get("/device-record")
 async def query_device_record(
     device_id: str,
@@ -333,10 +340,7 @@ async def query_device_record(
     发送 RecordInfo 信令到设备端，查询设备本地(NVR/IPC SD卡)的录像文件列表。
     由于是异步响应，这里先返回查询已下发的确认信息。前端需要通过 WebSocket 或轮询获取最终的查询结果。
     """
-    stmt = select(Asset, Resource).join(Resource, Resource.asset_id == Asset.id).where(
-        Asset.gb_id == device_id,
-        Resource.gb_id == channel_id
-    )
+    stmt = select(Asset, Resource).join(Resource, Resource.asset_id == Asset.id).where(Asset.gb_id == device_id, Resource.gb_id == channel_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
@@ -369,6 +373,7 @@ async def query_device_record(
         raise HTTPException(status_code=500, detail="Device network information missing")
 
     import app.sip.commander as sip_commander_module
+
     if not sip_commander_module.sip_commander:
         await _record_query_audit(
             db,
@@ -382,6 +387,7 @@ async def query_device_record(
         raise HTTPException(status_code=500, detail="SIP Commander not ready")
 
     from app.sip.server import sip_server
+
     transport = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
     if transport is None:
         await _record_query_audit(
@@ -449,7 +455,7 @@ async def query_device_record(
         "msg": "Recording query sent, waiting for device response",  # i18n
         "sn": sn,
         "device_id": device_id,
-        "channel_id": channel_id
+        "channel_id": channel_id,
     }
 
 
@@ -477,10 +483,7 @@ async def query_records(
         raise HTTPException(status_code=400, detail="Time range too large, please limit to 7 days")
 
     # Find Resource ID first
-    stmt = select(Resource.id).join(Asset).where(
-        Asset.gb_id == device_id,
-        Resource.gb_id == channel_id
-    )
+    stmt = select(Resource.id).join(Asset).where(Asset.gb_id == device_id, Resource.gb_id == channel_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
@@ -490,14 +493,22 @@ async def query_records(
         return []
 
     # M-09 添加Record级租户隔离
-    stmt = select(Record).join(Resource, Resource.id == Record.resource_id).join(Asset, Asset.id == Resource.asset_id).where(
-        and_(
-            Record.resource_id == resource_id,
-            Record.start_time >= start_time,
-            Record.end_time <= end_time,
-            Asset.tenant_id == (current_user.tenant_id or "default")
+    stmt = (
+        select(Record)
+        .join(Resource, Resource.id == Record.resource_id)
+        .join(Asset, Asset.id == Resource.asset_id)
+        .where(
+            and_(
+                Record.resource_id == resource_id,
+                Record.start_time >= start_time,
+                Record.end_time <= end_time,
+                Asset.tenant_id == (current_user.tenant_id or "default"),
+            )
         )
-    ).order_by(Record.start_time.asc()).offset(skip).limit(limit)
+        .order_by(Record.start_time.asc())
+        .offset(skip)
+        .limit(limit)
+    )
 
     result = await db.execute(stmt)
     records = result.scalars().all()
@@ -624,12 +635,7 @@ async def search_records(
         }
         for (r, res, a) in rows
     ]
-    return {
-        "items": items,
-        "total": total,
-        "page": skip // limit + 1,
-        "page_size": limit
-    }
+    return {"items": items, "total": total, "page": skip // limit + 1, "page_size": limit}
 
 
 @router.get("/download/{record_id}")
@@ -887,6 +893,7 @@ async def get_record_play_url(
         try:
             import boto3
             from botocore.config import Config
+
             s3_bucket = settings.S3_BUCKET
             s3_endpoint = settings.S3_ENDPOINT
             s3_access_key = settings.S3_ACCESS_KEY
@@ -903,22 +910,19 @@ async def get_record_play_url(
             bucket, key = path_parts
 
             s3_client = boto3.client(
-                's3',
+                "s3",
                 endpoint_url=s3_endpoint,
                 aws_access_key_id=s3_access_key,
                 aws_secret_access_key=s3_secret_key,
-                config=Config(signature_version='s3v4')
+                config=Config(signature_version="s3v4"),
             )
 
             # 生成预签名 URL (默认过期时间 1 小时)
-            presigned_url = s3_client.generate_presigned_url(
-                'get_object',
-                Params={'Bucket': bucket, 'Key': key},
-                ExpiresIn=3600
-            )
+            presigned_url = s3_client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600)
             return {"url": presigned_url}
         except Exception as e:
             from loguru import logger
+
             logger.error(f"Failed to generate S3 presigned URL: {e}")
             raise HTTPException(status_code=500, detail="Failed to generate cloud recording playback URL")  # i18n
 
@@ -928,7 +932,6 @@ async def get_record_play_url(
     if repaired:
         return {"url": repaired}
     raise HTTPException(status_code=400, detail="Cannot parse playable URL")  # i18n
-
 
 
 @router.post("/verify/{record_id}")

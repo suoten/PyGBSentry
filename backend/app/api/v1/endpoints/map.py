@@ -21,6 +21,7 @@ router = APIRouter()
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 
+
 class MapConfigUpdate(BaseModel):
     provider: str
     api_key: str
@@ -144,12 +145,7 @@ async def list_devices_latest_positions(
     if not device_ids:
         return []
 
-    pos_stmt = (
-        select(DevicePosition)
-        .where(DevicePosition.device_id.in_(device_ids))
-        .order_by(DevicePosition.time.desc())
-        .limit(len(device_ids) * 3)
-    )
+    pos_stmt = select(DevicePosition).where(DevicePosition.device_id.in_(device_ids)).order_by(DevicePosition.time.desc()).limit(len(device_ids) * 3)
     positions = (await db.execute(pos_stmt)).scalars().all()
     latest: dict[str, DevicePosition] = {}
     for p in positions:
@@ -193,12 +189,7 @@ async def get_device_latest_position(
     if not asset:
         raise HTTPException(status_code=404, detail="Device not found")
 
-    pos_stmt = (
-        select(DevicePosition)
-        .where(DevicePosition.device_id == did)
-        .order_by(DevicePosition.time.desc())
-        .limit(1)
-    )
+    pos_stmt = select(DevicePosition).where(DevicePosition.device_id == did).order_by(DevicePosition.time.desc()).limit(1)
     pos = (await db.execute(pos_stmt)).scalars().first()
     return {
         "gb_id": did,
@@ -211,6 +202,7 @@ async def get_device_latest_position(
         "direction": pos.direction if pos else None,
         "altitude": pos.altitude if pos else None,
     }
+
 
 @router.get("/trajectory")
 async def get_trajectory(
@@ -239,14 +231,14 @@ async def get_trajectory(
 
     if start_time:
         try:
-            st = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            st = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
             stmt = stmt.where(DevicePosition.time >= st)
         except (ValueError, TypeError):
             logger.warning("(ValueError, TypeError) occurred")
 
     if end_time:
         try:
-            et = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            et = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
             stmt = stmt.where(DevicePosition.time <= et)
         except (ValueError, TypeError):
             logger.warning("(ValueError, TypeError) occurred")
@@ -265,7 +257,7 @@ async def get_trajectory(
             "time": r.time.isoformat() if r.time else None,
             "speed": r.speed,
             "direction": r.direction,
-            "altitude": r.altitude
+            "altitude": r.altitude,
         }
         for r in rows
     ]
@@ -413,6 +405,7 @@ async def create_trajectory_point(
     )
     return {"ok": True, "id": row.id}
 
+
 @router.get("")
 async def get_map_config(
     db: AsyncSession = Depends(get_db),
@@ -511,11 +504,7 @@ async def activate_map_profile(
     cfg = (await db.execute(stmt)).scalars().first()
     if not cfg:
         raise HTTPException(status_code=404, detail="Map config not found")
-    await db.execute(
-        update(MapConfig)
-        .where(MapConfig.tenant_id == tenant_id)
-        .values(is_default=False)
-    )
+    await db.execute(update(MapConfig).where(MapConfig.tenant_id == tenant_id).values(is_default=False))
     cfg.is_default = True
     cfg.is_active = True
     await db.commit()
@@ -547,6 +536,7 @@ async def delete_map_profile(
             next_cfg.is_default = True
     await db.commit()
     return {"status": "ok"}
+
 
 @router.get("/command-config")
 async def get_visual_command_config(
@@ -581,11 +571,7 @@ async def update_map_config(
         if not target:
             raise HTTPException(status_code=404, detail="Map config not found")
     else:
-        stmt = (
-            select(MapConfig)
-            .where(MapConfig.tenant_id == tenant_id)
-            .order_by(MapConfig.is_default.desc(), MapConfig.id.asc())
-        )
+        stmt = select(MapConfig).where(MapConfig.tenant_id == tenant_id).order_by(MapConfig.is_default.desc(), MapConfig.id.asc())
         target = (await db.execute(stmt)).scalars().first()
     if not target:
         target = await _ensure_default_config(db, current_user)
@@ -610,10 +596,7 @@ async def update_map_config(
         tenant_id=_tenant_id(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"provider={prov}; zoom_level={config_in.zoom_level}; "
-            f"api_key_configured={key_set}"
-        ),
+        extra_summary=(f"provider={prov}; zoom_level={config_in.zoom_level}; api_key_configured={key_set}"),
     )
     await db.refresh(target)
     return _map_to_payload(target)

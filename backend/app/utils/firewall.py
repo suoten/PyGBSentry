@@ -153,7 +153,5 @@ def ensure_firewall_ports() -> None:
         return
 
     logger.warning(
-        "AUTO_OPEN_PORTS enabled but no supported firewall tool found (ufw/firewalld). "
-        "Please open ports manually and also in Security Group."
+        "AUTO_OPEN_PORTS enabled but no supported firewall tool found (ufw/firewalld). Please open ports manually and also in Security Group."
     )
-

@@ -7,6 +7,7 @@ import csv
 import io
 from typing import List, Dict, Any
 from openpyxl import load_workbook
+
 # xlrd 1.2.0 — 解析 .xls (BIFF) 格式的唯一可用库（xlrd 2.0+ 已移除 .xls 支持，openpyxl 不支持 .xls）。
 # 风险面：仅解析用户上传的 .xls 文件，不执行宏/公式。缓解措施：接口限制 10MB 上传大小 + owner/admin 鉴权。
 # 详见 requirements.txt 中 xlrd 条目的安全注释。
@@ -228,41 +229,45 @@ async def list_push_channels(
 ):
     tenant_id = current_user.tenant_id or "default"
     sources = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out = []
     for s in sources:
         pc = await _get_or_init_push_channel(db, tenant_id, s)
         gb_id = ""
         gb_name = ""
         if pc.gb_resource_id:
-            res = (
-                await db.execute(select(Resource).where(Resource.id == pc.gb_resource_id, Resource.tenant_id == tenant_id))
-            ).scalars().first()
+            res = (await db.execute(select(Resource).where(Resource.id == pc.gb_resource_id, Resource.tenant_id == tenant_id))).scalars().first()
             if res:
                 gb_id = str(res.gb_id or "")
                 gb_name = str(res.name or "")
-        out.append({
-            "id": s.id,
-            "tenant_id": s.tenant_id,
-            "name": s.name,
-            "protocol": s.protocol,
-            "stream_name": s.stream_name,
-            "enabled": s.enabled,
-            "extra": s.extra or {},
-            "push_key_enabled": bool(pc.push_key_enabled),
-            "push_key_hint": _public_push_key_view(pc.push_key_prefix),
-            "gb_enabled": bool(pc.gb_enabled),
-            "gb_resource_id": pc.gb_resource_id,
-            "gb_id": gb_id,
-            "gb_name": gb_name,
-            "gb_stream_name": pc.stream_name,
-        })
+        out.append(
+            {
+                "id": s.id,
+                "tenant_id": s.tenant_id,
+                "name": s.name,
+                "protocol": s.protocol,
+                "stream_name": s.stream_name,
+                "enabled": s.enabled,
+                "extra": s.extra or {},
+                "push_key_enabled": bool(pc.push_key_enabled),
+                "push_key_hint": _public_push_key_view(pc.push_key_prefix),
+                "gb_enabled": bool(pc.gb_enabled),
+                "gb_resource_id": pc.gb_resource_id,
+                "gb_id": gb_id,
+                "gb_name": gb_name,
+                "gb_stream_name": pc.stream_name,
+            }
+        )
     out.sort(key=lambda x: str(x.get("name") or ""))
     return out
 
@@ -366,8 +371,7 @@ async def create_push_channel(
         status_code=201,
         detail="ok",
         extra_summary=(
-            f"channel_id={source.id}; stream_name={stream}; "
-            f"push_key_enabled={bool(payload.push_key_enabled)}; gb_enabled={bool(payload.gb_enabled)}"
+            f"channel_id={source.id}; stream_name={stream}; push_key_enabled={bool(payload.push_key_enabled)}; gb_enabled={bool(payload.gb_enabled)}"
         ),
     )
     return {
@@ -492,13 +496,17 @@ async def import_push_channels(
         raise HTTPException(status_code=400, detail="No valid data rows in file")
 
     sources = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     by_stream: dict[str, AccessSource] = {}
     for s in sources:
         key = normalize_stream_name(s.stream_name or s.name or s.id, fallback=s.id)
@@ -607,14 +615,18 @@ async def rotate_push_key(
 ):
     tenant_id = current_user.tenant_id or "default"
     src = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.id == channel_id,
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.id == channel_id,
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not src:
         await safe_auth_audit(
             db,
@@ -660,14 +672,18 @@ async def save_to_gb(
 ):
     tenant_id = current_user.tenant_id or "default"
     src = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.id == channel_id,
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.id == channel_id,
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not src:
         await safe_auth_audit(
             db,
@@ -709,14 +725,18 @@ async def remove_from_gb(
 ):
     tenant_id = current_user.tenant_id or "default"
     src = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.id == channel_id,
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.id == channel_id,
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not src:
         await safe_auth_audit(
             db,
@@ -757,9 +777,7 @@ async def update_push_channel(
     current_user: User = Depends(deps.require_roles(["owner", "admin"])),
 ):
     tenant_id = current_user.tenant_id or "default"
-    src = (
-        await db.execute(select(AccessSource).where(AccessSource.id == channel_id, AccessSource.tenant_id == tenant_id))
-    ).scalars().first()
+    src = (await db.execute(select(AccessSource).where(AccessSource.id == channel_id, AccessSource.tenant_id == tenant_id))).scalars().first()
     if not src:
         await safe_auth_audit(
             db,
@@ -806,7 +824,9 @@ async def update_push_channel(
     if payload.gb_enabled is not None and payload.gb_enabled is False:
         await _unbind_gb_resource(db, tenant_id, pc)
     else:
-        need_bind = (payload.gb_enabled is True) or (payload.gb_id is not None) or (payload.gb_name is not None) or (payload.gb_parent_gb_id is not None)
+        need_bind = (
+            (payload.gb_enabled is True) or (payload.gb_id is not None) or (payload.gb_name is not None) or (payload.gb_parent_gb_id is not None)
+        )
         if need_bind:
             gb_id = (payload.gb_id or "").strip()
             if payload.gb_enabled is True and not gb_id and not pc.gb_resource_id:
@@ -850,14 +870,18 @@ async def delete_push_channel(
 ):
     tenant_id = current_user.tenant_id or "default"
     src = (
-        await db.execute(
-            select(AccessSource).where(
-                AccessSource.id == channel_id,
-                AccessSource.tenant_id == tenant_id,
-                AccessSource.protocol == "RTMP",
+        (
+            await db.execute(
+                select(AccessSource).where(
+                    AccessSource.id == channel_id,
+                    AccessSource.tenant_id == tenant_id,
+                    AccessSource.protocol == "RTMP",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not src:
         await safe_auth_audit(
             db,

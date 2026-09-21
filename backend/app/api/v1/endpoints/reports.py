@@ -2,6 +2,7 @@
 报表中心 API。基础列表与摘要由主系统提供占位实现；
 完整报表模板、导出、对接由「报表」相关插件扩展。
 """
+
 import io
 import math
 import os
@@ -25,6 +26,7 @@ from app.models.stream_session import StreamSession
 from app.models.network_metric import NetworkMetric
 from app.core.plugin_manager import plugin_manager
 from app.services.config_center_service import config_center_service
+
 # FIX: [2026-07-03] release_center_service 在开源版中不存在，导致 reports 模块加载失败、/reports/* 路由全部 404。
 #      根因：企业版服务模块未在开源版中提供。修复：改为可选导入，缺失时 publish 功能降级。 [全栈工程师]
 try:
@@ -36,6 +38,7 @@ from app.services.stream_quality_monitor import stream_quality_monitor
 from loguru import logger
 
 router = APIRouter()
+
 
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
@@ -70,7 +73,9 @@ class CloseoutGovernanceDashboardIngestPayload(BaseModel):
     source: str = "mobile-ci"
 
 
-def _normalize_report_templates(raw_templates: list[dict] | list[ReportTemplatePayload] | None, fallback_formats: list[str] | None = None) -> list[dict]:
+def _normalize_report_templates(
+    raw_templates: list[dict] | list[ReportTemplatePayload] | None, fallback_formats: list[str] | None = None
+) -> list[dict]:
     templates: list[dict] = []
     formats_fallback = fallback_formats or ["csv"]
     for item in raw_templates or []:
@@ -140,10 +145,7 @@ def _build_dashboard_idempotency_key(
 
 
 def _dashboard_closeout_reason(row: dict) -> str:
-    return str(
-        (((row.get("dashboard") or {}).get("latest") or {}).get("alert") or {}).get("closeout_reason_code")
-        or ""
-    ).upper()
+    return str((((row.get("dashboard") or {}).get("latest") or {}).get("alert") or {}).get("closeout_reason_code") or "").upper()
 
 
 def _dashboard_reason_code(row: dict) -> str:
@@ -235,24 +237,18 @@ def _simple_pdf_from_lines(lines: list[str], title: str = "") -> bytes:
     for content in pages:
         content_bytes = content.encode("utf-8")
         content_obj = (
-            f"{len(objects)+1} 0 obj\n<< /Length {len(content_bytes)} >>\nstream\n".encode("utf-8")
-            + content_bytes
-            + b"\nendstream\nendobj\n"
+            f"{len(objects) + 1} 0 obj\n<< /Length {len(content_bytes)} >>\nstream\n".encode("utf-8") + content_bytes + b"\nendstream\nendobj\n"
         )
         content_id = _add(content_obj)
         page_obj = (
-            f"{len(objects)+1} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_w:.2f} {page_h:.2f}] "
+            f"{len(objects) + 1} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {page_w:.2f} {page_h:.2f}] "
             f"/Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >>\nendobj\n"
         ).encode("utf-8")
         page_id = _add(page_obj)
         page_ids.append(page_id)
 
     kids = " ".join([f"{pid} 0 R" for pid in page_ids]).encode("utf-8")
-    objects[1] = (
-        b"2 0 obj\n<< /Type /Pages /Kids [ "
-        + kids
-        + f" ] /Count {len(page_ids)} >>\nendobj\n".encode("utf-8")
-    )
+    objects[1] = b"2 0 obj\n<< /Type /Pages /Kids [ " + kids + f" ] /Count {len(page_ids)} >>\nendobj\n".encode("utf-8")
 
     pdf = bytearray()
     pdf.extend(b"%PDF-1.4\n")
@@ -260,12 +256,12 @@ def _simple_pdf_from_lines(lines: list[str], title: str = "") -> bytes:
         pdf.extend(obj)
     xref_start = len(pdf)
     pdf.extend(b"xref\n")
-    pdf.extend(f"0 {len(objects)+1}\n".encode("utf-8"))
+    pdf.extend(f"0 {len(objects) + 1}\n".encode("utf-8"))
     pdf.extend(b"0000000000 65535 f \n")
     for off in offsets:
         pdf.extend(f"{off:010d} 00000 n \n".encode("utf-8"))
     pdf.extend(b"trailer\n")
-    pdf.extend(f"<< /Size {len(objects)+1} /Root 1 0 R >>\n".encode("utf-8"))
+    pdf.extend(f"<< /Size {len(objects) + 1} /Root 1 0 R >>\n".encode("utf-8"))
     pdf.extend(b"startxref\n")
     pdf.extend(f"{xref_start}\n".encode("utf-8"))
     pdf.extend(b"%%EOF")
@@ -278,14 +274,10 @@ async def _get_summary_stats(db: AsyncSession, current_user: User):
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     if current_user.is_superuser:
         device_count = (await db.execute(select(func.count(Asset.id)))).scalar() or 0
-        alarm_today = (
-            await db.execute(select(func.count(Alarm.id)).where(Alarm.time >= today_start))
-        ).scalar() or 0
+        alarm_today = (await db.execute(select(func.count(Alarm.id)).where(Alarm.time >= today_start))).scalar() or 0
         active_streams = (await db.execute(select(func.count(StreamSession.id)))).scalar() or 0
     else:
-        device_count = (
-            await db.execute(select(func.count(Asset.id)).where(Asset.tenant_id == tenant_id))
-        ).scalar() or 0
+        device_count = (await db.execute(select(func.count(Asset.id)).where(Asset.tenant_id == tenant_id))).scalar() or 0
         alarm_today = (
             await db.execute(
                 select(func.count(Alarm.id)).where(
@@ -427,7 +419,7 @@ async def reports_list(
             "name": "流量趋势报表",
             "source": "builtin",
             "export_formats": ["csv"],
-        }
+        },
     ]
 
     cfg, _ = await _get_report_suite_config(db)
@@ -462,13 +454,13 @@ async def report_data_alarms(
 
     if start_time:
         try:
-            st = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+            st = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
             stmt = stmt.where(Alarm.time >= st)
         except (ValueError, TypeError) as e:
             raise HTTPException(status_code=400, detail=f"start_time date format error: {e}")  # i18n
     if end_time:
         try:
-            et = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+            et = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
             stmt = stmt.where(Alarm.time <= et)
         except (ValueError, TypeError) as e:
             raise HTTPException(status_code=400, detail=f"end_time date format error: {e}")  # i18n
@@ -476,10 +468,8 @@ async def report_data_alarms(
     result = await db.execute(stmt)
     rows = result.all()
 
-    return [
-        {"name": row[0] or "未知类型", "value": row[1]}
-        for row in rows
-    ]
+    return [{"name": row[0] or "未知类型", "value": row[1]} for row in rows]
+
 
 @router.get("/data/traffic")
 async def report_data_traffic(
@@ -525,10 +515,7 @@ async def report_data_traffic(
         conditions.append(NetworkMetric.tenant_id == tenant_id)
 
     stmt = (
-        select(NetworkMetric)
-        .where(*conditions)
-        .order_by(NetworkMetric.created_at.asc())
-        .limit(limit)  # W-07 添加limit限制，防止全量加载OOM
+        select(NetworkMetric).where(*conditions).order_by(NetworkMetric.created_at.asc()).limit(limit)  # W-07 添加limit限制，防止全量加载OOM
     )
     result = await db.execute(stmt)
     rows = result.scalars().all()
@@ -690,6 +677,7 @@ async def reports_export(
     elif type == "traffic":
         # 从 network_metrics 表查最近 24 小时真实数据
         from app.models.network_metric import NetworkMetric
+
         start_dt = datetime.now(timezone.utc) - timedelta(hours=24)
         datetime.now(timezone.utc)
         tenant_id = current_user.tenant_id or "default"
@@ -699,11 +687,7 @@ async def reports_export(
         ]
         if not current_user.is_superuser:
             conditions.append(NetworkMetric.tenant_id == tenant_id)
-        stmt = (
-            select(NetworkMetric)
-            .where(*conditions)
-            .order_by(NetworkMetric.created_at.asc())
-        )
+        stmt = select(NetworkMetric).where(*conditions).order_by(NetworkMetric.created_at.asc())
         result = await db.execute(stmt)
         rows = result.scalars().all()
 
@@ -741,7 +725,9 @@ async def reports_export(
     templates = _normalize_report_templates(cfg.get("templates"), cfg.get("export_formats"))
     valid_template_ids = {tpl["id"] for tpl in templates}
     if not (cfg.get("enabled") and cfg.get("connector_url")):
-        raise HTTPException(status_code=400, detail="Only built-in summary report export supported, other types require the report_suite plugin")  # i18n
+        raise HTTPException(
+            status_code=400, detail="Only built-in summary report export supported, other types require the report_suite plugin"
+        )  # i18n
     if type not in valid_template_ids:
         raise HTTPException(status_code=404, detail="Report template not found or not enabled")
     from app.core.http_client import get_http_client
@@ -773,12 +759,14 @@ async def test_report_suite_connector(
     if not target:
         raise HTTPException(status_code=400, detail="Please configure report_suite.connector_url first")
     from urllib.parse import urlparse
+
     parsed = urlparse(target)
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="Only http/https protocol supported")
     if parsed.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or parsed.hostname.endswith(".local"):
         raise HTTPException(status_code=400, detail="Access to local addresses not allowed")
     import ipaddress
+
     try:
         ipaddress.ip_address(parsed.hostname)
         raise HTTPException(status_code=400, detail="Direct IP address usage not allowed")
@@ -787,7 +775,9 @@ async def test_report_suite_connector(
     from app.core.http_client import get_http_client
 
     try:
-        r = await (await get_http_client()).get(target, params={"type": "healthcheck", "tenant_id": current_user.tenant_id or "default"}, timeout=10)  # 同步requests→异步httpx，避免阻塞事件循环
+        r = await (await get_http_client()).get(
+            target, params={"type": "healthcheck", "tenant_id": current_user.tenant_id or "default"}, timeout=10
+        )  # 同步requests→异步httpx，避免阻塞事件循环
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Connector unavailable: {e}")
     return {
@@ -815,10 +805,7 @@ async def ingest_closeout_governance_dashboard(
     events = store.get("events") if isinstance(store.get("events"), list) else []
 
     for row in events:
-        if (
-            str(row.get("tenant_id") or "") == tenant_id
-            and str(row.get("idempotency_key") or "") == idem_key
-        ):
+        if str(row.get("tenant_id") or "") == tenant_id and str(row.get("idempotency_key") or "") == idem_key:
             return {
                 "ok": True,
                 "deduped": True,
@@ -894,11 +881,7 @@ async def get_closeout_governance_dashboard_history(
         rows = [
             x
             for x in rows
-            if str(
-                (((x.get("dashboard") or {}).get("latest") or {}).get("alert") or {}).get("closeout_reason_code")
-                or ""
-            ).upper()
-            == reason_filter
+            if str((((x.get("dashboard") or {}).get("latest") or {}).get("alert") or {}).get("closeout_reason_code") or "").upper() == reason_filter
         ]
     rows = sorted(rows, key=lambda x: str(x.get("received_at") or ""), reverse=True)
     total = len(rows)
@@ -1024,7 +1007,6 @@ async def get_closeout_governance_dashboard_drilldown(
     }
 
 
-
 @router.get("/export.pdf")
 async def reports_export_pdf(
     db: AsyncSession = Depends(get_db),
@@ -1046,7 +1028,7 @@ async def reports_export_pdf(
     lines.append("指标 | 数值")
     lines.append("-" * 40)
     for row in items:
-        lines.append(f"{row.get('name','')} | {row.get('value','')}")
+        lines.append(f"{row.get('name', '')} | {row.get('value', '')}")
     pdf_bytes = _simple_pdf_from_lines(lines, title="PyGBSentry 报表摘要")
     filename = f"report_summary_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.pdf"
     return StreamingResponse(

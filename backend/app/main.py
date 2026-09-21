@@ -21,6 +21,7 @@ def _watch_bg_task(coro, name: str) -> asyncio.Task:
     无 add_done_callback。任务因未捕获异常崩溃后会静默死亡，系统功能静默降级且无日志。
     """
     task = asyncio.create_task(coro, name=name)
+
     def _on_done(t: asyncio.Task) -> None:
         if t.cancelled():
             logger.debug(f"Background task {name} cancelled.")
@@ -31,8 +32,10 @@ def _watch_bg_task(coro, name: str) -> asyncio.Task:
                 f"Background task {name} crashed with exception: {exc!r}",
                 exc_info=exc,
             )
+
     task.add_done_callback(_on_done)
     return task
+
 
 # Suppress OpenCV and FFMPEG noise (e.g. connection refused during media server startup)
 os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
@@ -43,19 +46,21 @@ import shutil
 
 apply_process_timezone()
 
+
 def _safe_print(msg: str) -> None:
     """编码安全输出：若 sys.stdout 无法编码则替换非 ASCII 字符。"""
     try:
         print(msg)
     except UnicodeEncodeError:
-        encoding = getattr(sys.stdout, 'encoding', 'utf-8') or 'utf-8'
-        print(msg.encode(encoding, errors='replace').decode(encoding))
+        encoding = getattr(sys.stdout, "encoding", "utf-8") or "utf-8"
+        print(msg.encode(encoding, errors="replace").decode(encoding))
+
 
 if not shutil.which("ffmpeg"):
-    _safe_print("\n" + "="*65)
+    _safe_print("\n" + "=" * 65)
     _safe_print("WARNING: FFmpeg not detected. Snapshots, AI inference and recording may be limited!")  # i18n
     _safe_print("SUGGEST: Install FFmpeg, e.g. `apt install ffmpeg` (Debian/Ubuntu).")  # i18n
-    _safe_print("="*65 + "\n")
+    _safe_print("=" * 65 + "\n")
 
 # uvloop setup — auto-detect based on database backend
 # uvloop (C extension) causes segfaults with aiosqlite (greenlet-based).
@@ -64,10 +69,12 @@ if sys.platform != "win32":
     try:
         from pathlib import Path as _P
         from dotenv import load_dotenv as _ld
+
         _ld(_P(__file__).resolve().parent.parent / ".env", override=False)
         _db_type = os.environ.get("DATABASE_TYPE", "").lower()
         if _db_type and _db_type not in ("sqlite",):
             import uvloop
+
             asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     except ImportError:
         pass  # uvloop is optional
@@ -81,6 +88,7 @@ else:
 
 # Configure Loguru
 from app.core.config import settings as _settings_for_log
+
 _log_format_env = getattr(_settings_for_log, "LOG_FORMAT", None) or os.environ.get("LOG_FORMAT", "text").lower()
 if _log_format_env == "json":
     _log_format = '{"timestamp":"{time:YYYY-MM-DD HH:mm:ss.SSS}","level":"{level}","module":"{name}","function":"{function}","line":{line},"message":"{message}"}'
@@ -92,6 +100,7 @@ logger.remove()
 # 过滤，将 password=xxx / token=xxx / 身份证号 / 手机号 等敏感信息替换为 ****，
 # 满足等保 2.0 三级对日志中敏感信息脱敏的要求。
 from app.core.log_masker import mask_log_filter as _mask_log_filter
+
 # P3-05: 生产环境日志级别动态化 — prod=WARNING, dev=INFO, debug=DEBUG
 # 可通过 LOG_LEVEL_STDERR 环境变量覆盖默认值
 _app_env_for_log = (getattr(_settings_for_log, "APP_ENV", "dev") or "dev").lower()
@@ -108,6 +117,7 @@ logger.add(sys.stderr, level=_log_level_stderr, format=_log_format, filter=_mask
 import json as _json
 import hashlib as _hashlib_mod
 import threading as _threading
+
 
 class HashChainSink:
     """Loguru Sink：将审计日志以 JSON 行格式写入文件，每条日志包含 prev_hash 和 hash 字段形成哈希链。"""
@@ -132,6 +142,7 @@ class HashChainSink:
         except Exception as init_err:
             # P1-10: 恢复失败不阻断启动，但记录警告
             import logging as _logging
+
             _logging.getLogger(__name__).warning(f"HashChainSink prev_hash recovery failed, starting fresh: {init_err}")
         self._file = open(path, "a", encoding="utf-8")
 
@@ -165,6 +176,7 @@ class HashChainSink:
             except Exception as rot_ex:
                 # P1-11: _check_rotation 内部已有错误处理，此处为兜底安全网
                 import logging as _logging
+
                 _logging.getLogger(__name__).warning(f"HashChainSink rotation outer guard: {rot_ex}")
 
     def _check_rotation(self) -> None:
@@ -182,6 +194,7 @@ class HashChainSink:
             if os.path.exists(self._path) and os.path.getsize(self._path) > max_bytes:
                 # P1-10: 使用 try/except 保证文件句柄完整性 — 轮转失败时在 except 块重新打开文件
                 import datetime as _dt
+
                 self._file.close()
                 try:
                     ts = _dt.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -196,9 +209,9 @@ class HashChainSink:
                             os.remove(self._path)
                         except Exception as copy_err:
                             import logging as _logging
+
                             _logging.getLogger(__name__).warning(
-                                f"HashChainSink rotation rename failed: {rename_err}; "
-                                f"copy2+remove fallback also failed: {copy_err}"
+                                f"HashChainSink rotation rename failed: {rename_err}; copy2+remove fallback also failed: {copy_err}"
                             )
                             rotated_path = self._path  # 两种方式均失败，原文件保留
                     # Preserve hash chain continuity: write a chain-link entry
@@ -220,8 +233,9 @@ class HashChainSink:
                 except Exception as rot_err:
                     # P1-10: 轮转失败后确保文件句柄可用
                     import logging as _logging
+
                     _logging.getLogger(__name__).error(f"HashChainSink rotation failed: {rot_err}")
-                    if not getattr(self._file, 'closed', True):
+                    if not getattr(self._file, "closed", True):
                         try:
                             self._file.close()
                         except Exception as _close_err:
@@ -231,6 +245,7 @@ class HashChainSink:
         except Exception as outer_err:
             # P1-10: 外层异常不再静默吞掉
             import logging as _logging
+
             _logging.getLogger(__name__).warning(f"HashChainSink _check_rotation error: {outer_err}")
 
     def stop(self) -> None:
@@ -245,13 +260,26 @@ class HashChainSink:
             # FIX [2026-07-17 P3-2]: 描述性日志替代 "silently_swallowed_exception"
             logger.warning(f"HashChainSink.__del__: failed to stop sink: {_del_err}")
 
-logger.add(f"{_log_dir}/app.log", rotation="50 MB", retention="180 days", compression="gz", level="INFO", format=_log_format, filter=_mask_log_filter, enqueue=True, encoding="utf-8")  # P2-fix: 显式指定 UTF-8 编码避免 Windows GBK 区域乱码；日志保留180天(等保2.0三级要求)，P0-D: 接入脱敏过滤器
+
+logger.add(
+    f"{_log_dir}/app.log",
+    rotation="50 MB",
+    retention="180 days",
+    compression="gz",
+    level="INFO",
+    format=_log_format,
+    filter=_mask_log_filter,
+    enqueue=True,
+    encoding="utf-8",
+)  # P2-fix: 显式指定 UTF-8 编码避免 Windows GBK 区域乱码；日志保留180天(等保2.0三级要求)，P0-D: 接入脱敏过滤器
 # 日志防篡改 — 哈希链审计日志，每条日志包含前一条的SHA256摘要
 _audit_sink = HashChainSink(f"{_log_dir}/audit.log")
 logger.add(_audit_sink.write, level="WARNING", filter=lambda record: _mask_log_filter(record) and record["level"].no >= 30, enqueue=True)
 
 # 让标准 logging 模块的 INFO 日志（如 handlers.py 中的 SIP TRACE）也输出到 loguru
 import logging
+
+
 class _LoguruLoggingHandler(logging.Handler):
     def emit(self, record: logging.LogRecord):
         try:
@@ -266,6 +294,7 @@ class _LoguruLoggingHandler(logging.Handler):
                 logger.debug(msg)
         except Exception:
             self.handleError(record)
+
 
 _root = logging.getLogger()
 # SECURITY: root logger level based on environment — INFO in production, DEBUG in dev
@@ -388,9 +417,12 @@ async def lifespan(app: FastAPI):
     # uvicorn --workers 2 时第二个 worker 绑定 SIP 端口失败→崩溃→supervisor 关闭所有 worker→应用 11ms 内死亡
     try:
         import multiprocessing as _mp
+
         _proc_name = _mp.current_process().name
         if _proc_name not in ("MainProcess", "SpawnProcess-1"):
-            logger.warning(f"[WORKER_WARN] Process name={_proc_name} — if using uvicorn --workers N>1, SIP port binding will fail and cause immediate shutdown. Use --workers 1.")
+            logger.warning(
+                f"[WORKER_WARN] Process name={_proc_name} — if using uvicorn --workers N>1, SIP port binding will fail and cause immediate shutdown. Use --workers 1."
+            )
     except Exception as _proc_err:
         logger.debug(f"[WORKER_WARN] process name check error: {_proc_err}")
 
@@ -415,9 +447,10 @@ async def lifespan(app: FastAPI):
         )
 
     # Schema migration: use Alembic if USE_ALEMBIC=true, otherwise legacy schema_upgrade
-    use_alembic = getattr(app_settings, 'USE_ALEMBIC', False)
+    use_alembic = getattr(app_settings, "USE_ALEMBIC", False)
     if use_alembic:
         import subprocess
+
         _backend_dir = os.path.dirname(os.path.dirname(__file__))
 
         # FIXED-P0: 检测数据库是否已有表但无 alembic_version 记录
@@ -429,48 +462,48 @@ async def lifespan(app: FastAPI):
             async with engine.connect() as conn:
                 _dialect_name = (getattr(engine.dialect, "name", None) or "").lower()
                 if _dialect_name == "sqlite":
-                    _av_result = await conn.execute(text(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"
-                    ))
+                    _av_result = await conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='alembic_version'"))
                     if not _av_result.first():
-                        _bt_result = await conn.execute(text(
-                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')"
-                        ))
+                        _bt_result = await conn.execute(
+                            text("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('sqlite_sequence', '_alembic_tmp')")
+                        )
                         if _bt_result.fetchall():
                             _need_stamp = True
                 elif _dialect_name == "postgresql":
                     # 检查 alembic_version 表是否存在且是否有版本记录
-                    _av_result = await conn.execute(text(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='alembic_version')"
-                    ))
+                    _av_result = await conn.execute(
+                        text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='alembic_version')")
+                    )
                     _av_exists = _av_result.scalar()
                     if not _av_exists:
                         # 无 alembic_version 表，检查是否有其他业务表
-                        _bt_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
-                        ))
+                        _bt_result = await conn.execute(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
+                            )
+                        )
                         if _bt_result.scalar():
                             _need_stamp = True
                     else:
                         # alembic_version 表存在但可能为空（之前部分运行）
-                        _ver_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM alembic_version)"
-                        ))
+                        _ver_result = await conn.execute(text("SELECT EXISTS (SELECT 1 FROM alembic_version)"))
                         if not _ver_result.scalar():
                             # 有表但无版本记录，检查是否有业务表
-                            _bt_result = await conn.execute(text(
-                                "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
-                            ))
+                            _bt_result = await conn.execute(
+                                text(
+                                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name NOT IN ('alembic_version', '_alembic_tmp'))"
+                                )
+                            )
                             if _bt_result.scalar():
                                 _need_stamp = True
                 elif _dialect_name == "mysql":
-                    _av_result = await conn.execute(text(
-                        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')"
-                    ))
+                    _av_result = await conn.execute(
+                        text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name='alembic_version')")
+                    )
                     if not _av_result.scalar():
-                        _bt_result = await conn.execute(text(
-                            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))"
-                        ))
+                        _bt_result = await conn.execute(
+                            text("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name NOT IN ('alembic_version'))")
+                        )
                         if _bt_result.scalar():
                             _need_stamp = True
         except Exception as _stamp_check_err:
@@ -484,21 +517,21 @@ async def lifespan(app: FastAPI):
             # - init_db 查询时 PostgreSQL 报 "column does not exist" 崩溃
             # 改为 stamp 初始迁移 4bbb649f0063，后续 upgrade head 会执行所有
             # 幂等迁移，安全地补齐缺失的列和索引
-            logger.info(
-                "Startup step: stamping alembic at initial migration 4bbb649f0063 "
-                "(database has tables but no alembic_version)..."
-            )
+            logger.info("Startup step: stamping alembic at initial migration 4bbb649f0063 (database has tables but no alembic_version)...")
             try:
                 _stamp_result = subprocess.run(
                     [sys.executable, "-m", "alembic", "stamp", "4bbb649f0063"],
                     cwd=_backend_dir,
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                     # FIX [2026-07-17]: 显式指定 UTF-8 编码，避免 Windows GBK 区域
                     # subprocess _readerthread UnicodeDecodeError (startup.log 中
                     # 'gbk' codec can't decode byte 0x94)。Alembic 输出含中文日志，
                     # 默认 text=True 使用 locale 编码 (GBK)，导致输出捕获线程崩溃，
                     # 进而使 alembic upgrade head 的实际错误被静默吞掉。
-                    encoding="utf-8", errors="replace",
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 if _stamp_result.returncode == 0:
                     logger.info("Startup step: alembic stamp 4bbb649f0063 done.")
@@ -515,14 +548,17 @@ async def lifespan(app: FastAPI):
             _result = subprocess.run(
                 [sys.executable, "-m", "alembic", "upgrade", "head"],
                 cwd=_backend_dir,
-                capture_output=True, text=True, timeout=300,
+                capture_output=True,
+                text=True,
+                timeout=300,
                 # FIX [2026-07-17]: 显式指定 UTF-8 编码，避免 Windows GBK 区域
                 # subprocess _readerthread UnicodeDecodeError。原代码 text=True 使用
                 # locale 默认编码 (Windows 中文=GBK)，Alembic 输出含中文日志时
                 # _readerthread 线程崩溃，subprocess.run 返回 returncode=0 但
                 # stdout/stderr 被截断，实际迁移错误被静默吞掉，导致后续
                 # init_db 查询报 'no such column: tenant_subscriptions.downgrade_history'。
-                encoding="utf-8", errors="replace",
+                encoding="utf-8",
+                errors="replace",
             )
             if _result.returncode == 0:
                 logger.info("Startup step: alembic upgrade head done.")
@@ -557,6 +593,7 @@ async def lifespan(app: FastAPI):
         try:
             from app.db.model_registry import ensure_model_registry_loaded
             from app.db.base import Base
+
             ensure_model_registry_loaded()
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -570,22 +607,24 @@ async def lifespan(app: FastAPI):
         # 执行 l4e5f6a7b8c9d 修复迁移（幂等，安全添加所有缺失列和索引）。
         try:
             async with engine.connect() as conn:
+
                 def _check_critical_columns(sync_conn):
                     inspector = sa_inspect(sync_conn)
-                    if not inspector.has_table('users'):
+                    if not inspector.has_table("users"):
                         return False
-                    existing = {c['name'] for c in inspector.get_columns('users')}
+                    existing = {c["name"] for c in inspector.get_columns("users")}
                     # auth_provider 由 f1a2b3c4d5e6 添加，是最可靠的 stamp head 污染指标
                     # 若 alembic_version=head 但 auth_provider 不存在，说明曾被 stamp head 污染
-                    if 'auth_provider' not in existing:
+                    if "auth_provider" not in existing:
                         return True
                     # FIX [2026-07-17]: 同时检查 tenant_subscriptions.downgrade_history
                     # 由 i1a2b3c4d5e6 添加，若缺失说明该迁移也未被正确执行
-                    if inspector.has_table('tenant_subscriptions'):
-                        ts_cols = {c['name'] for c in inspector.get_columns('tenant_subscriptions')}
-                        if 'downgrade_history' not in ts_cols:
+                    if inspector.has_table("tenant_subscriptions"):
+                        ts_cols = {c["name"] for c in inspector.get_columns("tenant_subscriptions")}
+                        if "downgrade_history" not in ts_cols:
                             return True
                     return False
+
                 _needs_repair = await conn.run_sync(_check_critical_columns)
 
             if _needs_repair:
@@ -597,28 +636,30 @@ async def lifespan(app: FastAPI):
                 _stamp_repair = subprocess.run(
                     [sys.executable, "-m", "alembic", "stamp", "k3c4d5e6f7g8"],
                     cwd=_backend_dir,
-                    capture_output=True, text=True, timeout=30,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
                     # FIX [2026-07-17]: 同步修复 GBK 编码问题
-                    encoding="utf-8", errors="replace",
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 if _stamp_repair.returncode == 0:
                     _repair_upgrade = subprocess.run(
                         [sys.executable, "-m", "alembic", "upgrade", "head"],
                         cwd=_backend_dir,
-                        capture_output=True, text=True, timeout=300,
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
                         # FIX [2026-07-17]: 同步修复 GBK 编码问题
-                        encoding="utf-8", errors="replace",
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     if _repair_upgrade.returncode == 0:
                         logger.info("Startup step: stamp head pollution repair done.")
                     else:
-                        logger.error(
-                            f"FATAL: repair upgrade failed: {_repair_upgrade.stderr[-500:]}"
-                        )
+                        logger.error(f"FATAL: repair upgrade failed: {_repair_upgrade.stderr[-500:]}")
                         if bool(getattr(app_settings, "DB_STARTUP_REQUIRED", True)):
-                            raise RuntimeError(
-                                f"Repair migration failed: {_repair_upgrade.stderr[-300:]}"
-                            )
+                            raise RuntimeError(f"Repair migration failed: {_repair_upgrade.stderr[-300:]}")
                 else:
                     logger.error(f"FATAL: repair stamp failed: {_stamp_repair.stderr[-300:]}")
                     if bool(getattr(app_settings, "DB_STARTUP_REQUIRED", True)):
@@ -638,6 +679,7 @@ async def lifespan(app: FastAPI):
         try:
             from app.db.model_registry import ensure_model_registry_loaded
             from app.db.base import Base
+
             ensure_model_registry_loaded()
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
@@ -648,6 +690,7 @@ async def lifespan(app: FastAPI):
     logger.info("Startup step: ensure_alarm_escalation_schema...")
     try:
         from app.api.v1.endpoints.alarms import ensure_alarm_escalation_schema
+
         async with AsyncSessionLocal() as db:
             await asyncio.wait_for(ensure_alarm_escalation_schema(db), timeout=30)
         logger.info("Startup step: ensure_alarm_escalation_schema done.")
@@ -661,6 +704,7 @@ async def lifespan(app: FastAPI):
     logger.info("Startup step: init_db (default admin user & billing)...")
     try:
         from app.initial_data import init_db
+
         await asyncio.wait_for(init_db(), timeout=30)
         logger.info("Startup step: init_db done.")
     except asyncio.TimeoutError:
@@ -674,8 +718,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         # FIX: [2026-07-10] 改为 fail-fast — 不再 continue startup 导致无法登录 [全栈工程师]
         logger.error(
-            f"FATAL: init_db failed: {e}, aborting startup. "
-            "Admin user and billing plans were not initialized.",
+            f"FATAL: init_db failed: {e}, aborting startup. Admin user and billing plans were not initialized.",
             exc_info=True,
         )
         raise
@@ -686,6 +729,7 @@ async def lifespan(app: FastAPI):
     try:
         from app.api.v1.endpoints.system_config import load_gb28181_play_runtime_overrides
         from app.db.session import AsyncSessionLocal as _PlayCfgSession
+
         async with _PlayCfgSession() as _play_cfg_sess:
             await load_gb28181_play_runtime_overrides(_play_cfg_sess)
         logger.info("Startup step: load gb28181 play runtime overrides done.")
@@ -698,10 +742,9 @@ async def lifespan(app: FastAPI):
         from app.models.media_node import MediaNode as _MediaNodeForCheck
         from app.core.field_crypto import decrypt_field as _decrypt_check
         from sqlalchemy import select as _select_check
+
         async with _SessionForCheck() as _sess:
-            _row = (await _sess.execute(
-                _select_check(_MediaNodeForCheck).where(_MediaNodeForCheck.is_embedded.is_(True)).limit(1)
-            )).scalars().first()
+            _row = (await _sess.execute(_select_check(_MediaNodeForCheck).where(_MediaNodeForCheck.is_embedded.is_(True)).limit(1))).scalars().first()
             if _row and _row.secret:
                 _dec = _decrypt_check(_row.secret, purpose="media_secret")
                 if _dec is None:
@@ -743,19 +786,16 @@ async def lifespan(app: FastAPI):
         from app.models.platform import ParentPlatform as _ParentPlatformForCheck
         from app.models.asset import Asset as _AssetForCheck
         from sqlalchemy import select as _select_bl
+
         async with _SessionForBL() as _sess_bl:
             _bl_rows = (await _sess_bl.execute(_select_bl(_IpBlacklistForCheck))).scalars().all()
             if _bl_rows:
                 _bl_ips = [r.ip for r in _bl_rows if r.ip]
                 # 检查每个黑名单 IP 是否对应 ParentPlatform 表中的 server_ip
-                _pf_rows = (await _sess_bl.execute(
-                    _select_bl(_ParentPlatformForCheck.server_ip).distinct()
-                )).scalars().all()
+                _pf_rows = (await _sess_bl.execute(_select_bl(_ParentPlatformForCheck.server_ip).distinct())).scalars().all()
                 _pf_ips = {ip for ip in _pf_rows if ip}
                 # FIX v2: 也检查 Asset 表的 ip_addr（设备实际 IP）
-                _asset_rows = (await _sess_bl.execute(
-                    _select_bl(_AssetForCheck.ip_addr).distinct()
-                )).scalars().all()
+                _asset_rows = (await _sess_bl.execute(_select_bl(_AssetForCheck.ip_addr).distinct())).scalars().all()
                 _asset_ips = {ip for ip in _asset_rows if ip}
                 # 合并所有已知合法 IP
                 _known_ips = _pf_ips | _asset_ips
@@ -771,11 +811,8 @@ async def lifespan(app: FastAPI):
                     _clear_ips = [r.ip for r in _to_auto_clear if r.ip]
                     try:
                         from sqlalchemy import delete as _delete_bl
-                        await _sess_bl.execute(
-                            _delete_bl(_IpBlacklistForCheck).where(
-                                _IpBlacklistForCheck.ip.in_(_clear_ips)
-                            )
-                        )
+
+                        await _sess_bl.execute(_delete_bl(_IpBlacklistForCheck).where(_IpBlacklistForCheck.ip.in_(_clear_ips)))
                         await _sess_bl.commit()
                         logger.warning(
                             "========== AUTO-CLEARED STALE BLACKLIST ENTRIES ==========\n"
@@ -799,8 +836,7 @@ async def lifespan(app: FastAPI):
                         "ACTION REQUIRED:\n"
                         "  1. Restore the original FIELD_ENCRYPTION_KEY in .env\n"
                         "  2. Remove these IPs from ip_blacklist via admin UI (安全中心→IP黑名单)\n"
-                        "     or SQL: DELETE FROM ip_blacklist WHERE ip IN ("
-                        + ",".join(f"'{ip}'" for ip in _suspicious) + ");\n"
+                        "     or SQL: DELETE FROM ip_blacklist WHERE ip IN (" + ",".join(f"'{ip}'" for ip in _suspicious) + ");\n"
                         "  3. Restart backend service\n"
                         "==============================================================="
                     )
@@ -821,13 +857,14 @@ async def lifespan(app: FastAPI):
         from app.models.platform import ParentPlatform as _PlatformForCheck
         from app.models.media_node import MediaNode as _MediaNodeForCheck
         from sqlalchemy import select as _select_dk
+
         _decrypt_fail_count = 0
         _decrypt_total_count = 0
         async with AsyncSessionLocal() as _sess_dk:
             # 探测平台密码字段（ParentPlatform.password）
-            _plat_rows = (await _sess_dk.execute(
-                _select_dk(_PlatformForCheck).where(_PlatformForCheck.password.isnot(None)).limit(5)
-            )).scalars().all()
+            _plat_rows = (
+                (await _sess_dk.execute(_select_dk(_PlatformForCheck).where(_PlatformForCheck.password.isnot(None)).limit(5))).scalars().all()
+            )
             for _p in _plat_rows:
                 if not _p.password:
                     continue
@@ -836,9 +873,7 @@ async def lifespan(app: FastAPI):
                 if _decrypted is None:
                     _decrypt_fail_count += 1
             # 探测媒体节点 secret 字段
-            _mn_rows = (await _sess_dk.execute(
-                _select_dk(_MediaNodeForCheck).where(_MediaNodeForCheck.secret.isnot(None)).limit(5)
-            )).scalars().all()
+            _mn_rows = (await _sess_dk.execute(_select_dk(_MediaNodeForCheck).where(_MediaNodeForCheck.secret.isnot(None)).limit(5))).scalars().all()
             for _m in _mn_rows:
                 if not _m.secret:
                     continue
@@ -878,6 +913,7 @@ async def lifespan(app: FastAPI):
     # 注入配置中心已发布的插件配置，供 load_plugins 时合并到各插件 config_template
     logger.info("Startup step: load_published_plugin_config...")
     try:
+
         async def _load_pub(db):
             return await config_center_service._load_published_modules(db)
 
@@ -921,6 +957,7 @@ async def lifespan(app: FastAPI):
     if bool(settings.PLUGIN_MARKETPLACE_ENABLED):
         try:
             from app.services.license_service import _get_current_machine_code
+
             _machine_code = _get_current_machine_code()
             await plugin_manager.register_oss_instance(machine_code=_machine_code)
             logger.info("Startup step: OSS instance registered to marketplace server.")
@@ -979,13 +1016,9 @@ async def lifespan(app: FastAPI):
             logger.info("Startup step: split_migrations count result: {}", resource_rows)
 
             if resource_rows == 0:
-                logger.info(
-                    "Startup step: split_migrations skipped (resources table empty, nothing to migrate)"
-                )
+                logger.info("Startup step: split_migrations skipped (resources table empty, nothing to migrate)")
             elif resource_rows < 0:
-                logger.warning(
-                    "Startup step: split_migrations skipped (could not count resources)"
-                )
+                logger.warning("Startup step: split_migrations skipped (could not count resources)")
             else:
                 logger.info(
                     "Startup step: split_migrations running (resources rows={})...",
@@ -993,16 +1026,12 @@ async def lifespan(app: FastAPI):
                 )
                 async with AsyncSessionLocal() as db:
                     logger.info("Startup step: ensure_split_channel_region_parents...")
-                    n = await asyncio.wait_for(
-                        ensure_split_channel_region_parents(db), timeout=60
-                    )
+                    n = await asyncio.wait_for(ensure_split_channel_region_parents(db), timeout=60)
                     if n:
                         logger.info("Startup step: channel placement split migration => {}", n)
                     logger.info("Startup step: ensure_split_channel_region_parents done.")
                     logger.info("Startup step: ensure_split_region_directory_parents...")
-                    d = await asyncio.wait_for(
-                        ensure_split_region_directory_parents(db), timeout=60
-                    )
+                    d = await asyncio.wait_for(ensure_split_region_directory_parents(db), timeout=60)
                     if d:
                         logger.info("Startup step: directory split migration => {}", d)
                     logger.info("Startup step: ensure_split_region_directory_parents done.")
@@ -1057,9 +1086,11 @@ async def lifespan(app: FastAPI):
     # SECRET 一致性校验：对比 settings.MEDIA_SERVER_SECRET 与 DB 中 MediaNode.secret
     # P0-02: secret 列已加密存储，需通过 decrypted_secret 取明文后比较
     try:
+
         async def _check_secret_consistency(db):
             from app.models.media_node import MediaNode as _MN
             from sqlalchemy import select as _sel
+
             result = await db.execute(_sel(_MN).where(_MN.is_embedded).limit(1))
             return result.scalars().first()
 
@@ -1117,6 +1148,7 @@ async def lifespan(app: FastAPI):
                 # P2-21: 从 Redis 恢复自定义脱敏规则（失败不影响启动）
                 try:
                     from app.core.log_masker import load_custom_rules_from_redis
+
                     loaded = await load_custom_rules_from_redis()
                     if loaded:
                         logger.info(f"Startup step: loaded {loaded} custom mask rules from Redis.")
@@ -1145,6 +1177,7 @@ async def lifespan(app: FastAPI):
     # FIX [2026-07-13]: 原位置在 init_redis 之前，导致 redis_client 为 None 降级为 local
     try:
         from app.sip.state_backend import get_sip_state_backend as _get_sip_state_backend
+
         _backend = _get_sip_state_backend()
         _backend_type = type(_backend).__name__
         logger.info(f"Startup step: SipStateBackend initialized (type={_backend_type})")
@@ -1208,6 +1241,7 @@ async def lifespan(app: FastAPI):
     # Start cluster Pub/Sub subscriber for RPC
     try:
         from app.core.redis import ha_cluster
+
         await ha_cluster.start_subscriber()
         logger.info("Startup step: cluster subscriber started.")
     except Exception as e:
@@ -1216,6 +1250,7 @@ async def lifespan(app: FastAPI):
     logger.info("Startup step: platform_subscription_service.start...")
     try:
         from app.services.platform_subscription_service import platform_subscription_service
+
         await asyncio.wait_for(platform_subscription_service.start(), timeout=10)
         logger.info("Startup step: platform_subscription_service.start done.")
     except asyncio.TimeoutError:
@@ -1226,6 +1261,7 @@ async def lifespan(app: FastAPI):
     logger.info("Startup step: device_subscription_service.start...")
     try:
         from app.services.device_subscription_service import device_subscription_service
+
         await asyncio.wait_for(device_subscription_service.start(), timeout=10)
         logger.info("Startup step: device_subscription_service.start done.")
     except asyncio.TimeoutError:
@@ -1234,6 +1270,7 @@ async def lifespan(app: FastAPI):
     # start catalog aggregation periodic prune to prevent memory growth
     try:
         from app.sip.catalog import start_catalog_agg_prune
+
         start_catalog_agg_prune()
     except Exception as e:
         logger.warning(f"Startup step: catalog_agg_prune start failed (non-critical): {e}")
@@ -1241,6 +1278,7 @@ async def lifespan(app: FastAPI):
     # FIX R23-SEVERE: 周期性清理 catalog_runtime 内存缓存，避免 _RUNTIME_STATE 无限增长
     try:
         from app.sip.catalog_runtime import start_catalog_runtime_cleanup
+
         start_catalog_runtime_cleanup()
         logger.info("Startup step: catalog_runtime cleanup loop started.")
     except Exception as e:
@@ -1284,6 +1322,7 @@ async def lifespan(app: FastAPI):
     # Start default background tasks
     try:
         from app.services.tasks.task_manager import start_all_background_tasks
+
         await start_all_background_tasks(plugin_manager=plugin_manager)
     except Exception as _bg_tasks_err:
         # NON-CRITICAL: 后台任务启动失败记录 error 并继续启动
@@ -1293,6 +1332,7 @@ async def lifespan(app: FastAPI):
     _talk_cleanup_task = None
     try:
         from app.sip.talk import start_talk_cleanup_loop
+
         _talk_cleanup_task = _watch_bg_task(start_talk_cleanup_loop(), "talk_cleanup_loop")
         logger.info("Startup step: talk session cleanup loop started.")
     except Exception as e:
@@ -1301,6 +1341,7 @@ async def lifespan(app: FastAPI):
     # SSL certbot startup check
     try:
         from app.services.ssl_certbot.certbot_manager import on_startup
+
         await asyncio.wait_for(on_startup(), timeout=130)
     except asyncio.TimeoutError:
         logger.warning("SSL certbot startup check timeout (130s), continuing startup.")
@@ -1343,11 +1384,13 @@ async def lifespan(app: FastAPI):
             # 原 SIGHUP 仅更新 os.environ，但 settings 是模块加载时一次性实例化的 Pydantic 单例
             try:
                 from app.core import config as _config_mod
+
                 _config_mod.settings = _config_mod.Settings()
                 logger.info("[SIGHUP] settings singleton reloaded.")
                 # 同步刷新 settings_cache 模块的缓存（避免旧值残留 30s TTL）
                 try:
                     from app.core import settings_cache as _sc_mod
+
                     _sc_mod._cache.clear()
                     logger.info("[SIGHUP] settings_cache cleared.")
                 except Exception as _sc_err:
@@ -1379,15 +1422,13 @@ async def lifespan(app: FastAPI):
     # FIX [2026-07-29 P0]: 注册 SIGTERM/SIGINT 信号处理器，记录是什么信号触发了 shutdown。
     # 根因诊断：应用启动后 11ms 即被 kill，需要知道信号来源（systemd/宝塔/Docker/OOM）。
     import traceback as _traceback_mod
+
     _shutdown_signal_received = {"signal": None}
 
     def _on_shutdown_signal(signum, *_args):
-        _sig_name = _signal.Signals(signum).name if hasattr(_signal, 'Signals') else f"signal({signum})"
-        _stack = ''.join(_traceback_mod.format_stack())
-        logger.error(
-            f"[SHUTDOWN_SIGNAL] Received {_sig_name} (pid={os.getpid()}) — "
-            f"this is what triggered the shutdown. Stack trace:\n{_stack}"
-        )
+        _sig_name = _signal.Signals(signum).name if hasattr(_signal, "Signals") else f"signal({signum})"
+        _stack = "".join(_traceback_mod.format_stack())
+        logger.error(f"[SHUTDOWN_SIGNAL] Received {_sig_name} (pid={os.getpid()}) — this is what triggered the shutdown. Stack trace:\n{_stack}")
         _shutdown_signal_received["signal"] = _sig_name
 
     try:
@@ -1402,15 +1443,21 @@ async def lifespan(app: FastAPI):
 
     _security_warnings = []
     if not settings.PLUGIN_LICENSE_MACHINE_CODE_ENABLED:
-        _security_warnings.append("PLUGIN_LICENSE_MACHINE_CODE_ENABLED=False: machine code binding disabled, license can be copied across machines")  # i18n
+        _security_warnings.append(
+            "PLUGIN_LICENSE_MACHINE_CODE_ENABLED=False: machine code binding disabled, license can be copied across machines"
+        )  # i18n
     if not settings.PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED:
         _security_warnings.append("PLUGIN_LICENSE_ACTIVATION_TOKEN_ENABLED=False: activation token disabled, trial period can be reset")  # i18n
     if not settings.PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD:
-        _security_warnings.append("PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered")  # i18n
+        _security_warnings.append(
+            "PLUGIN_PACKAGE_INTEGRITY_REQUIRED_IN_PROD=False: package signature verification disabled, plugin packages can be tampered"
+        )  # i18n
     if _security_warnings and (settings.APP_ENV or "dev").lower() in {"prod", "production"}:
         for _w in _security_warnings:
             logger.warning(f"[Security] {_w}")  # i18n
-        logger.warning("[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02")  # i18n
+        logger.warning(
+            "[Security] The above anti-piracy layers are disabled by default. Enable them in .env for production. See BUSINESS_MODEL_FIXES.md FIX-02"
+        )  # i18n
 
     paid_license_sync_task = None
     sync_enabled = settings.PLUGIN_PAID_LICENSE_SYNC_ENABLED
@@ -1439,6 +1486,7 @@ async def lifespan(app: FastAPI):
     run_sync_on_startup = settings.PLUGIN_PAID_LICENSE_SYNC_ON_STARTUP
 
     if sync_enabled and paid_license_sync_interval > 0:
+
         async def _paid_license_sync_loop():
             if run_sync_on_startup:
                 try:
@@ -1467,6 +1515,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to parse OSS heartbeat interval: {e}")
     if getattr(plugin_manager, "_oss_instance_id", None):
+
         async def _oss_heartbeat_loop():
             while True:
                 await asyncio.sleep(oss_heartbeat_interval)
@@ -1484,6 +1533,7 @@ async def lifespan(app: FastAPI):
     from app.sip.dialog_manager import dialog_manager
     from app.sip.ssrc_manager import ssrc_manager
     from app.sip.catalog_data_manager import catalog_data_manager
+
     try:
         await dialog_manager.restore_from_redis()
         logger.info("Startup step: dialog_manager.restore_from_redis done.")
@@ -1504,6 +1554,7 @@ async def lifespan(app: FastAPI):
             from sqlalchemy import select, func
             from app.sip.handlers import _schedule_device_catalog_retry, get_device_last_seen_addr
             from app.sip.server import sip_server
+
             async with AsyncSessionLocal() as session:
                 # 查找在线设备（status=1）及其通道数
                 stmt = (
@@ -1541,7 +1592,9 @@ async def lifespan(app: FastAPI):
                         except Exception as _transport_err:
                             logger.debug(f"[STARTUP_RESYNC] get_transport error for {gb_id}: {_transport_err}")
                         if not transport:
-                            logger.info(f"[STARTUP_RESYNC] Device {gb_id} no SIP transport for {ip}:{port}/{proto}, skip (will retry on next register)")
+                            logger.info(
+                                f"[STARTUP_RESYNC] Device {gb_id} no SIP transport for {ip}:{port}/{proto}, skip (will retry on next register)"
+                            )
                             continue
                         transport_info = ((ip, port), proto, transport)
                         logger.info(f"[STARTUP_RESYNC] Device {gb_id} online with 0 channels, triggering catalog sync to {ip}:{port}/{proto}")
@@ -1561,6 +1614,7 @@ async def lifespan(app: FastAPI):
         """Session Timer 刷新回调：发送会话内 re-INVITE 保活。"""
         try:
             from app.sip.invite import sip_invite as _sip_invite_obj
+
             if _sip_invite_obj is None:
                 logger.warning(f"session_timer_refresh: sip_invite not initialized for call_id={call_id}")
                 return False
@@ -1577,10 +1631,7 @@ async def lifespan(app: FastAPI):
         app_val = str(sd.get("app", "") or "").strip()
         node_id_val = str(sd.get("node_id", "") or "").strip()
         lease_id_val = str(sd.get("lease_id", "") or "").strip()
-        logger.warning(
-            f"session_timer_timeout: releasing resources for call_id={call_id} "
-            f"ssrc={ssrc_val} stream={stream_id_val} app={app_val}"
-        )
+        logger.warning(f"session_timer_timeout: releasing resources for call_id={call_id} ssrc={ssrc_val} stream={stream_id_val} app={app_val}")
         # 释放 SSRC
         if ssrc_val:
             try:
@@ -1591,6 +1642,7 @@ async def lifespan(app: FastAPI):
         if stream_id_val:
             try:
                 from app.services.zlm_stream_control import close_zlm_stream as _close_stream
+
                 await _close_stream(app=app_val, stream=stream_id_val, node_id=node_id_val or None)
             except Exception as e:
                 logger.warning(f"session_timer_timeout: failed to close ZLM stream {stream_id_val}: {e}")
@@ -1599,6 +1651,7 @@ async def lifespan(app: FastAPI):
             try:
                 from app.db.session import AsyncSessionLocal
                 from app.core.media_nodes_db import release_lease
+
                 async with AsyncSessionLocal() as _lease_session:
                     await release_lease(_lease_session, lease_id_val)
                     await _lease_session.commit()
@@ -1647,6 +1700,7 @@ async def lifespan(app: FastAPI):
         logger.error(_msg)
         # 同步写入 stderr，绕过 loguru 异步 sink，确保进程被 kill 前诊断信息一定输出
         import sys as _sys
+
         _sys.stderr.write(_msg + "\n")
         _sys.stderr.flush()
         for _t in ("_bg_dialog_cleanup", "_bg_ssrc_cleanup", "_bg_catalog_monitor", "_bg_iss_cleanup", "_bg_startup_resync"):
@@ -1661,18 +1715,21 @@ async def lifespan(app: FastAPI):
     # 1. ha_cluster 订阅任务（Redis PubSub + _subscriber_task）
     try:
         from app.core.redis import ha_cluster
+
         ha_cluster.stop()
     except Exception as e:
         logger.warning(f"Shutdown step: ha_cluster stop failed (non-critical): {e}")
     # 2. storm_handler DB 更新 worker（_db_updater_worker）
     try:
         from app.sip.storm_handler import stop_storm_handler
+
         stop_storm_handler()
     except Exception as e:
         logger.warning(f"Shutdown step: storm_handler stop failed (non-critical): {e}")
     # 3. catalog_agg_prune 周期清理任务
     try:
         from app.sip.catalog import stop_catalog_agg_prune
+
         stop_catalog_agg_prune()
     except Exception as e:
         logger.warning(f"Shutdown step: catalog_agg_prune stop failed (non-critical): {e}")
@@ -1685,6 +1742,7 @@ async def lifespan(app: FastAPI):
     # FIX R23-SEVERE: 停止 catalog_runtime 周期性清理后台任务
     try:
         from app.sip.catalog_runtime import stop_catalog_runtime_cleanup
+
         stop_catalog_runtime_cleanup()
     except Exception as e:
         logger.warning(f"Shutdown step: catalog_runtime cleanup loop stop failed (non-critical): {e}")
@@ -1710,6 +1768,7 @@ async def lifespan(app: FastAPI):
         logger.warning("NameError occurred")
 
     from app.services.tasks.task_manager import stop_all_background_tasks
+
     stop_task = asyncio.create_task(stop_all_background_tasks())
     try:
         await asyncio.wait_for(stop_task, timeout=10.0)
@@ -1743,11 +1802,13 @@ async def lifespan(app: FastAPI):
     await health_service.stop()
     try:
         from app.services.device_subscription_service import device_subscription_service
+
         await device_subscription_service.stop()
     except Exception as e:
         logger.warning(f"Stop device subscription service failed: {e}")
     try:
         from app.services.platform_subscription_service import platform_subscription_service
+
         await platform_subscription_service.stop()
     except Exception as e:
         logger.warning(f"Stop platform subscription service failed: {e}")
@@ -1757,6 +1818,7 @@ async def lifespan(app: FastAPI):
     # P0-16 [2026-07-17]: 停止 VodQualityMonitor 清理循环，防止僵尸任务泄漏
     try:
         from app.services.vod_quality_monitor import vod_quality_monitor
+
         await vod_quality_monitor.stop()
     except Exception as e:
         logger.warning(f"Shutdown step: vod_quality_monitor stop failed (non-critical): {e}")
@@ -1764,12 +1826,14 @@ async def lifespan(app: FastAPI):
     # FIX: [2026-07-17 P1] 取消所有 SIP watchdog 定时器，防止事件循环关闭后回调异常
     try:
         from app.sip.watchdog import cancel_all_watchdogs
+
         cancel_all_watchdogs()
         logger.info("Shutdown step: SIP watchdogs cancelled.")
     except Exception as e:
         logger.warning(f"Shutdown step: cancel_all_watchdogs failed (non-critical): {e}")
     try:
         from app.services.zlm_rtp_server_service import close_shared_zlm_client
+
         # FIX [2026-07-17 P1-D2]: 批量关闭所有活跃 RTP Server，防止 ZLM 端口泄漏。
         # 原问题：shutdown 时仅关闭 ZLM HTTP client，不调用 closeRtpServer，
         # 导致 ZLM 上残留 RTP Server 占用端口，重启后端口耗尽。
@@ -1778,6 +1842,7 @@ async def lifespan(app: FastAPI):
             from sqlalchemy import select as _select
             from app.services.zlm_stream_control import close_zlm_stream
             import datetime as _dt
+
             async with AsyncSessionLocal() as _ss_db:
                 # FIX [2026-07-22 P0]: 原查询 `_SS.status == "active"`，但 StreamSession
                 # 模型没有 status 列（会话结束即删除行），导致批量 closeRtpServer 永不执行，
@@ -1786,11 +1851,7 @@ async def lifespan(app: FastAPI):
                 # 注：start_time 为 naive DateTime，cutoff 用 naive UTC 避免 naive/aware 比较异常
                 _cutoff = _dt.datetime.now(_dt.timezone.utc).replace(tzinfo=None) - _dt.timedelta(hours=24)
                 _active_sessions = (
-                    await _ss_db.execute(
-                        _select(_SS.app, _SS.stream, _SS.media_server_id)
-                        .where(_SS.start_time >= _cutoff)
-                        .limit(1000)
-                    )
+                    await _ss_db.execute(_select(_SS.app, _SS.stream, _SS.media_server_id).where(_SS.start_time >= _cutoff).limit(1000))
                 ).all()
             if _active_sessions:
                 _close_tasks = [
@@ -1811,6 +1872,7 @@ async def lifespan(app: FastAPI):
     # 并确保这些任务持有的 DB session、httpx 连接、SIP 事务锁等资源正确释放。
     try:
         from app.core.async_utils import _background_tasks
+
         _pending_bg = [t for t in _background_tasks if not t.done()]
         for _t in _pending_bg:
             _t.cancel()
@@ -1823,6 +1885,7 @@ async def lifespan(app: FastAPI):
     # FIX: [2026-07-16 P1-A] 关闭共享 httpx 连接池，防止连接泄漏
     try:
         from app.core.http_client import close_http_client
+
         await close_http_client()
         logger.info("Shutdown step: shared HTTP client closed.")
     except Exception as e:
@@ -1845,6 +1908,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Shutdown step: HashChainSink.stop() failed: {e}")
 
+
 _env = (settings.APP_ENV or "dev").lower()
 
 app = FastAPI(
@@ -1861,6 +1925,7 @@ app = FastAPI(
 # OpenTelemetry tracing (optional, enabled via OTEL_ENABLED=true)
 try:
     from app.core.tracing import setup_tracing
+
     setup_tracing(app=app)
 except Exception as e:
     logger.warning(f"OpenTelemetry tracing setup failed (non-fatal): {e}")
@@ -1885,9 +1950,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         stream_port = settings.STREAM_PUBLIC_HTTP_PORT
         if stream_host:
             # 默认端口省略（http→80, https→443），避免冗余写法
-            is_default_port = (scheme == "http" and stream_port == 80) or (
-                scheme == "https" and stream_port == 443
-            )
+            is_default_port = (scheme == "http" and stream_port == 80) or (scheme == "https" and stream_port == 443)
             host_part = stream_host if is_default_port else f"{stream_host}:{stream_port}"
             sources.append(f"{scheme}://{host_part}")
             # WebSocket 变体（WS-FLV / WSS-FLV）：http→ws, https→wss
@@ -1940,6 +2003,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # A fresh nonce is generated per request and exposed via the X-CSP-Nonce
             # response header so templates/inline scripts can opt-in with nonce="{nonce}".
             import secrets as _secrets_csp
+
             _csp_nonce = _secrets_csp.token_urlsafe(16)
             try:
                 request.state.csp_nonce = _csp_nonce
@@ -1983,6 +2047,7 @@ class HttpRequestMetricsMiddleware(BaseHTTPMiddleware):
             response = await call_next(request)
             try:
                 from app.core.metrics import http_requests_total
+
                 # 使用路由模板而非实际 URL，避免 ID 产生 cardinality 爆炸
                 endpoint = request.url.path
                 # 尝试获取路由模板路径
@@ -2001,7 +2066,9 @@ class HttpRequestMetricsMiddleware(BaseHTTPMiddleware):
         except Exception:
             raise
 
+
 app.add_middleware(HttpRequestMetricsMiddleware)
+
 
 # P1-08: HTTPS 强制重定向中间件 — 生产环境自动将 HTTP 请求重定向到 HTTPS
 class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
@@ -2016,6 +2083,7 @@ class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
             if fwd_proto == "http":
                 # 构建 HTTPS 重定向 URL
                 from fastapi.responses import RedirectResponse
+
                 original_url = str(request.url)
                 https_url = original_url.replace("http://", "https://", 1)
                 return RedirectResponse(url=https_url, status_code=301)
@@ -2027,6 +2095,7 @@ app.add_middleware(HTTPSRedirectMiddleware)
 # ARCHITECTURE: API 版本协商中间件 — 为每个 /api/ 请求添加 X-API-Version 响应头，
 # 对已弃用版本自动添加 Deprecation/Sunset/Link 头（见 app.api.versioning）
 from app.api.versioning import APIVersionMiddleware
+
 app.add_middleware(APIVersionMiddleware)
 
 # Production safety checks: refuse known default secrets
@@ -2036,9 +2105,21 @@ import os as _os
 # Common weak passwords list
 # P2-22: 内置基线 + 外部文件扩展（支持 HaveIBeenPwned 下载的密码列表）
 _DEFAULT_PASSWORDS = {
-    "password", "12345678", "admin", "root", "administrator",
-    "123456", "123456789", "1234567890", "admin123", "admin1234",
-    "Abc12345", "Passw0rd", "Passw0rd!", "rootroot", "testtest",
+    "password",
+    "12345678",
+    "admin",
+    "root",
+    "administrator",
+    "123456",
+    "123456789",
+    "1234567890",
+    "admin123",
+    "admin1234",
+    "Abc12345",
+    "Passw0rd",
+    "Passw0rd!",
+    "rootroot",
+    "testtest",
     # FIX: [2026-07-16 P1] 添加模式化/示例占位密钥到已知弱密钥集合
     "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",  # 顺序字母+数字交替
     "***REMOVED***",  # 项目名+年份示例
@@ -2064,6 +2145,7 @@ if _weak_list_file and _os.path.exists(_weak_list_file):
     except Exception as _e:
         logger.warning(f"P2-22: Failed to load weak password list from {_weak_list_file}: {_e}")
 
+
 def _is_weak_secret(key_value: str) -> bool:
     """Check if a secret key is obviously weak (too short, all same char, sequential, or in common list)."""
     if not key_value:
@@ -2082,6 +2164,7 @@ def _is_weak_secret(key_value: str) -> bool:
     # FIX: [2026-07-16 P1] 检测模式化密钥：字母+数字交替（如 a1b2c3...）
     # 此类密钥虽然长度足够但可预测性极高
     import re as _re
+
     # 形如 "a1b2c3d4..." 的交替模式
     if _re.fullmatch(r"([a-z][0-9])+|[0-9]([a-z][0-9])+", lower) and len(key_value) >= 16:
         return True
@@ -2093,11 +2176,16 @@ def _is_weak_secret(key_value: str) -> bool:
         return True
     return False
 
+
 if (settings.APP_ENV or "dev").lower() in {"prod", "production"}:
     if _is_weak_secret(settings.SECRET_KEY):
-        raise RuntimeError("SECURITY: SECRET_KEY is empty, too short, or using a weak/default value. Please set a strong SECRET_KEY (32+ chars) via environment variable in production.")
+        raise RuntimeError(
+            "SECURITY: SECRET_KEY is empty, too short, or using a weak/default value. Please set a strong SECRET_KEY (32+ chars) via environment variable in production."
+        )
     if _is_weak_secret(settings.MEDIA_SERVER_SECRET):
-        raise RuntimeError("SECURITY: MEDIA_SERVER_SECRET is empty, too short, or using a weak/default value. Please set a strong MEDIA_SERVER_SECRET via environment variable in production.")
+        raise RuntimeError(
+            "SECURITY: MEDIA_SERVER_SECRET is empty, too short, or using a weak/default value. Please set a strong MEDIA_SERVER_SECRET via environment variable in production."
+        )
     _db_type = (settings.DATABASE_TYPE or "").lower()
     if _db_type not in {"sqlite"}:
         for _pwd_key in ["POSTGRES_PASSWORD", "DATABASE_PASSWORD"]:
@@ -2108,10 +2196,13 @@ if (settings.APP_ENV or "dev").lower() in {"prod", "production"}:
     if _sip_pwd in _DEFAULT_PASSWORDS or _sip_pwd == "":
         raise RuntimeError("SECURITY: SIP_DEFAULT_PASSWORD is using a default or empty password. Please set a strong password in production.")
     if settings.ALLOW_PUBLIC_REGISTRATION:
-        raise RuntimeError("SECURITY: ALLOW_PUBLIC_REGISTRATION is enabled, which may allow unauthorized user registration. It is recommended to disable public registration in production.")
+        raise RuntimeError(
+            "SECURITY: ALLOW_PUBLIC_REGISTRATION is enabled, which may allow unauthorized user registration. It is recommended to disable public registration in production."
+        )
 else:
     if _is_weak_secret(settings.SECRET_KEY):
         import logging as _logging
+
         _logging.getLogger(__name__).warning(
             "SECRET_KEY is not set or is weak; each restart generates a new key, invalidating all JWTs. "
             "It is recommended to set a fixed, strong SECRET_KEY (32+ chars) in .env."
@@ -2130,6 +2221,7 @@ if settings.BACKEND_CORS_ORIGINS:
     if _cors_env in {"prod", "production"}:
         # Exact hostname matching to prevent bypass (e.g., "mylocalhost.com")
         from urllib.parse import urlparse as _urlparse
+
         for origin in _cors_origins:
             parsed = _urlparse(origin)
             hostname = (parsed.hostname or "").lower()
@@ -2138,7 +2230,7 @@ if settings.BACKEND_CORS_ORIGINS:
                     f"SECURITY: BACKEND_CORS_ORIGINS contains '{origin}' with localhost/loopback "
                     f"address, which is not allowed in production.\n"
                     f"HINT: Set BACKEND_CORS_ORIGINS to your public frontend URL "
-                    f"(e.g., BACKEND_CORS_ORIGINS=[\"https://your-domain.com\"]).\n"
+                    f'(e.g., BACKEND_CORS_ORIGINS=["https://your-domain.com"]).\n'
                     f"If nginx proxies /api/ to the backend (same-origin), you can leave "
                     f"BACKEND_CORS_ORIGINS empty — CORS is not needed.\n"
                     f"Edit the .env file and restart the backend."
@@ -2163,6 +2255,7 @@ if settings.BACKEND_CORS_ORIGINS:
 
 from app.core.exceptions import AppException
 
+
 @app.exception_handler(AppException)
 async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(
@@ -2170,8 +2263,10 @@ async def app_exception_handler(request: Request, exc: AppException):
         content=exc.to_dict(),
     )
 
+
 # ZlmApiError继承RuntimeError但有status_code字段，添加异常处理器使FastAPI正确响应
 from app.services.zlm_rtp_server_service import ZlmApiError
+
 
 @app.exception_handler(ZlmApiError)
 async def zlm_api_error_handler(request: Request, exc: ZlmApiError):
@@ -2186,6 +2281,7 @@ async def zlm_api_error_handler(request: Request, exc: ZlmApiError):
             "retryable": exc.retryable,
         },
     )
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
@@ -2205,6 +2301,7 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         status_code=exc.status_code,
         content={"detail": message, "message": message, "status_code": exc.status_code, "error_code": f"ERR_{exc.status_code}"},
     )
+
 
 @app.exception_handler(StarletteHTTPException)
 async def starlette_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -2236,6 +2333,7 @@ async def global_exception_handler(request: Request, exc: Exception):
         },
     )
 
+
 def _sanitize_validation_error_value(value):
     """递归清洗校验错误中的值，确保可 JSON 序列化。
 
@@ -2254,10 +2352,7 @@ def _sanitize_validation_error_value(value):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    errors = [
-        _sanitize_validation_error_value(e) if isinstance(e, dict) else str(e)
-        for e in (exc.errors() or [])
-    ]
+    errors = [_sanitize_validation_error_value(e) if isinstance(e, dict) else str(e) for e in (exc.errors() or [])]
     detail = "Validation error"
     if errors:
         loc = errors[0].get("loc", [])
@@ -2268,9 +2363,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         content={"detail": detail, "error_code": "ERR_002", "errors": errors},
     )
 
+
 app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(common_channel_router, prefix="/api/common/channel")
 app.include_router(play_start_router, prefix="/api/play")
+
 
 @app.get("/")
 async def root():
@@ -2286,11 +2383,13 @@ async def health():
     """无鉴权健康检查，供负载均衡/容器探针使用。检查 DB + Redis + SIP 关键服务状态。"""
     import time as _health_time
     from datetime import datetime, timezone
+
     checks: dict[str, object] = {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
     # DB check (critical) — 记录延迟
     _t0 = _health_time.time()
     try:
         from app.db.session import AsyncSessionLocal
+
         async with AsyncSessionLocal() as session:
             await session.execute(text("SELECT 1"))
         checks["database"] = {"status": "ok", "latency_ms": round((_health_time.time() - _t0) * 1000, 1)}
@@ -2301,6 +2400,7 @@ async def health():
     _t1 = _health_time.time()
     try:
         from app.core.redis import redis_client as _rc
+
         if _rc is not None:
             await _rc.ping()
             checks["redis"] = {"status": "ok", "latency_ms": round((_health_time.time() - _t1) * 1000, 1)}
@@ -2320,6 +2420,7 @@ async def health():
     # media_manager.is_running() 执行真实 HTTP 探活。 [全栈工程师]
     try:
         from app.core.media_nodes import get_media_nodes
+
         _nodes = get_media_nodes()
         _zlm_running = await media_manager.is_running()
         checks["zlm"] = {
@@ -2339,6 +2440,7 @@ async def health():
         checks["plugins"] = {"status": "unknown"}
     status_code = 200 if checks["status"] == "ok" else 503
     from fastapi.responses import JSONResponse
+
     return JSONResponse(content=checks, status_code=status_code)
 
 
@@ -2352,6 +2454,7 @@ async def health_ready():
     results driven by ``health_service.is_ready``.
     """
     from app.api.v1.endpoints.health import build_readiness_response
+
     return build_readiness_response()
 
 
@@ -2369,6 +2472,7 @@ async def metrics(request: Request):
     client_ip = request.client.host if request.client else "unknown"
     allowed_networks = settings.METRICS_ALLOWED_NETWORKS
     import ipaddress
+
     allowed = False
     for net in allowed_networks:
         try:
@@ -2383,10 +2487,13 @@ async def metrics(request: Request):
     from app.core.metrics import metrics_response
     from prometheus_client import CONTENT_TYPE_LATEST
     from starlette.responses import Response
+
     return Response(content=metrics_response(), media_type=CONTENT_TYPE_LATEST)
+
 
 if __name__ == "__main__":
     import uvicorn
+
     port = settings.BACKEND_PUBLIC_PORT
     # FIX: [2026-07-16 P0] 原生产环境绑定 127.0.0.1 导致 Docker 容器不可达：
     # docker-compose.yml 默认 APP_ENV=prod，触发 127.0.0.1 绑定，
@@ -2394,10 +2501,7 @@ if __name__ == "__main__":
     # 当显式设置 BACKEND_BIND_HOST 时使用该值；
     # Docker 环境（检测到 /.dockerenv 或 RUNNING_IN_DOCKER=true）绑定 0.0.0.0；
     # 非 Docker 的生产环境仍默认 127.0.0.1 以保留反向代理场景的安全默认。
-    _docker_env = (
-        bool(os.environ.get("RUNNING_IN_DOCKER"))
-        or os.path.exists("/.dockerenv")
-    )
+    _docker_env = bool(os.environ.get("RUNNING_IN_DOCKER")) or os.path.exists("/.dockerenv")
     _explicit_host = os.environ.get("BACKEND_BIND_HOST")
     if _explicit_host:
         _host = _explicit_host
@@ -2405,6 +2509,7 @@ if __name__ == "__main__":
         _host = "0.0.0.0"
     elif _env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).warning(
             "PRODUCTION: binding backend to 127.0.0.1 (not 0.0.0.0) for security. "
             "Use a reverse proxy (nginx) for external access, or set BACKEND_BIND_HOST=0.0.0.0."

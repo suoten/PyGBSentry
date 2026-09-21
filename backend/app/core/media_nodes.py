@@ -78,15 +78,17 @@ def get_media_nodes() -> List[MediaNode]:
         public_host = n.get("public_host") or host
         public_http_port = int(n.get("public_http_port") or http_port)
         secret = n.get("secret") or settings.MEDIA_SERVER_SECRET
-        out.append({
-            "id": node_id,
-            "host": host,
-            "http_port": http_port,
-            "rtp_port": rtp_port,
-            "public_host": public_host,
-            "public_http_port": public_http_port,
-            "secret": secret,
-        })
+        out.append(
+            {
+                "id": node_id,
+                "host": host,
+                "http_port": http_port,
+                "rtp_port": rtp_port,
+                "public_host": public_host,
+                "public_http_port": public_http_port,
+                "secret": secret,
+            }
+        )
     if not out:
         return [_single_node()]
     return out
@@ -121,7 +123,7 @@ async def _async_get_stream_count_for_node(node: MediaNode) -> int:
         return len(media_list) if isinstance(media_list, list) else 0
     except Exception as e:
         # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING
-        _nid = str(node.get('id') or node.get('host') or '?')
+        _nid = str(node.get("id") or node.get("host") or "?")
         _now = time.time()
         if _now - _ENV_NODE_FAIL_LOG_COOLDOWN.get(_nid, 0) >= _ENV_NODE_FAIL_LOG_COOLDOWN_SECONDS:
             logger.warning(f"节点 {_nid} getMediaList 失败: {e}")
@@ -159,7 +161,7 @@ async def get_all_media_from_nodes_async() -> List[Dict[str, Any]]:
                 items.append({**item, "node_id": node["id"]})
         except Exception as e:
             # FIX: [2026-07-14] 日志限速：同一节点 60 秒内只输出一次 WARNING
-            _nid2 = str(node.get('id') or node.get('host') or '?')
+            _nid2 = str(node.get("id") or node.get("host") or "?")
             _now2 = time.time()
             if _now2 - _ENV_NODE_FAIL_LOG_COOLDOWN.get(_nid2, 0) >= _ENV_NODE_FAIL_LOG_COOLDOWN_SECONDS:
                 logger.warning(f"节点 {_nid2} getMediaList 失败: {e}")
@@ -183,6 +185,7 @@ def get_all_media_from_nodes() -> List[Dict[str, Any]]:
         loop = None
     if loop and loop.is_running():
         import threading
+
         result_container: list = [None]
         exception_container: list = [None]
 
@@ -267,7 +270,7 @@ async def select_best_node() -> MediaNode | None:
     counts = await asyncio.gather(*[_async_get_stream_count_for_node(n) for n in nodes], return_exceptions=True)
     now = time.time()
     best_idx = -1
-    best_score = float('inf')
+    best_score = float("inf")
     for i, count in enumerate(counts):
         # P1-E1: 跳过异常结果（Exception 实例），避免 TypeError 中断节点选择
         if isinstance(count, Exception):

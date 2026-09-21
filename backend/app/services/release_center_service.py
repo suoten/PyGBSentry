@@ -8,8 +8,10 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def _uuid7_hex(n: int = 16) -> str:
     return _uuid7_impl().hex[:n]
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.system_setting import SystemSetting

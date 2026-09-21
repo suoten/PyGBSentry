@@ -123,7 +123,7 @@ async def create_api_key(
         raise HTTPException(status_code=403, detail="Permission denied")
 
     scopes = _normalize_list(payload.allowed_scopes)
-    allowed_ips = _normalize_list(getattr(payload, 'allowed_ips', None))
+    allowed_ips = _normalize_list(getattr(payload, "allowed_ips", None))
     expires_at = payload.expires_at
     expires_dt = None
     if expires_at:
@@ -171,10 +171,7 @@ async def create_api_key(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"key_id={record.id}; key_prefix={record.key_prefix}; "
-            f"subject_user_id={user_id}"
-        ),
+        extra_summary=(f"key_id={record.id}; key_prefix={record.key_prefix}; subject_user_id={user_id}"),
     )
 
     return {
@@ -228,9 +225,7 @@ async def revoke_api_key(
             extra_summary=f"key_id={key_id}; key_tenant_id={record.tenant_id}",
         )
         raise HTTPException(status_code=403, detail="Permission denied")
-    if record.user_id != current_user.id and not (
-        current_user.is_superuser or (current_user.role or "").lower() in {"owner", "admin"}
-    ):
+    if record.user_id != current_user.id and not (current_user.is_superuser or (current_user.role or "").lower() in {"owner", "admin"}):
         await safe_auth_audit(
             db,
             module="users",
@@ -241,18 +236,11 @@ async def revoke_api_key(
             tenant_id=_audit_tid(current_user),
             status_code=403,
             detail="permission_denied",
-            extra_summary=(
-                f"key_id={key_id}; subject_user_id={record.user_id}; "
-                f"key_prefix={record.key_prefix}"
-            ),
+            extra_summary=(f"key_id={key_id}; subject_user_id={record.user_id}; key_prefix={record.key_prefix}"),
         )
         raise HTTPException(status_code=403, detail="Permission denied")
 
-    await db.execute(
-        update(UserApiKey)
-        .where(UserApiKey.id == key_id)
-        .values(is_active=False, revoked_at=datetime.now(timezone.utc))
-    )
+    await db.execute(update(UserApiKey).where(UserApiKey.id == key_id).values(is_active=False, revoked_at=datetime.now(timezone.utc)))
     await db.commit()
     await safe_auth_audit(
         db,
@@ -264,10 +252,6 @@ async def revoke_api_key(
         tenant_id=_audit_tid(current_user),
         status_code=200,
         detail="ok",
-        extra_summary=(
-            f"key_id={key_id}; key_prefix={record.key_prefix}; "
-            f"subject_user_id={record.user_id}"
-        ),
+        extra_summary=(f"key_id={key_id}; key_prefix={record.key_prefix}; subject_user_id={record.user_id}"),
     )
     return {"ok": True}
-

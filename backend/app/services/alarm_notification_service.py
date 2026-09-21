@@ -10,8 +10,6 @@ from app.models.alarm import Alarm
 from app.models.alarm_notification import AlarmNotification
 
 
-
-
 class AlarmNotificationService:
     async def log_notification(
         self,
@@ -97,4 +95,3 @@ class AlarmNotificationService:
 
 
 alarm_notification_service = AlarmNotificationService()
-

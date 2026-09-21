@@ -161,7 +161,7 @@ async def _run_loop():
         try:
             media_list = await asyncio.to_thread(get_all_media_from_nodes)
             running = {}
-            for item in (media_list or []):
+            for item in media_list or []:
                 try:
                     if str(item.get("app") or "") != "live":
                         continue
@@ -186,10 +186,10 @@ async def _run_loop():
                 asset_by_id = {a.id: a for a in asset_rows}
 
                 runtime_rows = (
-                    await session.execute(
-                        select(RecordScheduleRuntime).where(RecordScheduleRuntime.schedule_id.in_([s.id for s in schedules]))
-                    )
-                ).scalars().all()
+                    (await session.execute(select(RecordScheduleRuntime).where(RecordScheduleRuntime.schedule_id.in_([s.id for s in schedules]))))
+                    .scalars()
+                    .all()
+                )
                 runtime_by_schedule = {rt.schedule_id: rt for rt in runtime_rows}
 
                 proxy_host, proxy_http_port, proxy_secret, _, _, _, node_id = await _select_media_node(session)
@@ -234,9 +234,7 @@ async def _run_loop():
                             rt.last_action_ok = False
                             rt.last_error = f"stream_not_running stream={stream}"
                             changed = True
-                            _append_rse_event(
-                                schedule_id=sch_id, stream_gb=stream, evt="blocked_stream"
-                            )
+                            _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="blocked_stream")
                             continue
                         try:
                             await _start_record(proxy_host, proxy_http_port, proxy_secret, "live", stream)
@@ -246,9 +244,7 @@ async def _run_loop():
                             rt.last_action_ok = True
                             rt.last_error = ""
                             changed = True
-                            _append_rse_event(
-                                schedule_id=sch_id, stream_gb=stream, evt="start_ok"
-                            )
+                            _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="start_ok")
                         except Exception as e:
                             rt.is_recording = False
                             rt.last_action_at = now_naive
@@ -273,9 +269,7 @@ async def _run_loop():
                             rt.last_action_ok = True
                             rt.last_error = ""
                             changed = True
-                            _append_rse_event(
-                                schedule_id=sch_id, stream_gb=stream, evt="stop_ok"
-                            )
+                            _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="stop_ok")
                         except Exception as e:
                             rt.last_action_at = now_naive
                             rt.last_action = "stop_record"
@@ -318,6 +312,3 @@ async def stop():
     except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
         logger.warning("(asyncio.CancelledError, asyncio.TimeoutError, Exception) occurred")
     _task = None
-
-
-

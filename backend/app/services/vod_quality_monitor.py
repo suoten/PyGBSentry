@@ -21,28 +21,29 @@ from typing import Optional, Callable, Awaitable
 from app.core.async_utils import fire_and_forget
 
 
-
-
 class QualityLevel(Enum):
     """画质等级"""
+
     EXCELLENT = "excellent"  # 极好
-    GOOD = "good"           # 良好
-    FAIR = "fair"           # 一般
-    POOR = "poor"           # 较差
-    BAD = "bad"             # 很差
+    GOOD = "good"  # 良好
+    FAIR = "fair"  # 一般
+    POOR = "poor"  # 较差
+    BAD = "bad"  # 很差
 
 
 class BufferState(Enum):
     """缓冲状态"""
-    HEALTHY = "healthy"     # 健康
-    MARGINAL = "marginal"   # 边缘
-    STARVING = "starving"   # 不足
+
+    HEALTHY = "healthy"  # 健康
+    MARGINAL = "marginal"  # 边缘
+    STARVING = "starving"  # 不足
     OVER_BUFFERED = "over_buffered"  # 过度缓冲
 
 
 @dataclass
 class VodQualityMetrics:
     """点播质量指标"""
+
     # 基本信息
     record_id: str = ""
     source_url: str = ""
@@ -83,6 +84,7 @@ class VodQualityMetrics:
 @dataclass
 class VodSource:
     """点播源配置"""
+
     url: str
     protocol: str  # mp4, hls, flv, webrtc
     priority: int = 0  # 优先级，数字越小优先级越高
@@ -96,6 +98,7 @@ class VodSource:
 @dataclass
 class VodSession:
     """点播会话"""
+
     session_id: str
     record_id: str
     device_id: str
@@ -119,7 +122,7 @@ class VodQualityMonitor:
     4. 画质动态调整
     """
 
-    _instance: Optional['VodQualityMonitor'] = None
+    _instance: Optional["VodQualityMonitor"] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -164,13 +167,7 @@ class VodQualityMonitor:
         }
 
         # 统计信息
-        self.stats = {
-            'total_sessions': 0,
-            'active_sessions': 0,
-            'total_switches': 0,
-            'total_retries': 0,
-            'avg_quality_score': 0.0
-        }
+        self.stats = {"total_sessions": 0, "active_sessions": 0, "total_switches": 0, "total_retries": 0, "avg_quality_score": 0.0}
 
         # 启动后台任务
         self._cleanup_task: Optional[asyncio.Task] = None
@@ -216,13 +213,7 @@ class VodQualityMonitor:
 
     # ==================== 会话管理 ====================
 
-    async def create_session(
-        self,
-        record_id: str,
-        device_id: str,
-        channel_id: str,
-        sources: list[dict]
-    ) -> str:
+    async def create_session(self, record_id: str, device_id: str, channel_id: str, sources: list[dict]) -> str:
         """
         创建点播会话
 
@@ -236,15 +227,12 @@ class VodQualityMonitor:
             session_id
         """
         import uuid
+
         session_id = str(uuid.uuid4())[:16]
 
         vod_sources = [
             VodSource(
-                url=s.get('url', ''),
-                protocol=s.get('protocol', 'mp4'),
-                priority=s.get('priority', i),
-                bitrate=s.get('bitrate', 0),
-                available=True
+                url=s.get("url", ""), protocol=s.get("protocol", "mp4"), priority=s.get("priority", i), bitrate=s.get("bitrate", 0), available=True
             )
             for i, s in enumerate(sources)
         ]
@@ -255,14 +243,14 @@ class VodQualityMonitor:
             device_id=device_id,
             channel_id=channel_id,
             sources=vod_sources,
-            quality_metrics=VodQualityMetrics(record_id=record_id)
+            quality_metrics=VodQualityMetrics(record_id=record_id),
         )
 
         async with self._sessions_lock:
             self._sessions[session_id] = session
 
-        self.stats['total_sessions'] += 1
-        self.stats['active_sessions'] = len(self._sessions)
+        self.stats["total_sessions"] += 1
+        self.stats["active_sessions"] = len(self._sessions)
 
         logger.info(f"VodQualityMonitor: Session created {session_id} for record {record_id}")
         return session_id
@@ -277,7 +265,7 @@ class VodQualityMonitor:
         async with self._sessions_lock:
             if session_id in self._sessions:
                 del self._sessions[session_id]
-                self.stats['active_sessions'] = len(self._sessions)
+                self.stats["active_sessions"] = len(self._sessions)
                 logger.info(f"VodQualityMonitor: Session closed {session_id}")
 
     async def update_metrics(self, session_id: str, metrics: VodQualityMetrics):
@@ -312,11 +300,7 @@ class VodQualityMonitor:
         """计算质量等级"""
         score = self._calculate_quality_score(metrics)
 
-        for level, threshold in sorted(
-            self.quality_thresholds.items(),
-            key=lambda x: x[1],
-            reverse=True
-        ):
+        for level, threshold in sorted(self.quality_thresholds.items(), key=lambda x: x[1], reverse=True):
             if score >= threshold:
                 return level
         return QualityLevel.BAD
@@ -362,10 +346,7 @@ class VodQualityMonitor:
 
         # 缓冲不足处理
         if buffer_state == BufferState.STARVING and metrics.buffer_duration_ms < self.min_buffer_ms:
-            logger.warning(
-                f"VodQualityMonitor: Buffer starving for session {session.session_id}, "
-                f"buffer={metrics.buffer_duration_ms:.0f}ms"
-            )
+            logger.warning(f"VodQualityMonitor: Buffer starving for session {session.session_id}, buffer={metrics.buffer_duration_ms:.0f}ms")
             await self._handle_buffer_starving(session)
 
         # 质量下降处理
@@ -378,9 +359,7 @@ class VodQualityMonitor:
 
         # 错误处理
         if metrics.error_count > 3:
-            logger.error(
-                f"VodQualityMonitor: Too many errors for session {session.session_id}"
-            )
+            logger.error(f"VodQualityMonitor: Too many errors for session {session.session_id}")
             await self._handle_session_error(session)
 
     def _calculate_buffer_state(self, metrics: VodQualityMetrics) -> BufferState:
@@ -417,10 +396,7 @@ class VodQualityMonitor:
             return
 
         # 查找质量更好的源
-        better_sources = [
-            s for s in session.sources
-            if s.priority < current.priority and s.available
-        ]
+        better_sources = [s for s in session.sources if s.priority < current.priority and s.available]
 
         if better_sources:
             best = min(better_sources, key=lambda x: x.priority)
@@ -438,18 +414,13 @@ class VodQualityMonitor:
             await self._switch_to_source(session, next_source)
         else:
             session.status = "error"
-            logger.error(
-                f"VodQualityMonitor: No available sources for session {session.session_id}"
-            )
+            logger.error(f"VodQualityMonitor: No available sources for session {session.session_id}")
 
     # ==================== 源切换 ====================
 
     def _find_next_available_source(self, session: VodSession) -> Optional[VodSource]:
         """查找下一个可用源"""
-        available = [
-            (i, s) for i, s in enumerate(session.sources)
-            if s.available and i != session.current_source_index
-        ]
+        available = [(i, s) for i, s in enumerate(session.sources) if s.available and i != session.current_source_index]
 
         if not available:
             return None
@@ -461,21 +432,17 @@ class VodQualityMonitor:
     async def _switch_to_source(self, session: VodSession, source: VodSource):
         """切换到指定源"""
         old_index = session.current_source_index
-        new_index = next(
-            (i for i, s in enumerate(session.sources) if s.url == source.url),
-            -1
-        )
+        new_index = next((i for i, s in enumerate(session.sources) if s.url == source.url), -1)
 
         if new_index == -1:
             return
 
         session.current_source_index = new_index
         session.quality_metrics.source_url = source.url
-        self.stats['total_switches'] += 1
+        self.stats["total_switches"] += 1
 
         logger.info(
-            f"VodQualityMonitor: Switched source for session {session.session_id} "
-            f"from index {old_index} to {new_index} ({source.url[:50]}...)"
+            f"VodQualityMonitor: Switched source for session {session.session_id} from index {old_index} to {new_index} ({source.url[:50]}...)"
         )
 
         # 触发回调
@@ -496,21 +463,13 @@ class VodQualityMonitor:
 
     # ==================== 回调注册 ====================
 
-    async def register_quality_callback(
-        self,
-        session_id: str,
-        callback: Callable[[VodSession, VodSource], Awaitable[None]]
-    ):
+    async def register_quality_callback(self, session_id: str, callback: Callable[[VodSession, VodSource], Awaitable[None]]):
         """注册质量回调"""
         if session_id not in self._quality_callbacks:
             self._quality_callbacks[session_id] = []
         self._quality_callbacks[session_id].append(callback)
 
-    async def register_error_callback(
-        self,
-        session_id: str,
-        callback: Callable[[VodSession, str], Awaitable[None]]
-    ):
+    async def register_error_callback(self, session_id: str, callback: Callable[[VodSession, str], Awaitable[None]]):
         """注册错误回调"""
         if session_id not in self._error_callbacks:
             self._error_callbacks[session_id] = []
@@ -543,9 +502,7 @@ class VodQualityMonitor:
                         self._metrics_cache.pop(session_id, None)
 
                     if to_remove:
-                        logger.info(
-                            f"VodQualityMonitor: Cleaned up {len(to_remove)} expired sessions"
-                        )
+                        logger.info(f"VodQualityMonitor: Cleaned up {len(to_remove)} expired sessions")
 
                 # 更新统计
                 self._update_stats()
@@ -562,9 +519,9 @@ class VodQualityMonitor:
         if active_sessions:
             total_score = sum(s.quality_metrics.score for s in active_sessions)
             count = len(active_sessions)
-            self.stats['avg_quality_score'] = total_score / count if count > 0 else 0.0  # 防除零保护
+            self.stats["avg_quality_score"] = total_score / count if count > 0 else 0.0  # 防除零保护
 
-        self.stats['active_sessions'] = len(active_sessions)
+        self.stats["active_sessions"] = len(active_sessions)
 
     # ==================== 公开 API ====================
 
@@ -591,15 +548,11 @@ class VodQualityMonitor:
         session = await self.get_session(session_id)
         if session:
             session.quality_metrics.retry_count += 1
-            self.stats['total_retries'] += 1
+            self.stats["total_retries"] += 1
 
     def get_stats(self) -> dict:
         """获取统计信息"""
-        return {
-            **self.stats,
-            'cache_size': len(self._metrics_cache),
-            'running': self._running
-        }
+        return {**self.stats, "cache_size": len(self._metrics_cache), "running": self._running}
 
 
 # 单例实例

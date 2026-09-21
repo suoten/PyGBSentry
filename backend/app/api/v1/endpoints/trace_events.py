@@ -88,22 +88,15 @@ async def list_raw_sip_traces(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     from app.core.plugin_manager import plugin_manager
+
     traces = getattr(plugin_manager, "recent_sip_traces", [])
 
     if traces:
-        return {
-            "count": len(traces),
-            "traces": traces[-limit:]
-        }
+        return {"count": len(traces), "traces": traces[-limit:]}
 
     tenant_id = current_user.tenant_id or "default"
     limit = max(1, min(int(limit or 100), 500))
-    stmt = (
-        select(SipTraceEvent)
-        .where(SipTraceEvent.tenant_id == tenant_id)
-        .order_by(SipTraceEvent.created_at.desc())
-        .limit(limit)
-    )
+    stmt = select(SipTraceEvent).where(SipTraceEvent.tenant_id == tenant_id).order_by(SipTraceEvent.created_at.desc()).limit(limit)
     rows = (await db.execute(stmt)).scalars().all()
     return {
         "count": len(rows),
@@ -122,6 +115,7 @@ async def list_raw_sip_traces(
         ],
     }
 
+
 @router.get("/platforms/{platform_id}")
 async def list_platform_trace_events(
     platform_id: str,
@@ -130,4 +124,3 @@ async def list_platform_trace_events(
     current_user: User = Depends(deps.get_current_active_user),
 ):
     return await list_trace_events(platform_id=platform_id, limit=limit, db=db, current_user=current_user)
-

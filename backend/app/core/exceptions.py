@@ -20,6 +20,7 @@ Backward-compatible aliases (kept for existing code that uses the *Exception nam
     - PermissionDeniedException → PermissionError
     - NotFoundException → NotFoundError
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -74,38 +75,45 @@ class AppException(Exception):
 
 # --- Primary exception hierarchy (use these in new code) ---------------------
 
+
 class ValidationError(AppException):
     """请求参数校验失败（422）。"""
+
     status_code = 422
     error_code = "ERR_VALIDATION"
 
 
 class AuthenticationError(AppException):
     """认证失败：token 无效/过期/未提供（401）。"""
+
     status_code = 401
     error_code = "ERR_AUTHENTICATION"
 
 
 class PermissionError(AppException):  # noqa: A001 — intentionally shadows builtin for domain clarity
     """鉴权失败：用户无权限访问该资源（403）。"""
+
     status_code = 403
     error_code = "ERR_PERMISSION_DENIED"
 
 
 class NotFoundError(AppException):
     """请求的资源不存在（404）。"""
+
     status_code = 404
     error_code = "ERR_NOT_FOUND"
 
 
 class BusinessError(AppException):
     """业务逻辑错误：状态机非法转换、前置条件不满足等（400）。"""
+
     status_code = 400
     error_code = "ERR_BUSINESS"
 
 
 class ConflictException(AppException):
     """资源状态冲突（409）。"""
+
     status_code = 409
     error_code = "ERR_CONFLICT"
 
@@ -130,4 +138,3 @@ __all__ = [
     "PermissionDeniedException",
     "NotFoundException",
 ]
-

@@ -16,7 +16,7 @@ import time
 import asyncio
 from loguru import logger
 
-from . _common import (
+from ._common import (
     _normalize_default_stream_type,
     _normalize_region_code,
     _resource_to_node,
@@ -69,7 +69,7 @@ async def get_channels(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     # 兼容：path 参数可能是 Asset.id 或 gb_id
     stmt_asset = select(Asset).where(Asset.gb_id == device_id)
@@ -145,7 +145,7 @@ async def get_channels_paged(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     """
     分页通道列表（带 total），用于通道很多时的列表控件。
@@ -251,7 +251,7 @@ async def get_channels_flat(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     limit = max(1, min(int(limit or 50), 200))
     skip = max(0, int(skip or 0))
@@ -327,10 +327,11 @@ async def get_channels_flat(
                 directory_ids = {str(x).strip() for x in (await db.execute(dir_stmt)).scalars().all() if str(x).strip()}
 
                 from sqlalchemy import text
+
                 cond = or_(
                     Resource.region_parent_gb_id.is_(None),
                     Resource.region_parent_gb_id == "",
-                    ~Resource.region_parent_gb_id.in_(directory_ids) if directory_ids else text("1=1")
+                    ~Resource.region_parent_gb_id.in_(directory_ids) if directory_ids else text("1=1"),
                 )
                 conditions.append(cond)
                 count_conditions.append(cond)
@@ -357,10 +358,11 @@ async def get_channels_flat(
                 directory_ids = {str(x).strip() for x in (await db.execute(dir_stmt)).scalars().all() if str(x).strip()}
 
                 from sqlalchemy import text
+
                 cond = or_(
                     Resource.parent_gb_id.is_(None),
                     Resource.parent_gb_id == "",
-                    ~Resource.parent_gb_id.in_(directory_ids) if directory_ids else text("1=1")
+                    ~Resource.parent_gb_id.in_(directory_ids) if directory_ids else text("1=1"),
                 )
                 conditions.append(cond)
                 count_conditions.append(cond)
@@ -419,11 +421,7 @@ async def get_channels_flat(
             "latitude": getattr(resource, "latitude", None),
             "has_audio": bool(getattr(resource, "has_audio", True)),
             "default_stream_type": _normalize_default_stream_type(
-                (
-                    (resource.capabilities or {}).get("default_stream_type")
-                    if isinstance(resource.capabilities, dict)
-                    else "main"
-                ),
+                ((resource.capabilities or {}).get("default_stream_type") if isinstance(resource.capabilities, dict) else "main"),
                 strict=False,
             ),
         }
@@ -437,7 +435,7 @@ async def update_channel(
     channel_id: str,
     payload: ChannelUpdatePayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"]))
+    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"])),
 ):
     stmt = select(Resource).where(Resource.id == channel_id)
     if not current_user.is_superuser:
@@ -542,9 +540,7 @@ async def reset_channel(
 ):
     stmt = select(Resource).where(Resource.id == channel_id, Resource.node_type == "channel")
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     channel = get_or_404(result, detail="Channel not found")  # ORM查询结果空值判断
     if hasattr(channel, "sip_original_name") and channel.sip_original_name:
@@ -579,9 +575,7 @@ async def delete_channel(
 ):
     stmt = select(Resource).where(Resource.id == channel_id, Resource.node_type == "channel")
     if not current_user.is_superuser:
-        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(
-            Asset.tenant_id == (current_user.tenant_id or "default")
-        )
+        stmt = stmt.join(Asset, Asset.id == Resource.asset_id).where(Asset.tenant_id == (current_user.tenant_id or "default"))
     result = await db.execute(stmt)
     channel = get_or_404(result, detail="Channel not found")  # ORM查询结果空值判断
     await db.delete(channel)
@@ -655,8 +649,10 @@ async def batch_channel_placement(
 async def batch_update_civil_code(
     payload: BatchUpdateCivilCodePayload,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.require_roles(["owner", "admin", "operator"]),
-)):
+    current_user: User = Depends(
+        deps.require_roles(["owner", "admin", "operator"]),
+    ),
+):
     gb_ids = [str(x).strip() for x in (payload.gb_ids or []) if str(x).strip()]
     if not gb_ids:
         raise HTTPException(status_code=400, detail="gb_ids cannot be empty")
@@ -691,11 +687,7 @@ async def batch_update_civil_code(
 
 
 @router.get("/directories/{parent_id}/children")
-async def get_directory_children(
-    parent_id: str,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
-):
+async def get_directory_children(parent_id: str, db: AsyncSession = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
     tenant_id = current_user.tenant_id or "default"
     asset_stmt = select(Asset).where(Asset.gb_id == parent_id)
     if not current_user.is_superuser:
@@ -735,10 +727,7 @@ async def get_directory_children(
 
 
 @router.get("/tree")
-async def get_device_tree(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(deps.get_current_active_user)
-):
+async def get_device_tree(db: AsyncSession = Depends(get_db), current_user: User = Depends(deps.get_current_active_user)):
     # /tree 端点全量查询无缓存 → 使用内存缓存，TTL 30秒
     tenant_id = current_user.tenant_id or "default"
     cache_key = f"region:{tenant_id}"
@@ -747,12 +736,7 @@ async def get_device_tree(
     if cached and (now_ts - cached[0]) < _TREE_CACHE_TTL:
         return cached[1]
 
-    region_root = {
-        "id": "region:root",
-        "label": "根资源组",
-        "nodeType": "root",
-        "children": []
-    }
+    region_root = {"id": "region:root", "label": "根资源组", "nodeType": "root", "children": []}
     asset_stmt = select(Asset)
     if not current_user.is_superuser:
         asset_stmt = asset_stmt.where(Asset.tenant_id == tenant_id)
@@ -789,12 +773,7 @@ async def get_device_tree(
             # 只有当该行政区划在数据库中存在，或者 infer_region_placement 为 True 时才创建
             if code not in region_nodes:
                 if code in region_records or infer_region_placement:
-                    region_nodes[code] = {
-                        "id": f"region:{code}",
-                        "label": region_records.get(code, label),
-                        "nodeType": "region",
-                        "children": []
-                    }
+                    region_nodes[code] = {"id": f"region:{code}", "label": region_records.get(code, label), "nodeType": "region", "children": []}
                 else:
                     # 如果数据库没有这个行政区，且没有开启自动推断，则不创建节点
                     continue
@@ -809,6 +788,7 @@ async def get_device_tree(
 
     # 0) 获取所有行政区划记录，用于显示正确的名称
     from app.models.region import Region
+
     region_records_result = await db.execute(select(Region))
     region_records = {r.code: r.name for r in region_records_result.scalars().all()}
 
@@ -847,9 +827,7 @@ async def get_device_tree(
                 continue
             parent_gb_id = (item.parent_gb_id or "").strip()
             reg_parent_gb_id = (getattr(item, "region_parent_gb_id", None) or "").strip()
-            if (reg_parent_gb_id and reg_parent_gb_id in region_dir_nodes) or (
-                parent_gb_id and parent_gb_id in region_dir_nodes
-            ):
+            if (reg_parent_gb_id and reg_parent_gb_id in region_dir_nodes) or (parent_gb_id and parent_gb_id in region_dir_nodes):
                 region_dir_nodes[item.gb_id] = _resource_to_node(item, "")
                 changed = True
 
@@ -1141,9 +1119,7 @@ async def create_directory(
                 region_parent_gb_id = cur
                 break
             cur = pp
-    final_civil_code = (
-        _normalize_region_code(payload.civil_code) if payload.civil_code else None
-    )
+    final_civil_code = _normalize_region_code(payload.civil_code) if payload.civil_code else None
     if parent_gb_id and parent_gb_id.startswith("region:"):
         # 行政区划树父节点使用 region:xxxxxx 虚拟节点标识，允许直接挂载
         region_code = parent_gb_id.split(":", 1)[1] if ":" in parent_gb_id else ""
@@ -1300,11 +1276,7 @@ async def get_next_directory_gb_id(
     stmt = select(Resource.gb_id)
     if not current_user.is_superuser:
         stmt = stmt.where(Resource.tenant_id == tenant_id)
-    existing_ids = {
-        str(row[0]).strip()
-        for row in (await db.execute(stmt)).all()
-        if row and row[0]
-    }
+    existing_ids = {str(row[0]).strip() for row in (await db.execute(stmt)).all() if row and row[0]}
     existing_ids.add(root_gb_id)
 
     # 目录节点编码规则（行政区风格）：
@@ -1323,7 +1295,9 @@ async def get_next_directory_gb_id(
         if gb_id not in existing_ids:
             return {"gb_id": gb_id}
 
-    raise HTTPException(status_code=500, detail=f"Available sequence numbers under region code {base6} are exhausted, please fill in manually")  # i18n
+    raise HTTPException(
+        status_code=500, detail=f"Available sequence numbers under region code {base6} are exhausted, please fill in manually"
+    )  # i18n
 
 
 @router.post("/probe-online")
@@ -1347,9 +1321,7 @@ async def probe_channels_online(
     channel_gb_ids = [str(c).strip() for c in (payload.get("channel_gb_ids") or []) if str(c).strip()]
     timeout = min(float(payload.get("timeout_seconds") or 6.0), 15.0)
 
-    asset = (await db.execute(
-        select(Asset).where(Asset.gb_id == device_id)
-    )).scalars().first()
+    asset = (await db.execute(select(Asset).where(Asset.gb_id == device_id))).scalars().first()
     if not asset:
         raise HTTPException(status_code=404, detail="Device not found")
     if int(asset.status or 0) != 1:
@@ -1357,6 +1329,7 @@ async def probe_channels_online(
 
     from app.sip.server import sip_server
     from app.sip.commander import sip_commander
+
     transport_info = sip_server.get_transport(asset.ip_addr, asset.port, asset.transport)
     if transport_info is None:
         raise HTTPException(status_code=503, detail="Device signaling transport unavailable")
@@ -1366,12 +1339,15 @@ async def probe_channels_online(
     targets = channel_gb_ids
     if not targets:
         targets = [
-            row[0] for row in (await db.execute(
-                select(Resource.gb_id).where(
-                    Resource.asset_id == asset.id,
-                    Resource.node_type == "channel",
+            row[0]
+            for row in (
+                await db.execute(
+                    select(Resource.gb_id).where(
+                        Resource.asset_id == asset.id,
+                        Resource.node_type == "channel",
+                    )
                 )
-            )).all()
+            ).all()
         ]
     if not targets:
         return {"probed": 0, "online": [], "offline": [], "unknown": 0}
@@ -1382,15 +1358,14 @@ async def probe_channels_online(
         """返回 (channel_gb_id, result)；result ∈ online/offline/unknown"""
         async with sem:
             try:
-                sn = await sip_commander.send_channel_status_query(
-                    asset, transport_info, channel_id=ch_gb_id
-                )
+                sn = await sip_commander.send_channel_status_query(asset, transport_info, channel_id=ch_gb_id)
                 if not sn:
                     return ch_gb_id, "unknown"
                 body = await catalog_data_manager.wait_for(device_id, "DeviceStatus", timeout=timeout)
                 if not body:
                     return ch_gb_id, "unknown"
                 from app.core.xml_utils import parse_xml, get_xml_text
+
                 root = parse_xml(body)
                 if root is None:
                     return ch_gb_id, "unknown"

@@ -1,4 +1,5 @@
 import uuid
+
 try:
     from uuid7 import uuid7 as _uuid7_impl
 except ImportError:

@@ -8,8 +8,10 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid():
     return _uuid7_impl().hex
+
 
 class Alarm(Base):
     __tablename__ = "alarms"
@@ -18,7 +20,7 @@ class Alarm(Base):
     tenant_id = Column(String(64), default="default", index=True)
 
     device_id = Column(String(20), ForeignKey("assets.gb_id"), nullable=False, index=True)
-    channel_id = Column(String(20), index=True) # Optional, some alarms are device level
+    channel_id = Column(String(20), index=True)  # Optional, some alarms are device level
 
     # GB28181 Alarm Priority: 1-4
     priority = Column(String(10), default="4")

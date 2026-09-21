@@ -5,6 +5,7 @@ requests/responses. This module provides a process-wide monotonically
 increasing counter so SN values are predictable and collision-free within
 a single process lifetime (P2-2 统一 SN 生成策略).
 """
+
 from __future__ import annotations
 
 import threading

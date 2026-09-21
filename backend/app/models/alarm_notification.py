@@ -8,6 +8,7 @@ try:
 except ImportError:
     _uuid7_impl = uuid.uuid4
 
+
 def generate_uuid() -> str:
     return _uuid7_impl().hex
 
@@ -33,4 +34,3 @@ class AlarmNotification(Base):
 
     sent_at = Column(DateTime, default=func.now(), index=True)
     created_at = Column(DateTime, default=func.now())
-

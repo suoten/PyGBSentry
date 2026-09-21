@@ -32,9 +32,11 @@ def logs_root(current_user=Depends(deps.get_current_active_user)):
         }
     }
 
+
 # 全量读取日志文件到内存 → 从文件末尾反向读取，使用 deque 限制最大行数
 _MAX_LOG_LINES = 10000
 _MAX_LOG_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
 
 @router.get("/files")
 def list_log_files(current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限，普通用户不应看到日志文件列表
@@ -49,18 +51,17 @@ def list_log_files(current_user=Depends(deps.require_roles(["admin", "owner"])))
                 try:
                     stat = f.stat()
                     rel_path = f.relative_to(LOGS_DIR).as_posix()
-                    files.append({
-                        "name": rel_path,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime
-                    })
+                    files.append({"name": rel_path, "size": stat.st_size, "mtime": stat.st_mtime})
                 except (OSError, PermissionError):
                     logger.warning("(OSError, PermissionError) occurred")
     files.sort(key=lambda x: x["mtime"], reverse=True)
     return files
 
+
 @router.get("/files/{filepath:path}/lines")
-def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: int = 1000, current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限
+def get_log_lines(
+    filepath: str, keyword: str = "", page: int = 1, page_size: int = 1000, current_user=Depends(deps.require_roles(["admin", "owner"]))
+):  # FIX: [2026-07-16 P1] 升级权限
     target = (LOGS_DIR / filepath).resolve()
     # FIX: [2026-07-16 P1] 用 is_relative_to 替换 startswith，防止同前缀目录绕过（如 logs_secret/）
     try:
@@ -80,8 +81,7 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
         raise HTTPException(status_code=500, detail="Cannot read file stats")
     if file_size > _MAX_LOG_FILE_SIZE:
         raise HTTPException(
-            status_code=422,
-            detail=f"Log file too large ({file_size // (1024*1024)}MB), exceeds {_MAX_LOG_FILE_SIZE // (1024*1024)}MB limit"
+            status_code=422, detail=f"Log file too large ({file_size // (1024 * 1024)}MB), exceeds {_MAX_LOG_FILE_SIZE // (1024 * 1024)}MB limit"
         )
 
     try:
@@ -141,19 +141,17 @@ def get_log_lines(filepath: str, keyword: str = "", page: int = 1, page_size: in
         start = (page - 1) * page_size
         end = start + page_size
 
-        return {
-            "total": total,
-            "page": page,
-            "page_size": page_size,
-            "lines": list(lines)[start:end]
-        }
+        return {"total": total, "page": page, "page_size": page_size, "lines": list(lines)[start:end]}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @router.get("/files/{filepath:path}/download")
-def download_log_file(filepath: str, current_user=Depends(deps.require_roles(["admin", "owner"]))):  # FIX: [2026-07-16 P1] 升级权限，普通用户不应下载日志（含敏感信息）
+def download_log_file(
+    filepath: str, current_user=Depends(deps.require_roles(["admin", "owner"]))
+):  # FIX: [2026-07-16 P1] 升级权限，普通用户不应下载日志（含敏感信息）
     target = (LOGS_DIR / filepath).resolve()
     # FIX: [2026-07-16 P1] 用 is_relative_to 替换 startswith，防止同前缀目录绕过
     try:
@@ -166,6 +164,7 @@ def download_log_file(filepath: str, current_user=Depends(deps.require_roles(["a
         raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(target, filename=target.name)
+
 
 class LogManager:
     def __init__(self):
@@ -203,9 +202,7 @@ class LogManager:
                 dead_connections.append(connection)
         # 清理已断开的连接
         if dead_connections:
-            self.active_connections = [
-                (ws, f) for ws, f in self.active_connections if ws not in dead_connections
-            ]
+            self.active_connections = [(ws, f) for ws, f in self.active_connections if ws not in dead_connections]
             logger.debug(f"Cleaned up {len(dead_connections)} dead log WebSocket connections")
 
     async def drain_queue(self):
@@ -219,6 +216,7 @@ class LogManager:
             except Exception:
                 await asyncio.sleep(0.1)
 
+
 log_manager = LogManager()
 
 # Thread-safe queue shared between sync log handler and async drainer
@@ -229,12 +227,14 @@ _log_queue_ref: list = []  # 惰性初始化
 # FIX: [2026-07-16 P1] 统计被丢弃的日志条目数，定期记录 warning
 _dropped_log_count: int = 0
 
+
 def _get_log_queue() -> asyncio.Queue:
     global _log_queue, _log_queue_ref, _dropped_log_count
     if _log_queue is None:
         _log_queue = asyncio.Queue(maxsize=_LOG_QUEUE_MAXSIZE)
         log_manager.set_queue(_log_queue)
     return _log_queue
+
 
 # Custom Log Handler to push logs to WebSocket
 class WebSocketLogHandler(logging.Handler):
@@ -258,9 +258,10 @@ class WebSocketLogHandler(logging.Handler):
         except Exception as e:
             logger.warning(f"Error: {e}")
 
+
 # Add handler to root logger
 ws_handler = WebSocketLogHandler()
-ws_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+ws_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
 # FIX: [2026-07-16 P1] 改为只订阅应用日志，避免 root logger 的第三方库日志刷屏
 logging.getLogger("app").addHandler(ws_handler)
 
@@ -273,6 +274,7 @@ async def websocket_logs(websocket: WebSocket, ticket: str = ""):
         await websocket.close(code=4001, reason="Missing ticket")
         return
     from app.core.ws_ticket import consume_ws_ticket
+
     payload = await consume_ws_ticket(ticket)
     if not payload or not payload.get("sub"):
         await websocket.close(code=4001, reason="Invalid or expired ticket")
@@ -287,6 +289,7 @@ async def websocket_logs(websocket: WebSocket, ticket: str = ""):
                     await websocket.send_text(json.dumps({"type": "ping"}))
                 except Exception:
                     break
+
         heartbeat_task = asyncio.create_task(_heartbeat())
         try:
             while True:
