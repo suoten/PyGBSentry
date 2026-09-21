@@ -21,17 +21,33 @@ from app.services.license_service import verify_license_payload
 from types import SimpleNamespace
 
 
-_PLUGIN_SANDBOX_BLOCKED_MODULES: frozenset[str] = frozenset({
-    "subprocess", "ctypes", "cffi", "multiprocessing",
-    "winreg", "pickle", "shelve", "marshal",
-    "socket", "ssl", "http.client", "urllib", "httpx",
-    "paramiko", "signal", "importlib", "pty",
-    # FIX [2026-07-19]: 加回 "requests" 和 "urllib3"。
-    # 项目硬约束：第三方恶意插件如需发 HTTP 请求，应通过插件 SDK 的受控 HTTP 客户端，
-    # 而非直接 import requests。官方内置告警插件应迁移到 SafeAPIGateway 或
-    # 通过 plugin_globals 注入受控的 HTTP 客户端实例，避免直接 import requests。
-    "requests", "urllib3",
-})
+_PLUGIN_SANDBOX_BLOCKED_MODULES: frozenset[str] = frozenset(
+    {
+        "subprocess",
+        "ctypes",
+        "cffi",
+        "multiprocessing",
+        "winreg",
+        "pickle",
+        "shelve",
+        "marshal",
+        "socket",
+        "ssl",
+        "http.client",
+        "urllib",
+        "httpx",
+        "paramiko",
+        "signal",
+        "importlib",
+        "pty",
+        # FIX [2026-07-19]: 加回 "requests" 和 "urllib3"。
+        # 项目硬约束：第三方恶意插件如需发 HTTP 请求，应通过插件 SDK 的受控 HTTP 客户端，
+        # 而非直接 import requests。官方内置告警插件应迁移到 SafeAPIGateway 或
+        # 通过 plugin_globals 注入受控的 HTTP 客户端实例，避免直接 import requests。
+        "requests",
+        "urllib3",
+    }
+)
 
 _PLUGIN_SANDBOX_BLOCKED_ATTRS: dict[str, frozenset[str]] = {
     "os": frozenset({"system", "popen", "execv", "execve", "spawnl", "spawnle", "spawnv", "spawnve"}),
@@ -39,22 +55,36 @@ _PLUGIN_SANDBOX_BLOCKED_ATTRS: dict[str, frozenset[str]] = {
     "sys": frozenset({"exit"}),
 }
 
-_PLUGIN_SANDBOX_BLOCKED_BUILTINS: frozenset[str] = frozenset({
-    "eval", "exec", "compile", "__import__",
-    "open",
-    # FIX [2026-07-13]: 移除 "globals", "locals", "vars", "dir"
-    # 这些内置函数依赖调用者的栈帧（frame）来返回正确结果。
-    # guard 包装后 _orig_*() 会在 guard 函数自身的作用域中执行，
-    # 返回 guard 的局部变量而非原始调用者的，导致第三方库
-    # （如 _distutils_hack.find_spec 中的 'spec_for_{fullname}'.format(**locals())）
-    # 抛出 KeyError('fullname')，进而导致所有插件加载失败。
-    # 这些函数本身只查看作用域，不执行代码，安全风险极低，无需 guard。
-})
+_PLUGIN_SANDBOX_BLOCKED_BUILTINS: frozenset[str] = frozenset(
+    {
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "open",
+        # FIX [2026-07-13]: 移除 "globals", "locals", "vars", "dir"
+        # 这些内置函数依赖调用者的栈帧（frame）来返回正确结果。
+        # guard 包装后 _orig_*() 会在 guard 函数自身的作用域中执行，
+        # 返回 guard 的局部变量而非原始调用者的，导致第三方库
+        # （如 _distutils_hack.find_spec 中的 'spec_for_{fullname}'.format(**locals())）
+        # 抛出 KeyError('fullname')，进而导致所有插件加载失败。
+        # 这些函数本身只查看作用域，不执行代码，安全风险极低，无需 guard。
+    }
+)
 
-_PLUGIN_SANDBOX_BLOCKED_OS_ATTRS: frozenset[str] = frozenset({
-    "system", "popen", "remove", "unlink", "rmdir",
-    "rename", "replace", "kill", "startfile",
-})
+_PLUGIN_SANDBOX_BLOCKED_OS_ATTRS: frozenset[str] = frozenset(
+    {
+        "system",
+        "popen",
+        "remove",
+        "unlink",
+        "rmdir",
+        "rename",
+        "replace",
+        "kill",
+        "startfile",
+    }
+)
 
 # S-06 — 应用源码包根目录，用于校验 app.* 模块是否为真正的内部模块
 # 防止插件在 plugins/app/ 下创建模块冒充 app.* 命名空间绕过沙箱
@@ -67,6 +97,7 @@ class _BlockedModuleLoader:
     Used by _PluginSandboxImportHook.find_spec() to prevent plugins from
     importing dangerous modules (subprocess, ctypes, socket, etc.).
     """
+
     def __init__(self, plugin_id: str, fullname: str):
         self.plugin_id = plugin_id
         self.fullname = fullname
@@ -90,6 +121,7 @@ class _PluginSandboxImportHook:
     在 Python 3.12 下沙箱形同虚设，且在某些边界场景下触发内部 KeyError('fullname')。
     现迁移到 find_spec 协议（PEP 451），同时保留 find_module 用于 Python<3.4 兼容。
     """
+
     def __init__(self, plugin_id: str):
         self.plugin_id = plugin_id
 
@@ -98,6 +130,7 @@ class _PluginSandboxImportHook:
             return None
         if fullname in _PLUGIN_SANDBOX_BLOCKED_MODULES:
             from importlib.machinery import ModuleSpec
+
             return ModuleSpec(fullname, _BlockedModuleLoader(self.plugin_id, fullname))
         return None
 
@@ -134,18 +167,42 @@ def _uninstall_plugin_sandbox_hook(hook: _PluginSandboxImportHook | None) -> Non
 # Standard library / internal modules whose use of exec/eval/compile should never be blocked.
 # These modules use these builtins internally (e.g. encodings uses exec when loading codecs).
 _INTERNAL_CALLER_PREFIXES: tuple[str, ...] = (
-    "encodings.", "importlib.", "_bootstrap.", "_bootstrap_external.",
-    "zipimport.", "runpy.", "sqlalchemy.", "alembic.", "pydantic.",
-    "starlette.", "uvicorn.", "fastapi.", "anyio.", "httpx.",
-    "greenlet.", "asyncio.", "concurrent.", "threading.",
-    "loguru.", "uvloop.",
+    "encodings.",
+    "importlib.",
+    "_bootstrap.",
+    "_bootstrap_external.",
+    "zipimport.",
+    "runpy.",
+    "sqlalchemy.",
+    "alembic.",
+    "pydantic.",
+    "starlette.",
+    "uvicorn.",
+    "fastapi.",
+    "anyio.",
+    "httpx.",
+    "greenlet.",
+    "asyncio.",
+    "concurrent.",
+    "threading.",
+    "loguru.",
+    "uvloop.",
 )
 # S-06 — 移除 "app." 前缀白名单，改为 _is_internal_caller 中文件路径校验
-_INTERNAL_CALLER_EXACT: frozenset[str] = frozenset({
-    "encodings", "importlib", "_bootstrap", "_bootstrap_external",
-    "zipimport", "runpy", None, "",
-    "loguru", "uvloop",
-})
+_INTERNAL_CALLER_EXACT: frozenset[str] = frozenset(
+    {
+        "encodings",
+        "importlib",
+        "_bootstrap",
+        "_bootstrap_external",
+        "zipimport",
+        "runpy",
+        None,
+        "",
+        "loguru",
+        "uvloop",
+    }
+)
 
 
 def _is_internal_caller(caller: str, frame) -> bool:
@@ -200,6 +257,7 @@ def _is_direct_plugin_caller(frame, pid: str) -> bool:
         return False
     return False
 
+
 _sandbox_guard_lock = threading.Lock()  # 改为threading.Lock，_load_module是sync函数不能用async with
 # FIXED-P0: 模块级 reentrancy 计数器，所有 sandbox guard 共享
 # 防止 _guarded 调用 orig() 时 orig 内部又触发其他 guarded builtin 导致无限递归
@@ -211,6 +269,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
     if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return {}
     import builtins as _builtins
+
     saved = {}
     for name in _PLUGIN_SANDBOX_BLOCKED_BUILTINS:
         original = getattr(_builtins, name, None)
@@ -219,8 +278,10 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
         saved[name] = original
 
         if name == "open":
+
             def _make_open_guard(orig, pid):
                 _inspect_ref = inspect
+
                 def _guarded_open(*args, **kwargs):
                     global _sandbox_reentrancy_depth
                     _frame = _inspect_ref.currentframe()
@@ -230,10 +291,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                     # 模块级 open('w') 可绕过沙箱。现 depth>0 仅当直接调用方为
                     # 内部模块（import 机制正常加载路径，如 encodings 惰性加载）
                     # 时豁免；插件模块级调用仍走下方检查。
-                    if _sandbox_reentrancy_depth > 0 and (
-                        _caller is None
-                        or _is_internal_caller(_caller.f_globals.get("__name__", ""), _caller)
-                    ):
+                    if _sandbox_reentrancy_depth > 0 and (_caller is None or _is_internal_caller(_caller.f_globals.get("__name__", ""), _caller)):
                         return orig(*args, **kwargs)
                     _sandbox_reentrancy_depth += 1
                     try:
@@ -265,14 +323,17 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                             return orig(*args, **kwargs)
                     finally:
                         _sandbox_reentrancy_depth -= 1
+
                 return _guarded_open
 
             setattr(_builtins, name, _make_open_guard(original, plugin_id))
             continue
 
         if name == "__import__":
+
             def _make_import_guard(orig, pid):
                 _inspect_ref = inspect
+
                 def _guarded_import(*args, **kwargs):
                     global _sandbox_reentrancy_depth
                     # __import__ 保留完整 depth 豁免：import 机制加载路径需要
@@ -296,6 +357,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                         return orig(*args, **kwargs)
                     finally:
                         _sandbox_reentrancy_depth -= 1
+
                 return _guarded_import
 
             setattr(_builtins, name, _make_import_guard(original, plugin_id))
@@ -303,6 +365,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
 
         def _make_guard(orig, blocked_name, pid):
             _inspect_ref = inspect
+
             def _guarded(*args, **kwargs):
                 global _sandbox_reentrancy_depth
                 if _sandbox_reentrancy_depth > 0:
@@ -329,6 +392,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                     return orig(*args, **kwargs)
                 finally:
                     _sandbox_reentrancy_depth -= 1
+
             return _guarded
 
         setattr(_builtins, name, _make_guard(original, name, plugin_id))
@@ -339,6 +403,7 @@ def _uninstall_plugin_sandbox_builtin_guard(saved: dict) -> None:
     if not saved:
         return
     import builtins as _builtins
+
     for name, original in saved.items():
         setattr(_builtins, name, original)
 
@@ -347,6 +412,7 @@ def _install_plugin_sandbox_os_attr_guard(plugin_id: str) -> dict:
     if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return {}
     import os as _os
+
     saved = {}
     for attr_name in _PLUGIN_SANDBOX_BLOCKED_OS_ATTRS:
         original_fn = getattr(_os, attr_name, None)
@@ -357,6 +423,7 @@ def _install_plugin_sandbox_os_attr_guard(plugin_id: str) -> dict:
         def _make_guard(orig, name, pid):
             def _guarded_os_fn(*args, **kwargs):
                 import inspect as _inspect
+
                 frame = _inspect.currentframe()
                 if _is_plugin_caller(frame.f_back, pid):
                     raise RuntimeError(
@@ -364,6 +431,7 @@ def _install_plugin_sandbox_os_attr_guard(plugin_id: str) -> dict:
                         f"which is in the dangerous API blacklist and has been blocked by runtime sandbox"  # i18n
                     )
                 return orig(*args, **kwargs)
+
             return _guarded_os_fn
 
         setattr(_os, attr_name, _make_guard(original_fn, attr_name, plugin_id))
@@ -374,9 +442,9 @@ def _uninstall_plugin_sandbox_os_attr_guard(saved: dict) -> None:
     if not saved:
         return
     import os as _os
+
     for attr_name, original_fn in saved.items():
         setattr(_os, attr_name, original_fn)
-
 
 
 # -------- Hook process-mode runner (sync callbacks only) --------
@@ -399,6 +467,7 @@ def _hook_process_runner(
     try:
         # W-13 使用安全的JSON反序列化替代pickle
         import json as _json
+
         if isinstance(args, bytes):
             args = _json.loads(args.decode("utf-8"))
         if isinstance(kwargs, bytes):
@@ -406,6 +475,7 @@ def _hook_process_runner(
         if cpu_timeout_seconds and cpu_timeout_seconds > 0:
             try:
                 import resource  # type: ignore
+
                 cpu_limit = int(math.ceil(float(cpu_timeout_seconds))) + 1
                 if cpu_limit > 0:
                     resource.setrlimit(resource.RLIMIT_CPU, (cpu_limit, cpu_limit))
@@ -415,6 +485,7 @@ def _hook_process_runner(
         if mem_limit_bytes and mem_limit_bytes > 0:
             try:
                 import resource  # type: ignore
+
                 resource.setrlimit(resource.RLIMIT_AS, (int(mem_limit_bytes), int(mem_limit_bytes)))
             except Exception as e:
                 logger.warning(f"Failed to set memory limit: {e}")
@@ -431,6 +502,7 @@ def _hook_process_runner(
         out_q.put({"ok": True})
     except Exception as e:
         out_q.put({"ok": False, "error": str(e)})
+
 
 # Plugin Hooks
 HOOK_ON_STARTUP = "on_startup"
@@ -449,11 +521,107 @@ HOOK_ON_DEVICE_ALARM = "ON_DEVICE_ALARM"
 HOOK_ON_UNINSTALL = "on_uninstall"
 HOOK_ON_UPGRADE = "on_upgrade"
 
+
+# -------- 受控 HTTP 网关（插件经 pm.safe_http 外呼） --------
+class SafeHTTPTimeout(TimeoutError):
+    """受控 HTTP 请求超时"""
+
+
+class SafeHTTPConnectionError(ConnectionError):
+    """受控 HTTP 连接失败"""
+
+
+class SafeHTTPResponse:
+    """受控 HTTP 响应（requests 风格最小子集：status_code/text/json()/raise_for_status）"""
+
+    def __init__(self, status_code: int, text: str):
+        self.status_code = status_code
+        self.text = text
+
+    def json(self):
+        import json as _json
+
+        return _json.loads(self.text)
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
+
+
+class PluginSafeHTTP:
+    """
+    宿主注入的受控 HTTP 客户端（插件通过 pm.safe_http 使用）。
+
+    运行时沙箱屏蔽了 requests/urllib/httpx/socket 等直连模块；插件外呼必须经由本网关，
+    由宿主统一控制超时与协议。实现基于标准库 urllib，且在宿主上下文完成导入，
+    插件代码无需 import 任何被屏蔽模块。异常类继承内建 TimeoutError/ConnectionError，
+    插件可直接按内建异常捕获。
+    """
+
+    TimeoutError = SafeHTTPTimeout
+    ConnectionError = SafeHTTPConnectionError
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict | None = None,
+        json=None,
+        data=None,
+        timeout: float = 5,
+    ) -> SafeHTTPResponse:
+        import json as _json
+        import urllib.error as _ue
+        import urllib.request as _ur
+
+        body = None
+        req_headers = dict(headers or {})
+        if json is not None:
+            body = _json.dumps(json, ensure_ascii=False).encode("utf-8")
+            req_headers.setdefault("Content-Type", "application/json")
+        elif data is not None:
+            body = data if isinstance(data, bytes) else str(data).encode("utf-8")
+
+        try:
+            req = _ur.Request(url, data=body, headers=req_headers, method=method)
+            with _ur.urlopen(req, timeout=float(timeout)) as resp:
+                return SafeHTTPResponse(resp.status, resp.read().decode("utf-8", "replace"))
+        except _ue.HTTPError as e:
+            # HTTP >= 400 返回响应而非异常，与 requests 语义一致
+            try:
+                text = e.read().decode("utf-8", "replace")
+            except Exception:
+                text = ""
+            return SafeHTTPResponse(e.code, text)
+        except _ue.URLError as e:
+            reason = getattr(e, "reason", e)
+            if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower():
+                raise SafeHTTPTimeout(f"request timed out: {url}") from e
+            raise SafeHTTPConnectionError(f"connection failed: {reason}") from e
+        except TimeoutError as e:
+            raise SafeHTTPTimeout(f"request timed out: {url}") from e
+
+    def get(self, url: str, **kwargs) -> SafeHTTPResponse:
+        return self._request("GET", url, **kwargs)
+
+    def post(self, url: str, **kwargs) -> SafeHTTPResponse:
+        return self._request("POST", url, **kwargs)
+
+    def put(self, url: str, **kwargs) -> SafeHTTPResponse:
+        return self._request("PUT", url, **kwargs)
+
+    def delete(self, url: str, **kwargs) -> SafeHTTPResponse:
+        return self._request("DELETE", url, **kwargs)
+
+
 class PluginManager:
     def __init__(self, plugin_dir: str = "plugins"):
         self.plugin_dir = plugin_dir
         self.plugins: Dict[str, Any] = {}
         self.metadata: Dict[str, Dict] = {}
+        # 受控 HTTP 网关：插件外呼唯一合法通道（沙箱屏蔽 requests/urllib 等直连模块）
+        self.safe_http = PluginSafeHTTP()
         self.recent_sip_traces = []  # For SIP Trace Visualization
         # Main/Sub 关联：
         # - 在发送 SIP INVITE 时已知 stream_type(main/sub) 和对应的 channel/asset
@@ -461,12 +629,23 @@ class PluginManager:
         # 这是内存态缓存，不做持久化。
         self._stream_ctx_by_ssrc: Dict[str, Dict[str, str]] = {}
         self.hooks: Dict[str, List[Callable]] = {
-            h: [] for h in [
-                HOOK_ON_STARTUP, HOOK_ON_SHUTDOWN, HOOK_ON_UNINSTALL,
-                HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE,
-                HOOK_ON_STREAM_START, HOOK_ON_STREAM_STOP,
-                HOOK_ON_ALARM, HOOK_ON_MOBILE_POSITION, HOOK_ON_SIP_RECEIVE, HOOK_ON_SIP_SEND,
-                HOOK_ALARM_RECORD_LINK, HOOK_ON_ZLM_STREAM_REG, HOOK_ON_DEVICE_ALARM, HOOK_ON_UPGRADE,
+            h: []
+            for h in [
+                HOOK_ON_STARTUP,
+                HOOK_ON_SHUTDOWN,
+                HOOK_ON_UNINSTALL,
+                HOOK_ON_DEVICE_REGISTER,
+                HOOK_ON_DEVICE_OFFLINE,
+                HOOK_ON_STREAM_START,
+                HOOK_ON_STREAM_STOP,
+                HOOK_ON_ALARM,
+                HOOK_ON_MOBILE_POSITION,
+                HOOK_ON_SIP_RECEIVE,
+                HOOK_ON_SIP_SEND,
+                HOOK_ALARM_RECORD_LINK,
+                HOOK_ON_ZLM_STREAM_REG,
+                HOOK_ON_DEVICE_ALARM,
+                HOOK_ON_UPGRADE,
             ]
         }
         # sys.path 注入 vendor 的运行锁
@@ -514,9 +693,7 @@ class PluginManager:
             # 2) 仓库内 server/backend plugin_packages/{module_name}/plugin.json
             # plugin_manager.py: editions/open-source/backend/app/core/plugin_manager.py
             editions_dir = Path(__file__).resolve().parents[4]  # editions/
-            server_candidate = (
-                editions_dir / "server" / "backend" / "plugin_packages" / module_name / "plugin.json"
-            )
+            server_candidate = editions_dir / "server" / "backend" / "plugin_packages" / module_name / "plugin.json"
             if server_candidate.exists():
                 with open(server_candidate, "r", encoding="utf-8") as f:
                     meta = json.load(f)
@@ -539,6 +716,7 @@ class PluginManager:
                             # 原 loop.create_task(cb()) 无引用无异常回调，异常被静默吞没
                             try:
                                 from app.core.async_utils import fire_and_forget
+
                                 fire_and_forget(
                                     cb(),
                                     name=f"plugin_shutdown:{getattr(cb, '__name__', 'anon')}",
@@ -562,12 +740,23 @@ class PluginManager:
         self._paid_license_recheck_mono = {}
         self._paid_license_last_ok = {}
         self.hooks = {
-            h: [] for h in [
-                HOOK_ON_STARTUP, HOOK_ON_SHUTDOWN, HOOK_ON_UNINSTALL,
-                HOOK_ON_DEVICE_REGISTER, HOOK_ON_DEVICE_OFFLINE,
-                HOOK_ON_STREAM_START, HOOK_ON_STREAM_STOP,
-                HOOK_ON_ALARM, HOOK_ON_MOBILE_POSITION, HOOK_ON_SIP_RECEIVE, HOOK_ON_SIP_SEND,
-                HOOK_ALARM_RECORD_LINK, HOOK_ON_ZLM_STREAM_REG, HOOK_ON_DEVICE_ALARM, HOOK_ON_UPGRADE,
+            h: []
+            for h in [
+                HOOK_ON_STARTUP,
+                HOOK_ON_SHUTDOWN,
+                HOOK_ON_UNINSTALL,
+                HOOK_ON_DEVICE_REGISTER,
+                HOOK_ON_DEVICE_OFFLINE,
+                HOOK_ON_STREAM_START,
+                HOOK_ON_STREAM_STOP,
+                HOOK_ON_ALARM,
+                HOOK_ON_MOBILE_POSITION,
+                HOOK_ON_SIP_RECEIVE,
+                HOOK_ON_SIP_SEND,
+                HOOK_ALARM_RECORD_LINK,
+                HOOK_ON_ZLM_STREAM_REG,
+                HOOK_ON_DEVICE_ALARM,
+                HOOK_ON_UPGRADE,
             ]
         }
 
@@ -597,7 +786,7 @@ class PluginManager:
                 json_path = os.path.join(dir_path, "plugin.json")
                 if os.path.exists(json_path):
                     try:
-                        with open(json_path, 'r') as f:
+                        with open(json_path, "r") as f:
                             meta = json.load(f)
 
                         if meta.get("type") == "paid":
@@ -682,7 +871,8 @@ class PluginManager:
                 # S-21 热重载前清理旧Hook，防止回调重复执行
                 for hook_name, callbacks in self.hooks.items():
                     self.hooks[hook_name] = [
-                        cb for cb in callbacks
+                        cb
+                        for cb in callbacks
                         if getattr(cb, "_plugin_id", None) != module_name
                         and (getattr(cb, "__module__", "") or "").split(".", 1)[0].strip() != module_name
                     ]
@@ -692,7 +882,7 @@ class PluginManager:
                 if meta:
                     self.metadata[module_name] = meta
             else:
-                 logger.debug(f"Skipping {module_name}: No 'register' function found.")
+                logger.debug(f"Skipping {module_name}: No 'register' function found.")
         except Exception as e:
             # W-04 清理新导入但加载失败的模块残留，防止下次reload使用损坏的模块对象
             if not _was_in_modules and module_name in sys.modules:
@@ -735,7 +925,9 @@ class PluginManager:
                 timeout = settings.PLUGIN_DEPENDENCY_INSTALL_TIMEOUT_SECONDS
                 result = subprocess.run(
                     [pip_path, "install", "-r", requirements_file, "--quiet"],
-                    capture_output=True, text=True, timeout=timeout,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
                 )
                 if result.returncode != 0:
                     return {"success": False, "venv_dir": venv_dir, "error": f"pip install failed: {result.stderr[:200]}"}  # i18n
@@ -977,6 +1169,7 @@ class PluginManager:
         """
         from app.services.entitlement_engine import AsyncEntitlementEngine
         from app.db.session import AsyncSessionLocal
+
         tenant_id = getattr(self, "_tenant_id", None)
         if not tenant_id:
             return set()
@@ -1023,10 +1216,7 @@ class PluginManager:
 
         if online_result.get("status") == "ok":
             return True
-        logger.warning(
-            "T1-02: Server returned non-ok license status for %s (%s); falling back to local verify.",
-            pid, online_result.get("status")
-        )
+        logger.warning("T1-02: Server returned non-ok license status for %s (%s); falling back to local verify.", pid, online_result.get("status"))
         return False
 
     def paid_plugin_online_status_ok(self, plugin_id: str) -> bool:
@@ -1062,6 +1252,11 @@ class PluginManager:
         if str(meta.get("type") or "").lower() != "paid":
             return True
         return self._paid_plugin_license_currently_valid(pid, meta)
+
+    @property
+    def supported_hooks(self) -> frozenset:
+        """宿主支持的 Hook 集合契约：插件注册可选 Hook 前应据此降级（如 server 版独有 on_snapshot）。"""
+        return frozenset(self.hooks.keys())
 
     def register_hook(self, hook_name: str, callback: Callable):
         if hook_name in self.hooks:
@@ -1181,6 +1376,7 @@ class PluginManager:
                                 if module_name and func_name:
                                     try:
                                         import json as _json
+
                                         _json.dumps(args)  # W-13 用JSON可序列化检查替代pickle检查
                                         _json.dumps(kwargs)
                                     except Exception:
@@ -1193,8 +1389,10 @@ class PluginManager:
                                         hook_mode = "thread"
 
                                 if hook_mode == "process":
+
                                     def _run_in_subprocess():
                                         import json as _json
+
                                         ctx = multiprocessing.get_context("spawn")
                                         q = ctx.Queue()
                                         # W-13 使用JSON序列化替代pickle
@@ -1202,7 +1400,16 @@ class PluginManager:
                                         _json_kwargs = _json.dumps(kwargs).encode("utf-8")
                                         p = ctx.Process(
                                             target=_hook_process_runner,
-                                            args=(str(module_name), str(func_name), vendor_dir, _json_args, _json_kwargs, q, timeout_seconds, mem_limit_bytes),
+                                            args=(
+                                                str(module_name),
+                                                str(func_name),
+                                                vendor_dir,
+                                                _json_args,
+                                                _json_kwargs,
+                                                q,
+                                                timeout_seconds,
+                                                mem_limit_bytes,
+                                            ),
                                         )
                                         p.start()
                                         p.join(timeout_seconds)
@@ -1314,11 +1521,7 @@ class PluginManager:
                 before = set(asyncio.all_tasks())
                 await _invoke_one(callback)
                 after = set(asyncio.all_tasks())
-                new_tasks = {
-                    t
-                    for t in (after - before)
-                    if isinstance(t, asyncio.Task) and not t.done()
-                }
+                new_tasks = {t for t in (after - before) if isinstance(t, asyncio.Task) and not t.done()}
                 self._plugin_startup_tasks.update(new_tasks)
             else:
                 await _invoke_one(callback)
@@ -1360,6 +1563,7 @@ class PluginManager:
         if not self._oss_instance_id or not self._oss_instance_secret:
             return {}
         import hmac
+
         sig = hmac.new(
             self._oss_instance_secret.encode(),
             body_bytes,
@@ -1379,6 +1583,7 @@ class PluginManager:
             logger.debug("[OSS-Register] PLUGIN_MARKETPLACE_ENABLED=False, skipping OSS instance registration")
             return {"ok": False, "error": "plugin marketplace disabled"}
         import json as _json
+
         server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
         if not server_url:
             server_url = settings.PLUGIN_MARKETPLACE_BASE_URL or ""
@@ -1393,9 +1598,14 @@ class PluginManager:
         for attempt in range(2):
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(url, data=body_bytes, headers={
-                        "Content-Type": "application/json",
-                    }, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    async with session.post(
+                        url,
+                        data=body_bytes,
+                        headers={
+                            "Content-Type": "application/json",
+                        },
+                        timeout=aiohttp.ClientTimeout(total=10),
+                    ) as resp:
                         if resp.status == 200:
                             data = await resp.json()
                             self._oss_instance_id = data.get("instance_id")
@@ -1415,6 +1625,7 @@ class PluginManager:
     async def deregister_oss_instance(self) -> dict:
         """注销 OSS 实例。"""
         import json as _json
+
         if not self._oss_instance_id:
             return {"ok": False, "error": "not registered"}
         server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
@@ -1430,10 +1641,15 @@ class PluginManager:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=body_bytes, headers={
-                    "Content-Type": "application/json",
-                    **headers,
-                }, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.post(
+                    url,
+                    data=body_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        **headers,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
                     text = await resp.text()
                     if resp.status == 200:
                         self._oss_instance_id = None
@@ -1447,6 +1663,7 @@ class PluginManager:
     async def oss_instance_check_in(self) -> dict:
         """向服务器发送心跳，保持 OSS 实例活跃状态。"""
         import json as _json
+
         if not self._oss_instance_id:
             return {"ok": False, "error": "not registered"}
         server_url = settings.PLUGIN_MARKETPLACE_SERVER_URL or ""
@@ -1462,10 +1679,15 @@ class PluginManager:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=body_bytes, headers={
-                    "Content-Type": "application/json",
-                    **headers,
-                }, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.post(
+                    url,
+                    data=body_bytes,
+                    headers={
+                        "Content-Type": "application/json",
+                        **headers,
+                    },
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
                     if resp.status == 200:
                         return {"ok": True}
                     text = await resp.text()
@@ -1480,6 +1702,7 @@ class PluginManager:
         优先加载主文件，失败时尝试 .bak 备份。
         """
         import json as _json
+
         path = settings.OSS_INSTANCE_INFO_FILE
         if not path:
             return
@@ -1505,6 +1728,7 @@ class PluginManager:
         """
         import json as _json
         from datetime import datetime, timezone
+
         if not self._oss_instance_id:
             return
         path = settings.OSS_INSTANCE_INFO_FILE
@@ -1565,7 +1789,9 @@ class PluginManager:
             entry["disabled"] = True
             logger.warning(
                 "Plugin %s has %d consecutive errors (threshold %d), auto-disabled",  # i18n
-                plugin_id, entry["errors"], threshold,
+                plugin_id,
+                entry["errors"],
+                threshold,
             )
 
     def record_plugin_success(self, plugin_id: str) -> None:
@@ -1711,6 +1937,7 @@ class PluginManager:
         if task and not task.done():
             task.cancel()
         self._license_refresh_task = None
+
     # FIXED: [2026-07-10] P-02 新增插件安装/卸载方法 — 打通"官网购买→OSS 下载安装"链路 [全栈工程师]
     def install_plugin_from_zip(
         self,
@@ -1745,9 +1972,8 @@ class PluginManager:
             raise ValueError(f"插件包 SHA256 校验失败：期望 {expected_sha256}，实际 {actual_sha}")
         if expected_package_signature:
             from app.services.license_service import verify_ed25519_signature
-            pub = (settings.PLUGIN_PACKAGE_ED25519_PUBLIC_KEY or "").strip() or (
-                settings.LICENSE_ED25519_PUBLIC_KEY or ""
-            ).strip()
+
+            pub = (settings.PLUGIN_PACKAGE_ED25519_PUBLIC_KEY or "").strip() or (settings.LICENSE_ED25519_PUBLIC_KEY or "").strip()
             if not pub:
                 raise ValueError("未配置插件包签名验签公钥：PLUGIN_PACKAGE_ED25519_PUBLIC_KEY / LICENSE_ED25519_PUBLIC_KEY")
             if not verify_ed25519_signature({"package_sha256": actual_sha}, expected_package_signature, pub):
@@ -1768,6 +1994,7 @@ class PluginManager:
 
             # 2.5 manifest 签名验证（自动从 plugin.json 读取 manifest_signature）
             from app.services.license_service import manifest_signature_install_error
+
             ms_err = manifest_signature_install_error(metadata if isinstance(metadata, dict) else None)
             if ms_err:
                 raise ValueError(f"插件清单签名校验失败：{ms_err}")
@@ -1782,6 +2009,7 @@ class PluginManager:
             upgrade_snapshot: str | None = None
             if os.path.exists(target_dir):
                 import tempfile
+
                 upgrade_snapshot = tempfile.mkdtemp(prefix=f"plugin_snap_{plugin_id}_")
                 for item in os.listdir(target_dir):
                     s = os.path.join(target_dir, item)
@@ -1840,6 +2068,7 @@ class PluginManager:
         卸载插件：触发 HOOK_ON_SHUTDOWN → 删除目录 → 重新加载。
         """
         import shutil
+
         pid = str(plugin_id or "").strip()
         if not pid or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", pid):
             raise ValueError("插件 id 非法")

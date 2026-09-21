@@ -1,66 +1,263 @@
-{
-  "version": 1,
-  "updated_at": "2026-04-18",
-  "plugins": [
-    {
-      "id": "face_recognition_suite",
-      "name": "人脸识别套件",
-      "description": "基于 YOLOv8 的人脸检测与识别，支持实时视频流分析、人脸比对和推送告警",
-      "version": "1.0.0",
-      "author": "PyGBSentry",
-      "category": "ai_vision",
-      "price": 0,
-      "currency": "CNY",
-      "homepage": "",
-      "tags": ["AI", "人脸识别", "YOLOv8"]
-    },
-    {
-      "id": "plate_recognition_suite",
-      "name": "车牌识别套件",
-      "description": "基于深度学习的车牌检测与 OCR 识别，支持实时视频流分析和结构化数据推送",
-      "version": "1.0.0",
-      "author": "PyGBSentry",
-      "category": "ai_vision",
-      "price": 0,
-      "currency": "CNY",
-      "homepage": "",
-      "tags": ["AI", "车牌识别", "OCR"]
-    },
-    {
-      "id": "behavior_recognition_suite",
-      "name": "行为识别套件",
-      "description": "基于 YOLOv8 的行为分析，支持入侵检测、徘徊检测、摔倒检测等场景",
-      "version": "1.0.0",
-      "author": "PyGBSentry",
-      "category": "ai_vision",
-      "price": 0,
-      "currency": "CNY",
-      "homepage": "",
-      "tags": ["AI", "行为识别", "入侵检测"]
-    },
-    {
-      "id": "report_suite",
-      "name": "高级报表套件",
-      "description": "提供 Closeout 看板、自定义报表模板、PDF 导出等高级报表功能",
-      "version": "1.0.0",
-      "author": "PyGBSentry",
-      "category": "report",
-      "price": 0,
-      "currency": "CNY",
-      "homepage": "",
-      "tags": ["报表", "PDF", "Closeout"]
-    },
-    {
-      "id": "cloud_storage_suite",
-      "name": "云存储套件",
-      "description": "支持将录像文件上传至对象存储（S3/OSS/COS），实现云端归档和回放",
-      "version": "1.0.0",
-      "author": "PyGBSentry",
-      "category": "storage",
-      "price": 0,
-      "currency": "CNY",
-      "homepage": "",
-      "tags": ["云存储", "S3", "归档"]
-    }
-  ]
-}
+[
+  {
+    "id": "ai_behavior_analysis",
+    "name": "AI行为分析",
+    "version": "3.0.0",
+    "type": "paid",
+    "status": "active",
+    "description": "实时智能行为分析，5种安防规则一键启用——入侵、徘徊、聚集、跌倒、攀爬，安装即用，无需外部AI服务",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_behavior_analysis",
+    "tags": [
+      "AI识别",
+      "安防智能",
+      "行为分析"
+    ],
+    "keywords": [
+      "行为分析",
+      "入侵检测",
+      "徘徊检测",
+      "人群聚集",
+      "跌倒检测",
+      "behavior analysis",
+      "AI",
+      "人工智能",
+      "智能分析"
+    ]
+  },
+  {
+    "id": "ai_face_recognition",
+    "name": "AI人脸识别",
+    "version": "3.0.0",
+    "type": "paid",
+    "status": "active",
+    "description": "毫秒级人脸识别与检索，支持1:1比对和1:N布控——检测、质量评估、特征提取全链路内置，安装即用",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_face_recognition",
+    "tags": [
+      "AI识别",
+      "安防智能",
+      "人脸分析"
+    ],
+    "keywords": [
+      "人脸识别",
+      "人脸检测",
+      "人脸比对",
+      "face recognition",
+      "AI",
+      "人工智能",
+      "布控"
+    ]
+  },
+  {
+    "id": "ai_plate_recognition",
+    "name": "AI车牌识别",
+    "version": "3.0.0",
+    "type": "paid",
+    "status": "active",
+    "description": "实时车牌检测与识别，覆盖蓝/黄/绿/白全牌种——检测、识别、颜色判断、白名单一气呵成，安装即用",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_plate_recognition",
+    "tags": [
+      "AI识别",
+      "安防智能",
+      "车牌分析"
+    ],
+    "keywords": [
+      "车牌识别",
+      "车牌检测",
+      "LPR",
+      "ALPR",
+      "license plate",
+      "AI",
+      "人工智能",
+      "停车场",
+      "卡口"
+    ]
+  },
+  {
+    "id": "feishu_alert",
+    "name": "飞书告警",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "将报警事件推送到飞书群机器人，支持 Webhook（独立插件）",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/feishu_alert",
+    "tags": [
+      "告警通知",
+      "即时通讯"
+    ],
+    "keywords": [
+      "飞书",
+      "告警",
+      "报警",
+      "通知",
+      "webhook"
+    ]
+  },
+  {
+    "id": "mqtt_bridge",
+    "name": "MQTT 桥接",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "将设备上下线、报警事件发布到 MQTT Broker，便于 IoT 系统集成",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/mqtt_bridge",
+    "tags": [
+      "系统集成",
+      "IoT"
+    ],
+    "keywords": [
+      "MQTT",
+      "IoT",
+      "物联网",
+      "消息队列",
+      "桥接",
+      "mqtt"
+    ]
+  },
+  {
+    "id": "report_suite",
+    "name": "私有化报表",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "私有化报表模板与对接连接器：扩展报表中心模板列表与导出能力，支持 CSV/XLSX 导出",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/report_suite",
+    "tags": [
+      "数据分析",
+      "报表"
+    ],
+    "keywords": [
+      "报表",
+      "统计",
+      "导出",
+      "CSV",
+      "Excel",
+      "report"
+    ]
+  },
+  {
+    "id": "s3_sync",
+    "name": "S3 云存储同步",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "将本地录像文件自动同步到 S3 兼容存储（如 MinIO、阿里云 OSS、AWS S3）",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/s3_sync",
+    "tags": [
+      "存储",
+      "数据备份"
+    ],
+    "keywords": [
+      "S3",
+      "云存储",
+      "录像同步",
+      "OSS",
+      "MinIO",
+      "备份",
+      "s3"
+    ]
+  },
+  {
+    "id": "sms_alert",
+    "name": "短信告警",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "报警事件通过短信通知：支持自定义网关 URL 或对接阿里云/腾讯云等短信接口",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/sms_alert",
+    "tags": [
+      "告警通知",
+      "短信"
+    ],
+    "keywords": [
+      "短信",
+      "告警",
+      "报警",
+      "通知",
+      "sms"
+    ]
+  },
+  {
+    "id": "tv_wall_suite",
+    "name": "电视墙与上墙",
+    "version": "1.2.0",
+    "type": "paid",
+    "status": "active",
+    "description": "电视墙管理、轮巡、报警上墙；开窗漫游布局、解码器对接、外接大屏回调",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/tv_wall_suite",
+    "tags": [
+      "监控",
+      "可视化",
+      "企业级"
+    ],
+    "keywords": [
+      "电视墙",
+      "上墙",
+      "监控墙",
+      "大屏",
+      "报警联动",
+      "轮巡"
+    ]
+  },
+  {
+    "id": "wecom_alert",
+    "name": "企业微信告警",
+    "version": "1.1.0",
+    "type": "free",
+    "status": "active",
+    "description": "将报警事件推送到企业微信群机器人或应用消息",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/wecom_alert",
+    "tags": [
+      "告警通知",
+      "即时通讯"
+    ],
+    "keywords": [
+      "企业微信",
+      "企微",
+      "告警",
+      "报警",
+      "通知",
+      "wecom",
+      "wechat work"
+    ]
+  }
+]

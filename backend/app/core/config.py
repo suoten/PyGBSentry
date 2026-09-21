@@ -25,7 +25,7 @@ load_dotenv(_backend_dir / ".env", override=False)
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "PyGBSentry"
-    PROJECT_VERSION: str = os.environ.get("BUILD_VERSION", "1.1.0")  # 版本号支持构建时注入(BUILD_VERSION)，回退为硬编码值；变更时需同步更新
+    PROJECT_VERSION: str = os.environ.get("BUILD_VERSION", "1.2.0")  # 版本号支持构建时注入(BUILD_VERSION)，回退为硬编码值；变更时需同步更新
     PROJECT_LICENSE: str = "AGPL-3.0-or-later"
     PROJECT_LICENSE_URL: str = "https://www.gnu.org/licenses/agpl-3.0.html"
     PLUGIN_LICENSE_EXCEPTION: str = "classpath"
@@ -160,14 +160,16 @@ class Settings(BaseSettings):
         password = data.get("DATABASE_PASSWORD") or data.get("POSTGRES_PASSWORD")
         sqlite_path = data.get("DATABASE_SQLITE_PATH") or "./pygbsentry.db"
         if db_type in {"postgres", "postgresql", "kingbase", "kingbasees"}:  # 移除中文别名"人大金仓"，保留英文别名
-            return str(PostgresDsn.build(
-                scheme="postgresql+asyncpg",
-                username=user,
-                password=password,
-                host=host,
-                port=port,
-                path=f"{name or ''}",
-            ))
+            return str(
+                PostgresDsn.build(
+                    scheme="postgresql+asyncpg",
+                    username=user,
+                    password=password,
+                    host=host,
+                    port=port,
+                    path=f"{name or ''}",
+                )
+            )
 
         if db_type in {"mysql"}:
             _safe_user = quote_plus(str(user or ""), safe="")
@@ -182,14 +184,16 @@ class Settings(BaseSettings):
             _safe_user = quote_plus(str(user or ""), safe="")
             _safe_pwd = quote_plus(str(password or ""), safe="")
             return f"dm+dmPython://{_safe_user}:{_safe_pwd}@{host}:{port}/{name}"  # S-06-04 达梦数据库使用dm+dmPython驱动而非mysql+aiomysql
-        return str(PostgresDsn.build(
-            scheme="postgresql+asyncpg",
-            username=data.get("POSTGRES_USER"),
-            password=data.get("POSTGRES_PASSWORD"),
-            host=data.get("POSTGRES_SERVER"),
-            port=data.get("POSTGRES_PORT"),
-            path=f"{data.get('POSTGRES_DB') or ''}",
-        ))
+        return str(
+            PostgresDsn.build(
+                scheme="postgresql+asyncpg",
+                username=data.get("POSTGRES_USER"),
+                password=data.get("POSTGRES_PASSWORD"),
+                host=data.get("POSTGRES_SERVER"),
+                port=data.get("POSTGRES_PORT"),
+                path=f"{data.get('POSTGRES_DB') or ''}",
+            )
+        )
 
     # Redis
     REDIS_HOST: str = "localhost"
@@ -214,7 +218,7 @@ class Settings(BaseSettings):
 
     # 高可用 (HA) 与集群配置
     CLUSTER_ENABLED: bool = False
-    CLUSTER_NODE_ID: str = "" # 如果为空，启动时自动生成 UUID
+    CLUSTER_NODE_ID: str = ""  # 如果为空，启动时自动生成 UUID
     # P1-fix [2026-07-17]: 多租户标识（用于 license:refresh 频道隔离等场景）。
     # 原 plugin_manager.py 使用 getattr(settings, "TENANT_ID", "") 动态获取违反硬约束 #41
     TENANT_ID: str = ""
@@ -880,13 +884,12 @@ if not settings.SECRET_KEY:
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
-        _logging.getLogger(__name__).error(
-            "SECURITY: SECRET_KEY is empty in production! Refusing to start. "
-            "Please set SECRET_KEY in your .env file."
-        )
+
+        _logging.getLogger(__name__).error("SECURITY: SECRET_KEY is empty in production! Refusing to start. Please set SECRET_KEY in your .env file.")
         raise SystemExit(1)
     else:
         import warnings
+
         generated = _secrets.token_hex(32)
         settings.SECRET_KEY = generated
         warnings.warn(
@@ -903,17 +906,19 @@ if not settings.FIELD_ENCRYPTION_KEY:
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             "SECURITY: FIELD_ENCRYPTION_KEY is empty in production! Refusing to start. "
             "Field-level encryption (device/platform passwords) requires a dedicated key. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
         raise SystemExit(1)
     else:
         import warnings
+
         warnings.warn(
             "FIELD_ENCRYPTION_KEY is not set. Device/platform password encryption will fail at runtime. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\"",
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"',
             stacklevel=2,
         )
 
@@ -940,6 +945,7 @@ _KNOWN_WEAK_SECRETS = {
     "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0",
 }
 import re as _re_weak_secret
+
 # FIX: [2026-07-16 P0] 正则检测 CHANGE_ME / replace-with 前缀的密钥
 _WEAK_SECRET_PATTERNS = [
     _re_weak_secret.compile(r"^CHANGE_ME", _re_weak_secret.IGNORECASE),
@@ -967,6 +973,7 @@ if _app_env in {"prod", "production"}:
     # FIX: [2026-07-16 P0] 使用统一的 _is_weak_secret 检测，覆盖黑名单和正则模式
     if _is_weak_secret(settings.SECRET_KEY):
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             f"SECURITY: SECRET_KEY is set to a known weak value '{settings.SECRET_KEY[:8]}...'. "
             f"This is insecure in production. Please set a unique, strong SECRET_KEY in your .env file."
@@ -974,6 +981,7 @@ if _app_env in {"prod", "production"}:
         raise SystemExit(1)
     if _is_weak_secret(settings.MEDIA_SERVER_SECRET):
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             f"SECURITY: MEDIA_SERVER_SECRET is set to a known weak value '{settings.MEDIA_SERVER_SECRET[:8]}...'. "
             f"This is insecure in production. Please set a unique, strong MEDIA_SERVER_SECRET in your .env file."
@@ -990,6 +998,7 @@ _man_pub = (settings.PLUGIN_MANIFEST_ED25519_PUBLIC_KEY or "").strip()
 _license_pub = (settings.LICENSE_ED25519_PUBLIC_KEY or "").strip()
 if (_pkg_sig_req or _man_sig_req or _app_env in {"prod", "production"}) and not (_pkg_pub or _man_pub or _license_pub):
     import warnings as _warnings
+
     _warnings.warn(
         "插件签名验签公钥未配置：PLUGIN_PACKAGE_ED25519_PUBLIC_KEY / PLUGIN_MANIFEST_ED25519_PUBLIC_KEY / "
         "LICENSE_ED25519_PUBLIC_KEY 均为空。从官网下载的签名插件包将无法安装（验签失败）。"
@@ -1003,9 +1012,9 @@ if _db_type not in {"sqlite"}:
     db_password = settings.DATABASE_PASSWORD or settings.POSTGRES_PASSWORD
     if not db_password:
         import warnings
+
         warnings.warn(
-            "DATABASE_PASSWORD / POSTGRES_PASSWORD is not set. "
-            "Database connection may fail. Please set it in your .env file.",
+            "DATABASE_PASSWORD / POSTGRES_PASSWORD is not set. Database connection may fail. Please set it in your .env file.",
             stacklevel=2,
         )
 
@@ -1014,6 +1023,7 @@ if _db_type == "sqlite":
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             "FATAL: SQLite is not suitable for production use with concurrent devices. "
             "Please set DATABASE_TYPE=postgresql (or mysql) and configure the connection in .env."
@@ -1021,6 +1031,7 @@ if _db_type == "sqlite":
         raise SystemExit(1)
     else:
         import logging as _logging
+
         _logging.getLogger(__name__).warning(
             "SQLite is being used in development mode. "
             "Do NOT use SQLite in production — it cannot handle concurrent device registrations. "
@@ -1033,26 +1044,24 @@ if not settings.MEDIA_SERVER_SECRET:
     if _app_env not in {"prod", "production"}:
         settings.MEDIA_SERVER_SECRET = _secrets.token_hex(32)
         import logging as _logging
-        _logging.getLogger(__name__).info(
-            "MEDIA_SERVER_SECRET auto-generated for dev environment. "
-            "Set a fixed value in .env for production."
-        )
+
+        _logging.getLogger(__name__).info("MEDIA_SERVER_SECRET auto-generated for dev environment. Set a fixed value in .env for production.")
 
 # MEDIA_SERVER_SECRET 生产环境空值检查
 if not settings.MEDIA_SERVER_SECRET:
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).error(
-            "SECURITY: MEDIA_SERVER_SECRET is empty in production! Refusing to start. "
-            "Please set a unique secret in your .env file."
+            "SECURITY: MEDIA_SERVER_SECRET is empty in production! Refusing to start. Please set a unique secret in your .env file."
         )
         raise SystemExit(1)
     else:
         import warnings
+
         warnings.warn(
-            "MEDIA_SERVER_SECRET is not set. Auto-generated for this session. "
-            "Please set a unique secret in your .env file for production use.",
+            "MEDIA_SERVER_SECRET is not set. Auto-generated for this session. Please set a unique secret in your .env file for production use.",
             stacklevel=2,
         )
 
@@ -1061,6 +1070,7 @@ if not settings.SIP_DEFAULT_PASSWORD:
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).critical(
             "FATAL: SIP_DEFAULT_PASSWORD is empty in production. "
             "Device registration would proceed without authentication. "
@@ -1073,6 +1083,7 @@ if (settings.SIP_STATE_BACKEND or "local").strip().lower() == "local":
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             "SECURITY: SIP_STATE_BACKEND is 'local' in production. "
             "Nonce/NC replay checks and INVITE rate limits are NOT shared across instances. "
@@ -1085,6 +1096,7 @@ if settings.PLUGIN_AUTO_INSTALL_DEPENDENCIES:
     _app_env = (settings.APP_ENV or "dev").lower()
     if _app_env in {"prod", "production"}:
         import logging as _logging
+
         _logging.getLogger(__name__).warning(
             "SECURITY: PLUGIN_AUTO_INSTALL_DEPENDENCIES is enabled in production! "
             "This allows runtime dependency installation which poses supply chain risks. "
@@ -1094,6 +1106,7 @@ if settings.PLUGIN_AUTO_INSTALL_DEPENDENCIES:
 # 启动时检测默认SIP_ID/SIP_DOMAIN，发出告警避免多套部署信令冲突
 if settings.SIP_ID == "34020000002000000001":
     import logging as _logging
+
     _logging.getLogger(__name__).warning(
         "SIP_ID is using the default value '34020000002000000001'. "
         "If running multiple PyGBSentry instances, each MUST have a unique SIP_ID "
@@ -1101,18 +1114,20 @@ if settings.SIP_ID == "34020000002000000001":
     )
 if settings.SIP_DOMAIN == "3402000000":
     import logging as _logging
+
     _logging.getLogger(__name__).warning(
-        "SIP_DOMAIN is using the default value '3402000000'. "
-        "Set SIP_DOMAIN to your actual administrative code in .env."
+        "SIP_DOMAIN is using the default value '3402000000'. Set SIP_DOMAIN to your actual administrative code in .env."
     )
 if settings.SIP_PORT == 5060:
     import logging as _logging
+
     _logging.getLogger(__name__).warning(
         "SIP_PORT is using the default value 5060. "
         "Ensure this does not conflict with other SIP services on the same host. Set SIP_PORT in your .env file."
     )
 if settings.SERVER_PORT == 8000:
     import logging as _logging
+
     _logging.getLogger(__name__).warning(
         "SERVER_PORT is using the default value 8000. "
         "Ensure this matches your reverse proxy / firewall configuration. Set SERVER_PORT in your .env file."
@@ -1120,9 +1135,10 @@ if settings.SERVER_PORT == 8000:
 
 # R3-06 SIP_ID/SIP_DOMAIN空字符串也必须通过格式校验，防止生成无效SIP URI
 import re as _re
-if not _re.match(r'^\d{20}$', str(settings.SIP_ID or "")):
+
+if not _re.match(r"^\d{20}$", str(settings.SIP_ID or "")):
     raise RuntimeError(f"SECURITY: SIP_ID must be 20 digits per GB28181, got: '{settings.SIP_ID}'")
-if not _re.match(r'^\d{10}$', str(settings.SIP_DOMAIN or "")):
+if not _re.match(r"^\d{10}$", str(settings.SIP_DOMAIN or "")):
     raise RuntimeError(f"SECURITY: SIP_DOMAIN must be 10 digits per GB28181, got: '{settings.SIP_DOMAIN}'")
 
 # RTP端口范围一致性校验 — 检测 MEDIA_SERVER_RTP_PROXY_PORT_RANGE 与 Docker 端口映射是否匹配
@@ -1137,6 +1153,7 @@ if _rtp_range and "-" in _rtp_range:
         _is_docker = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
         if _rtp_span > 200 and _is_docker:
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
                 f"RTP port range {_rtp_range} spans {_rtp_span} ports, which exceeds the "
                 f"typical Docker mapping of 200 ports (30000-30199). If running in Docker, "
@@ -1145,6 +1162,7 @@ if _rtp_range and "-" in _rtp_range:
             )
     except (ValueError, TypeError) as _exc:
         import logging as _logging
+
         _logging.getLogger(__name__).debug(f"RTP port range validation skipped: {_exc}")
 
 # FIXED-P2: 端口冲突预检 — 检测 SIP_PORT / SERVER_PORT / MEDIA_SERVER_HTTP_PORT / MEDIA_SERVER_RTC_PORT 之间的冲突
@@ -1159,6 +1177,7 @@ _seen_ports: dict[int, str] = {}
 for _fname, _pval in _port_fields.items():
     if _pval in _seen_ports:
         import logging as _logging
+
         _logging.getLogger(__name__).error(
             f"PORT CONFLICT: {_fname}={_pval} conflicts with {_seen_ports[_pval]}={_pval}. "
             f"This will cause one of the services to fail to bind. "
