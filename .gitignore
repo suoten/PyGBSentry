@@ -169,3 +169,7 @@ backend/.env.production.bak2
 backend/.env*.bak*
 backend/app/core/audit_l1_schema_consistency.py
 README_EN.md.bak-oldstructure
+
+# 插件运行时安装目录：插件经市场安装/官方分发进入该目录，不纳入版本控制（目录清单见 marketplace.json）
+backend/plugins/*
+!backend/plugins/marketplace.json
