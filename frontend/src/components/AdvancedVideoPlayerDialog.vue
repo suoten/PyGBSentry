@@ -1405,7 +1405,7 @@ watch(
   padding: 14px;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(180deg, var(--surface-grad-a, #ffffff) 0%, var(--surface-grad-b, #f8fafc) 100%);
 }
 
 .line-value {

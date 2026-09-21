@@ -44,6 +44,8 @@
     --app-content-padding: 14px;
     --app-content-bg-color: #f5f7fb;
     --app-content-bg-gradient: linear-gradient(180deg, #f7f9fc 0%, #f4f6fa 100%);
+    --surface-grad-a: #ffffff;
+    --surface-grad-b: #f7f9fc;
 
     --el-bg-color: #ffffff;
     --el-bg-color-overlay: #ffffff;
@@ -181,6 +183,8 @@
       --tags-view-border-color: #303030;
       /* FIX [2026-09-19]: 表头背景此前无暗色值（恒 #f8fafc 亮色），暗色下表头白块 */
       --el-table-header-bg: #1d1d1d;
+      --surface-grad-a: #1d1d1d;
+      --surface-grad-b: #232323;
     }
 
     /* ============================================================
@@ -190,6 +194,22 @@
        卡片/面板/表头仍是白块。以下按"表面变暗、文字变亮、边框变灰"统一覆盖。
        亮色模式零影响（全部挂在 .dark 前缀下）。
        ============================================================ */
+
+    /* FIX [2026-09-19]: 弹窗头/尾硬编码浅色（header 渐变 / footer #fbfcfe），
+       暗色下弹窗头尾白条。统一暗色表面。 */
+    .dark .el-dialog__header {
+      background: linear-gradient(180deg, #232323 0%, #1d1d1d 100%);
+    }
+    .dark .el-dialog__footer {
+      background: #1d1d1d;
+    }
+    .dark .el-dialog__title {
+      color: var(--el-text-color-primary, #e5eaf3);
+    }
+    .dark .el-dialog {
+      background: var(--el-bg-color, #141414);
+    }
+
     .dark .bg-white {
       background-color: var(--el-bg-color, #141414);
     }
@@ -739,7 +759,7 @@
       padding: 14px 18px;
       border-bottom: 1px solid var(--el-border-color-lighter);
       margin-right: 0;
-      background: linear-gradient(180deg, #fbfcfe 0%, #f7f9fc 100%);
+      background: linear-gradient(180deg, var(--surface-grad-a, #fbfcfe) 0%, var(--surface-grad-b, #f7f9fc) 100%);
     }
 
     .el-dialog__title {
@@ -756,7 +776,7 @@
     .el-dialog__footer {
       padding: 10px 18px 14px;
       border-top: 1px solid var(--el-border-color-lighter);
-      background: #fbfcfe;
+      background: var(--el-bg-color, #fbfcfe);
     }
 
     .stream-player-dialog.el-dialog {
@@ -784,7 +804,7 @@
       padding: 20px 24px;
       border-bottom: 1px solid var(--el-border-color-lighter);
       margin-bottom: 0;
-      background: #fbfcfe;
+      background: var(--el-bg-color, #fbfcfe);
     }
 
     .el-drawer__title {

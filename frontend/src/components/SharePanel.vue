@@ -399,7 +399,7 @@ const formatTime = (date: Date) => {
 
 .qr-section {
   padding: 20px;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  background: linear-gradient(135deg, var(--surface-grad-a, #fafafa) 0%, var(--surface-grad-b, #f5f5f5) 100%);
   border-radius: 12px;
   border: 1px dashed #d1d5db;
 }
@@ -472,7 +472,7 @@ const formatTime = (date: Date) => {
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background: linear-gradient(135deg, #fafafa 0%, #f5f5f5 100%);
+  background: linear-gradient(135deg, var(--surface-grad-a, #fafafa) 0%, var(--surface-grad-b, #f5f5f5) 100%);
   border-radius: 10px;
   border: 1px solid #e5e7eb;
 }

@@ -160,7 +160,7 @@ onMounted(() => {
 .stats-card {
   border-radius: 12px;
   border: 1px solid #e2e8f0;
-  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  background: linear-gradient(135deg, var(--surface-grad-a, #ffffff) 0%, var(--surface-grad-b, #f8fafc) 100%);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   transition: all 0.3s ease;
 }
