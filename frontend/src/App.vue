@@ -1,5 +1,6 @@
 <template>
   <el-config-provider :locale="elPlusLocale">
+    <div v-show="routeProgress > 0" class="route-progress-bar" :style="{ width: routeProgress + '%' }"></div>
   <div v-if="!showLayout && !route.matched.length" class="app-boot-splash">
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" class="app-boot-splash__logo">
       <rect width="32" height="32" rx="10" fill="#0a0f1a"/>
@@ -166,6 +167,7 @@
     </el-container>
   </div>
   <AppErrorBoundary v-if="!showLayout"><router-view></router-view></AppErrorBoundary>
+  <CommandPalette :visible="cmdPaletteVisible" @update:visible="cmdPaletteVisible = $event" />
   </el-config-provider>
 </template>
 
@@ -180,6 +182,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import enUs from 'element-plus/es/locale/lang/en'
 import { Odometer, VideoCamera, Monitor, User, Setting, MapLocation, DataLine, TrendCharts, Shop, Box, Promotion, Connection, Bell, Folder, Calendar, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
 import TopBar from './components/TopBar.vue'
+import CommandPalette from './components/CommandPalette.vue'
 import TagsView from './components/TagsView.vue'
 import { useTagsViewStore } from './stores/tagsView'
 import { useAppPrefsStore } from './stores/appPrefs'
@@ -563,6 +566,30 @@ const onPluginUpdated = async () => {
   syncPaidPluginRoutes()
 }
 
+// FIX [2026-09-21 UX]: 全局命令面板（Ctrl+K）挂载与事件桥接
+const cmdPaletteVisible = ref(false)
+// FIX [2026-09-21 UX]: 路由切换顶部进度条（无依赖手写实现）
+const routeProgress = ref(0)
+let routeProgressTimer: ReturnType<typeof setInterval> | null = null
+function startRouteProgress() {
+  routeProgress.value = 8
+  if (routeProgressTimer) clearInterval(routeProgressTimer)
+  routeProgressTimer = setInterval(() => {
+    routeProgress.value = Math.min((routeProgress.value || 0) + Math.random() * 12, 92)
+  }, 180)
+}
+function doneRouteProgress() {
+  if (routeProgressTimer) { clearInterval(routeProgressTimer); routeProgressTimer = null }
+  routeProgress.value = 100
+  setTimeout(() => { routeProgress.value = 0 }, 240)
+}
+router.beforeEach((_to, _from, next) => { startRouteProgress(); next() })
+router.afterEach(() => doneRouteProgress())
+router.onError(() => doneRouteProgress())
+onMounted(() => {
+  window.addEventListener('open-command-palette', () => { cmdPaletteVisible.value = true })
+})
+
 onMounted(async () => {
   // FIX: [2026-07-21 P0] 预热角色缓存 — 路由守卫 beforeEach 也会调用 getVerifiedRoleInfo()，
   // 但如果那次调用失败（网络波动/后端临时不可用），_cachedRoleInfo 保持 null，
@@ -746,5 +773,17 @@ onMounted(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+.route-progress-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  z-index: 4000;
+  background: linear-gradient(90deg, var(--el-color-primary), var(--el-color-primary-light-3));
+  border-radius: 0 3px 3px 0;
+  transition: width 0.18s ease;
+  pointer-events: none;
 }
 </style>

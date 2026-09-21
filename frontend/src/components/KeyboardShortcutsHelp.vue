@@ -89,7 +89,7 @@ const shortcutGroups = computed<ShortcutItem[]>(() => [
   { key: 'g s', description: t('shortcutHelp.gotoSettings'), group: t('shortcutHelp.groupNav') },
   // 操作
   { key: 'Escape', description: t('shortcutHelp.closeDialog'), group: t('shortcutHelp.groupAction') },
-  { key: 'Ctrl+K', description: t('shortcutHelp.openHelp'), group: t('shortcutHelp.groupAction') },
+  { key: 'Ctrl+K', description: t('shortcut.openCommandPalette'), group: t('shortcutHelp.groupAction') },
   { key: 'r', description: t('shortcutHelp.refreshPage'), group: t('shortcutHelp.groupAction') },
 ])
 

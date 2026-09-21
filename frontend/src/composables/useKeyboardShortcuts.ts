@@ -122,7 +122,8 @@ export const useKeyboardShortcuts = () => {
       { key: 'g u', description: t('shortcut.gotoUsers'), action: () => router.push('/users'), group: t('shortcut.groupNavigation') }, // FIXED: 国际化
       { key: 'g s', description: t('shortcut.gotoSettings'), action: () => router.push('/config-center'), group: t('shortcut.groupNavigation') }, // FIXED: 国际化
       { key: '?', description: t('shortcut.openHelp'), action: () => { showHelp.value = !showHelp.value }, group: t('shortcut.groupAction'), showInHelp: true }, // FIXED: 国际化
-      { key: 'Ctrl+K', description: t('shortcut.openHelpPage'), action: () => router.push('/help'), group: t('shortcut.groupAction') }, // FIXED: 国际化
+      // FIX [2026-09-21 UX]: Ctrl+K 原来只是跳帮助页，改为打开全局命令面板
+      { key: 'Ctrl+K', description: t('shortcut.openCommandPalette'), action: () => window.dispatchEvent(new CustomEvent('open-command-palette')), group: t('shortcut.groupAction') },
       { key: 'Escape', description: t('shortcut.closeDialog'), action: () => { if (showHelp.value) showHelp.value = false }, group: t('shortcut.groupAction'), showInHelp: true }, // FIXED: 国际化
       { key: 'r', description: t('shortcut.refreshPage'), action: () => window.location.reload(), group: t('shortcut.groupAction') }, // FIXED: 国际化
     ]

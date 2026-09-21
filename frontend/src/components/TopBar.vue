@@ -37,6 +37,42 @@
         </template>
       </el-dropdown>
 
+      <!-- FIX [2026-09-21 UX]: 通知中心入口 —— notification store 已有 WS 实时推送与未读数，
+           但此前没有任何 UI 消费它。铃铛 + 未读徽标 + 最近通知下拉面板。 -->
+      <el-popover trigger="click" placement="bottom-end" :width="340" popper-class="notif-popover">
+        <template #reference>
+          <div class="notif-bell mr-2 cursor-pointer" role="button" :aria-label="t('topbar.notifications')" tabindex="0">
+            <el-badge :value="unreadCount" :hidden="unreadCount === 0" :max="99">
+              <el-icon :size="18"><Bell /></el-icon>
+            </el-badge>
+          </div>
+        </template>
+        <div class="notif-panel">
+          <div class="notif-panel-head">
+            <span class="font-medium">{{ t('topbar.notifTitle') }}</span>
+            <el-button v-if="notifications.length" link size="small" @click="clearNotifs">{{ t('topbar.notifClearAll') }}</el-button>
+          </div>
+          <div class="notif-panel-body">
+            <template v-if="notifications.length">
+              <div
+                v-for="n in notifications.slice(0, 8)"
+                :key="n.id"
+                class="notif-item"
+                @click="openNotification(n)"
+              >
+                <div class="notif-item-title">
+                  <span class="notif-dot" :class="'p' + (n.priority || '3')"></span>
+                  {{ n.description || t('topbar.notifUntitled') }}
+                </div>
+                <div class="notif-item-time">{{ formatNotifTime(n.time) }}</div>
+              </div>
+            </template>
+            <div v-else class="notif-empty">{{ t('topbar.notifEmpty') }}</div>
+          </div>
+          <div class="notif-panel-foot" @click="goAlarms">{{ t('topbar.notifViewAll') }}</div>
+        </div>
+      </el-popover>
+
       <el-dropdown trigger="click" @command="handleLocaleCommand">
         <div class="locale-dropdown mr-4 cursor-pointer" role="button" :aria-label="t('topbar.toggleLanguage')" tabindex="0">
           <el-icon :size="18"><Promotion /></el-icon>
@@ -80,8 +116,10 @@
 import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowDown, Fold, Expand, User, Lock, SwitchButton, Sunny, Moon, Monitor, Promotion } from '@element-plus/icons-vue'
+import { ArrowDown, Fold, Expand, User, Lock, SwitchButton, Sunny, Moon, Monitor, Promotion, Bell } from '@element-plus/icons-vue'
 import { useAppPrefsStore } from '../stores/appPrefs'
+import { useNotificationStore } from '../stores/notification'
+import { formatDateTime } from '../utils/time'
 import { useUserStore } from '../stores/user'
 import api from '@/utils/http'
 import { showError, confirmDangerous } from '../utils/feedback'
@@ -98,6 +136,8 @@ const { t, locale } = useI18n()
 
 // SECURITY: username 不持久化到任何 storage，组件挂载时从 API 实时获取
 onMounted(() => {
+  notificationStore.connectWebSocket()
+  notificationStore.fetchUnreadCount()
   if (userStore.isLoggedIn && !userStore.username) {
     void userStore.fetchUserInfo()
   }
@@ -113,6 +153,20 @@ function handleThemeCommand(command: 'light' | 'dark' | 'auto') {
 }
 
 const username = computed(() => userStore.username)
+// FIX [2026-09-21 UX]: 通知中心 —— WS 实时推送 + 未读徽标 + 最近通知
+const notificationStore = useNotificationStore()
+const notifications = computed(() => notificationStore.notifications)
+const unreadCount = computed(() => notificationStore.unreadCount)
+function openNotification(n: Record<string, unknown>) {
+  notificationStore.markAsRead(String(n.id))
+  router.push('/alarms')
+}
+function clearNotifs() { notificationStore.clearAll() }
+function goAlarms() { router.push('/alarms') }
+function formatNotifTime(tm: unknown) {
+  if (!tm) return ''
+  try { return formatDateTime(String(tm)) } catch { return String(tm) }
+}
 const initials = computed(() => username.value.slice(0, 1).toUpperCase())
 
 const crumbs = computed(() => {
@@ -315,3 +369,29 @@ async function handleCommand(command: string) {
   font-size: 14px;
 }
 </style>
+
+.notif-bell {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 6px;
+  background: var(--el-fill-color-light, #f8fafc);
+  color: var(--el-text-color-primary);
+  transition: all 0.2s;
+}
+.notif-bell:hover { border-color: rgba(64, 158, 255, 0.22); color: var(--el-color-primary); }
+.notif-panel-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 10px; border-bottom: 1px solid var(--el-border-color-lighter); }
+.notif-panel-body { max-height: 300px; overflow-y: auto; }
+.notif-item { padding: 8px 4px; border-bottom: 1px solid var(--el-border-color-extra-light, #f0f0f0); cursor: pointer; }
+.notif-item:hover { background: var(--el-fill-color-light, #f5f7fa); }
+.notif-item-title { font-size: 13px; color: var(--el-text-color-primary); display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-item-time { font-size: 11px; color: var(--el-text-color-secondary); margin-top: 3px; }
+.notif-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+.notif-dot.p1 { background: var(--el-color-danger); }
+.notif-dot.p2 { background: var(--el-color-warning); }
+.notif-dot.p3 { background: var(--el-color-info); }
+.notif-empty { padding: 26px 0; text-align: center; color: var(--el-text-color-secondary); font-size: 13px; }
+.notif-panel-foot { padding: 8px 0 2px; text-align: center; font-size: 12px; color: var(--el-color-primary); cursor: pointer; }

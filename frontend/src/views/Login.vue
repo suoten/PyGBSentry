@@ -124,6 +124,7 @@
           <el-form ref="formRef" :model="form" :rules="loginRules" label-position="top" class="login-form">
             <el-form-item :label="t('login.username')" prop="username">
               <el-input
+                ref="usernameInputRef"
                 v-model="form.username"
                 :placeholder="t('login.usernameRequired')"
                 clearable
@@ -144,6 +145,7 @@
                 clearable
                 autocomplete="current-password"
                 @keyup.enter="handleLogin"
+                @keydown="checkCapsLock"
               >
                 <template #prefix>
                   <el-icon><Lock /></el-icon>
@@ -164,6 +166,10 @@
                 </template>
               </el-input>
             </el-form-item>
+            <div class="login-remember-row">
+              <el-checkbox v-model="rememberUsername" size="small">{{ t('login.rememberUsername') }}</el-checkbox>
+              <el-text v-if="capsLockOn" type="warning" size="small">{{ t('login.capsLockOn') }}</el-text>
+            </div>
             <el-form-item class="login-form__actions">
               <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading">
                 {{ t('login.loginBtn') }}
@@ -208,6 +214,16 @@ const form = ref({
   password: '',
   otp_code: ''
 })
+// FIX [2026-09-21 UX]: 自动聚焦用户名、记住用户名、CapsLock 开启提示
+const usernameInputRef = ref<{ focus: () => void } | null>(null)
+const rememberUsername = ref(false)
+const capsLockOn = ref(false)
+function checkCapsLock(e: Event) {
+  try {
+    const ke = e as KeyboardEvent
+    capsLockOn.value = !!(ke.getModifierState && ke.getModifierState('CapsLock'))
+  } catch { /* ignore */ }
+}
 const loginRules = reactive<FormRules>({
   username: [
     { required: true, message: () => t('login.usernameRequired'), trigger: 'blur' },
@@ -226,6 +242,10 @@ const branding = ref({
 })
 
 const handleLogin = async () => {
+  try {
+    if (rememberUsername.value) localStorage.setItem('login_remember_username', form.value.username || '')
+    else localStorage.removeItem('login_remember_username')
+  } catch { /* ignore */ }
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid) return
   const normalizedUsername = form.value.username.trim()
@@ -283,6 +303,14 @@ const handleLogin = async () => {
 }
 
 onMounted(() => {
+  try {
+    const saved = localStorage.getItem('login_remember_username')
+    if (saved) {
+      rememberUsername.value = true
+      form.value.username = saved
+    }
+  } catch { /* ignore */ }
+  setTimeout(() => usernameInputRef.value?.focus?.(), 300)
   const cached = getBrandingCache()
   if (cached) {
     branding.value = {
@@ -495,5 +523,12 @@ onMounted(() => {
     box-shadow: none;
     background: transparent;
   }
+}
+
+.login-remember-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
 }
 </style>
