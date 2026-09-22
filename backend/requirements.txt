@@ -43,7 +43,7 @@ pika==1.3.2
 prometheus-client==0.21.1
 # FIX [2026-07-17]: uuid7 — 50+ 模型文件 import uuid7，代码有 try/except 降级到 uuid.uuid4。
 # 声明为可选依赖：安装后使用 UUIDv7（时间有序），未安装时回退 uuid4。
-uuid7>=0.1.4; python_version >= '3.12'
+uuid7>=0.1.0; python_version >= '3.12'  # FIX: PyPI 实际最高 0.1.0，原 >=0.1.4 在 CI/ubuntu 无法解析
 # P1-36: opentelemetry 锁定版本范围（上界 <2.0.0 防止 major 版本破坏性变更）
 opentelemetry-api>=1.20.0,<2.0.0; python_version >= '3.9'
 opentelemetry-sdk>=1.20.0,<2.0.0; python_version >= '3.9'
