@@ -543,7 +543,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: P1-47: Run Trivy vulnerability scanner
+      - name: "P1-47: Run Trivy vulnerability scanner"
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ghcr.io/${{ github.repository }}:latest
