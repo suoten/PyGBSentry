@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Build output
 dist/
 build_err.log
@@ -21,7 +20,5 @@ Thumbs.db
 coverage/
 
 # Vue mirror files
-=======
->>>>>>> 938b070ec20c5728a16b649a71e9699fbf214974
 src/**/*.vue.js
 .env.development.local

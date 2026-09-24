@@ -38,6 +38,8 @@ editions/server/backend/logs/
 
 # Data & Logs
 backend/data/
+# FIX [2026-09-24]: region.sql 是行政区划种子数据，需要入库分发
+!backend/data/region.sql
 backend/logs/
 backend/timelapse/
 *.db
@@ -79,6 +81,8 @@ tools/audit_output.txt
 # Binary / Model / Archive files
 *.pt
 *.zip
+# FIX [2026-09-24]: 内置插件包 ZIP 需要入库分发，排除在 *.zip 忽略规则之外
+!backend/static/plugin-packages/**/*.zip
 
 # Frontend
 frontend/node_modules/
@@ -173,3 +177,90 @@ README_EN.md.bak-oldstructure
 # 插件运行时安装目录：插件经市场安装/官方分发进入该目录，不纳入版本控制（目录清单见 marketplace.json）
 backend/plugins/*
 !backend/plugins/marketplace.json
+
+# =============================================================================
+# 2026-09-24 仓库清理：内部报告、发布报告、修复日志、测试产物不再入库
+# 这些是开发过程中的内部文档，不应出现在开源仓库中。
+# =============================================================================
+
+# --- 内部报告与审计文档（开发过程产物，非用户文档） ---
+PyGBSentry_v*_正式发布报告.md
+修复日志*.md
+修复日志-*.md
+功能可用性审计报告*.md
+压力测试报告.md
+稳定性加固报告.md
+DEEP_ANALYSIS_REPORT*.md
+FINAL_FIX_REPORT.md
+COMMERCIAL_READINESS_ASSESSMENT.md
+system_check_report*.md
+PROMPTS_FOR_FIXES.md
+spec.md
+tasks.md
+
+# --- 根级临时脚本与调试文件 ---
+reset_admin.py
+run.py
+verify_p1c.py
+preview-icon.html
+aa.txt
+open-source.zip
+
+# --- 根级 tests/ 目录（自动生成的泛化测试，非项目正式测试） ---
+tests/
+
+# --- 根级 logs/ 目录 ---
+logs/
+
+# --- 根级 mypy.ini（已由 pyproject.toml 统一管理） ---
+mypy.ini
+
+# --- 根级 plugins/ 空目录占位 ---
+plugins/
+
+# --- backend 临时文件与产物 ---
+backend/app.zip
+backend/deploy_sip_fix.ps1
+backend/pygbsentry.db
+backend/pygbsentry_test.db*
+backend/backend_restart.log
+backend/backend_stderr.log
+backend/SIP_TRACE_EVENTS.md
+backend/startup.log
+backend/startup_err.log
+backend/audit_l*_report.json
+
+# --- frontend 构建产物与临时文件 ---
+frontend/frontend_restart.log
+frontend/STYLE_ACCEPTANCE_REPORT.md
+frontend/FRONTEND_STYLE_GUIDE.md
+frontend/UPGRADE_PLAN.md
+frontend/_build_output.txt
+frontend/vitest-*.txt
+
+# --- 压力测试结果 JSON ---
+tools/stress_test/*_results.json
+tools/stress_test/exception_*.json
+
+# --- docs 内部规划文档（非用户文档） ---
+docs/superpowers/
+docs/screenshots/
+docs/UI_REDESIGN.md
+docs/UPGRADE_ACTION_PLAN.md
+docs/UPGRADE_PLAN.md
+docs/MOBILE_REGRESSION_ROTATION_SIGNATURE_CONTRACT.md
+docs/MOBILE_UNIAPP_REDESIGN.md
+docs/NATIVE_ALERT_REPORT_SIGNATURE_CONTRACT.md
+docs/NATIVE_ALERT_REPORT_SIGNATURE_ONLINE_CHECKLIST.md
+docs/NATIVE_ALERT_REPORT_SIGNATURE_ROLLOUT_PLAN.md
+
+# --- .env 实际配置文件（含敏感密钥，仅保留 .example 模板） ---
+.env
+backend/.env
+backend/.env.production.bak*
+backend/.env*.bak*
+
+# --- Windows 快捷方式与 Vite 临时日志 ---
+*.lnk
+frontend/vite_*.log
+
