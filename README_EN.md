@@ -471,6 +471,19 @@ After deployment, make sure the following ports are accessible:
 
 ---
 
+## 🔗 Related Projects
+
+**🩺 GBDoctor — GB/T 28181 Access Diagnostics Doctor**
+
+A perfect companion to PyGBSentry: **PyGBSentry** gets devices connected and managed; **GBDoctor** tells you *why* when they don't connect or the stream misbehaves. Acting as both a simulated upper-level platform and a simulated camera, it runs a 12-stage full-link checkup (register / keepalive / catalog / INVITE / PTZ / …) and produces a human-readable diagnostic report in 3 minutes — no packet capture needed.
+
+- **Gitee**: [gitee.com/suoten/GBDoctor](https://gitee.com/suoten/GBDoctor)
+- **GitHub**: [github.com/suoten/GBDoctor](https://github.com/suoten/GBDoctor)
+
+Platform access not working? Run a GBDoctor checkup to pinpoint the failing stage.
+
+---
+
 ## 📜 License
 
 PyGBSentry is released under the **AGPL v3.0** license. See [LICENSE](LICENSE) for details.
