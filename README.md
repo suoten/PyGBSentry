@@ -275,6 +275,19 @@ git push origin feature/your-feature
 
 ---
 
+## 🔗 关联项目
+
+**🩺 GBDoctor — GB/T 28181 接入诊断医生**
+
+与 PyGBSentry 互为补充：**PyGBSentry** 负责把设备"接上来、管得好"，**GBDoctor** 负责在接不上、画面有问题时快速定位"为什么"——同时扮演模拟上级平台和模拟摄像头两个角色，3 分钟输出全链路（注册/保活/目录/点播/云台等 12 项）体检报告，无需抓包。
+
+- **Gitee**：[gitee.com/suoten/GBDoctor](https://gitee.com/suoten/GBDoctor)
+- **GitHub**：[github.com/suoten/GBDoctor](https://github.com/suoten/GBDoctor)
+
+平台接入不顺畅？用 GBDoctor 体检一下就知道卡在哪一环。
+
+---
+
 ## 📄 开源协议
 
 本项目采用 [GNU Affero General Public License v3.0](LICENSE) 开源协议。
