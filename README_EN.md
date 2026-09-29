@@ -26,7 +26,7 @@
 ---
 
 > **🚀 Want a GB/T 28181 platform that starts in seconds, speaks Python natively, and plays nice with AI?**  
-> You just found it.
+> You just found it. **For production deployments with a Go single-binary, plugin marketplace and enterprise licensing, check out the commercial edition [GBWatch](#-commercial-edition-gbwatchgo).**
 
 PyGBSentry is a production-grade video surveillance platform built from the ground up with **Python + FastAPI**. No wrapping legacy C/C++ stacks — a **pure Python SIP signaling engine** that is fully transparent, debuggable, and extensible. From device registration to cascade federation, every byte is yours to inspect and customize.
 
@@ -101,46 +101,32 @@ Extend without forking:
 
 <table>
   <tr>
+    <td align="center"><b>Live View (multi-screen)</b></td>
     <td align="center"><b>Dashboard</b></td>
-    <td align="center"><b>Monitoring Center</b></td>
   </tr>
   <tr>
-    <td><img src="docs/images/1.png" alt="Dashboard" width="400"/></td>
-    <td><img src="docs/images/2.png" alt="Monitoring Center" width="400"/></td>
+    <td><img src="docs/images/2.png" alt="Live View" width="440"/></td>
+    <td><img src="docs/images/1.png" alt="Dashboard" width="440"/></td>
   </tr>
   <tr>
-    <td align="center"><b>GIS Map</b></td>
-    <td align="center"><b>Alarm Center</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/17.png" alt="GIS Map" width="400"/></td>
-    <td><img src="docs/images/14.png" alt="Alarm Center" width="400"/></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Health Dashboard</b></td>
-    <td align="center"><b>Ops Center</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/18.png" alt="Health Dashboard" width="400"/></td>
-    <td><img src="docs/images/20.png" alt="Ops Center" width="400"/></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Network Overview</b></td>
-    <td align="center"><b>Channel Management</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/images/22.png" alt="Network Overview" width="400"/></td>
-    <td><img src="docs/images/9.png" alt="Channel Management" width="400"/></td>
-  </tr>
-  <tr>
+    <td align="center"><b>Channel Workspace</b></td>
     <td align="center"><b>Device List</b></td>
-    <td align="center"><b>Config Center</b></td>
   </tr>
   <tr>
-    <td><img src="docs/images/3.png" alt="Device List" width="400"/></td>
-    <td><img src="docs/images/27.png" alt="Config Center" width="400"/></td>
+    <td><img src="docs/images/4.png" alt="Channel Workspace" width="440"/></td>
+    <td><img src="docs/images/3.png" alt="Device List" width="440"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>GB28181 Cascade</b></td>
+    <td align="center"><b>Multi-Protocol Ingest</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/6.png" alt="Cascade" width="440"/></td>
+    <td><img src="docs/images/5.png" alt="Multi-Protocol" width="440"/></td>
   </tr>
 </table>
+
+> More screenshots in [docs/images/](docs/images/).
 
 ---
 
@@ -468,6 +454,31 @@ After deployment, make sure the following ports are accessible:
 | [Developer Guide](docs/DEVELOPER_EN.md) | Contribute & extend |
 | [Plugin Specification](docs/PLUGIN_SPEC.md) | Build your own plugin |
 | [Streaming Server Config](docs/MEDIA_SERVER.md) | ZLMediaKit tuning guide |
+
+---
+
+## 💎 Commercial Edition: GBWatch (Go)
+
+A **commercial video platform** from the same team, complementary to PyGBSentry with an independent codebase:
+
+| | PyGBSentry (this project) | GBWatch (Commercial) |
+|---|---|---|
+| Language | Python 3.12+ / FastAPI | Go 1.25+ (single binary) |
+| License | AGPL v3 (open source) | Commercial (source-available) |
+| Positioning | Developers / AI ecosystem / customization | Production delivery / commercial operation |
+| Plugin ecosystem | Python plugins | Plugin Marketplace (official + third-party, paid subscription) |
+| Licensing | — | Ed25519 certificates, instance binding, expiry management |
+| Payments | — | Alipay / WeChat Pay, configured from admin console |
+
+**GBWatch highlights:**
+
+- **Go single-binary deployment** — no runtime dependencies, significantly lower resource usage
+- **Plugin Marketplace** — 16 official plugins out of the box (alert push, MQTT bridge, AI alarm denoising, behavior correlation, motion detection, lens health check), with third-party developers welcome
+- **Enterprise licensing** — subscription expiry auto-disable, multi-instance binding, tamper-proof certificate verification
+- **Payment channels** — enable Alipay / WeChat Pay from the admin console
+- **Commercial support** — deployment, customization and technical support from the same team
+
+**Learning, secondary development, AI integration → PyGBSentry. Production deployment, commercial operation, plugin ecosystem and payments → GBWatch.**
 
 ---
 

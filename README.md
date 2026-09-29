@@ -32,7 +32,7 @@ _开箱即用的国标（GB/T 28181-2022）视频管理平台 —— 纯 Python 
 ---
 
 > **🚀 想要一个秒级启动、纯 Python 原生、对 AI 生态友好的国标视频平台？**
-> 就是它了。
+> 就是它了。**生产环境需要 Go 单二进制部署、插件商城与企业级授权？请了解同一团队的商业版 [GBWatch](#-商业版-gbwatchgo)。**
 
 **PyGBSentry** 基于**最新 GB/T 28181-2022 标准**构建（向下兼容 2016 版设备）。与依赖第三方 C 库或商业 SIP 中间件的方案不同，我们从零实现了**纯 Python 的 SIP/GB28181 协议栈**，让你真正掌控从信令到流媒体的全链路。
 
@@ -110,22 +110,34 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 <table>
   <tr>
-    <td align="center"><b>实时预览（多内核 + 云台控制）</b></td>
+    <td align="center"><b>监控中心（多分屏实时预览）</b></td>
+    <td align="center"><b>工作台（资源概览与告警趋势）</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/live-player.png" alt="实时预览" width="880"/></td>
+    <td><img src="docs/images/2.png" alt="监控中心" width="440"/></td>
+    <td><img src="docs/images/1.png" alt="工作台" width="440"/></td>
   </tr>
   <tr>
-    <td align="center"><b>设备列表</b></td>
+    <td align="center"><b>通道工作区（设备通道管理 / 云台 / 预览）</b></td>
+    <td align="center"><b>设备列表（国标设备台账）</b></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/device-list.png" alt="设备列表" width="880"/></td>
+    <td><img src="docs/images/4.png" alt="通道工作区" width="440"/></td>
+    <td><img src="docs/images/3.png" alt="设备列表" width="440"/></td>
+  </tr>
+  <tr>
+    <td align="center"><b>国标级联（上下级平台对接）</b></td>
+    <td align="center"><b>多协议接入（RTSP / ONVIF / SDK）</b></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/6.png" alt="国标级联" width="440"/></td>
+    <td><img src="docs/images/5.png" alt="多协议接入" width="440"/></td>
   </tr>
 </table>
 
 > 更多界面截图见 [docs/images/](docs/images/)。
 
----
+------
 
 ## 🏛️ 技术架构
 
@@ -215,6 +227,33 @@ npm run dev                 # → http://localhost:5173
 GPS 订阅          云台 PTZ          容量基线预警      飞书/企微告警     可视化指挥
 语音对讲          预置位轮巡         SIP 信令审计      S3 云存储        告警联动
 ```
+
+---
+
+## 💎 商业版：GBWatch（Go 语言）
+
+同一团队打造的**商业版视频平台**，与 PyGBSentry 定位互补、代码库独立：
+
+| | PyGBSentry（本项目） | GBWatch（商业版） |
+|---|---|---|
+| 语言 | Python 3.12+ / FastAPI | Go 1.25+（单二进制） |
+| 许可 | AGPL v3（开源） | 商业许可（源码可见） |
+| 定位 | 开发者 / AI 生态 / 二次开发 | 生产环境交付 / 商业运营 |
+| 插件生态 | Python 插件 | 插件商城（官方 + 第三方，付费订阅） |
+| 授权体系 | — | Ed25519 证书、实例绑定、到期管理 |
+| 支付 | — | 支付宝 / 微信扫码，管理后台一键配置 |
+
+**GBWatch 商业版亮点：**
+
+- **Go 单二进制部署** —— 编译即用，无运行时依赖，资源占用显著更低
+- **插件商城** —— 16 个官方插件开箱即用（通知推送、MQTT 桥接、AI 告警降噪、行为关联分析、移动侦测、镜头健康体检等），第三方开发者实名入驻、自主定价
+- **企业级授权管理** —— 订阅到期自动停用、多实例绑定、防篡改证书校验
+- **支付渠道后台配置** —— 管理员开启支付宝 / 微信支付即可收款
+- **商业支持** —— 同团队提供部署、定制与技术支持服务
+
+PyGBSentry 与 GBWatch 服务于不同场景：**学习、二次开发、AI 集成选 PyGBSentry；生产部署、商业运营、需要插件生态与支付能力选 GBWatch。**
+
+<a href="#-商业版-gbwatchgo"></a>
 
 ---
 
