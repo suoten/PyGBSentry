@@ -467,8 +467,8 @@ A **commercial video platform** from the same team, complementary to PyGBSentry 
 | License | AGPL v3 (open source) | Commercial (source-available) |
 | Positioning | Developers / AI ecosystem / customization | Production delivery / commercial operation |
 | Plugin ecosystem | Python plugins | Plugin Marketplace (official + third-party, paid subscription) |
-| Licensing | — | Ed25519 certificates, instance binding, expiry management |
-| Payments | — | Alipay / WeChat Pay, configured from admin console |
+| Platform licensing | — | Per-channel licensing (64 / 256 / unlimited); over-limit device registration rejected |
+| Marketplace payments | — | Alipay / WeChat Pay for plugin purchases, configured from admin console |
 
 **GBWatch highlights:**
 
