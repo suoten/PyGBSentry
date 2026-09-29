@@ -464,10 +464,10 @@ A **commercial video platform** from the same team, complementary to PyGBSentry 
 | | PyGBSentry (this project) | GBWatch (Commercial) |
 |---|---|---|
 | Language | Python 3.12+ / FastAPI | Go 1.25+ (single binary) |
-| License | AGPL v3 (open source) | Commercial (source-available) |
+| License | AGPL v3 (open source) | Commercial (closed-source binary delivery) |
 | Positioning | Developers / AI ecosystem / customization | Production delivery / commercial operation |
 | Plugin ecosystem | Python plugins | Plugin Marketplace (official + third-party, paid subscription) |
-| Platform licensing | — | Per-channel licensing (64 / 256 / unlimited); over-limit device registration rejected |
+| Platform licensing | — | Per-channel licensing (64 / 256 / unlimited) with Ed25519 instance-bound certificates; over-limit device registration rejected |
 | Marketplace payments | — | Alipay / WeChat Pay for plugin purchases, configured from admin console |
 
 **GBWatch highlights:**
@@ -475,8 +475,19 @@ A **commercial video platform** from the same team, complementary to PyGBSentry 
 - **Go single-binary deployment** — no runtime dependencies, significantly lower resource usage
 - **Plugin Marketplace** — 16 official plugins out of the box (alert push, MQTT bridge, AI alarm denoising, behavior correlation, motion detection, lens health check), with third-party developers welcome
 - **Enterprise licensing** — subscription expiry auto-disable, multi-instance binding, tamper-proof certificate verification
+- **Binary delivery + license binding** — compiled artifacts only; licenses are hardware-bound per instance, reverse engineering and redistribution prohibited
 - **Payment channels** — enable Alipay / WeChat Pay from the admin console
 - **Commercial support** — deployment, customization and technical support from the same team
+
+### Editions & Pricing
+
+| Edition | Channels | Pricing | Target customers |
+| --- | --- | --- | --- |
+| Standard | 64 | ¥5,800 perpetual (1st-year updates & tickets included) | Small projects, single-site enterprises |
+| Professional | 256 | ¥19,800 perpetual (1st-year updates & marketplace included) | Mid-size projects, AI plugins & marketplace |
+| Flagship / OEM | Unlimited | ¥59,800 / year (renewal & priority support included) | System integrators, OEM white-label delivery |
+
+> All editions are delivered as **closed-source binaries**. Licenses are Ed25519-signed and bound to the deployed instance; device registration beyond the channel limit is rejected automatically. Update service renewal is 20% of the license fee per year. Volume and OEM pricing on request.
 
 **Learning, secondary development, AI integration → PyGBSentry. Production deployment, commercial operation, plugin ecosystem and payments → GBWatch.**
 
