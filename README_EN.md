@@ -504,6 +504,16 @@ A perfect companion to PyGBSentry: **PyGBSentry** gets devices connected and man
 
 Platform access not working? Run a GBDoctor checkup to pinpoint the failing stage.
 
+**🧰 More Related Projects**
+
+| Project | Description | Repos |
+|---------|-------------|-------|
+| **ProtoForge** | Open-source PLC protocol simulator: zero-hardware simulation of 28 protocols (Modbus/S7/OPC-UA/BACnet/GB28181…) for testing master software and gateways | [Gitee](https://gitee.com/suoten/ProtoForge) · [GitHub](https://github.com/suoten/ProtoForge) |
+| **EdgeLiteGateway** | Open-source edge AI gateway (Python): 13 industrial protocols + ONNX inference, 10-minute Docker deployment | [Gitee](https://gitee.com/suoten/EdgeLiteGateway) · [GitHub](https://github.com/suoten/EdgeLiteGateway) |
+| **EdgeLiteGateway-Go** | Edge AI gateway in Go: single-binary deployment with prebuilt Linux amd64/arm64/armv7 packages | [Gitee](https://gitee.com/suoten/EdgeLiteGateway-Go) · [GitHub](https://github.com/suoten/EdgeLiteGateway-Go) |
+| **EdgeAgent-Hub** | Edge agent management platform (Go): ONNX + LLM + RAG + multi-agent orchestration, Modbus/OPC UA/MQTT access, offline autonomy + A/B partition OTA | [Gitee](https://gitee.com/suoten/edgeagent-hub) · [GitHub](https://github.com/suoten/EdgeAgent-Hub) |
+| **IoT-ZTNA** | Zero-trust network access gateway for IoT (Rust): eBPF/XDP line-rate filtering + SPIFFE device identity + AI behavior detection | [Gitee](https://gitee.com/suoten/iot-ztna) · [GitHub](https://github.com/suoten/IoT-ZTNA) |
+
 ---
 
 ## 📜 License

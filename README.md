@@ -336,6 +336,16 @@ git push origin feature/your-feature
 
 平台接入不顺畅？用 GBDoctor 体检一下就知道卡在哪一环。
 
+**🧰 更多相关项目**
+
+| 项目 | 简介 | 仓库 |
+|------|------|------|
+| **ProtoForge** | 开源 PLC 协议模拟器：零硬件模拟 Modbus/S7/OPC-UA/BACnet/GB28181 等 28 种协议，测试上位机与网关通信 | [Gitee](https://gitee.com/suoten/ProtoForge) · [GitHub](https://github.com/suoten/ProtoForge) |
+| **EdgeLiteGateway** | 开源边缘 AI 网关（Python 版）：13 种工业协议 + ONNX 推理引擎，10 分钟 Docker 部署 | [Gitee](https://gitee.com/suoten/EdgeLiteGateway) · [GitHub](https://github.com/suoten/EdgeLiteGateway) |
+| **EdgeLiteGateway-Go** | 工业边缘 AI 网关 Go 版：单二进制部署，附 Linux amd64/arm64/armv7 预编译包 | [Gitee](https://gitee.com/suoten/EdgeLiteGateway-Go) · [GitHub](https://github.com/suoten/EdgeLiteGateway-Go) |
+| **EdgeAgent-Hub** | 边缘智能体管理平台（Go）：ONNX + LLM + RAG + 多智能体编排，Modbus/OPC UA/MQTT 全协议接入，断网自治 + A/B 分区 OTA | [Gitee](https://gitee.com/suoten/edgeagent-hub) · [GitHub](https://github.com/suoten/EdgeAgent-Hub) |
+| **IoT-ZTNA** | IoT 零信任网络访问网关（Rust）：eBPF/XDP 线速过滤 + SPIFFE 设备身份 + AI 行为检测 | [Gitee](https://gitee.com/suoten/iot-ztna) · [GitHub](https://github.com/suoten/IoT-ZTNA) |
+
 ---
 
 ## 📄 开源协议
