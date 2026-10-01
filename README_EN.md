@@ -470,11 +470,11 @@ A **commercial video platform** from the same team, complementary to PyGBSentry 
 | Platform licensing | — | Per-channel licensing (64 / 256 / unlimited) with Ed25519 instance-bound certificates; over-limit device registration rejected |
 | Marketplace payments | — | Alipay / WeChat Pay for plugin purchases, configured from admin console |
 
-**GBWatch core capabilities:**
+GBWatch **covers all core capabilities of the open-source edition** (device registration / catalog / live preview / recording playback / PTZ / cascade / alerts…) and additionally provides:
 
-| Capability | Description |
+| On top of the open edition | Description |
 |-----------|-------------|
-| 🚀 Effortless deployment | Go single binary + one-shot script, **live in 3 minutes**; embedded frontend and built-in SQLite — no Nginx / MySQL / build toolchain |
+| 🚀 Deployment model | Go single binary + one-shot script, **live in 3 minutes**; embedded frontend and built-in SQLite — no Nginx / MySQL / build toolchain (the open edition deploys as Python + Docker/source) |
 | 📹 Full protocol matrix | GB/T 28181-2016/2022 bidirectional cascade (catalog subscription + TCP active streaming) · ONVIF Profile S auto-discovery · JT/T 808+1078 in-vehicle video × track sync · GA/T 1400 view-library reporting · Hikvision ISAPI / Dahua HTTP event gateways · RTSP/RTMP pull proxies |
 | 🤖 AI loop | Scheduled snapshots → inference → structured events → alert actions → **image-based search** (sliced & merged), with perimeter / construction-site / motion-detection algorithm packs |
 | 🔔 Alerting system | 30+ alarm types parsed to **human-readable Chinese**; Feishu / DingTalk / WeCom / email / SMS / MQTT delivery; auto-escalation L1→L2→L3 · duty routing · siren/door/broadcast actuators · alarm clips with HMAC signed no-login share links |
