@@ -470,14 +470,19 @@ A **commercial video platform** from the same team, complementary to PyGBSentry 
 | Platform licensing | — | Per-channel licensing (64 / 256 / unlimited) with Ed25519 instance-bound certificates; over-limit device registration rejected |
 | Marketplace payments | — | Alipay / WeChat Pay for plugin purchases, configured from admin console |
 
-**GBWatch highlights:**
+**GBWatch core capabilities:**
 
-- **Go single-binary deployment** — no runtime dependencies, significantly lower resource usage
-- **Plugin Marketplace** — 16 official plugins out of the box (alert push, MQTT bridge, AI alarm denoising, behavior correlation, motion detection, lens health check), with third-party developers welcome
-- **Enterprise licensing** — subscription expiry auto-disable, multi-instance binding, tamper-proof certificate verification
-- **Binary delivery + license binding** — compiled artifacts only; licenses are hardware-bound per instance, reverse engineering and redistribution prohibited
-- **Payment channels** — enable Alipay / WeChat Pay from the admin console
-- **Commercial support** — deployment, customization and technical support from the same team
+| Capability | Description |
+|-----------|-------------|
+| 🚀 Effortless deployment | Go single binary + one-shot script, **live in 3 minutes**; embedded frontend and built-in SQLite — no Nginx / MySQL / build toolchain |
+| 📹 Full protocol matrix | GB/T 28181-2016/2022 bidirectional cascade (catalog subscription + TCP active streaming) · ONVIF Profile S auto-discovery · JT/T 808+1078 in-vehicle video × track sync · GA/T 1400 view-library reporting · Hikvision ISAPI / Dahua HTTP event gateways · RTSP/RTMP pull proxies |
+| 🤖 AI loop | Scheduled snapshots → inference → structured events → alert actions → **image-based search** (sliced & merged), with perimeter / construction-site / motion-detection algorithm packs |
+| 🔔 Alerting system | 30+ alarm types parsed to **human-readable Chinese**; Feishu / DingTalk / WeCom / email / SMS / MQTT delivery; auto-escalation L1→L2→L3 · duty routing · siren/door/broadcast actuators · alarm clips with HMAC signed no-login share links |
+| 🏢 Enterprise-grade | Multi-tenant row-level isolation + quotas · License feature matrix + machine binding · forensic evidence chain (SHA-256 hash chain) · audit center · remote device config read/write (OSD / recording schedule / upgrade…) · MinIO / NAS archiving |
+| 📦 Plugin marketplace | **36 official plugins** out of the box (AI analytics 10 / alerting 9 / ops & inspection 11 / storage & evidence 3 / security 3); subprocess-hook model, any language; third-party developers on board with Alipay/WeChat checkout |
+| ✅ Quality assurance | Six end-to-end acceptance suites (70+ assertions) re-runnable in one command, covering cascade, channel authorization, forensics, alerting and more |
+
+**Delivery model**: closed-source binaries; licenses are Ed25519-signed and machine-bound, tamper-proof; reverse engineering and redistribution prohibited. Deployment, customization and support from the same team.
 
 ### Editions & Pricing
 
