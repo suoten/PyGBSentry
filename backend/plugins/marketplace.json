@@ -2,7 +2,7 @@
   {
     "id": "ai_behavior_analysis",
     "name": "AI行为分析",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "type": "paid",
     "status": "active",
     "description": "实时智能行为分析，5种安防规则一键启用——入侵、徘徊、聚集、跌倒、攀爬，安装即用，无需外部AI服务",
@@ -26,12 +26,19 @@
       "AI",
       "人工智能",
       "智能分析"
-    ]
+    ],
+    "price_perpetual": 99000,
+    "trial_days": 30,
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "ff2a730a40c72d03f3087c89e159b61d503e6cacb9f3cad586b52e895201a0a8",
+    "package_signature": "VKJVl61KfbJAQ3LCosacOeadfJApFzWyE6XNdVqPMI0y8xJIN0mLT7VBoMm2rpmrQJuBjqhjrs3wTN-GVG9wDw",
+    "manifest_signature": "_ecpKk0nnPNtDci4-XqG-I72iEC0QzN-kNs5i4SmS_K9ngY3i3uVNVId_eSup5fVExchQ9unxJ5v9ccQgVokDw"
   },
   {
     "id": "ai_face_recognition",
     "name": "AI人脸识别",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "type": "paid",
     "status": "active",
     "description": "毫秒级人脸识别与检索，支持1:1比对和1:N布控——检测、质量评估、特征提取全链路内置，安装即用",
@@ -53,12 +60,19 @@
       "AI",
       "人工智能",
       "布控"
-    ]
+    ],
+    "price_perpetual": 99000,
+    "trial_days": 30,
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "28886a8e4ca9fec41467849dcd4b2ab5667b4f55ab9938fa08ef32702e2442c2",
+    "package_signature": "LZ3geZKwDgNR9w_TyMnlOhOfzFS-eDrixjQNG9545oDT-TLq6u3L_URJljIym2hH9MPPyopNVByEJXispRZABA",
+    "manifest_signature": "nriTNVYMVESj9mkkugSeWfxum4Ibaz2h_TPfOZoH_yZInBMrxEE78EtTtFhw484QBPdyfDngqOvQls6PK-MGAA"
   },
   {
     "id": "ai_plate_recognition",
     "name": "AI车牌识别",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "type": "paid",
     "status": "active",
     "description": "实时车牌检测与识别，覆盖蓝/黄/绿/白全牌种——检测、识别、颜色判断、白名单一气呵成，安装即用",
@@ -82,15 +96,22 @@
       "人工智能",
       "停车场",
       "卡口"
-    ]
+    ],
+    "price_perpetual": 99000,
+    "trial_days": 30,
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "5dca1f27b4cb53f55dd5b6d7ca33eefdab6a8718972746b5527b72ecca981894",
+    "package_signature": "5CZyTm-t9gpWPixZ8VnI-O3vZUhQO_2Z4oEiJvoSGc30TzzLsIXQRlX3HCVPifwptK3wCsmmUVJt5frtusujDg",
+    "manifest_signature": "MSs_77PUyQ0hM_CD3EqmbVnxrAUmyEo8GOCTiiv4TOh0mRjLOC-7SI4G4WCKONOD6Effq2RAGENrSdw_RXmhAA"
   },
   {
     "id": "feishu_alert",
     "name": "飞书告警",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
-    "description": "将报警事件推送到飞书群机器人，支持 Webhook（独立插件）",
+    "description": "将报警事件推送到飞书群机器人（自定义机器人 Webhook，支持文本/post 富文本）",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
@@ -106,12 +127,17 @@
       "报警",
       "通知",
       "webhook"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "1cb0abff8aa7fa7a08c2c15a19a6e8c8276566a6bcd99d153047d4b3ffb5b7a3",
+    "package_signature": "_0btX69pqWZmTnDi3tOkWzjfDSbtsSaQL8z5rih202PEMGsKQrtyQzcH4r16XVO0asaAf0-pZYPxrtHiMdl2BQ",
+    "manifest_signature": "JwrxKXqnN2894SkvLYD6r3_Ez4q8WSaYpDoiXn9cb3ZC2zs10Vpw5HEDMKVolo3yIk771G0NKQnG31ufZbjKCw"
   },
   {
     "id": "mqtt_bridge",
     "name": "MQTT 桥接",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "type": "free",
     "status": "active",
     "description": "将设备上下线、报警事件发布到 MQTT Broker，便于 IoT 系统集成",
@@ -131,15 +157,20 @@
       "消息队列",
       "桥接",
       "mqtt"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "78a51ad68736cd691b039d4e497f9bffac659872c896d922f852d09dbe571166",
+    "package_signature": "LCPVD_sVWQRm7C3aiNCVPXghn1TQ45rtZR6-ztCPLKhjwuHg3RkNjXt-QJUKu7WYzd6mcrwPXxcAqjQlkSQCAQ",
+    "manifest_signature": "OSdghTBc5UFYtF9qEKaPO1aE9LwksDtc_2W0HgYSjsIrk3kY4HkzOWox41lDTftHMMj1zLivGg1LH9fGDGU1AA"
   },
   {
     "id": "report_suite",
     "name": "私有化报表",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
-    "description": "私有化报表模板与对接连接器：扩展报表中心模板列表与导出能力，支持 CSV/XLSX 导出",
+    "description": "私有化报表模板与数据连接器配置：为宿主报表中心提供模板列表与连接器配置（导出能力由宿主报表中心提供）",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
@@ -156,12 +187,17 @@
       "CSV",
       "Excel",
       "report"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "aa9d59645557e26cb427680eb474062fb79e13ba2aa1a8acae558357706e318c",
+    "package_signature": "MMFlsC6ee_qsjfkIfZ_mrZC7CjpRkvdyXpnW8jtsBF8sB66iM8gtRxORVj7ykHQ_l_JvkBnS_EXPPecyxWYeBg",
+    "manifest_signature": "YfH32iw6Usk00FbW7jmzKAgvZybdkr6QOIBWFpykq2NhEa98Ha00yA_jF3Msthceop9VzWYGK5M1cUAWOsDfAg"
   },
   {
     "id": "s3_sync",
     "name": "S3 云存储同步",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "type": "free",
     "status": "active",
     "description": "将本地录像文件自动同步到 S3 兼容存储（如 MinIO、阿里云 OSS、AWS S3）",
@@ -182,15 +218,20 @@
       "MinIO",
       "备份",
       "s3"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "5be95e7c79bb3a4536bd556ad671a7b3391a3cb8a7259523e66440e9ce142391",
+    "package_signature": "n2cU76it9RNlA5pzK9yufnJZe8tYgKXOiAhl5YJAI7aKbdps6wY-RBMAPC-NA9BS-Sho-nX1IMV1-P9AbeEeBQ",
+    "manifest_signature": "6uFwXTZUPeyBuxtK14g4c-dS8IgbHH5NQpJnJey5UVe1pu1fQN5bfkjtI332jYsNIa5VpdhuvIrVkJzlU6dwBA"
   },
   {
     "id": "sms_alert",
     "name": "短信告警",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
-    "description": "报警事件通过短信通知：支持自定义网关 URL 或对接阿里云/腾讯云等短信接口",
+    "description": "报警事件通过短信通知：支持自定义网关 URL 或阿里云短信（Dysmsapi SendSms）",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
@@ -206,15 +247,20 @@
       "报警",
       "通知",
       "sms"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "a04641459dc3856747ae60078262abd7efc1bdb12de60ca0b13779c591990b12",
+    "package_signature": "FZH4pnsRMnthMiZDz4hmq0EmYNk0DNypiMOQpktZMIBHClZsac9XDlBSDI_7TwBdEwfdKxihvF-sSZmHqP6kAQ",
+    "manifest_signature": "zLHKWoTqMG1AFjijfLm2pF8z3fOLs86uxfytv4G1_sU12TqXujv3UGm1Esup8_eTrhJOGIZfbqHhABxrbcGvDw"
   },
   {
     "id": "tv_wall_suite",
     "name": "电视墙与上墙",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "type": "paid",
     "status": "active",
-    "description": "电视墙管理、轮巡、报警上墙；开窗漫游布局、解码器对接、外接大屏回调",
+    "description": "报警自动上墙：报警推送外接大屏回调并向解码器下发上墙指令（轮巡/开窗漫游布局位于宿主电视墙页面）",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
@@ -232,15 +278,22 @@
       "大屏",
       "报警联动",
       "轮巡"
-    ]
+    ],
+    "price_perpetual": 99000,
+    "trial_days": 30,
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "df1326146719ebd497547db08acbce1c572851788c6b0b1aae138a527a1d7645",
+    "package_signature": "7CNwGzn2gJrofWBd_WIsW5VujHC6xBmezi55wp_-eBQoYd5Xu0QDiWpmvFkZmtxtc0enc3WZHIyjNj9xeFLTDg",
+    "manifest_signature": "BWmagDnSspXsXbXruiEHmGan4kDBEf5sa_8KVmYeCuu3-GeQNIO3-Dp3n-d_qMIQjwi-J_Ag1H9tfIGj-20LCg"
   },
   {
     "id": "wecom_alert",
     "name": "企业微信告警",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
-    "description": "将报警事件推送到企业微信群机器人或应用消息",
+    "description": "将报警事件推送到企业微信群机器人（自定义机器人 Webhook）",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
@@ -258,6 +311,11 @@
       "通知",
       "wecom",
       "wechat work"
-    ]
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "bed92b957e1c7897232c931e7b18313f12603d0dc7b1cc5c92ce9e38bfc3fc6d",
+    "package_signature": "TjgxXEag4CxzTl0HV9eTEG3w4uwNduBWDmYLlRkjaXj8ILbwK89nSj8mggdfwt0FZffHPtiOo4EyV6_FxD7gAA",
+    "manifest_signature": "llGPtetTiMyikn1TKuWXfw7KQu4sWBI0aIGeXxDO2PNad-8cRCkd49d-lRB8lcSsX4oFEZXrtwhl1wVaDgQKAA"
   }
 ]

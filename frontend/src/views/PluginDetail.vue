@@ -28,8 +28,21 @@
       <div class="space-y-3" style="color: var(--el-text-color-regular)">
         <p class="text-sm" style="color: var(--el-text-color-secondary)">
           {{ t('common.version') }} {{ plugin.version }}
-          <span v-if="plugin.type === 'paid'"> · ¥{{ plugin.price_monthly || 0 }}{{ t('plugin.perMonth') }}</span>
-          <span v-else> · {{ t('pluginDetail.freeToUse') }}</span>
+          <template v-if="plugin.type === 'paid' && detailPriceTiers.length > 0">
+            ·
+            <el-tooltip
+              v-if="detailPriceTiers.length > 1"
+              placement="top"
+              :content="detailPriceTiers.map((tier) => tier.label).join(' / ')"
+            >
+              <span class="text-orange-500 font-medium" style="cursor: help">{{ lowestDetailPriceLabel }}</span>
+            </el-tooltip>
+            <span v-else class="text-orange-500 font-medium">{{ lowestDetailPriceLabel }}</span>
+          </template>
+          <span v-else-if="plugin.type !== 'paid'"> · {{ t('pluginDetail.freeToUse') }}</span>
+          <el-tag v-if="hasPluginTrial(plugin)" size="small" type="success" class="ml-2">
+            {{ t('plugin.trialDays', { days: plugin.trial_days }) }}
+          </el-tag>
         </p>
         <p v-if="installedVersion" class="text-xs mt-1" style="color: var(--el-text-color-secondary)">
           {{ t('pluginDetail.installedVersion', { version: installedVersion }) }}
@@ -51,20 +64,21 @@
         <el-button
           v-if="plugin.type === 'paid' && !isPurchased(pluginId)"
           type="warning"
-          :loading="installing"
-          @click="openShop"
+          :disabled="installingId !== ''"
+          @click="onClickBuy"
         >
           {{ t('plugin.buy') }}  <!-- FIXED: 硬编码中文→t() -->
         </el-button>
         <el-button
           v-else
           type="primary"
-          :loading="installing"
-          @click="installPlugin(plugin)"
+          :loading="installingId === pluginId"
+          :disabled="installingId !== ''"
+          @click="onClickInstall"
         >
           {{ isInstalled(pluginId) ? t('plugin.reinstall') : t('plugin.install') }}  <!-- FIXED: 硬编码中文→t() -->
         </el-button>
-        <el-button v-if="isInstalled(pluginId)" type="danger" plain :disabled="installing" @click="uninstallPlugin(pluginId)">
+        <el-button v-if="isInstalled(pluginId)" type="danger" plain :disabled="installingId !== ''" @click="uninstallPlugin(pluginId)">
           {{ t('common.cancel') }}  <!-- FIXED: 硬编码中文→t() -->
         </el-button>
       </div>
@@ -130,6 +144,8 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
 import { logger } from '@/utils/logger'
+import { hasPluginTrial, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
+import { useOfficialAccount } from '../composables/useOfficialAccount'
 
 import { getFriendlyError } from '../utils/errorMessage'
 import PageContainer from '../components/PageContainer.vue'
@@ -143,6 +159,10 @@ const { t } = useI18n()  // FIXED: 国际化
 const router = useRouter()
 const pluginId = computed(() => (route.params.pluginId as string) || '')
 
+// 官网账户（双版账户打通）：与插件中心共享登录态；商城插件的购买/安装需先登录
+const { isMarketplacePlugin, refreshOfficialAccount, ensureOfficialAccount, guideOfficialAccountOnError } =
+  useOfficialAccount()
+
 type PluginItem = {
   id: string
   name: string
@@ -150,6 +170,9 @@ type PluginItem = {
   type: string
   description?: string
   price_monthly?: number
+  price_yearly?: number
+  price_perpetual?: number
+  trial_days?: number
   package_url?: string
   detail?: string
   doc_url?: string
@@ -162,7 +185,7 @@ const marketplaceList = ref<PluginItem[]>([])
 const installedList = ref<PluginItem[]>([])
 const purchasedIds = ref<string[]>([])
 const shopUrl = ref('')
-const installing = ref(false)
+const installingId = ref('')
 const showSuperuserZipUpload = ref(false)
 
 // 插件健康状态
@@ -200,6 +223,27 @@ const installedVersion = computed(() => {
 })
 const isInstalled = (id: string) => installedList.value.some(p => p.id === id)
 const isPurchased = (id: string) => purchasedIds.value.includes(id)
+
+// 价格/试用展示（分 → ¥ 文案，多档显示最低档 + 悬浮全部）
+const detailPriceTiers = computed(() => (plugin.value ? resolvePluginPriceTiers(plugin.value) : []))
+const lowestDetailPriceLabel = computed(() => {
+  const tiers = detailPriceTiers.value
+  if (tiers.length === 0) return ''
+  return t('plugin.priceFromPrefix') + tiers[0].label + t('plugin.priceFromSuffix')
+})
+
+// 官网账户门控：商城插件（有 package_url 或 type=paid）购买/安装前需登录官网账户
+const onClickBuy = () => {
+  const row = plugin.value
+  if (!row) return
+  void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => openShop())
+}
+
+const onClickInstall = () => {
+  const row = plugin.value
+  if (!row) return
+  void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => installPlugin(row))
+}
 
 const openShop = () => {
   const baseUrl = shopUrl.value || '/'
@@ -250,7 +294,7 @@ const loadData = async () => {
 }
 
 const installPlugin = async (row: PluginItem) => {
-  installing.value = true
+  installingId.value = row.id
   try {
     const res = await api.post(
       '/api/v1/plugins/marketplace/install',
@@ -266,10 +310,12 @@ const installPlugin = async (row: PluginItem) => {
     ElMessage.success(t('plugin.installAndOpen'))  // FIXED: 硬编码中文→t()
     await router.push(`/plugins/runtime/${row.id}`)
   } catch (error: unknown) {
+    // 官网账户 token 缺失/失效：弹官网登录弹窗，登录成功后自动继续安装
+    if (guideOfficialAccountOnError(error, () => installPlugin(row))) return
     const friendly = getFriendlyError(error)
     ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
   } finally {
-    installing.value = false
+    installingId.value = ''
   }
 }
 
@@ -283,7 +329,7 @@ const uninstallPlugin = async (id: string) => {
   } catch {
     return
   }
-  installing.value = true
+  installingId.value = id
   try {
     await api.delete(`/api/v1/plugins/${id}`)
     await loadData()
@@ -294,7 +340,7 @@ const uninstallPlugin = async (id: string) => {
     const friendly = getFriendlyError(error)
     ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
   } finally {
-    installing.value = false
+    installingId.value = ''
   }
 }
 
@@ -306,6 +352,7 @@ const refreshSuperuserZipVisibility = async () => {
 
 onMounted(async () => {
   refreshSuperuserZipVisibility()
+  void refreshOfficialAccount()
   await loadData()
   loadPluginHealth()
   loadSecurityReport()

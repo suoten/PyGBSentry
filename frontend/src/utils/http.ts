@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import { getFriendlyError } from './errorMessage'
+import { classifyOfficialAccountError, getOfficialToken, PLUGINS_API_PREFIX } from './officialAccount'
 import { HTTP_STATUS } from '@/constants/httpStatus'
 import i18n from '@/locales'  // FIXED: 国际化
 import { safeSSGet, safeSSSet, safeSSRemove } from '@/utils/storage'  // P0-4: token 迁移到 sessionStorage
@@ -36,6 +37,14 @@ api.interceptors.request.use(
     const token = getCachedToken()
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
+    }
+    // 双版账户打通：插件中心（商城浏览/下载/购买/上报）请求附带官网账户 token，
+    // 服务端转发服务器版时优先使用 X-Official-Token 验证官网身份与购买权益
+    if (config.url?.startsWith(PLUGINS_API_PREFIX)) {
+      const officialToken = getOfficialToken()
+      if (officialToken) {
+        config.headers['X-Official-Token'] = officialToken
+      }
     }
     if (config.url?.includes('admin') || config.url?.includes('delete')) {
       config.headers['X-Sensitive-Operation'] = 'true'
@@ -115,6 +124,12 @@ api.interceptors.response.use(
     }
     const status = error.response.status
     const originalRequest = error.config
+    // 双版账户打通：官网账户 token 缺失/失效导致的插件中心 401（detail 为官网登录语义），
+    // 不进入平台会话刷新/登出流程（避免误清平台会话、把用户踢回平台登录页），
+    // 由插件中心页面捕获后弹出官网账户登录引导。
+    if (status === HTTP_STATUS.UNAUTHORIZED && classifyOfficialAccountError(error) === 'login') {
+      return Promise.reject(error)
+    }
     if (status === HTTP_STATUS.UNAUTHORIZED && !originalRequest._retry) {
       const token = safeSSGet('token')
       if (!token) {

@@ -2,7 +2,36 @@
   <div class="app-page">
     <PageContainer>
       <template #header>
-        <PageHeader :title="t('plugin.title')" :description="t('plugin.description')" />  <!-- FIXED: 硬编码中文→t() -->
+        <PageHeader :title="t('plugin.title')" :description="t('plugin.description')">  <!-- FIXED: 硬编码中文→t() -->
+          <template #actions>
+            <!-- 官网账户状态区（双版账户打通）：商城可用时展示 -->
+            <template v-if="accountVisible">
+              <el-dropdown v-if="officialUser" trigger="click" @command="onOfficialAccountCommand">
+                <el-tag type="success" effect="light" size="large" class="official-account-chip">
+                  <el-icon><UserFilled /></el-icon>
+                  <span>{{ officialUser.username }}</span>
+                  <el-icon class="el-icon--right"><ArrowDown /></el-icon>
+                </el-tag>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item v-if="officialStatus.marketplace_host" disabled>
+                      {{ t('plugin.officialAccountHost', { host: officialStatus.marketplace_host }) }}
+                    </el-dropdown-item>
+                    <el-dropdown-item command="logout" :divided="!!officialStatus.marketplace_host">
+                      {{ t('common.logout') }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-tooltip v-else :content="t('plugin.officialAccountTip')" placement="bottom">
+                <el-button type="primary" plain @click="openAuthDialog({ tab: 'login' })">
+                  <el-icon class="mr-1"><User /></el-icon>
+                  {{ t('plugin.officialAccountLogin') }}
+                </el-button>
+              </el-tooltip>
+            </template>
+          </template>
+        </PageHeader>
       </template>
 
     <el-row :gutter="16" class="mb-4">
@@ -79,10 +108,20 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="t('plugin.price')" width="120">
+            <el-table-column :label="t('plugin.price')" width="150">
               <template #default="{ row }">
-                <span v-if="row.type === 'free'">-</span>
-                <span v-else class="text-orange-500 font-medium">¥{{ row.price_monthly || 0 }}{{ t('plugin.perMonth') }}</span>
+                <span v-if="row.type === 'free' || priceTiersOf(row).length === 0">-</span>
+                <el-tooltip
+                  v-else-if="priceTiersOf(row).length > 1"
+                  placement="top"
+                  :content="priceTierSummary(row)"
+                >
+                  <span class="text-orange-500 font-medium" style="cursor: help">{{ lowestPriceLabel(row) }}</span>
+                </el-tooltip>
+                <span v-else class="text-orange-500 font-medium">{{ lowestPriceLabel(row) }}</span>
+                <div v-if="hasPluginTrial(row)" class="mt-1">
+                  <el-tag size="small" type="success">{{ t('plugin.trialDays', { days: row.trial_days }) }}</el-tag>
+                </div>
               </template>
             </el-table-column>
             <el-table-column :label="t('common.action')" width="140">
@@ -91,7 +130,7 @@
                   v-if="row.type === 'paid' && !isPurchased(row.id)"
                   type="warning"
                   size="small"
-                  @click="openEmbeddedPurchase(row)"
+                  @click="onClickBuy(row)"
                 >
                   {{ t('plugin.buyNow') }}
                 </el-button>
@@ -99,8 +138,9 @@
                   v-else-if="row.type === 'paid' && isPurchased(row.id)"
                   type="primary"
                   size="small"
-                  :disabled="installing"
-                  @click="installPlugin(row)"
+                  :loading="installingId === row.id"
+                  :disabled="installingId !== ''"
+                  @click="onClickInstall(row)"
                 >
                   {{ t('plugin.install') }}
                 </el-button>
@@ -108,8 +148,9 @@
                   v-else
                   type="primary"
                   size="small"
-                  :disabled="installing"
-                  @click="installPlugin(row)"
+                  :loading="installingId === row.id"
+                  :disabled="installingId !== ''"
+                  @click="onClickInstall(row)"
                 >
                   {{ t('plugin.install') }}
                 </el-button>
@@ -177,7 +218,7 @@
             </el-table-column>
             <el-table-column :label="t('common.action')" width="120">
               <template #default="{ row }">
-                <el-button type="danger" size="small" :disabled="installing" @click="uninstallPlugin(row.id)">
+                <el-button type="danger" size="small" :loading="installingId === row.id" :disabled="installingId !== ''" @click="uninstallPlugin(row.id)">
                   {{ t('plugin.uninstall') }}
                 </el-button>
               </template>
@@ -213,9 +254,10 @@
             <el-tag size="small" type="warning">{{ t('plugin.paid') }}</el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="t('plugin.price')">
-            <span v-if="purchaseTarget.price_monthly" class="text-orange-500 font-medium">
-              ¥{{ purchaseTarget.price_monthly }}{{ t('plugin.perMonth') }}
+            <span v-if="purchasePriceTiers.length > 0" class="text-orange-500 font-medium">
+              {{ purchasePriceTiers.map((tier) => tier.label).join(' / ') }}
             </span>
+            <span v-else>-</span>
           </el-descriptions-item>
         </el-descriptions>
         <el-form label-width="80px" class="mt-4">
@@ -253,9 +295,13 @@ import { ref, onMounted, onUnmounted, onActivated, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { ArrowDown, User, UserFilled } from '@element-plus/icons-vue'
 import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
 import { logger } from '@/utils/logger'
+import { classifyOfficialAccountError } from '@/utils/officialAccount'
+import { hasPluginTrial, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
+import { useOfficialAccount } from '../composables/useOfficialAccount'
 
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { getFriendlyError, promptUpgradeHookReportIfPresent } from '../utils/errorMessage'
@@ -269,6 +315,19 @@ import { sanitizeHtml } from '@/utils/sanitize'
 const { t } = useI18n()
 const router = useRouter()
 
+// 官网账户（双版账户打通）：登录态/弹窗/门控由共享 composable 管理
+const {
+  officialUser,
+  officialStatus,
+  accountVisible,
+  isMarketplacePlugin,
+  refreshOfficialAccount,
+  openAuthDialog,
+  ensureOfficialAccount,
+  logoutOfficialAccount,
+  guideOfficialAccountOnError,
+} = useOfficialAccount()
+
 type PluginRow = {
   id: string
   name: string
@@ -280,6 +339,9 @@ type PluginRow = {
   min_oss_version?: string
   is_official?: boolean
   price_monthly?: number
+  price_yearly?: number
+  price_perpetual?: number
+  trial_days?: number
 }
 
 // 插件市场
@@ -308,7 +370,7 @@ const purchasedIds = ref<string[]>([])
 const marketLoading = ref(false)
 const installedLoading = ref(false)
 const marketplaceEmptyText = ref(t('plugin.marketEmpty'))
-const installing = ref(false)
+const installingId = ref('')
 const showSuperuserZipUpload = ref(false)
 
 // 插件健康监控
@@ -359,6 +421,30 @@ const purchaseBillingPeriod = ref<'monthly' | 'yearly' | 'perpetual'>('monthly')
 const purchaseLoading = ref(false)
 let paymentPollingTimer: ReturnType<typeof setInterval> | null = null
 const purchaseError = ref('')
+
+// ── 价格/试用展示（分 → ¥ 文案） ─────────────────────────────────────────
+const priceTiersOf = (row: PluginRow) => resolvePluginPriceTiers(row)
+const priceTierSummary = (row: PluginRow) => priceTiersOf(row).map((tier) => tier.label).join(' / ')
+const lowestPriceLabel = (row: PluginRow) => {
+  const tiers = priceTiersOf(row)
+  if (tiers.length === 0) return ''
+  // 多档显示最低档 + 悬浮全部（priceFromPrefix/Suffix：zh「¥xx/月起」/ en「from ¥xx/mo」）
+  return t('plugin.priceFromPrefix') + tiers[0].label + t('plugin.priceFromSuffix')
+}
+const purchasePriceTiers = computed(() => (purchaseTarget.value ? resolvePluginPriceTiers(purchaseTarget.value) : []))
+
+// ── 官网账户门控：商城插件（有 package_url 或 type=paid）需登录官网账户 ────
+const onClickInstall = (row: PluginRow) => {
+  void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => installPlugin(row))
+}
+
+const onClickBuy = (row: PluginRow) => {
+  void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => openEmbeddedPurchase(row))
+}
+
+const onOfficialAccountCommand = (command: string | number | object) => {
+  if (command === 'logout') logoutOfficialAccount()
+}
 
 const openEmbeddedPurchase = (row: PluginRow) => {
   purchaseTarget.value = row
@@ -421,6 +507,15 @@ const doEmbeddedPurchase = async () => {
       await loadData()
     }
   } catch (error: unknown) {
+    // 官网账户 token 缺失/失效：关闭购买弹窗，先登录官网账户，成功后自动重新打开购买
+    if (classifyOfficialAccountError(error) === 'login') {
+      purchaseDialogVisible.value = false
+      const target = purchaseTarget.value
+      guideOfficialAccountOnError(error, async () => {
+        if (target) openEmbeddedPurchase(target)
+      })
+      return
+    }
     const friendly = getFriendlyError(error)
     purchaseError.value = friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message
   } finally {
@@ -504,8 +599,13 @@ const onPurchaseSync = () => {
   void loadData()
 }
 
+// 官网账户登录/登出后刷新商城与已购数据
+const onOfficialAccountChanged = () => {
+  void loadData()
+}
+
 const installPlugin = async (row: PluginRow) => {
-  installing.value = true
+  installingId.value = row.id
   try {
     const res = await api.post(
       '/api/v1/plugins/marketplace/install',
@@ -526,11 +626,13 @@ const installPlugin = async (row: PluginRow) => {
       await router.push(`/plugins/runtime/${row.id}`)
     }
   } catch (error: unknown) {
+    // 官网账户 token 缺失/失效：弹官网登录弹窗，登录成功后自动继续安装
+    if (guideOfficialAccountOnError(error, () => installPlugin(row))) return
     const friendly = getFriendlyError(error)
     ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
     await promptUpgradeHookReportIfPresent(friendly)
   } finally {
-    installing.value = false
+    installingId.value = ''
   }
 }
 
@@ -554,7 +656,7 @@ const uninstallPlugin = async (pluginId: string) => {
   } catch {
     return
   }
-  installing.value = true
+  installingId.value = pluginId
   try {
     await api.delete(`/api/v1/plugins/${pluginId}`)
     await loadData()
@@ -564,17 +666,19 @@ const uninstallPlugin = async (pluginId: string) => {
     const friendly = getFriendlyError(error)
     ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
   } finally {
-    installing.value = false
+    installingId.value = ''
   }
 }
 
 onMounted(async () => {
   try {
     refreshSuperuserZipVisibility()
+    void refreshOfficialAccount()
     await loadData()
     loadPluginHealth()
     loadSecurityReports()
     window.addEventListener('plugin-purchases-updated', onPurchaseSync)
+    window.addEventListener('official-account-changed', onOfficialAccountChanged)
   } catch {
     ElMessage.error(t('plugin.loadDataFailed'))
   }
@@ -586,6 +690,7 @@ onActivated(() => {
 
 onUnmounted(() => {
   window.removeEventListener('plugin-purchases-updated', onPurchaseSync)
+  window.removeEventListener('official-account-changed', onOfficialAccountChanged)
   if (paymentPollingTimer) {
     clearInterval(paymentPollingTimer)
     paymentPollingTimer = null
@@ -594,4 +699,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.official-account-chip {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+}
 </style>

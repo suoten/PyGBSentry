@@ -520,6 +520,9 @@ HOOK_ON_ZLM_STREAM_REG = "ON_ZLM_STREAM_REG"
 HOOK_ON_DEVICE_ALARM = "ON_DEVICE_ALARM"
 HOOK_ON_UNINSTALL = "on_uninstall"
 HOOK_ON_UPGRADE = "on_upgrade"
+# 插件自测通道（2026-10-10）：插件注册 plugin_test 回调，
+# 宿主测试端点经 emit(HOOK_ON_PLUGIN_TEST, payload, plugin_id=..., collect_results=True) 定向调用
+HOOK_ON_PLUGIN_TEST = "on_plugin_test"
 
 
 # -------- 受控 HTTP 网关（插件经 pm.safe_http 外呼） --------
@@ -646,6 +649,7 @@ class PluginManager:
                 HOOK_ON_ZLM_STREAM_REG,
                 HOOK_ON_DEVICE_ALARM,
                 HOOK_ON_UPGRADE,
+                HOOK_ON_PLUGIN_TEST,
             ]
         }
         # sys.path 注入 vendor 的运行锁
@@ -757,6 +761,7 @@ class PluginManager:
                 HOOK_ON_ZLM_STREAM_REG,
                 HOOK_ON_DEVICE_ALARM,
                 HOOK_ON_UPGRADE,
+                HOOK_ON_PLUGIN_TEST,
             ]
         }
 
@@ -1287,6 +1292,8 @@ class PluginManager:
             "skipped": 0,
             "errors": [],
         }
+        # collect_results 由宿主测试端点使用（如 on_plugin_test），不透传给回调
+        collect_results = bool(kwargs.pop("collect_results", False))
         # FIX: [2026-08-22 PN] SIP Trace 两个缺陷修复：
         # 1) type 判断原用原大小写 hook_name == "ON_SIP_SEND" 比较（实际常量为小写
         #    on_sip_send）恒 False → send 方向也记成 "recv"；
@@ -1318,10 +1325,14 @@ class PluginManager:
             return report
 
         callbacks = self.hooks[hook_name]
-        if hook_name == HOOK_ON_UNINSTALL:
+        if hook_name in (HOOK_ON_UNINSTALL, HOOK_ON_PLUGIN_TEST):
+            # 定向触发：只分发给目标插件的回调（on_plugin_test 供宿主测试端点使用）
             target = str(kwargs.get("plugin_id") or "").strip()
             if not target:
                 return report
+            if hook_name == HOOK_ON_PLUGIN_TEST:
+                # plugin_test(payload) 契约不接收 plugin_id，仅用于宿主定向过滤
+                kwargs = {k: v for k, v in kwargs.items() if k != "plugin_id"}
             filtered: List[Callable] = []
             for callback in callbacks:
                 pid = getattr(callback, "_plugin_id", None)
@@ -1343,6 +1354,16 @@ class PluginManager:
         async def _invoke_one(callback: Callable):
             vendor_dir = None
             inserted = False
+            # collect_results 用：捕获回调返回值（on_plugin_test 等需要拿到结果）
+            result_holder: Dict[str, Any] = {}
+
+            async def _capturing_callback(*a, **kw):
+                out = callback(*a, **kw)
+                if inspect.isawaitable(out):
+                    out = await out
+                result_holder["result"] = out
+                return out
+
             try:
                 pid = getattr(callback, "_plugin_id", None) or (getattr(callback, "__module__", "") or "").split(".", 1)[0]
                 vendor_dir_name = settings.PLUGIN_DEPENDENCY_VENDOR_DIR_NAME
@@ -1365,7 +1386,7 @@ class PluginManager:
                 try:
                     if timeout_seconds > 0:
                         if inspect.iscoroutinefunction(callback):
-                            await asyncio.wait_for(callback(*args, **kwargs), timeout=timeout_seconds)
+                            await asyncio.wait_for(_capturing_callback(*args, **kwargs), timeout=timeout_seconds)
                         else:
                             hook_mode = str(settings.PLUGIN_HOOK_EXEC_TIMEOUT_MODE or "thread").lower()
                             if hook_mode == "process":
@@ -1432,17 +1453,17 @@ class PluginManager:
                                     await asyncio.to_thread(_run_in_subprocess)
                                 else:
                                     # 回退到线程模式
-                                    await asyncio.wait_for(asyncio.to_thread(callback, *args, **kwargs), timeout=timeout_seconds)
+                                    await asyncio.wait_for(asyncio.to_thread(_capturing_callback, *args, **kwargs), timeout=timeout_seconds)
                             else:
                                 # 同进程“超时隔离”：同步回调放到线程池执行，避免卡死事件循环
-                                await asyncio.wait_for(asyncio.to_thread(callback, *args, **kwargs), timeout=timeout_seconds)
+                                await asyncio.wait_for(asyncio.to_thread(_capturing_callback, *args, **kwargs), timeout=timeout_seconds)
                     else:
                         # S-05 sync callbacks always run in thread pool to prevent
                         # blocking the event loop even when timeout_seconds <= 0
                         if inspect.iscoroutinefunction(callback):
-                            await callback(*args, **kwargs)
+                            await _capturing_callback(*args, **kwargs)
                         else:
-                            await asyncio.to_thread(callback, *args, **kwargs)
+                            await asyncio.to_thread(_capturing_callback, *args, **kwargs)
                 except asyncio.TimeoutError:
                     report["timeouts"] += 1
                     report["errors"].append(
@@ -1511,6 +1532,7 @@ class PluginManager:
                     await _run()
             else:
                 await _run()
+            return result_holder.get("result")
 
         for callback in callbacks:
             if not self._hook_emit_allowed(hook_name, callback):
@@ -1524,7 +1546,14 @@ class PluginManager:
                 new_tasks = {t for t in (after - before) if isinstance(t, asyncio.Task) and not t.done()}
                 self._plugin_startup_tasks.update(new_tasks)
             else:
-                await _invoke_one(callback)
+                cb_result = await _invoke_one(callback)
+                if collect_results:
+                    report.setdefault("results", []).append(
+                        {
+                            "module": getattr(callback, "__module__", "?"),
+                            "result": cb_result,
+                        }
+                    )
 
         if hook_name == HOOK_ON_SHUTDOWN and self._plugin_startup_tasks:
             for t in list(self._plugin_startup_tasks):
@@ -1558,14 +1587,20 @@ class PluginManager:
     def get_oss_instance_headers(self, body_bytes: bytes) -> dict:
         """
         返回用于 install-check 请求的认证头。
-        计算 HMAC-SHA256(instance_secret, body) 作为签名。
+
+        FIXED: [2026-10-10] 服务器端 /oss/register 只存 sha256(raw_secret)（NS-08），
+        验签时以该哈希作为 HMAC 密钥——客户端签名密钥必须与其一致，
+        即 HMAC-SHA256(sha256(raw_secret), body)。此前直接用 raw_secret 签名，
+        服务器端实例认证永远 401「签名不匹配」。
         """
         if not self._oss_instance_id or not self._oss_instance_secret:
             return {}
+        import hashlib
         import hmac
 
+        hmac_key = hashlib.sha256(self._oss_instance_secret.encode()).hexdigest()
         sig = hmac.new(
-            self._oss_instance_secret.encode(),
+            hmac_key.encode(),
             body_bytes,
             "sha256",
         ).hexdigest()

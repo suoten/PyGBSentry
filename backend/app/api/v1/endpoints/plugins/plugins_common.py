@@ -165,7 +165,15 @@ def _purchased_proxy_base_url() -> str:
     return base_url
 
 def _authorization_for_server_proxy(request: Request) -> str | None:
-    """转发到服务器版时优先使用 Authorization，否则使用 ?token=（与 deps / iframe 一致）。"""
+    """转发到服务器版时使用的凭证。
+
+    FIXED: [2026-10-10] 双版账户打通 — 优先 X-Official-Token（官网账户 token，
+    由插件中心「官网账户登录」签发，服务器版可直接验证），其次 Authorization，
+    最后 ?token=。服务器版无法验证开源版本地签发的 JWT，因此官网 token 必须优先。
+    """
+    official = (request.headers.get("x-official-token") or "").strip()
+    if official:
+        return official if official.lower().startswith("bearer ") else f"Bearer {official}"
     auth = (request.headers.get("Authorization") or "").strip()
     if auth:
         return auth
@@ -890,19 +898,41 @@ async def _precheck_paid_plugin_install(plugin_payload: dict, authorization: str
         raise HTTPException(status_code=status_code, detail=detail)
 
 def _normalize_marketplace_base() -> str:
-    return (settings.PLUGIN_MARKETPLACE_BASE_URL or settings.PLUGIN_MARKETPLACE_BASE_URL).rstrip("/")
+    # FIXED: [2026-10-10] 原写法同一变量比较两次，回退值永不生效
+    return (
+        settings.PLUGIN_MARKETPLACE_BASE_URL
+        or settings.PLUGIN_MARKETPLACE_SERVER_URL
+        or ""
+    ).rstrip("/")
 
 def _allowed_market_host() -> str:
     parsed = urlparse(_normalize_marketplace_base())
     return (parsed.hostname or "").lower()
 
+def _local_snapshot_hosts() -> set[str]:
+    """本地 marketplace.json 快照中出现过的下载主机（该文件由管理员分发，视为可信）。"""
+    hosts: set[str] = set()
+    try:
+        for it in _read_marketplace_catalog():
+            parsed = urlparse(str(it.get("package_url") or ""))
+            host = (parsed.hostname or "").lower()
+            if host:
+                hosts.add(host)
+    except Exception:
+        pass
+    return hosts
+
 def _is_allowed_package_url(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    allowed = _allowed_market_host()
-    if host in {"localhost", "127.0.0.1"}:
+    if host in {"localhost", "127.0.0.1", "::1"}:
         return True
-    return host == allowed or host.endswith(f".{allowed}")
+    allowed = _allowed_market_host()
+    if allowed and (host == allowed or host.endswith(f".{allowed}")):
+        return True
+    # FIXED: [2026-10-10] 本地快照目录里的 package_url 主机同样放行，
+    # 否则 PLUGIN_MARKETPLACE_BASE_URL 未配置/不一致时本地快照完全不可安装
+    return host in _local_snapshot_hosts()
 
 def _read_marketplace_catalog() -> list[dict]:
     if not os.path.exists(MARKETPLACE_CATALOG_PATH):
@@ -911,17 +941,14 @@ def _read_marketplace_catalog() -> list[dict]:
         data = json.load(f)
     if not isinstance(data, list):
         return []
-    items = [item for item in data if isinstance(item, dict)]
-    for it in items:
-        if isinstance(it, dict) and "trial_days" in it:
-            it.pop("trial_days", None)
-    return items
+    # FIXED: [2026-10-10] 保留 trial_days——试用信息需要透传给前端插件中心展示
+    return [item for item in data if isinstance(item, dict)]
 
 async def _fetch_marketplace_items() -> list[dict]:
     base_url = _normalize_marketplace_base()
     if not base_url:
         return _read_marketplace_catalog()
-    url = f"{base_url}/api/v1/plugins/marketplace"
+    url = f"{base_url}/api/v1/plugins/marketplace/public"
     try:
         response = await (await get_http_client()).get(url, timeout=10)  # 同步requests→异步httpx，避免阻塞事件循环
     except Exception as e:
@@ -934,12 +961,13 @@ async def _fetch_marketplace_items() -> list[dict]:
         items = response.json()
     except Exception:
         raise HTTPException(status_code=502, detail="Plugin marketplace returned invalid data")
+    # FIXED: [2026-10-10] 兼容裸数组与 {"items":[...]} 两种目录格式；
+    # 改用免鉴权的 /marketplace/public，并保留 trial_days 供前端展示试用
+    if isinstance(items, dict):
+        items = items.get("items")
     if not isinstance(items, list):
         raise HTTPException(status_code=502, detail="Plugin marketplace data format invalid")
     cleaned = [item for item in items if isinstance(item, dict)]
-    for it in cleaned:
-        if isinstance(it, dict) and "trial_days" in it:
-            it.pop("trial_days", None)
     for it in cleaned:
         if not isinstance(it, dict):
             continue
@@ -965,6 +993,28 @@ async def _resolve_marketplace_install_payload(plugin_id: str) -> dict:
         if str(item.get("id")) == plugin_id:
             return item
     raise HTTPException(status_code=404, detail="Plugin not found in marketplace listing")
+
+def _merge_marketplace_payload(payload: dict | None) -> dict:
+    """FIXED: [2026-10-10] 用目录元数据补全安装负载。
+
+    前端安装时常只传 {id, package_url}，导致类型/版本/试用/哈希等字段缺失，
+    付费预检与 min_oss_version 校验被静默跳过。此处以目录条目为底、
+    请求中的 id/package_url 优先，合成完整负载。
+    """
+    base: dict = {}
+    pid = str((payload or {}).get("id") or (payload or {}).get("plugin_id") or "").strip()
+    if pid:
+        try:
+            catalog = _read_marketplace_catalog()
+            for item in catalog:
+                if str(item.get("id") or "") == pid:
+                    base = dict(item)
+                    break
+        except Exception:
+            base = {}
+    merged = {**base, **{k: v for k, v in (payload or {}).items() if v not in (None, "")}}
+    return merged
+
 
 def _normalize_hex_sha256(value: object) -> str | None:
     if not isinstance(value, str):
@@ -1042,6 +1092,9 @@ async def _notify_server_plugin_event(
         headers = {"Content-Type": "application/json"}
         if authorization:
             headers["Authorization"] = authorization
+            # FIXED: [2026-10-10] 服务器版 /record-event-oss 认 X-Official-Token 头，
+            # 双 token 同发保证两种校验路径都可用
+            headers["X-Official-Token"] = authorization
         body = {
             "plugin_id": plugin_id,
             "action": action,

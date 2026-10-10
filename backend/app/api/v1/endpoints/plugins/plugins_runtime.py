@@ -1225,3 +1225,154 @@ async def plugin_security_report(
         asyncio.to_thread(_scan_plugin_dir, pid_str) for pid_str in installed_ids
     ])
     return {"items": list(items)}
+
+
+# ---------------------------------------------------------------------------
+# 插件自测端点（2026-10-10 双版打通）：iframe 管理页「测试」按钮的后端实现。
+# 经 HOOK_ON_PLUGIN_TEST 定向调用已安装插件的 plugin_test 回调，双版同契约。
+# ---------------------------------------------------------------------------
+from app.core.plugin_manager import HOOK_ON_PLUGIN_TEST  # noqa: E402
+
+
+def _normalize_test_payload(payload) -> dict:
+    if isinstance(payload, dict):
+        action = str(payload.get("action") or "").strip()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+        return {"action": action, "data": data}
+    return {"action": "", "data": {}}
+
+
+async def _dispatch_plugin_test(plugin_id: str, payload) -> dict:
+    pid = str(plugin_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", pid):
+        raise HTTPException(status_code=400, detail="Invalid plugin_id")
+    body = _normalize_test_payload(payload)
+    if not body["action"]:
+        raise HTTPException(status_code=400, detail="缺少 action 字段")
+    if pid not in plugin_manager.metadata:
+        raise HTTPException(status_code=404, detail=f"插件未安装或未启用: {pid}")
+    report = await plugin_manager.emit(
+        HOOK_ON_PLUGIN_TEST,
+        {"action": body["action"], "data": body["data"]},
+        plugin_id=pid,
+        collect_results=True,
+    )
+    for item in report.get("results") or []:
+        result = item.get("result") if isinstance(item, dict) else None
+        if isinstance(result, dict):
+            return result
+    if report.get("executed", 0) == 0:
+        raise HTTPException(status_code=404, detail=f"插件未注册自测回调: {pid}")
+    errors = report.get("errors") or []
+    reason = "; ".join(
+        str(e.get("reason"))[:120] if isinstance(e, dict) else str(e)[:120] for e in errors[:3]
+    ) or "无返回结果"
+    raise HTTPException(status_code=502, detail=f"插件自测失败: {reason}")
+
+
+@router.post("/runtime/{plugin_id}/test", tags=["plugins-runtime"])
+async def plugin_runtime_test(
+    plugin_id: str,
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """通用插件自测入口：{"action": "...", "data": {...}}，转发给目标插件的 plugin_test。"""
+    return await _dispatch_plugin_test(plugin_id, payload or {})
+
+
+@router.post("/feishu/test-send", tags=["plugins-runtime"])
+async def feishu_test_send(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """飞书告警插件：发送测试消息。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("feishu_alert", {"action": "test_send", "data": data})
+
+
+@router.post("/wecom/test-send", tags=["plugins-runtime"])
+async def wecom_test_send(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """企业微信告警插件：发送测试消息。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("wecom_alert", {"action": "test_send", "data": data})
+
+
+@router.post("/sms/test-send", tags=["plugins-runtime"])
+async def sms_test_send(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """短信告警插件：发送测试短信。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("sms_alert", {"action": "test_send", "data": data})
+
+
+@router.post("/mqtt/test-publish", tags=["plugins-runtime"])
+async def mqtt_test_publish(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """MQTT 桥接插件：发布测试消息。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("mqtt_bridge", {"action": "test_publish", "data": data})
+
+
+@router.post("/s3/test-connection", tags=["plugins-runtime"])
+async def s3_test_connection_route(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """S3 同步插件：Bucket 连通性测试。"""
+    return await _dispatch_plugin_test("s3_sync", {"action": "test_connection", "data": {}})
+
+
+@router.post("/tv-wall/test-callback", tags=["plugins-runtime"])
+async def tv_wall_test_callback(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """电视墙套件：大屏回调链路测试。"""
+    return await _dispatch_plugin_test("tv_wall_suite", {"action": "test_callback", "data": {}})
+
+
+@router.post("/tv-wall/test-decoder", tags=["plugins-runtime"])
+async def tv_wall_test_decoder(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """电视墙套件：解码器上墙链路测试。"""
+    return await _dispatch_plugin_test("tv_wall_suite", {"action": "test_decoder", "data": {}})
+
+
+@router.post("/tv-wall/test-both", tags=["plugins-runtime"])
+async def tv_wall_test_both(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """电视墙套件：回调 + 解码器全链路测试。"""
+    return await _dispatch_plugin_test("tv_wall_suite", {"action": "test_both", "data": {}})
+
+
+@router.get("/runtime/ai_health/{plugin_id}", tags=["plugins-runtime"])
+async def ai_plugin_health_check(
+    plugin_id: str,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """AI 插件健康状态（与服务器版同契约）：不加载引擎，仅查当前状态。"""
+    pid = str(plugin_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", pid):
+        raise HTTPException(status_code=400, detail="Invalid plugin_id")
+    report = await plugin_manager.emit(
+        HOOK_ON_PLUGIN_TEST,
+        {"action": "health_check", "data": {}},
+        plugin_id=pid,
+        collect_results=True,
+    )
+    for item in report.get("results") or []:
+        result = item.get("result") if isinstance(item, dict) else None
+        if isinstance(result, dict):
+            return result
+    return {"loaded": False, "engine_available": False, "error": "插件未加载或无自测回调"}

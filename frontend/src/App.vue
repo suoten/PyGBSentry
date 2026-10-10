@@ -168,6 +168,8 @@
   </div>
   <AppErrorBoundary v-if="!showLayout"><router-view></router-view></AppErrorBoundary>
   <CommandPalette :visible="cmdPaletteVisible" @update:visible="cmdPaletteVisible = $event" />
+  <!-- 官网账户登录/注册弹窗（双版账户打通）— 全局单实例，供插件中心/插件详情共享 -->
+  <OfficialAccountAuthDialog v-if="!isServerEdition" />
   </el-config-provider>
 </template>
 
@@ -184,6 +186,7 @@ import { Odometer, VideoCamera, Monitor, User, Setting, MapLocation, DataLine, T
 import TopBar from './components/TopBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TagsView from './components/TagsView.vue'
+import OfficialAccountAuthDialog from './components/plugin/OfficialAccountAuthDialog.vue'
 import { useTagsViewStore } from './stores/tagsView'
 import { useAppPrefsStore } from './stores/appPrefs'
 import appRouter from './router'

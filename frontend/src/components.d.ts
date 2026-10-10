@@ -111,6 +111,7 @@ declare module 'vue' {
     JessibucaPlayer: typeof import('./components/JessibucaPlayer.vue')['default']
     KeyboardShortcutsHelp: typeof import('./components/KeyboardShortcutsHelp.vue')['default']
     NativeHlsPlayer: typeof import('./components/NativeHlsPlayer.vue')['default']
+    OfficialAccountAuthDialog: typeof import('./components/plugin/OfficialAccountAuthDialog.vue')['default']
     OptionWithTitle: typeof import('./components/OptionWithTitle.vue')['default']
     PageContainer: typeof import('./components/PageContainer.vue')['default']
     PageHeader: typeof import('./components/PageHeader.vue')['default']

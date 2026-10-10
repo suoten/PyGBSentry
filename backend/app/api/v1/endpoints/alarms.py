@@ -23,6 +23,47 @@ from datetime import datetime, timedelta, timezone
 router = APIRouter()
 
 
+class AlarmTestCreateRequest(BaseModel):
+    device_id: str
+    channel_id: str
+    alarm_type: str = "模拟报警"
+    description: str = "插件模拟报警测试"
+    level: str = "high"
+    test_channel: Optional[str] = "tv_wall_suite"
+
+
+@router.post("/test", tags=["alarms"])
+async def create_test_alarm(
+    payload: AlarmTestCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """发送模拟报警，触发 HOOK_ON_ALARM 链路（供 tv_wall_suite 等插件手动测试）。
+
+    FIXED: [2026-10-10] 从服务器版移植——开源版插件管理页的「模拟报警测试」
+    按钮此前调用该端点 404。报警经插件链路分发，不写入数据库。
+    """
+    alarm_obj = type(
+        "AlarmObj",
+        (),
+        {
+            "device_id": payload.device_id,
+            "channel_id": payload.channel_id,
+            "alarm_type": payload.alarm_type,
+            "description": payload.description,
+            "level": payload.level,
+            "test_channel": payload.test_channel,
+            "time": datetime.now(timezone.utc).isoformat(),
+            "tenant_id": None,
+            "id": None,
+        },
+    )()
+    from app.core.plugin_manager import HOOK_ON_ALARM, plugin_manager
+    await plugin_manager.emit(HOOK_ON_ALARM, alarm_obj)
+    return {"ok": True, "alarm_type": payload.alarm_type, "device_id": payload.device_id, "channel_id": payload.channel_id}
+
+
+
 def _audit_tid(user: User) -> str:
     return (user.tenant_id or "default").strip() or "default"
 

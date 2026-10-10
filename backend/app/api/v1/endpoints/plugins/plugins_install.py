@@ -39,6 +39,7 @@ from .plugins_common import (
     _expected_package_signature_from_catalog_item,
     _is_allowed_package_url,
     _ensure_oss_compatible,
+    _merge_marketplace_payload,
     _resolve_marketplace_install_payload,
     _build_uninstall_risk_preview,
     _read_plugin_tables,
@@ -261,10 +262,13 @@ async def install_from_marketplace(
     if payload.package_url:
         if not _is_allowed_package_url(payload.package_url):
             raise HTTPException(status_code=400, detail="Package URL domain is not allowed")  # i18n
-        plugin_payload = {"id": payload.plugin_id, "package_url": payload.package_url}
+        # FIXED: [2026-10-10] 用目录元数据补全负载（type/version/min_oss_version/sha256 等），
+        # 否则付费预检与版本校验在「只传 id+package_url」的主路径上被静默跳过
+        plugin_payload = _merge_marketplace_payload({"id": payload.plugin_id, "package_url": payload.package_url})
     else:
         plugin_payload = await _resolve_marketplace_install_payload(payload.plugin_id)  # 同步requests→异步httpx，避免阻塞事件循环
-    await _precheck_paid_plugin_install(plugin_payload or {}, _authorization_for_server_proxy(request))  # 同步requests→异步httpx，避免阻塞事件循环
+    server_auth = _authorization_for_server_proxy(request)
+    await _precheck_paid_plugin_install(plugin_payload or {}, server_auth)  # 同步requests→异步httpx，避免阻塞事件循环
     if plugin_payload:
         _ensure_oss_compatible(plugin_payload)
     expected_sha = _expected_sha256_from_catalog_item(plugin_payload or {})
@@ -285,9 +289,10 @@ async def install_from_marketplace(
     try:
         # 运行时安装/升级：先停机，避免旧插件后台任务在 load_plugins 后残留/重复
         await plugin_manager.emit(HOOK_ON_SHUTDOWN)
-        # 同步requests.get→异步httpx，避免阻塞事件循环30秒
-        async with httpx.AsyncClient(timeout=30) as client:
-            response = await client.get(package_url)
+        # FIXED: [2026-10-10] 下载携带跨版凭证（官网账户 token），服务器版下载端点要求登录
+        download_headers = {"Authorization": server_auth} if server_auth else {}
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            response = await client.get(package_url, headers=download_headers)
         if response.status_code >= 400:
             raise HTTPException(status_code=502, detail=f"Download failed: {response.status_code}")  # i18n
         with open(temp_path, "wb") as f:
@@ -316,7 +321,7 @@ async def install_from_marketplace(
                 "install",
                 current_user.id,
                 current_user.tenant_id or "default",
-                _authorization_for_server_proxy(request),
+                server_auth,
                 version,
             )  # 同步requests→异步httpx，避免阻塞事件循环
         except HTTPException as he:

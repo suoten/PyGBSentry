@@ -130,3 +130,42 @@ export const buildMarketplacePurchaseUrl = (baseUrl: string, pluginId?: string, 
     return `${normalized}/market/${pluginId}${encodedSource}`
   }
 }
+
+// ── 商城插件价格/试用展示（双版账户打通 2026-10-10） ─────────────────────────
+
+export type PluginPriceLike = {
+  price_monthly?: number | null
+  price_yearly?: number | null
+  price_perpetual?: number | null
+}
+
+export type PluginPriceTier = {
+  period: 'monthly' | 'yearly' | 'perpetual'
+  cents: number
+  label: string
+}
+
+// 价格字段单位为「分」，格式化为 ¥xx（最多保留两位小数）
+const formatCentsToYuan = (cents: number): string =>
+  `¥${(cents / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
+
+/**
+ * 汇总插件的全部价格档位（分 → ¥ 文案），按金额升序（最低档在前）。
+ * 无有效价格档位（全部缺失/为 0）时返回空数组。
+ */
+export const resolvePluginPriceTiers = (plugin: PluginPriceLike): PluginPriceTier[] => {
+  const tiers: PluginPriceTier[] = []
+  const pushTier = (period: PluginPriceTier['period'], cents: unknown, suffix: string) => {
+    const value = Number(cents)
+    if (!Number.isFinite(value) || value <= 0) return
+    tiers.push({ period, cents: value, label: `${formatCentsToYuan(value)}${suffix}` })
+  }
+  pushTier('monthly', plugin.price_monthly, t('plugin.perMonth'))
+  pushTier('yearly', plugin.price_yearly, t('plugin.perYear'))
+  pushTier('perpetual', plugin.price_perpetual, t('plugin.perpetualSuffix'))
+  return tiers.sort((a, b) => a.cents - b.cents)
+}
+
+/** trial_days > 0 视为提供试用 */
+export const hasPluginTrial = (plugin: { trial_days?: number | null }): boolean =>
+  Number(plugin?.trial_days || 0) > 0
