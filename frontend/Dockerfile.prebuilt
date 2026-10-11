@@ -1,0 +1,14 @@
+# 预构建部署：直接使用本地已打包好的 dist/，无需在服务器上执行 pnpm/npm build。
+# 用法（在 frontend 目录）：
+#   docker build -f Dockerfile.prebuilt -t pygbsentry-oss-frontend:prebuilt .
+#   docker run -d -p 8080:80 pygbsentry-oss-frontend:prebuilt
+# 或把 dist/ 整目录上传后直接挂给宿主机 nginx（root 指向 dist，/api 反代到后端）。
+# 前提：先在本机构建 npx vite build（产物在本目录 dist/）。
+FROM nginx:stable-alpine as production-stage
+
+COPY dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
