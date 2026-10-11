@@ -1376,3 +1376,42 @@ async def ai_plugin_health_check(
         if isinstance(result, dict):
             return result
     return {"loaded": False, "engine_available": False, "error": "插件未加载或无自测回调"}
+
+@router.post("/dingtalk/test-send", tags=["plugins-runtime"])
+async def dingtalk_test_send(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """钉钉告警插件：发送测试消息。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("dingtalk_alert", {"action": "test_send", "data": data})
+
+
+@router.post("/email/test-send", tags=["plugins-runtime"])
+async def email_test_send(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """邮件告警插件：发送测试邮件。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("email_alert", {"action": "test_send", "data": data})
+
+
+@router.post("/push-enhancer/test-push", tags=["plugins-runtime"])
+async def push_enhancer_test_push(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """推送增强中枢：测试推送到全部路由。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("event_push_enhancer", {"action": "test_push", "data": data})
+
+
+@router.post("/oncall/test-route", tags=["plugins-runtime"])
+async def oncall_test_route(
+    payload: dict | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """值班路由：按当前班次发送测试推送。"""
+    data = _normalize_test_payload(payload)["data"]
+    return await _dispatch_plugin_test("oncall_router", {"action": "test_route", "data": data})

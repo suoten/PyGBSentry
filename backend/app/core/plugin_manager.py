@@ -265,6 +265,33 @@ _sandbox_guard_lock = threading.Lock()  # 改为threading.Lock，_load_module是
 _sandbox_reentrancy_depth: int = 0
 
 
+_PLUGIN_WRITABLE_ROOTS_CACHE: dict | None = None
+
+
+def _is_writable_plugin_path(target: str, pid: str) -> bool:
+    """运行期写文件白名单：<backend>/data/** 与插件自身目录 plugins/<pid>/**。"""
+    global _PLUGIN_WRITABLE_ROOTS_CACHE
+    try:
+        backend_root = Path(__file__).resolve().parents[2]
+        roots = _PLUGIN_WRITABLE_ROOTS_CACHE
+        if roots is None:
+            roots = [
+                str((backend_root / "data").resolve()),
+                str((backend_root / "plugins").resolve()),
+            ]
+            _PLUGIN_WRITABLE_ROOTS_CACHE = roots
+        resolved = str(Path(target).resolve())
+        # 插件自身目录优先（防其他插件目录写入）；data 目录整体放行
+        own = str((backend_root / "plugins" / pid).resolve())
+        if resolved.startswith(own):
+            return True
+        if resolved.startswith(roots[0]):
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
     if not settings.PLUGIN_SANDBOX_RUNTIME_API_BLOCK_ENABLED:
         return {}
@@ -303,6 +330,14 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                                 mode = str(args[1])
                             elif "mode" in kwargs:
                                 mode = str(kwargs["mode"])
+                            _wants_write = "+" in mode or mode.replace("b", "") != "r"
+                            if _wants_write:
+                                # FIXED: [2026-10-11] 官方插件需要运行期写文件（巡检报告/上传状态）。
+                                # 放行到两类白名单目录：<backend>/data/** 与插件自身目录 plugins/<pid>/**；
+                                # 其余路径仍一律拦截。
+                                _target = str(args[0]) if args else ""
+                                if _target and _is_writable_plugin_path(_target, pid):
+                                    return orig(*args, **kwargs)
                             # FIXED-P0: 检查原始 mode 中是否包含 "+"（读写模式），
                             # "r+" 允许写入，必须被阻止。之前先 strip "+" 再检查导致 "r+" 绕过。
                             if "+" in mode:
@@ -344,7 +379,21 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                         frame = _inspect_ref.currentframe()
                         plugin_caller = _is_direct_plugin_caller(frame.f_back, pid)
                         if plugin_caller:
-                            # FIX: [2026-08-22 P2] 安全设计：插件上下文中的运行期 import 一律拦截。
+                            # FIXED: [2026-10-11] 放行「目标模块已在 sys.modules 且不在黑名单」的
+                            # 良性运行期 import——官方插件的真实路径依赖它（如 datetime.strftime
+                            # 在 C 层触发的懒 import）。黑名单模块即使已缓存仍然拦截，
+                            # 与加载期（meta_path hook 只拦黑名单）安全口径一致。
+                            _mod_name = str(args[0]) if args else ""
+                            _mod_top = _mod_name.split(".")[0] if _mod_name else ""
+                            if (
+                                _mod_name
+                                and _mod_name not in _PLUGIN_SANDBOX_BLOCKED_MODULES
+                                and _mod_top not in _PLUGIN_SANDBOX_BLOCKED_MODULES
+                            ):
+                                # 与加载期同口径：非黑名单模块放行（含 concurrent.futures.thread
+                                # 等 PEP 562 懒加载的 stdlib 子模块）；黑名单模块即使已缓存仍拦
+                                return orig(*args, **kwargs)
+                            # FIX: [2026-08-22 P2] 安全设计：插件上下文中的其余运行期 import 一律拦截。
                             # 不能因 import hook 在位而放行走 meta_path —— 常见危险模块
                             # （socket/ssl/subprocess 等）在宿主进程已缓存在 sys.modules，
                             # 缓存命中根本不经过 meta_path finder，放行即绕过黑名单。

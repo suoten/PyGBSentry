@@ -216,7 +216,7 @@ logs/
 mypy.ini
 
 # --- 根级 plugins/ 空目录占位 ---
-plugins/
+/plugins/
 
 # --- backend 临时文件与产物 ---
 backend/app.zip

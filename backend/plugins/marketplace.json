@@ -10,7 +10,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_behavior_analysis",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_behavior_analysis",
     "tags": [
       "AI识别",
       "安防智能",
@@ -31,8 +31,8 @@
     "trial_days": 30,
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "ff2a730a40c72d03f3087c89e159b61d503e6cacb9f3cad586b52e895201a0a8",
-    "package_signature": "VKJVl61KfbJAQ3LCosacOeadfJApFzWyE6XNdVqPMI0y8xJIN0mLT7VBoMm2rpmrQJuBjqhjrs3wTN-GVG9wDw",
+    "sha256": "33c494f85095ff9788d391010cbaa91fd445803f3362fd84e14cfdebe6e07109",
+    "package_signature": "n6ZxrkBEO-RIpS8rYq-9YdTl2uPUeH8GwMOU8APE4VAbbA6AMXYtPTi-776iJRtrdiZ0VAbQn7UsIi0CgfFeAA",
     "manifest_signature": "_ecpKk0nnPNtDci4-XqG-I72iEC0QzN-kNs5i4SmS_K9ngY3i3uVNVId_eSup5fVExchQ9unxJ5v9ccQgVokDw"
   },
   {
@@ -46,7 +46,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_face_recognition",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_face_recognition",
     "tags": [
       "AI识别",
       "安防智能",
@@ -65,8 +65,8 @@
     "trial_days": 30,
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "28886a8e4ca9fec41467849dcd4b2ab5667b4f55ab9938fa08ef32702e2442c2",
-    "package_signature": "LZ3geZKwDgNR9w_TyMnlOhOfzFS-eDrixjQNG9545oDT-TLq6u3L_URJljIym2hH9MPPyopNVByEJXispRZABA",
+    "sha256": "0de1640d820c013cd419c6fd22f9ca1494e6cfb9e44cfac63989dde00e2de77c",
+    "package_signature": "deh58DzEOtSwsYbfftPGvxHlSFV28--huUua-V70xwcY8uOIaFAoQJ-ZG7KDcNhjO2b8KlbyOZIsuMtI24IPBQ",
     "manifest_signature": "nriTNVYMVESj9mkkugSeWfxum4Ibaz2h_TPfOZoH_yZInBMrxEE78EtTtFhw484QBPdyfDngqOvQls6PK-MGAA"
   },
   {
@@ -80,7 +80,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_plate_recognition",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_plate_recognition",
     "tags": [
       "AI识别",
       "安防智能",
@@ -101,22 +101,113 @@
     "trial_days": 30,
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "5dca1f27b4cb53f55dd5b6d7ca33eefdab6a8718972746b5527b72ecca981894",
-    "package_signature": "5CZyTm-t9gpWPixZ8VnI-O3vZUhQO_2Z4oEiJvoSGc30TzzLsIXQRlX3HCVPifwptK3wCsmmUVJt5frtusujDg",
+    "sha256": "028aeb6e4662005f79f926413c4ec7df06a4e1a3e8466df7c70d70d2e9990343",
+    "package_signature": "KMaa1cO4vCS3m27pIV4fAWFchHfDqVtEyaKivwwsbI2Twu_0NJppb25LJYK5bb4n4V_89iUVYyTpypvS6tKnBw",
     "manifest_signature": "MSs_77PUyQ0hM_CD3EqmbVnxrAUmyEo8GOCTiiv4TOh0mRjLOC-7SI4G4WCKONOD6Effq2RAGENrSdw_RXmhAA"
   },
   {
-    "id": "feishu_alert",
-    "name": "飞书告警",
-    "version": "1.2.0",
+    "id": "dingtalk_alert",
+    "name": "钉钉告警",
+    "version": "1.0.0",
     "type": "free",
     "status": "active",
-    "description": "将报警事件推送到飞书群机器人（自定义机器人 Webhook，支持文本/post 富文本）",
+    "description": "报警时推送到钉钉群自定义机器人，支持加签安全设置、文本/Markdown 消息、@指定手机号。参考 GBWatch 官方插件实现。",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/feishu_alert",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/dingtalk_alert",
+    "category": "通知告警",
+    "tags": [
+      "告警通知",
+      "钉钉",
+      "即时通讯"
+    ],
+    "keywords": [
+      "钉钉",
+      "告警",
+      "webhook",
+      "机器人"
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "b5a25f9c1b95c2684e080ae2b9dcd4e90feed59d127626f19e1795a330f065a6",
+    "package_signature": "SP3AxwXbTIDmzAGLKuCLxXka5ALFTKOkf0Q7jeskttNxH52qjfuBucYirYkfl3l_KEZDT7uLRnUGV0rmLvuvBg",
+    "manifest_signature": "o1hyri3AB8vmEoUFBSaD58K_xtTx6lrJu_URUIpalFJSiRYS4pkQNEPwAhE_qlJ6QqSHtYfTZCGQyjK9_w7IBw"
+  },
+  {
+    "id": "email_alert",
+    "name": "邮件告警",
+    "version": "1.0.0",
+    "type": "free",
+    "status": "active",
+    "description": "报警时通过 SMTP 发送邮件通知，支持 SSL(465)/STARTTLS(587)/明文(25) 三种连接方式。参考 GBWatch 官方插件实现。",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/email_alert",
+    "category": "通知告警",
+    "tags": [
+      "告警通知",
+      "邮件",
+      "SMTP"
+    ],
+    "keywords": [
+      "邮件",
+      "告警",
+      "SMTP",
+      "邮箱"
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "d53025d83c1d56e01bbc9867650c90ace6f497cc6cce5b13c4a5ef708c1e2cf2",
+    "package_signature": "1MFGg3P3GoHmVvmwOOUpWUIxwBTZVAbXx_CyauGhIkYs90fgRWsQxYVJspYEO0tPHzaVPkBkyiXiZ5-fMJ9YAQ",
+    "manifest_signature": "NIEZMWUTeoPe1kA_21luPHw68Wi9UWw6FKdpwC0SmC_kHguKOLqkkHJH_HZrg169g4nImbxTFCyfQZwwP-QODw"
+  },
+  {
+    "id": "event_push_enhancer",
+    "name": "推送增强中枢",
+    "version": "1.0.0",
+    "type": "free",
+    "status": "active",
+    "description": "告警推送治理中枢：多路由分发（按类型/设备）、重复告警去重、超阈值升级标记、静默时段，统一把告警推送到外部 Webhook。参考 GBWatch 官方插件实现。",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/event_push_enhancer",
+    "category": "通知告警",
+    "tags": [
+      "告警通知",
+      "Webhook",
+      "推送治理"
+    ],
+    "keywords": [
+      "webhook",
+      "推送",
+      "去重",
+      "静默",
+      "升级"
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "b0a18d254accaa921bbdc92a30125d7a8a0705d1cf3096d06a21c419326b3c37",
+    "package_signature": "MKoH_MwqbKiPEJhIQ4AbD891fTKE02fj_ytWK32HK9GG-0EVoRrwZwiEP2BZj-kyOZmFKdqRu1CQ--qY5lRfAA",
+    "manifest_signature": "W_eQb3w5ZjPF8sWIe2oSLi5NdJU_QiFOLwCRb5dxfQoLp-CfBOB3BsZs_c4R7Ycxx3jiaXjRYP8VBiDcXsWGCQ"
+  },
+  {
+    "id": "feishu_alert",
+    "name": "飞书告警",
+    "version": "1.3.0",
+    "type": "free",
+    "status": "active",
+    "description": "将报警事件推送到飞书群机器人（自定义机器人 Webhook，支持文本/interactive 卡片/post 富文本）",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/feishu_alert",
     "tags": [
       "告警通知",
       "即时通讯"
@@ -130,14 +221,14 @@
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "1cb0abff8aa7fa7a08c2c15a19a6e8c8276566a6bcd99d153047d4b3ffb5b7a3",
-    "package_signature": "_0btX69pqWZmTnDi3tOkWzjfDSbtsSaQL8z5rih202PEMGsKQrtyQzcH4r16XVO0asaAf0-pZYPxrtHiMdl2BQ",
-    "manifest_signature": "JwrxKXqnN2894SkvLYD6r3_Ez4q8WSaYpDoiXn9cb3ZC2zs10Vpw5HEDMKVolo3yIk771G0NKQnG31ufZbjKCw"
+    "sha256": "41b52aeab80960fddc358bfb579331d2c54c5822604aa01da12cd676b52e25e2",
+    "package_signature": "JVr2O4fij4h8RQHEAgr5oIBpuHytbe8HnMq-GHpJWe7xOeBd_y7HSUWEcws4bqsMlYHtQgeJsD612XFlWkDjCg",
+    "manifest_signature": "sEHLfWC3AcIh_VEk_jsziTuZ9TvIT8tUAz1K8FUvozYONRLTkmHKf4YlXDWOVotVHmehcT0P2OyIoPnDiH2xBA"
   },
   {
     "id": "mqtt_bridge",
     "name": "MQTT 桥接",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
     "description": "将设备上下线、报警事件发布到 MQTT Broker，便于 IoT 系统集成",
@@ -145,7 +236,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/mqtt_bridge",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/mqtt_bridge",
     "tags": [
       "系统集成",
       "IoT"
@@ -160,44 +251,77 @@
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "78a51ad68736cd691b039d4e497f9bffac659872c896d922f852d09dbe571166",
-    "package_signature": "LCPVD_sVWQRm7C3aiNCVPXghn1TQ45rtZR6-ztCPLKhjwuHg3RkNjXt-QJUKu7WYzd6mcrwPXxcAqjQlkSQCAQ",
-    "manifest_signature": "OSdghTBc5UFYtF9qEKaPO1aE9LwksDtc_2W0HgYSjsIrk3kY4HkzOWox41lDTftHMMj1zLivGg1LH9fGDGU1AA"
+    "sha256": "2a1671b325ab9a366f9221ce6c8c680c710a7d3cc6a92daf424112cffba7f73b",
+    "package_signature": "2zyuCKrg64WEeSwi45EQgY0nB_ZJoi3uEJniZkI_IgrwU-ogijxDcC_J_PJROZ5ybnHPUEGhL0Cnj7u8WVpDBw",
+    "manifest_signature": "pR4PKl4yxsyo7hD2zaYJ6l33MNVMFpGxrhm_Y_ErWjLtyY2Eh_-MC-2ixcVfntV-4lp6deepldpcaBT_fJm7DA"
   },
   {
-    "id": "report_suite",
-    "name": "私有化报表",
-    "version": "1.2.0",
+    "id": "oncall_router",
+    "name": "值班告警路由",
+    "version": "1.0.0",
     "type": "free",
     "status": "active",
-    "description": "私有化报表模板与数据连接器配置：为宿主报表中心提供模板列表与连接器配置（导出能力由宿主报表中心提供）",
+    "description": "按值班时间表把告警转发到当班人的 Webhook（支持跨零点班次与星期几设置），无匹配班次时走兜底地址。参考 GBWatch 官方插件实现。",
     "author": "PyGBSentry Team",
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/report_suite",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/oncall_router",
+    "category": "通知告警",
+    "tags": [
+      "告警通知",
+      "值班",
+      "路由"
+    ],
+    "keywords": [
+      "值班",
+      "告警",
+      "路由",
+      "webhook",
+      "排班"
+    ],
+    "is_featured": false,
+    "sort_order": 0,
+    "sha256": "0b9d1e42f9e3342e39dff86ede2c39283b0f8c0bdb09275af95e3fe66f4b4368",
+    "package_signature": "HFSRAKeltyBw4TSmdCQi4oQmSDzyL4sOaN6o_w1WTFOM-5iVUOu0c5KUnXvdW4TuW2odPmZ-YsYZ56LRywapAA",
+    "manifest_signature": "VEogZrn_OpaPVr3KvPUEkUal5WCDgNgTvW-2koXYGIopOe9rvsrhttl1whgpJuDg7tu9hMjlYopLBsndT57ZAA"
+  },
+  {
+    "id": "report_suite",
+    "name": "私有化报表",
+    "version": "2.0.0",
+    "type": "free",
+    "status": "active",
+    "description": "巡检报告引擎：周期汇总设备/通道/告警/录像指标，生成 JSON+CSV 巡检报告；同时为宿主报表中心提供模板列表与连接器配置（导出能力由宿主报表中心提供）",
+    "author": "PyGBSentry Team",
+    "is_official": true,
+    "min_server_version": "2.5.0",
+    "min_oss_version": "1.2.0",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/report_suite",
     "tags": [
       "数据分析",
       "报表"
     ],
     "keywords": [
       "报表",
+      "巡检",
       "统计",
       "导出",
       "CSV",
       "Excel",
-      "report"
+      "report",
+      "inspection"
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "aa9d59645557e26cb427680eb474062fb79e13ba2aa1a8acae558357706e318c",
-    "package_signature": "MMFlsC6ee_qsjfkIfZ_mrZC7CjpRkvdyXpnW8jtsBF8sB66iM8gtRxORVj7ykHQ_l_JvkBnS_EXPPecyxWYeBg",
-    "manifest_signature": "YfH32iw6Usk00FbW7jmzKAgvZybdkr6QOIBWFpykq2NhEa98Ha00yA_jF3Msthceop9VzWYGK5M1cUAWOsDfAg"
+    "sha256": "adea3ad689a4eb80a59192805840c1d8590b837ff1aba02022a5e0de58a3ef71",
+    "package_signature": "np4ziVtrGv1nuq_8m1eHTTJgu1inWsEHPo6TVPvGPGgs5cdP-n0aNtpg0hdk7xx_QooSFV7rzGHHYndWCKIDAg",
+    "manifest_signature": "bGLuRKPh_9wqfFz1qCNVjKNZEXO4rTsPUs6CKSMtNFx0c8AxLnyZyuprjtYcXOcsb1Hp7pHCTgCVPmTCdoy9Aw"
   },
   {
     "id": "s3_sync",
     "name": "S3 云存储同步",
-    "version": "1.1.1",
+    "version": "1.2.0",
     "type": "free",
     "status": "active",
     "description": "将本地录像文件自动同步到 S3 兼容存储（如 MinIO、阿里云 OSS、AWS S3）",
@@ -205,7 +329,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/s3_sync",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/s3_sync",
     "tags": [
       "存储",
       "数据备份"
@@ -221,14 +345,14 @@
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "5be95e7c79bb3a4536bd556ad671a7b3391a3cb8a7259523e66440e9ce142391",
-    "package_signature": "n2cU76it9RNlA5pzK9yufnJZe8tYgKXOiAhl5YJAI7aKbdps6wY-RBMAPC-NA9BS-Sho-nX1IMV1-P9AbeEeBQ",
-    "manifest_signature": "6uFwXTZUPeyBuxtK14g4c-dS8IgbHH5NQpJnJey5UVe1pu1fQN5bfkjtI332jYsNIa5VpdhuvIrVkJzlU6dwBA"
+    "sha256": "b36adea1b62f7f51ce554ae80a707d2e46bc7e63d5f874a7fc4e1b947d467fcd",
+    "package_signature": "RWL-RM_refbg-eMpzsubkT3PY8st-oRycqBbqceqVhotGEQ12h4ir3CSY_dE9vZVQVa2MiQnBM5Rw6RvQtMiAw",
+    "manifest_signature": "ZvzgpGCtqdoKwfjTvz-QzfqMwYWlVddcAi_lo2EdE5y9pr9I6ygbJWMtDG56yBCUzNKBY33Tq9yrvoLuolwXBQ"
   },
   {
     "id": "sms_alert",
     "name": "短信告警",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "type": "free",
     "status": "active",
     "description": "报警事件通过短信通知：支持自定义网关 URL 或阿里云短信（Dysmsapi SendSms）",
@@ -236,7 +360,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/sms_alert",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/sms_alert",
     "tags": [
       "告警通知",
       "短信"
@@ -250,9 +374,9 @@
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "a04641459dc3856747ae60078262abd7efc1bdb12de60ca0b13779c591990b12",
-    "package_signature": "FZH4pnsRMnthMiZDz4hmq0EmYNk0DNypiMOQpktZMIBHClZsac9XDlBSDI_7TwBdEwfdKxihvF-sSZmHqP6kAQ",
-    "manifest_signature": "zLHKWoTqMG1AFjijfLm2pF8z3fOLs86uxfytv4G1_sU12TqXujv3UGm1Esup8_eTrhJOGIZfbqHhABxrbcGvDw"
+    "sha256": "c0539442db9bb4b09c65cf3dd0deccc31caea8c556c6a175f9b7fc64ae42f91b",
+    "package_signature": "QeSWZ1uC1Dsg1PYU0EB2lfnN1m-YPWmTftpAdiXCyc-C5ucJUFKoFPe-B_tOST9KDJ4jWfo9qItBMkpmWcuCCQ",
+    "manifest_signature": "0bAPLf-6Y0HyPwSjutrvTBryNrB_j46ipHLjGYpObgsv2nrbCGtUpFBhuc9vmE9YY27B_uDHNNeG62kQJavGDQ"
   },
   {
     "id": "tv_wall_suite",
@@ -265,7 +389,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/tv_wall_suite",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/tv_wall_suite",
     "tags": [
       "监控",
       "可视化",
@@ -283,14 +407,14 @@
     "trial_days": 30,
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "df1326146719ebd497547db08acbce1c572851788c6b0b1aae138a527a1d7645",
-    "package_signature": "7CNwGzn2gJrofWBd_WIsW5VujHC6xBmezi55wp_-eBQoYd5Xu0QDiWpmvFkZmtxtc0enc3WZHIyjNj9xeFLTDg",
+    "sha256": "d839b9b17b24ab62be328a138aa2473031d5fe1101f854f035f105c7a27a59dc",
+    "package_signature": "2ZcCguEuTO5kzCFEr62NOmd7BFwegPNi4KOXAAAbd7Xu6Pgojkjt3wwjtekXp1J4LDHvKcPLeGaP57grTXZ4AA",
     "manifest_signature": "BWmagDnSspXsXbXruiEHmGan4kDBEf5sa_8KVmYeCuu3-GeQNIO3-Dp3n-d_qMIQjwi-J_Ag1H9tfIGj-20LCg"
   },
   {
     "id": "wecom_alert",
     "name": "企业微信告警",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "type": "free",
     "status": "active",
     "description": "将报警事件推送到企业微信群机器人（自定义机器人 Webhook）",
@@ -298,7 +422,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/wecom_alert",
+    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/wecom_alert",
     "tags": [
       "告警通知",
       "即时通讯"
@@ -314,8 +438,8 @@
     ],
     "is_featured": false,
     "sort_order": 0,
-    "sha256": "bed92b957e1c7897232c931e7b18313f12603d0dc7b1cc5c92ce9e38bfc3fc6d",
-    "package_signature": "TjgxXEag4CxzTl0HV9eTEG3w4uwNduBWDmYLlRkjaXj8ILbwK89nSj8mggdfwt0FZffHPtiOo4EyV6_FxD7gAA",
-    "manifest_signature": "llGPtetTiMyikn1TKuWXfw7KQu4sWBI0aIGeXxDO2PNad-8cRCkd49d-lRB8lcSsX4oFEZXrtwhl1wVaDgQKAA"
+    "sha256": "ce64a7d54833aa61fc6796943c0e936fcd62d94e0f4e1cf9d308b5b8dbffed75",
+    "package_signature": "Uv-ArG1RpyoYGkxDl9dmvdUiFJBIxF2MiDQos-yJJlxzIY5ukYEGoO0C713WG7TGGCuIUyy7gPl9ROTm5aknDA",
+    "manifest_signature": "UNwg2wNkC9LElxXx5-0fIsxlGSlzpSy5zOkBFWvML2LGNRbedU0FsyqeAZZqIbhqwg5YtuoYnBrJ04kVG0lsBQ"
   }
 ]
