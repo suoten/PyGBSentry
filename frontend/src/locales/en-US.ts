@@ -177,6 +177,7 @@ export default {
     faceRecognitionMobile: 'Face Recognition (Mobile)',
     plateRecognitionMobile: 'Plate Recognition (Mobile)',
     behaviorRecognitionMobile: 'Behavior Recognition (Mobile)',
+    menuGroupPlugins: 'Plugins',
     menuGroupOverview: 'Overview',
     menuGroupBusiness: 'Business',
     menuGroupAlarm: 'Alarms',

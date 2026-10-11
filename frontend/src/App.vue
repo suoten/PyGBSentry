@@ -464,6 +464,18 @@ const menuGroups = computed<MenuGroup[]>(() => {
     { title: 'app.menuGroupSystem', icon: User, base: '/_g6', children: filterPerms(all.filter(i => ['/users','/roles','/organizations','/api-keys','/map-providers','/config-center','/release-center','/audit-center','/reports','/suite-center','/account-security','/help'].includes(i.path))) }
   ]
 
+  // FIXED: [2026-10-11] 插件安装后侧栏出现「插件」菜单组——此前 runtime 菜单
+  // （/plugins/runtime/*）不在任何分组的路径白名单里，装了插件也永远不渲染。
+  // 插件菜单 title 来自各插件 manifest（中文插件名），不经 i18n key 过滤。
+  if (pluginMenus.value.length > 0) {
+    groups.push({
+      title: 'app.menuGroupPlugins',
+      icon: Box,
+      base: '/_gp',
+      children: pluginMenus.value.map(item => ({ path: item.path, title: item.title, icon: Box })),
+    })
+  }
+
   return groups.filter(g => g.children.length > 0)
 })
 

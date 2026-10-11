@@ -177,6 +177,7 @@ export default {
     faceRecognitionMobile: '人脸识别（移动端）',
     plateRecognitionMobile: '车牌识别（移动端）',
     behaviorRecognitionMobile: '行为识别（移动端）',
+    menuGroupPlugins: '插件',
     menuGroupOverview: '概览',
     menuGroupBusiness: '业务',
     menuGroupAlarm: '告警',
