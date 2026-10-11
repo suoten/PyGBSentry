@@ -39,6 +39,7 @@ from .plugins_common import (
     _expected_package_signature_from_catalog_item,
     _is_allowed_package_url,
     _ensure_oss_compatible,
+    _normalize_marketplace_base,
     _merge_marketplace_payload,
     _resolve_marketplace_install_payload,
     _build_uninstall_risk_preview,
@@ -276,6 +277,17 @@ async def install_from_marketplace(
     package_url = plugin_payload.get("package_url")
     if not package_url:
         raise HTTPException(status_code=400, detail="package_url missing")
+    # FIXED: [2026-10-11] 快照里的 package_url 主机以当前配置的商城地址为准——
+    # 仓库分发的 marketplace.json 指向生产域名，本地开发把 PLUGIN_MARKETPLACE_BASE_URL
+    # 指到本地 server 时下载会打到生产（或反之）。同路径仅重写主机，且原 URL 必须先过白名单。
+    from urllib.parse import urlparse as _urlparse
+    _cfg_base = _normalize_marketplace_base()
+    _p = _urlparse(str(package_url))
+    if _cfg_base and _p.hostname and _p.hostname != (_urlparse(_cfg_base).hostname or ""):
+        _rewritten = f"{_urlparse(_cfg_base).scheme}://{_urlparse(_cfg_base).netloc}{_p.path}"
+        if _is_allowed_package_url(str(package_url)):
+            logger.info("[Marketplace] package_url 主机重写: %s -> %s", _p.hostname, _urlparse(_cfg_base).hostname)
+            package_url = _rewritten
     if not _is_allowed_package_url(package_url):
         raise HTTPException(status_code=400, detail="Package URL domain is not allowed")  # i18n
     # temp_path 缩进从 raise 后移到正确位置，避免 finally 中 NameError
