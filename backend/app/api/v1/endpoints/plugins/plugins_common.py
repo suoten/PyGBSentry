@@ -113,7 +113,9 @@ class LicenseSignRequest(BaseModel):
 
 class EmbeddedPurchaseRequest(BaseModel):
     plugin_id: str
-    billing_period: Literal["monthly", "yearly", "perpetual"] = "monthly"
+    # FIXED: [2026-10-11] 对齐 GBWatch 四档定价周期（月/季/年/终身）与服务器版
+    # /api/v1/billing/orders 口径；保留旧值 monthly/yearly 向后兼容。
+    billing_period: Literal["month", "quarter", "year", "perpetual", "monthly", "yearly"] = "month"
 
 class MobilePluginEntry(BaseModel):
     plugin_id: str

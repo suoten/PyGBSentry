@@ -2802,7 +2802,11 @@ h265WebRtcWarning: '当前为 H.265 码流，部分浏览器可能不支持 WebR
     officialAuthFailed: '操作失败，请稍后重试',
     trialDays: '可试用 {days} 天',
     perYear: '/年',
-    perpetualSuffix: ' 买断',
+    perQuarter: '/季',
+    lifetimeLabel: '终身',
+    amountDue: '应付金额',
+    quarterly: '季付',
+    perpetualSuffix: ' 终身',
     priceFromPrefix: '',
     priceFromSuffix: '起',
     runtime: '插件运行'

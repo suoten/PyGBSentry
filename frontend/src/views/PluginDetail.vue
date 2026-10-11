@@ -144,7 +144,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
 import { logger } from '@/utils/logger'
-import { hasPluginTrial, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
+import { hasPluginTrial, formatPluginPriceCents, lowestPluginSubscriptionTier, pluginPerpetualTier, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
 import { useOfficialAccount } from '../composables/useOfficialAccount'
 
 import { getFriendlyError } from '../utils/errorMessage'
@@ -170,6 +170,7 @@ type PluginItem = {
   type: string
   description?: string
   price_monthly?: number
+  price_quarterly?: number
   price_yearly?: number
   price_perpetual?: number
   trial_days?: number
@@ -224,12 +225,15 @@ const installedVersion = computed(() => {
 const isInstalled = (id: string) => installedList.value.some(p => p.id === id)
 const isPurchased = (id: string) => purchasedIds.value.includes(id)
 
-// 价格/试用展示（分 → ¥ 文案，多档显示最低档 + 悬浮全部）
+// 价格/试用展示（分 → ¥ 文案；四档 月/季/年/终身，最低订阅档 + 终身价，悬浮全部档位）
 const detailPriceTiers = computed(() => (plugin.value ? resolvePluginPriceTiers(plugin.value) : []))
 const lowestDetailPriceLabel = computed(() => {
-  const tiers = detailPriceTiers.value
-  if (tiers.length === 0) return ''
-  return t('plugin.priceFromPrefix') + tiers[0].label + t('plugin.priceFromSuffix')
+  if (!plugin.value) return ''
+  const sub = lowestPluginSubscriptionTier(plugin.value)
+  if (!sub) return ''
+  const base = t('plugin.priceFromPrefix') + sub.label + t('plugin.priceFromSuffix')
+  const perpetual = pluginPerpetualTier(plugin.value)
+  return perpetual ? `${base} · ${t('plugin.lifetimeLabel')} ${formatPluginPriceCents(perpetual.cents)}` : base
 })
 
 // 官网账户门控：商城插件（有 package_url 或 type=paid）购买/安装前需登录官网账户

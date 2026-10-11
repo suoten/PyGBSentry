@@ -108,7 +108,7 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="t('plugin.price')" width="150">
+            <el-table-column :label="t('plugin.price')" min-width="190">
               <template #default="{ row }">
                 <span v-if="row.type === 'free' || priceTiersOf(row).length === 0">-</span>
                 <el-tooltip
@@ -261,12 +261,21 @@
           </el-descriptions-item>
         </el-descriptions>
         <el-form label-width="80px" class="mt-4">
-          <el-form-item v-if="isServerEdition" :label="t('plugin.billingPeriod')">
+          <el-form-item v-if="purchasePriceTiers.length > 0" :label="t('plugin.billingPeriod')">
+            <!-- 周期选择器：仅列出该插件实际有价格的档位（月/季/年/终身），缺失档不显示 -->
             <el-radio-group v-model="purchaseBillingPeriod">
-              <el-radio value="monthly">{{ t('plugin.monthly') }}</el-radio>
-              <el-radio value="yearly">{{ t('plugin.yearly') }}</el-radio>
-              <el-radio value="perpetual">{{ t('plugin.perpetual') }}</el-radio>
+              <el-radio-button
+                v-for="tier in purchasePriceTiers"
+                :key="tier.period"
+                :value="tier.period"
+              >
+                {{ tier.label }}
+              </el-radio-button>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item v-if="selectedPurchaseTier" :label="t('plugin.amountDue')">
+            <span class="text-orange-500 text-lg font-semibold">{{ formatPluginPriceCents(selectedPurchaseTier.cents) }}</span>
+            <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">{{ selectedPurchaseTier.label }}</span>
           </el-form-item>
         </el-form>
         <el-alert
@@ -300,7 +309,8 @@ import type { UploadInstance, UploadRequestOptions } from 'element-plus'
 import api from '@/utils/http'
 import { logger } from '@/utils/logger'
 import { classifyOfficialAccountError } from '@/utils/officialAccount'
-import { hasPluginTrial, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
+import { hasPluginTrial, formatPluginPriceCents, lowestPluginSubscriptionTier, pluginPerpetualTier, resolvePluginPriceTiers } from '../utils/pluginMarketplaceStatus'
+import type { PluginPricePeriod } from '../utils/pluginMarketplaceStatus'
 import { useOfficialAccount } from '../composables/useOfficialAccount'
 
 import TableSkeleton from '../components/TableSkeleton.vue'
@@ -339,6 +349,7 @@ type PluginRow = {
   min_oss_version?: string
   is_official?: boolean
   price_monthly?: number
+  price_quarterly?: number
   price_yearly?: number
   price_perpetual?: number
   trial_days?: number
@@ -417,21 +428,27 @@ const purchasedPaidCount = computed(() => purchasedIds.value.length)
 
 const purchaseDialogVisible = ref(false)
 const purchaseTarget = ref<PluginRow | null>(null)
-const purchaseBillingPeriod = ref<'monthly' | 'yearly' | 'perpetual'>('monthly')
+// 计费周期与后端口径一致：month/quarter/year/perpetual（仅可选中该插件实际有价格的档位）
+const purchaseBillingPeriod = ref<PluginPricePeriod>('month')
 const purchaseLoading = ref(false)
 let paymentPollingTimer: ReturnType<typeof setInterval> | null = null
 const purchaseError = ref('')
 
-// ── 价格/试用展示（分 → ¥ 文案） ─────────────────────────────────────────
+// ── 价格/试用展示（分 → ¥ 文案；四档：月/季/年/终身） ────────────────────
 const priceTiersOf = (row: PluginRow) => resolvePluginPriceTiers(row)
 const priceTierSummary = (row: PluginRow) => priceTiersOf(row).map((tier) => tier.label).join(' / ')
+// 列表价格列：最低订阅档 + 终身价（如「¥49/月 起 · 终身 ¥1,299」）
 const lowestPriceLabel = (row: PluginRow) => {
-  const tiers = priceTiersOf(row)
-  if (tiers.length === 0) return ''
-  // 多档显示最低档 + 悬浮全部（priceFromPrefix/Suffix：zh「¥xx/月起」/ en「from ¥xx/mo」）
-  return t('plugin.priceFromPrefix') + tiers[0].label + t('plugin.priceFromSuffix')
+  const sub = lowestPluginSubscriptionTier(row)
+  if (!sub) return ''
+  const base = t('plugin.priceFromPrefix') + sub.label + t('plugin.priceFromSuffix')
+  const perpetual = pluginPerpetualTier(row)
+  return perpetual ? `${base} · ${t('plugin.lifetimeLabel')} ${formatPluginPriceCents(perpetual.cents)}` : base
 }
 const purchasePriceTiers = computed(() => (purchaseTarget.value ? resolvePluginPriceTiers(purchaseTarget.value) : []))
+const selectedPurchaseTier = computed(
+  () => purchasePriceTiers.value.find((tier) => tier.period === purchaseBillingPeriod.value) || null
+)
 
 // ── 官网账户门控：商城插件（有 package_url 或 type=paid）需登录官网账户 ────
 const onClickInstall = (row: PluginRow) => {
@@ -448,7 +465,8 @@ const onOfficialAccountCommand = (command: string | number | object) => {
 
 const openEmbeddedPurchase = (row: PluginRow) => {
   purchaseTarget.value = row
-  purchaseBillingPeriod.value = 'monthly'
+  // 默认选中最低订阅档（通常为月付）；该插件没有订阅档时回退到 month
+  purchaseBillingPeriod.value = lowestPluginSubscriptionTier(row)?.period || 'month'
   purchaseError.value = ''
   purchaseDialogVisible.value = true
 }

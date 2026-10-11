@@ -131,40 +131,58 @@ export const buildMarketplacePurchaseUrl = (baseUrl: string, pluginId?: string, 
   }
 }
 
-// ── 商城插件价格/试用展示（双版账户打通 2026-10-10） ─────────────────────────
+// ── 商城插件价格/试用展示（双版账户打通 2026-10-10；四档定价 2026-10-11） ────
+// 定价口径：GBWatch 官方价格表 v2026-10-01-a，单位分。
+// period 键与后端一致：month(月)/quarter(季)/year(年)/perpetual(终身)。
+// 多数插件无季度档（price_quarterly 缺失 = 该档不出售，跳过不展示）。
 
 export type PluginPriceLike = {
   price_monthly?: number | null
+  price_quarterly?: number | null
   price_yearly?: number | null
   price_perpetual?: number | null
 }
 
+export type PluginPricePeriod = 'month' | 'quarter' | 'year' | 'perpetual'
+
 export type PluginPriceTier = {
-  period: 'monthly' | 'yearly' | 'perpetual'
+  period: PluginPricePeriod
   cents: number
   label: string
 }
 
 // 价格字段单位为「分」，格式化为 ¥xx（最多保留两位小数）
-const formatCentsToYuan = (cents: number): string =>
+export const formatPluginPriceCents = (cents: number): string =>
   `¥${(cents / 100).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`
 
 /**
- * 汇总插件的全部价格档位（分 → ¥ 文案），按金额升序（最低档在前）。
- * 无有效价格档位（全部缺失/为 0）时返回空数组。
+ * 汇总插件的全部价格档位（分 → ¥ 文案），固定顺序 月/季/年/终身。
+ * 缺失/为 0 的档位跳过；无有效价格档位时返回空数组。
  */
 export const resolvePluginPriceTiers = (plugin: PluginPriceLike): PluginPriceTier[] => {
   const tiers: PluginPriceTier[] = []
   const pushTier = (period: PluginPriceTier['period'], cents: unknown, suffix: string) => {
     const value = Number(cents)
     if (!Number.isFinite(value) || value <= 0) return
-    tiers.push({ period, cents: value, label: `${formatCentsToYuan(value)}${suffix}` })
+    tiers.push({ period, cents: value, label: `${formatPluginPriceCents(value)}${suffix}` })
   }
-  pushTier('monthly', plugin.price_monthly, t('plugin.perMonth'))
-  pushTier('yearly', plugin.price_yearly, t('plugin.perYear'))
+  pushTier('month', plugin.price_monthly, t('plugin.perMonth'))
+  pushTier('quarter', plugin.price_quarterly, t('plugin.perQuarter'))
+  pushTier('year', plugin.price_yearly, t('plugin.perYear'))
   pushTier('perpetual', plugin.price_perpetual, t('plugin.perpetualSuffix'))
-  return tiers.sort((a, b) => a.cents - b.cents)
+  return tiers
 }
+
+/** 最低订阅档：月/季/年中金额最低的一档（不含终身买断）；无订阅档返回 null */
+export const lowestPluginSubscriptionTier = (plugin: PluginPriceLike): PluginPriceTier | null => {
+  const subs = resolvePluginPriceTiers(plugin).filter((tier) => tier.period !== 'perpetual')
+  if (subs.length === 0) return null
+  return subs.reduce((min, tier) => (tier.cents < min.cents ? tier : min), subs[0])
+}
+
+/** 终身买断档（price_perpetual 缺失时返回 null） */
+export const pluginPerpetualTier = (plugin: PluginPriceLike): PluginPriceTier | null =>
+  resolvePluginPriceTiers(plugin).find((tier) => tier.period === 'perpetual') || null
 
 /** trial_days > 0 视为提供试用 */
 export const hasPluginTrial = (plugin: { trial_days?: number | null }): boolean =>
