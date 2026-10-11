@@ -119,31 +119,38 @@
                   <span class="text-orange-500 font-medium" style="cursor: help">{{ lowestPriceLabel(row) }}</span>
                 </el-tooltip>
                 <span v-else class="text-orange-500 font-medium">{{ lowestPriceLabel(row) }}</span>
-                <div v-if="hasPluginTrial(row)" class="mt-1">
+                <div v-if="trialStateOf(row.id) === 'active'" class="mt-1">
+                  <el-tag size="small" type="success">{{ t('plugin.trialDaysLeft', { days: trialDaysLeft(row.id) }) }}</el-tag>
+                </div>
+                <div v-else-if="hasPluginTrial(row)" class="mt-1">
                   <el-tag size="small" type="success">{{ t('plugin.trialDays', { days: row.trial_days }) }}</el-tag>
                 </div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('common.action')" width="140">
+            <el-table-column :label="t('common.action')" width="150">
               <template #default="{ row }">
-                <el-button
-                  v-if="row.type === 'paid' && !isPurchased(row.id)"
-                  type="warning"
-                  size="small"
-                  @click="onClickBuy(row)"
-                >
-                  {{ t('plugin.buyNow') }}
-                </el-button>
-                <el-button
-                  v-else-if="row.type === 'paid' && isPurchased(row.id)"
-                  type="primary"
-                  size="small"
-                  :loading="installingId === row.id"
-                  :disabled="installingId !== ''"
-                  @click="onClickInstall(row)"
-                >
-                  {{ t('plugin.install') }}
-                </el-button>
+                <!-- FIXED: [2026-10-11] 试用闭环：paid+可试用 且未购 → 「试用 N 天」（开通后自动安装）；
+                     试用中 → 剩余天数 + 一键购买转正式；试用已结束 → 标签 + 一键购买；已购/免费 → 安装 -->
+                <template v-if="row.type === 'paid' && !isPurchased(row.id)">
+                  <div v-if="trialStateOf(row.id) === 'active'" class="flex flex-col items-start gap-1">
+                    <el-tag size="small" type="success">{{ t('plugin.trialDaysLeft', { days: trialDaysLeft(row.id) }) }}</el-tag>
+                    <el-button type="warning" size="small" @click="onClickBuy(row)">{{ t('plugin.buyNow') }}</el-button>
+                  </div>
+                  <div v-else class="flex flex-col items-start gap-1">
+                    <el-button
+                      v-if="hasPluginTrial(row) && trialStateOf(row.id) === 'none'"
+                      type="success"
+                      size="small"
+                      :loading="trialLoadingId === row.id"
+                      :disabled="installingId !== ''"
+                      @click="onClickTrial(row)"
+                    >
+                      {{ t('plugin.trialNow', { days: row.trial_days }) }}
+                    </el-button>
+                    <el-tag v-else-if="hasPluginTrial(row)" size="small" type="info">{{ t('plugin.trialExpiredTag') }}</el-tag>
+                    <el-button type="warning" size="small" @click="onClickBuy(row)">{{ t('plugin.buyNow') }}</el-button>
+                  </div>
+                </template>
                 <el-button
                   v-else
                   type="primary"
@@ -459,6 +466,74 @@ const onClickBuy = (row: PluginRow) => {
   void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => openEmbeddedPurchase(row))
 }
 
+// ── 试用闭环（2026-10-11）：申请 → install-check 放行安装 → 到期购买转正式 ──
+type PluginTrialState = { active: boolean; daysLeft: number; expired: boolean }
+const trialsMap = ref<Record<string, PluginTrialState>>({})
+const trialLoadingId = ref('')
+
+const loadMyTrials = async () => {
+  if (!officialUser.value) {
+    trialsMap.value = {}
+    return
+  }
+  try {
+    const res = await api.get('/api/v1/plugins/marketplace/trial/my', { skipFriendlyMessage: true } as never)
+    const items = Array.isArray(res.data?.items) ? res.data.items : []
+    const map: Record<string, PluginTrialState> = {}
+    const now = Date.now()
+    for (const item of items) {
+      const pid = String(item?.plugin_id || '')
+      if (!pid) continue
+      const exp = item?.expires_at ? new Date(item.expires_at).getTime() : 0
+      const active = !!item?.is_active && exp > now
+      map[pid] = {
+        active,
+        daysLeft: exp ? Math.max(0, Math.ceil((exp - now) / 86400000)) : 0,
+        expired: !active && exp > 0,
+      }
+    }
+    trialsMap.value = map
+  } catch {
+    trialsMap.value = {}
+  }
+}
+
+const trialStateOf = (pluginId: string): 'none' | 'active' | 'expired' => {
+  const st = trialsMap.value[pluginId]
+  if (!st) return 'none'
+  return st.active ? 'active' : 'expired'
+}
+
+const trialDaysLeft = (pluginId: string) => trialsMap.value[pluginId]?.daysLeft || 0
+
+const onClickTrial = (row: PluginRow) => {
+  void ensureOfficialAccount(isMarketplacePlugin(row) ? row : null, async () => {
+    trialLoadingId.value = row.id
+    try {
+      await api.post(`/api/v1/plugins/marketplace/trial/${row.id}/apply`, {}, { skipFriendlyMessage: true })
+      ElMessage.success(t('plugin.trialAppliedInstalling'))
+      await loadMyTrials()
+      await installPlugin(row)
+    } catch (error: unknown) {
+      // 已申请过（409）：直接刷新状态并安装
+      const status = (error as { response?: { status?: number } })?.response?.status
+      if (status === 409) {
+        await loadMyTrials()
+        await installPlugin(row)
+        return
+      }
+      if (classifyOfficialAccountError(error) === 'login') {
+        guideOfficialAccountOnError(error, () => onClickTrial(row))
+        return
+      }
+      const friendly = getFriendlyError(error)
+      ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
+    } finally {
+      trialLoadingId.value = ''
+    }
+  })
+}
+
 const onOfficialAccountCommand = (command: string | number | object) => {
   if (command === 'logout') logoutOfficialAccount()
 }
@@ -607,6 +682,8 @@ const loadData = async () => {
     installedList.value = Array.isArray(installedRes.data) ? installedRes.data : []
     shopUrl.value = (shopRes?.data?.url || '').trim() || ''
     purchasedIds.value = Array.isArray(purchasedRes?.data?.plugin_ids) ? purchasedRes.data.plugin_ids : []
+    // FIXED: [2026-10-11] 试用状态随列表刷新（官网账户登录时）
+    await loadMyTrials()
   } finally {
     marketLoading.value = false
     installedLoading.value = false
