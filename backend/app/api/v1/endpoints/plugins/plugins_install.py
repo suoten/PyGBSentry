@@ -561,14 +561,27 @@ async def uninstall_plugin(
         except Exception:
             await db.rollback()
 
-        await _notify_server_plugin_event(
-            plugin_id,
-            "uninstall",
-            current_user.id,
-            tenant_id,
-            _authorization_for_server_proxy(request),
-            None,
-        )  # 同步requests→异步httpx，避免阻塞事件循环
+        # FIXED: [2026-10-11] 卸载上报改为尽力而为——插件文件已删除，上报失败（如用户
+        # 未登录官网账户导致服务器版校验 401）不应让卸载整体报错；仅记录日志。
+        try:
+            await _notify_server_plugin_event(
+                plugin_id,
+                "uninstall",
+                current_user.id,
+                tenant_id,
+                _authorization_for_server_proxy(request),
+                None,
+            )  # 同步requests→异步httpx，避免阻塞事件循环
+        except HTTPException as notify_err:
+            logger.warning(
+                "Plugin %s uninstall report to server failed (ignored): %s",
+                plugin_id, notify_err.detail,
+            )
+        except Exception as notify_exc:
+            logger.warning(
+                "Plugin %s uninstall report to server failed (ignored): %s",
+                plugin_id, notify_exc,
+            )
         await audit_center_service.log(
             db=db,
             module="plugins",

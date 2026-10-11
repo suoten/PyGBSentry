@@ -656,12 +656,16 @@ const installPlugin = async (row: PluginRow) => {
 
 const uninstallPlugin = async (pluginId: string) => {
   let tableHint = ''
+  // FIXED: [2026-10-11] 后端卸载要求 confirm=true + confirm_phrase（ack_phrase，形如 "UNINSTALL <id>"）：
+  // 预览接口一并取回并在 DELETE 时携带；预览失败时从 400 错误文案兜底提取短语重试一次。
+  let ackPhrase = ''
   try {
     const prev = await api.get(`/api/v1/plugins/${pluginId}/uninstall-preview`)
     const tables: string[] = Array.isArray(prev.data?.tables) ? prev.data.tables : []
     if (tables.length > 0) {
       tableHint = '\n\n' + t('plugin.uninstallTableHint', { tables: tables.join('、') })
     }
+    ackPhrase = String(prev.data?.ack_phrase || '').trim()
   } catch {
     logger.warn('卸载预览失败，继续卸载流程')
   }
@@ -675,14 +679,31 @@ const uninstallPlugin = async (pluginId: string) => {
     return
   }
   installingId.value = pluginId
-  try {
-    await api.delete(`/api/v1/plugins/${pluginId}`)
+  const doDelete = (phrase?: string) =>
+    api.delete(`/api/v1/plugins/${pluginId}`, { params: phrase ? { confirm: true, confirm_phrase: phrase } : { confirm: true } })
+  const finishSuccess = async () => {
     await loadData()
     emitPluginUpdated()
     ElMessage.success(t('plugin.uninstallSuccess'))
+  }
+  try {
+    await doDelete(ackPhrase || undefined)
+    await finishSuccess()
   } catch (error: unknown) {
-    const friendly = getFriendlyError(error)
-    ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
+    const detail = String((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '')
+    const m = /confirmation phrase:\s*([^)]+)/.exec(detail)
+    if (!ackPhrase && m && m[1]) {
+      try {
+        await doDelete(m[1].trim())
+        await finishSuccess()
+      } catch (retryError: unknown) {
+        const friendly = getFriendlyError(retryError)
+        ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
+      }
+    } else {
+      const friendly = getFriendlyError(error)
+      ElMessage.error(friendly.suggestion ? t('common.errorWithSuggestion', { message: friendly.message, suggestion: friendly.suggestion }) : friendly.message)
+    }
   } finally {
     installingId.value = ''
   }

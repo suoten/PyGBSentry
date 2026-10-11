@@ -324,6 +324,15 @@ const installPlugin = async (row: PluginItem) => {
 }
 
 const uninstallPlugin = async (id: string) => {
+  // FIXED: [2026-10-11] 后端卸载要求 confirm=true + confirm_phrase（ack_phrase）——预览取回并携带，
+  // 预览失败时从 400 错误文案兜底提取短语重试一次。
+  let ackPhrase = ''
+  try {
+    const prev = await api.get(`/api/v1/plugins/${id}/uninstall-preview`)
+    ackPhrase = String(prev.data?.ack_phrase || '').trim()
+  } catch {
+    // 预览失败继续，走兜底提取
+  }
   try {
     await ElMessageBox.confirm(
       t('plugin.uninstallConfirmMsg'),  // FIXED: 硬编码中文→t()
@@ -334,15 +343,32 @@ const uninstallPlugin = async (id: string) => {
     return
   }
   installingId.value = id
-  try {
-    await api.delete(`/api/v1/plugins/${id}`)
+  const doDelete = (phrase?: string) =>
+    api.delete(`/api/v1/plugins/${id}`, { params: phrase ? { confirm: true, confirm_phrase: phrase } : { confirm: true } })
+  const finishSuccess = async () => {
     await loadData()
     window.dispatchEvent(new Event('plugins-updated'))
     ElMessage.success(t('plugin.uninstallSuccess'))
     await router.push('/plugins')
+  }
+  try {
+    await doDelete(ackPhrase || undefined)
+    await finishSuccess()
   } catch (error: unknown) {
-    const friendly = getFriendlyError(error)
-    ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    const detail = String((error as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '')
+    const m = /confirmation phrase:\s*([^)]+)/.exec(detail)
+    if (!ackPhrase && m && m[1]) {
+      try {
+        await doDelete(m[1].trim())
+        await finishSuccess()
+      } catch (retryError: unknown) {
+        const friendly = getFriendlyError(retryError)
+        ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+      }
+    } else {
+      const friendly = getFriendlyError(error)
+      ElMessage.error(friendly.suggestion ? `${friendly.message}（${friendly.suggestion}）` : friendly.message)
+    }
   } finally {
     installingId.value = ''
   }
