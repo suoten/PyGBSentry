@@ -1271,7 +1271,11 @@ async def _install_plugin_from_zip(
             high_hits = [h for h in report.get("hits", []) if any(
                 k in h for k in ["dangerous_call:", "native_api:", "deserialization:"]
             )]
-            if settings.PLUGIN_SECURITY_SCAN_BLOCK_ON_HIT and high_hits:
+            # FIXED: [2026-10-11] 携带 Ed25519 签名的官方包不因静态扫描命中而拦截：
+            # 包完整性与来源已由 SHA256 + 双签名校验背书（后续 manifest_signature 检查仍会执行），
+            # 官方 AI 插件的功能性用法（urllib 回退/模型清理/自检 sys.exit）会被规则命中。
+            # 未签名的第三方包维持原拦截策略。
+            if settings.PLUGIN_SECURITY_SCAN_BLOCK_ON_HIT and high_hits and not expected_package_signature:
                 detail = "; ".join(security_hits[:10])
                 raise HTTPException(status_code=400, detail=f"Security scan detected dangerous usage (blocked): {detail}")  # i18n
             logger.warning("Plugin package security scan hit %d risk items: %s", len(security_hits), "; ".join(security_hits[:5]))  # i18n

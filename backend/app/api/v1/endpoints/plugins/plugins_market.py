@@ -210,3 +210,76 @@ async def embedded_purchase_confirm(
         raise HTTPException(status_code=resp.status_code, detail=detail)
     await _invalidate_purchased_plugin_ids_cache_for_user(str(current_user.id))
     return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# 试用代理（2026-10-11 对齐 GBWatch 四档定价后的试用闭环）：
+# 市场行「试用 N 天」→ 申请（服务器版签发试用 license）→ install-check 放行安装
+# → 运行时按试用 license 到期；到期后需购买转正式（trial-to-paid）。
+# ---------------------------------------------------------------------------
+class TrialApplyRequest(BaseModel):
+    # 预留扩展字段；当前仅路径参数 plugin_id
+    pass
+
+
+@router.post("/marketplace/trial/{plugin_id}/apply")
+async def trial_apply_proxy(
+    plugin_id: str,
+    request: Request,
+    payload: TrialApplyRequest | None = None,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """申请插件试用（转发服务器版 /billing/trials/{id}/apply，需官网账户）。"""
+    base_url = _normalize_marketplace_base()
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Plugin marketplace not configured, cannot apply for trial")
+    auth_header = _authorization_for_server_proxy(request)
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="Please login with your official account before applying for a trial")
+    url = f"{base_url}/api/v1/billing/trials/{plugin_id}/apply"
+    try:
+        resp = await (await get_http_client()).post(
+            url,
+            json={},
+            headers={"Authorization": auth_header, "Content-Type": "application/json"},
+            timeout=15,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Cannot connect to plugin marketplace: {exc}")
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+    return resp.json()
+
+
+@router.get("/marketplace/trial/my")
+async def trial_status_proxy(
+    request: Request,
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """当前官网账户的全部试用状态（转发服务器版 /billing/trials）。"""
+    base_url = _normalize_marketplace_base()
+    if not base_url:
+        raise HTTPException(status_code=503, detail="Plugin marketplace not configured")
+    auth_header = _authorization_for_server_proxy(request)
+    if not auth_header:
+        return {"items": []}
+    url = f"{base_url}/api/v1/billing/trials"
+    try:
+        resp = await (await get_http_client()).get(
+            url,
+            headers={"Authorization": auth_header},
+            timeout=10,
+        )
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Cannot connect to plugin marketplace: {exc}")
+    if resp.status_code >= 400:
+        return {"items": []}
+    try:
+        data = resp.json()
+    except Exception:
+        return {"items": []}
+    return data if isinstance(data, dict) else {"items": data}
