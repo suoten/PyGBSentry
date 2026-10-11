@@ -10,7 +10,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_behavior_analysis",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_behavior_analysis",
     "tags": [
       "AI识别",
       "安防智能",
@@ -47,7 +47,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_face_recognition",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_face_recognition",
     "tags": [
       "AI识别",
       "安防智能",
@@ -83,7 +83,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/ai_plate_recognition",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/ai_plate_recognition",
     "tags": [
       "AI识别",
       "安防智能",
@@ -121,7 +121,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/dingtalk_alert",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/dingtalk_alert",
     "category": "通知告警",
     "tags": [
       "告警通知",
@@ -154,7 +154,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/email_alert",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/email_alert",
     "category": "通知告警",
     "tags": [
       "告警通知",
@@ -187,7 +187,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/event_push_enhancer",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/event_push_enhancer",
     "category": "通知告警",
     "tags": [
       "告警通知",
@@ -222,7 +222,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/feishu_alert",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/feishu_alert",
     "tags": [
       "告警通知",
       "即时通讯"
@@ -254,7 +254,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/mqtt_bridge",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/mqtt_bridge",
     "tags": [
       "系统集成",
       "IoT"
@@ -287,7 +287,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/oncall_router",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/oncall_router",
     "category": "通知告警",
     "tags": [
       "告警通知",
@@ -321,7 +321,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/report_suite",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/report_suite",
     "tags": [
       "数据分析",
       "报表"
@@ -356,7 +356,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/s3_sync",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/s3_sync",
     "tags": [
       "存储",
       "数据备份"
@@ -390,7 +390,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/sms_alert",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/sms_alert",
     "tags": [
       "告警通知",
       "短信"
@@ -421,7 +421,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/tv_wall_suite",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/tv_wall_suite",
     "tags": [
       "监控",
       "可视化",
@@ -456,7 +456,7 @@
     "is_official": true,
     "min_server_version": "2.5.0",
     "min_oss_version": "1.2.0",
-    "package_url": "http://localhost:8100/api/v1/plugins/marketplace/download/wecom_alert",
+    "package_url": "https://pygb.jjtt.net/api/v1/plugins/marketplace/download/wecom_alert",
     "tags": [
       "告警通知",
       "即时通讯"
