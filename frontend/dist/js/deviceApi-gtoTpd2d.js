@@ -1,0 +1,1 @@
+async function i(r){if(r==null)return[];if(Array.isArray(r))return r;if(typeof r=="object"){const t=r,n="data"in t?t.data:t;if(n==null)return[];if(Array.isArray(n))return n;if(typeof n=="object"){const e=n;if(Array.isArray(e.channels))return e.channels;if(Array.isArray(e.items))return e.items}}return[]}export{i as p};

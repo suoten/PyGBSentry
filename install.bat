@@ -105,6 +105,7 @@ echo    Install DONE
 echo ==============================================
 echo.
 echo   Start:      double-click start.bat
+echo   Platform:   http://localhost:8000   (full web UI, open in browser)
 echo   API docs:   http://localhost:8000/docs
 echo   Admin user: admin
 echo   Admin pass: printed above when .env was generated

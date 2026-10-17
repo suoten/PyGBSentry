@@ -1,5 +1,4 @@
 # Build output
-dist/
 build_err.log
 build-output.txt
 

@@ -1,0 +1,1 @@
+import{aj as r}from"./vendor-misc-Ctwx0m0D.js";function t(e){return e?r.sanitize(e,{ALLOWED_TAGS:["b","i","em","strong","code","pre","br","span","a","p","ul","ol","li"],ALLOWED_ATTR:["href","target","rel","class","style"],ALLOW_DATA_ATTR:!1}):""}export{t as s};

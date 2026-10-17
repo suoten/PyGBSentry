@@ -174,53 +174,65 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 ## 🚀 快速开始
 
-### 方式一：一键脚本安装（小白推荐，Windows / Linux / macOS 通用）
+### 方式一：一键脚本安装（小白推荐，装完即有完整网页界面）
 
-> 只需要 **Python 3.11 ~ 3.13**（3.8/3.9/3.10 装不了，脚本会自动检测并告诉你去哪下载）。
-> 快速模式使用 SQLite，**不需要装 PostgreSQL、Redis、Node.js**，装完即可登录使用。
+**你只需要装一样东西：Python 3.11 ~ 3.13**（3.8/3.9/3.10 装不了，这是硬性要求）。
+其他一切（依赖、配置、数据库、管理员账号）脚本全自动搞定，不需要 PostgreSQL、Redis、Node.js。
 
-```bash
-git clone https://gitee.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
-```
+#### 第 1 步：安装 Python 3.12
 
-**Windows**：双击 `install.bat`，装完双击 `start.bat`
-**Linux / macOS**：
+- Windows：到 [python.org/downloads](https://www.python.org/downloads/release/python-3128/) 下载安装，
+  **安装第一屏务必勾选 `Add python.exe to PATH`**（国内镜像：[华为云](https://mirrors.huaweicloud.com/python/)）
+- Ubuntu/Debian：`sudo apt update && sudo apt install -y python3.12 python3.12-venv`
+- CentOS/RHEL：`sudo dnf install -y python3.12`
+- macOS：`brew install python@3.12`
 
-```bash
-bash install.sh          # 国内网络慢就加镜像：bash install.sh --mirror
-./start.sh
-```
+装完验证：打开新终端输入 `python --version`（或 `python3 --version`），显示 `3.11` ~ `3.13` 即可。
 
-脚本会自动完成：检查 Python 版本 → 创建虚拟环境 → 装依赖 → 生成配置（含随机密钥和管理员密码）→ 建库。
+#### 第 2 步：获取代码
 
-启动后：
+- 会用 Git：`git clone https://gitee.com/suoten/PyGBSentry.git`，然后 `cd PyGBSentry/editions/open-source`
+- 不会 Git：打开 https://gitee.com/suoten/PyGBSentry → 点「克隆/下载」→「下载 ZIP」→ 解压后进入 `PyGBSentry-master/editions/open-source`
+
+#### 第 3 步：一键安装
+
+- **Windows**：进入 `editions/open-source` 文件夹，**双击 `install.bat`**，等它跑完（约 3 分钟）
+- **Linux / macOS**：`bash install.sh`（国内下载慢加 `--mirror` 参数），等它跑完
+
+脚本结束时**会打印管理员密码**（也写在 `backend/.env` 的 `ADMIN_INITIAL_PASSWORD=` 里），记下来。
+
+#### 第 4 步：启动
+
+- **Windows**：双击 `start.bat`（窗口别关，关了服务就停）
+- **Linux / macOS**：`./start.sh`
+
+#### 第 5 步：打开平台
+
+浏览器访问 **http://localhost:8000** —— 这就是完整管理界面（后端直接托管，无需任何额外步骤）。
 
 | 项 | 值 |
 |---|---|
-| 后端地址 | http://localhost:8000 （API 文档 /docs） |
-| 管理后台 | http://localhost:5173 （需前端，见下方说明） |
+| 平台地址 | http://localhost:8000 |
+| API 文档 | http://localhost:8000/docs |
 | 管理员账号 | `admin` |
-| 管理员密码 | 安装结束时脚本会打印（同时写入 backend/.env 的 `ADMIN_INITIAL_PASSWORD`） |
+| 管理员密码 | 第 3 步打印的密码（`backend/.env` 里可改，改完删除 `backend/data/gb_sentry.db*` 再跑一次安装脚本即重置） |
 
-**关于管理后台（前端）**：快速模式只启动了后端。想用网页界面，三选一：
-1. **开发模式**：`cd frontend && npm install && npm run dev` → 打开 http://localhost:5175
-2. **预构建**：`cd frontend && npm install && npm run build`，然后 `install.sh --with-frontend`
-3. **Docker**（见方式二，前端容器自动构建）
+#### 下一步做什么
 
-<details>
-<summary><b>常见安装报错（点开看解法）</b></summary>
+- **安装插件**（告警推送、AI 分析等 14 个）：平台左侧「插件中心」→ 登录官网账户 → 一键安装
+- **接入真实摄像头**：需要流媒体服务（ZLMediaKit），推荐用下面的 Docker 方式或看 [docs/INSTALL.md](docs/INSTALL.md) 第 6 节
+- **改端口**：`backend/.env` 的 `BACKEND_PUBLIC_PORT`，改完重启
 
-| 报错/现象 | 原因与解法 |
+#### 常见问题
+
+| 现象 | 解法 |
 |---|---|
-| `SyntaxError`、`match` 相关、或 3.8/3.9/3.10 相关提示 | Python 版本太低。本项目要求 **3.11~3.13**。Windows 去 python.org 装 3.12 并勾选 *Add to PATH*；Ubuntu `apt install python3.12 python3.12-venv`。装完重开终端再跑脚本 |
-| `python: command not found` | 用 `python3` 命令，或把 Python 加入 PATH 后重开终端 |
-| 8000 端口被占用 | 改 `backend/.env` 的 `BACKEND_PUBLIC_PORT`，重启 |
-| pip 下载超时 | `bash install.sh --mirror`（Windows 的 install.bat 已内置清华镜像+自动回退） |
-| 登录密码不对 | 密码在 `backend/.env` 的 `ADMIN_INITIAL_PASSWORD`；改成你想要的值后删除数据库文件 `backend/data/gb_sentry.db` 重新跑 `python app/initial_data.py` |
-| 想接真实设备/流媒体 | 参见下方 Docker 部署与 `docs/INSTALL.md`（ZLMediaKit 等流媒体组件在 Docker 镜像内已配好） |
-
-</details>
+| 双击 install.bat 一闪而过 | 右键"以管理员身份"没用时——用 cmd 打开：`cd 到目录` 后输入 `install.bat`，能看到具体报错 |
+| 提示 Python 版本不对 | 就是版本问题，3.8/3.9/3.10 都不行，按第 1 步装 3.12，**重开终端**再试 |
+| `pip` 下载超时 | Windows 的 install.bat 已内置清华镜像+自动回退；Linux 用 `bash install.sh --mirror` |
+| 8000 端口被占用 | `backend/.env` 改 `BACKEND_PUBLIC_PORT=8010` 等任意空闲端口，重启 |
+| 打不开网页/网页空白 | 确认 start.bat 窗口没关；确认浏览器访问的是 `http://localhost:8000`（不是 https、不是 5173） |
+| 忘记管理员密码 | 见第 5 步表格说明 |
 
 ### 方式二：Docker 一键部署（Linux 生产推荐，含流媒体服务）
 

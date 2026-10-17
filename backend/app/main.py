@@ -303,7 +303,7 @@ _root.handlers.clear()
 _root.addHandler(_LoguruLoggingHandler())
 
 from fastapi import FastAPI, Request, status, HTTPException
-from fastapi.responses import JSONResponse, ORJSONResponse
+from fastapi.responses import JSONResponse, ORJSONResponse, FileResponse as _FileResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -1998,7 +1998,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             logger.warning(f"Error: {e}")
 
-        if settings.ENABLE_CSP:
+        # FIXED: [2026-10-17] 后端托管前端（frontend/dist）后，非 API 路径返回的是
+        # 构建产物 HTML/JS/CSS——其 script/link 标签没有 CSP nonce，会被下方
+        # nonce 型 CSP 整体拦截（登录页黑屏）。CSP 保护面保持 /api/*（注入面在接口）；
+        # 静态前端的安全由"仅同源、产物来自受签名保护的构建"保障。
+        _csp_exempt = _FRONTEND_DIST.exists() and not request.url.path.startswith("/api")
+        if settings.ENABLE_CSP and not _csp_exempt:
             # SECURITY: nonce-based CSP — removes 'unsafe-inline' and 'unsafe-eval'.
             # A fresh nonce is generated per request and exposed via the X-CSP-Nonce
             # response header so templates/inline scripts can opt-in with nonce="{nonce}".
@@ -2369,12 +2374,34 @@ app.include_router(common_channel_router, prefix="/api/common/channel")
 app.include_router(play_start_router, prefix="/api/play")
 
 
-@app.get("/")
-async def root():
-    data = {"message": "Welcome to PyGBSentry"}
-    if app.docs_url:
-        data["docs"] = app.docs_url
-    return data
+# FIXED: [2026-10-17] 后端直接托管已构建的前端（frontend/dist）——
+# 快速模式（install.bat/install.sh）启动后打开 http://localhost:8000 即完整管理界面，
+# 小白用户无需安装 Node.js / npm。dist 不存在时保持原有 welcome JSON。
+from pathlib import Path as _FrontendPath
+
+# main.py 位于 backend/app/：parents[2] = 仓库根（含 frontend/ 的目录）
+_FRONTEND_DIST = _FrontendPath(__file__).resolve().parents[2] / "frontend" / "dist"
+if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+    from fastapi.staticfiles import StaticFiles
+
+    # dist 内的静态子目录整体挂载（js/css/icons/static 等，路径由 vite rollupOptions 决定）
+    for _sub in ("assets", "js", "css", "icons", "static", "images", "fonts", "docs", "tools", "umeditor"):
+        _sub_dir = _FRONTEND_DIST / _sub
+        if _sub_dir.is_dir():
+            app.mount(f"/{_sub}", StaticFiles(directory=str(_sub_dir)), name=f"frontend-{_sub}")
+
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return _FileResponse(str(_FRONTEND_DIST / "index.html"))
+
+else:
+    @app.get("/")
+    async def root():
+        data = {"message": "Welcome to PyGBSentry"}
+        if app.docs_url:
+            data["docs"] = app.docs_url
+        return data
 
 
 @app.get("/health")
@@ -2518,3 +2545,20 @@ if __name__ == "__main__":
     else:
         _host = "0.0.0.0"
     uvicorn.run("app.main:app", host=_host, port=port, reload=_env == "dev", loop="asyncio", timeout_keep_alive=settings.UVICORN_TIMEOUT_KEEP_ALIVE)
+
+
+# ---------------------------------------------------------------------------
+# 前端 SPA 托管（2026-10-17）：frontend/dist 存在时，非 /api、/docs、/health
+# 的 GET 路径回退到 index.html（vue-router history 模式必需）。
+# 必须位于所有 API 路由之后，避免遮蔽接口。
+# ---------------------------------------------------------------------------
+if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def frontend_spa_fallback(full_path: str):
+        if full_path.startswith(("api/", "docs", "redoc", "health", "assets/", "js/", "css/", "icons/", "static/", "images/", "fonts/", "docs/", "tools/", "umeditor/", "manifest.json")):
+            raise HTTPException(status_code=404, detail="Not Found")
+        candidate = _FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return _FileResponse(str(candidate))
+        return _FileResponse(str(_FRONTEND_DIST / "index.html"))

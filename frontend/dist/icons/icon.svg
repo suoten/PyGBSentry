@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="deepSpace" cx="30%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#2a3f5f"/>
+      <stop offset="40%" stop-color="#1a2542"/>
+      <stop offset="100%" stop-color="#0a0f1a"/>
+    </radialGradient>
+    <linearGradient id="neonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00ffff"/>
+      <stop offset="50%" stop-color="#00d4ff"/>
+      <stop offset="100%" stop-color="#0080ff"/>
+    </linearGradient>
+    <filter id="multiGlow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="8" result="blur1"/>
+      <feGaussianBlur stdDeviation="16" result="blur2"/>
+      <feGaussianBlur stdDeviation="24" result="blur3"/>
+      <feMerge>
+        <feMergeNode in="blur3"/>
+        <feMergeNode in="blur2"/>
+        <feMergeNode in="blur1"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#deepSpace)"/>
+  <circle cx="256" cy="256" r="200" fill="none" stroke="rgba(0,255,255,0.08)" stroke-width="8" stroke-dasharray="80 40"/>
+  <circle cx="256" cy="256" r="170" fill="none" stroke="rgba(0,255,255,0.15)" stroke-width="12" stroke-dasharray="160 80"/>
+  <circle cx="256" cy="256" r="130" fill="none" stroke="url(#neonGrad)" stroke-width="20" filter="url(#multiGlow)" opacity="0.9"/>
+  <circle cx="256" cy="256" r="90" fill="none" stroke="rgba(0,255,255,0.4)" stroke-width="12"/>
+  <path d="M160 112L416 256L160 400Z" fill="none" stroke="url(#neonGrad)" stroke-width="28" filter="url(#multiGlow)"/>
+  <path d="M176 128L400 256L176 384Z" fill="url(#neonGrad)" filter="url(#multiGlow)" opacity="0.9"/>
+  <path d="M208 160L368 256L208 352Z" fill="#0a0f1a"/>
+  <path d="M224 184L352 256L224 328Z" fill="#00ffff" filter="url(#multiGlow)"/>
+  <circle cx="256" cy="256" r="16" fill="#ffffff" filter="url(#multiGlow)"/>
+</svg>

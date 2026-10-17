@@ -5,7 +5,7 @@ __pycache__/
 *.pyd
 *.egg-info/
 *.egg
-dist/
+/dist/
 build/
 .venv/
 
@@ -86,7 +86,6 @@ tools/audit_output.txt
 
 # Frontend
 frontend/node_modules/
-frontend/dist/
 frontend/build_err.log
 frontend/build-output.txt
 
