@@ -174,7 +174,55 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 ## 🚀 快速开始
 
-### Docker 一键部署（Linux 推荐，含流媒体服务）
+### 方式一：一键脚本安装（小白推荐，Windows / Linux / macOS 通用）
+
+> 只需要 **Python 3.11 ~ 3.13**（3.8/3.9/3.10 装不了，脚本会自动检测并告诉你去哪下载）。
+> 快速模式使用 SQLite，**不需要装 PostgreSQL、Redis、Node.js**，装完即可登录使用。
+
+```bash
+git clone https://gitee.com/suoten/PyGBSentry.git
+cd PyGBSentry/editions/open-source
+```
+
+**Windows**：双击 `install.bat`，装完双击 `start.bat`
+**Linux / macOS**：
+
+```bash
+bash install.sh          # 国内网络慢就加镜像：bash install.sh --mirror
+./start.sh
+```
+
+脚本会自动完成：检查 Python 版本 → 创建虚拟环境 → 装依赖 → 生成配置（含随机密钥和管理员密码）→ 建库。
+
+启动后：
+
+| 项 | 值 |
+|---|---|
+| 后端地址 | http://localhost:8000 （API 文档 /docs） |
+| 管理后台 | http://localhost:5173 （需前端，见下方说明） |
+| 管理员账号 | `admin` |
+| 管理员密码 | 安装结束时脚本会打印（同时写入 backend/.env 的 `ADMIN_INITIAL_PASSWORD`） |
+
+**关于管理后台（前端）**：快速模式只启动了后端。想用网页界面，三选一：
+1. **开发模式**：`cd frontend && npm install && npm run dev` → 打开 http://localhost:5175
+2. **预构建**：`cd frontend && npm install && npm run build`，然后 `install.sh --with-frontend`
+3. **Docker**（见方式二，前端容器自动构建）
+
+<details>
+<summary><b>常见安装报错（点开看解法）</b></summary>
+
+| 报错/现象 | 原因与解法 |
+|---|---|
+| `SyntaxError`、`match` 相关、或 3.8/3.9/3.10 相关提示 | Python 版本太低。本项目要求 **3.11~3.13**。Windows 去 python.org 装 3.12 并勾选 *Add to PATH*；Ubuntu `apt install python3.12 python3.12-venv`。装完重开终端再跑脚本 |
+| `python: command not found` | 用 `python3` 命令，或把 Python 加入 PATH 后重开终端 |
+| 8000 端口被占用 | 改 `backend/.env` 的 `BACKEND_PUBLIC_PORT`，重启 |
+| pip 下载超时 | `bash install.sh --mirror`（Windows 的 install.bat 已内置清华镜像+自动回退） |
+| 登录密码不对 | 密码在 `backend/.env` 的 `ADMIN_INITIAL_PASSWORD`；改成你想要的值后删除数据库文件 `backend/data/gb_sentry.db` 重新跑 `python app/initial_data.py` |
+| 想接真实设备/流媒体 | 参见下方 Docker 部署与 `docs/INSTALL.md`（ZLMediaKit 等流媒体组件在 Docker 镜像内已配好） |
+
+</details>
+
+### 方式二：Docker 一键部署（Linux 生产推荐，含流媒体服务）
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
