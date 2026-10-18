@@ -48,6 +48,16 @@ if not defined PY_BIN (
 for /f "delims=" %%v in ('%PY_BIN% -c "import sys; print(str(sys.version_info[0])+chr(46)+str(sys.version_info[1]))"') do set PY_VER=%%v
 echo [ OK ] Found Python %PY_VER%
 
+REM Path check: non-ASCII or spaces in path can break venv/pip for beginners
+%PY_BIN% -c "import os,sys; p=os.getcwd(); bad=[c for c in p if ord(c)>126]; space=' ' in p; sys.exit(1 if (bad or space) else 0)" >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Current path contains Chinese/space characters, which may break the install:
+    echo        %CD%
+    echo        Suggested: move this folder to a simple path like D:\PyGBSentry and re-run.
+    echo        Continuing anyway in 10 seconds...
+    timeout /t 10 /nobreak >nul
+)
+
 REM ---------- 2. venv ----------
 echo [2/6] Creating virtual environment ...
 cd backend

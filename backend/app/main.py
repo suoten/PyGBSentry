@@ -1213,10 +1213,20 @@ async def lifespan(app: FastAPI):
             raise
         logger.warning("Startup step: sip_server.start timeout (20s), continue startup without SIP.")
     except OSError as e:
+        # FIXED: [2026-10-18] 端口占用（典型：上次实例未退干净/其他程序占用 5062）
+        # 给出可直接执行的解决步骤，而不是一句堆栈——小白卡在这里最久。
+        guidance = (
+            "Startup step: sip_server.start failed: {err}. "
+            "SIP port busy - fix options: "
+            "(1) run stop.bat / ./stop.sh then start again; "
+            "(2) change SIP_PORT in backend/.env and restart; "
+            "(3) find the occupier: netstat -ano | findstr :5062 (Windows) / ss -tlnp | grep 5062 (Linux). "
+            "Continuing WITHOUT SIP - platform UI works, device registration disabled until fixed."
+        ).format(err=e)
         if settings.SIP_STARTUP_REQUIRED:
-            logger.error(f"Startup step: sip_server.start failed: {e}. abort startup.")
+            logger.error(f"{guidance} abort startup (SIP_STARTUP_REQUIRED=true).")
             raise
-        logger.warning(f"Startup step: sip_server.start failed: {e}. Continue startup without SIP.")
+        logger.warning(guidance)
 
     # FIX: [2026-07-10] RTP 超时配置校验 — 过短超时导致流在设备推流前被清理 [全栈工程师]
     _rtp_timeout = settings.RTP_SERVER_TIMEOUT_SECONDS

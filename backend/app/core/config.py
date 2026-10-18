@@ -238,7 +238,10 @@ class Settings(BaseSettings):
     SIPS_KEY_FILE: str = ""
     STUN_SERVER: str = ""
     # SIP 启动是否强依赖。true: 端口占用等异常直接中止启动；false: 记录告警并降级继续
-    SIP_STARTUP_REQUIRED: bool = True
+    # FIXED: [2026-10-18] 默认改为 False——SIP 端口（5062）被占用/绑定时不再整体中止启动，
+    # 平台照常可用（设备注册暂不可用，日志给出明确处理指引）。
+    # 生产 GB28181 接入场景请在 .env 显式设 SIP_STARTUP_REQUIRED=true。
+    SIP_STARTUP_REQUIRED: bool = False
     SIP_ID: str = "34020000002000000001"  # PRODUCTION: 必须在 .env 中设置唯一 SIP_ID（20位数字），多实例部署时每个实例必须不同
     SIP_DOMAIN: str = "3402000000"  # PRODUCTION: 必须在 .env 中设置为实际行政区划编码（10位数字）
     # 设备注册默认鉴权密码（当 Asset.password 为空/未创建时使用）

@@ -215,7 +215,7 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 | 平台地址 | http://localhost:8000 |
 | API 文档 | http://localhost:8000/docs |
 | 管理员账号 | `admin` |
-| 管理员密码 | 第 3 步打印的密码（`backend/.env` 里可改，改完删除 `backend/data/gb_sentry.db*` 再跑一次安装脚本即重置） |
+| 管理员密码 | 第 3 步打印的密码（`backend/.env` 里可改，改完删除 `backend/data/gb_sentry.db*` 再跑一次安装脚本即重置）；凭据同时保存在 `ADMIN_PASSWORD.txt` |
 
 #### 日常使用小工具（脚本目录内）
 
@@ -247,6 +247,11 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 | 8000 端口被占用 | `backend/.env` 改 `BACKEND_PUBLIC_PORT=8010` 等任意空闲端口，重启 |
 | 打不开网页/网页空白 | 确认 start.bat 窗口没关；确认浏览器访问的是 `http://localhost:8000`（不是 https、不是 5173） |
 | 忘记管理员密码 | 见第 5 步表格说明 |
+| 双击 start.bat 后浏览器没自动开 | 手动打开 `http://localhost:8000`（端口见 backend/.env 的 BACKEND_PUBLIC_PORT）；仍不通看 start.bat 窗口里的报错 |
+| 首次启动弹出"Windows 防火墙"提示 | 点「允许访问」——这是后端在监听端口，拒绝会导致页面打不开/设备连不上 |
+| 启动日志显示 SIP bind failed / 5062 被占用 | 平台仍可正常使用（仅设备注册暂不可用）：先双击 stop.bat 再 start.bat；或改 backend/.env 的 SIP_PORT。接真实摄像头前需解决 |
+| 杀毒软件报毒/删除文件 | Python 程序偶发误报，将安装目录加入白名单即可 |
+| 怎么卸载 | 快速模式（SQLite）：停止服务后直接删除整个文件夹即可，无残留 |
 
 ### 方式二：Docker 一键部署（Linux 生产推荐，含流媒体服务）
 

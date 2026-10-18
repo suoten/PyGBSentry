@@ -63,6 +63,15 @@ if [ -z "$PY_BIN" ]; then
 然后重新运行本脚本：bash install.sh"
 fi
 
+# 路径预检：中文/空格路径可能导致 venv/pip 异常（小白常见）
+if python3 -c "import os,sys; p=os.getcwd(); sys.exit(1 if any(ord(c)>126 for c in p) or ' ' in p else 0)" 2>/dev/null; then
+  :
+else
+  warn "当前路径含中文或空格，可能导致安装失败：$ROOT_DIR"
+  warn "建议把文件夹移动到如 /opt/PyGBSentry 或 ~/PyGBSentry 后重新运行（10 秒后继续）"
+  sleep 10
+fi
+
 # ---------------------------------------------------------------- 2. 虚拟环境
 info "步骤 2/6 创建 Python 虚拟环境..."
 cd "$BACKEND_DIR"
@@ -111,8 +120,8 @@ else
     sed -i "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=\"$ADMIN_PWD\"|" .env
     grep -q '^ADMIN_INITIAL_PASSWORD=' .env || printf 'ADMIN_INITIAL_PASSWORD="%s"\n' "$ADMIN_PWD" >> .env
   fi
-  printf 'PyGBSentry 管理员账号\n\n用户名: admin\n密码:   %s\n\n请妥善保管，登录后可在平台内修改。\n' "$ADMIN_PWD" > "$ROOT_DIR/管理员密码.txt"
-  ok ".env 已生成（SQLite 快速模式），凭据已保存到 管理员密码.txt"
+  printf 'PyGBSentry 管理员账号\n\n用户名: admin\n密码:   %s\n\n请妥善保管，登录后可在平台内修改。\n' "$ADMIN_PWD" > "$ROOT_DIR/ADMIN_PASSWORD.txt"
+  ok ".env 已生成（SQLite 快速模式），凭据已保存到 ADMIN_PASSWORD.txt"
 fi
 # 从 .env 提取管理员密码用于最终展示
 ADMIN_PWD=$(grep -E '^ADMIN_INITIAL_PASSWORD=' .env | head -1 | sed 's/^ADMIN_INITIAL_PASSWORD=//; s/^"//; s/"$//')
@@ -171,7 +180,7 @@ echo ""
 echo "  启动：      ./start.sh"
 echo "  平台地址：  http://localhost:$PORT          （完整管理界面，浏览器直接打开）"
 echo "  API 文档：  http://localhost:$PORT/docs"
-echo "  管理员密码：已保存到 管理员密码.txt"
+echo "  管理员密码：已保存到 ADMIN_PASSWORD.txt"
 echo "  管理员账号：admin"
 echo "  管理员密码：$ADMIN_PWD   （首次登录后请修改）"
 echo ""
