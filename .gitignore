@@ -263,3 +263,5 @@ backend/.env*.bak*
 *.lnk
 frontend/vite_*.log
 
+# 便携版打包产物
+dist_portable/

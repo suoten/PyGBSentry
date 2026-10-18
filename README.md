@@ -217,6 +217,20 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 | 管理员账号 | `admin` |
 | 管理员密码 | 第 3 步打印的密码（`backend/.env` 里可改，改完删除 `backend/data/gb_sentry.db*` 再跑一次安装脚本即重置） |
 
+#### 日常使用小工具（脚本目录内）
+
+| 脚本 | 作用 |
+|---|---|
+| `stop.bat` / `stop.sh` | 停止服务 |
+| `update.bat` / `update.sh` | 一键更新（git pull + 依赖 + 数据库同步） |
+| `doctor.bat` | 环境自检报告——提 issue 时把输出贴上来，秒定位 |
+
+#### 进阶：Windows 便携版（连 Python 都不用装）
+
+不想装 Python？在本机（有 Python 的机器）运行 `python make_portable.py --mirror`，
+会产出 `PyGBSentry-windows-portable.zip`——把这个 zip 发给任何人，解压后**双击
+「启动PyGBSentry.bat」就能跑**（内置嵌入式 Python，目标机器零环境要求）。
+
 #### 下一步做什么
 
 - **安装插件**（告警推送、AI 分析等 14 个）：平台左侧「插件中心」→ 登录官网账户 → 一键安装

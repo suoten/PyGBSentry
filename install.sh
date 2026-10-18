@@ -94,25 +94,47 @@ else
   GEN_HEX=$("$PY_BIN" -c 'import secrets; print(secrets.token_hex(32))')
   GEN_HEX2=$("$PY_BIN" -c 'import secrets; print(secrets.token_hex(32))')
   GEN_PWD=$("$PY_BIN" -c 'import secrets; print(secrets.token_urlsafe(9))')
+  # 管理员密码：用户自设或自动生成（写入凭据文件）
+  printf "设置管理员密码（直接回车 = 自动生成）: "
+  read -r ADMIN_PWD_INPUT
+  ADMIN_PWD="${ADMIN_PWD_INPUT:-$GEN_PWD}"
   if [ "$(uname)" = "Darwin" ]; then
     sed -i '' 's|^DATABASE_TYPE=postgresql|DATABASE_TYPE=sqlite|' .env
     sed -i '' "s|^SECRET_KEY=.*|SECRET_KEY=\"$GEN_HEX\"|" .env
     sed -i '' "s|^FIELD_ENCRYPTION_KEY=.*|FIELD_ENCRYPTION_KEY=\"$GEN_HEX2\"|" .env
-    sed -i '' "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=\"$GEN_PWD\"|" .env
-    grep -q '^ADMIN_INITIAL_PASSWORD=' .env || printf 'ADMIN_INITIAL_PASSWORD="%s"\n' "$GEN_PWD" >> .env
+    sed -i '' "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=\"$ADMIN_PWD\"|" .env
+    grep -q '^ADMIN_INITIAL_PASSWORD=' .env || printf 'ADMIN_INITIAL_PASSWORD="%s"\n' "$ADMIN_PWD" >> .env
   else
     sed -i 's|^DATABASE_TYPE=postgresql|DATABASE_TYPE=sqlite|' .env
     sed -i "s|^SECRET_KEY=.*|SECRET_KEY=\"$GEN_HEX\"|" .env
     sed -i "s|^FIELD_ENCRYPTION_KEY=.*|FIELD_ENCRYPTION_KEY=\"$GEN_HEX2\"|" .env
-    sed -i "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=\"$GEN_PWD\"|" .env
-    grep -q '^ADMIN_INITIAL_PASSWORD=' .env || printf 'ADMIN_INITIAL_PASSWORD="%s"\n' "$GEN_PWD" >> .env
+    sed -i "s|^ADMIN_INITIAL_PASSWORD=.*|ADMIN_INITIAL_PASSWORD=\"$ADMIN_PWD\"|" .env
+    grep -q '^ADMIN_INITIAL_PASSWORD=' .env || printf 'ADMIN_INITIAL_PASSWORD="%s"\n' "$ADMIN_PWD" >> .env
   fi
-  ok ".env 已生成（SQLite 快速模式）"
-  ADMIN_PWD="$GEN_PWD"
+  printf 'PyGBSentry 管理员账号\n\n用户名: admin\n密码:   %s\n\n请妥善保管，登录后可在平台内修改。\n' "$ADMIN_PWD" > "$ROOT_DIR/管理员密码.txt"
+  ok ".env 已生成（SQLite 快速模式），凭据已保存到 管理员密码.txt"
 fi
 # 从 .env 提取管理员密码用于最终展示
 ADMIN_PWD=$(grep -E '^ADMIN_INITIAL_PASSWORD=' .env | head -1 | sed 's/^ADMIN_INITIAL_PASSWORD=//; s/^"//; s/"$//')
 [ -n "$ADMIN_PWD" ] || ADMIN_PWD="(见 .env 的 ADMIN_INITIAL_PASSWORD；若为空则首次启动随机生成，见启动日志)"
+
+# 端口冲突自避：8000 被占则依次尝试 8010/8080/8888/9000
+PORT=$(grep -E '^BACKEND_PUBLIC_PORT=' .env | head -1 | cut -d= -f2)
+PORT=${PORT:-8000}
+if command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ":$PORT "; then
+  for ALT in 8010 8080 8888 9000; do
+    if ! ss -tln 2>/dev/null | grep -q ":$ALT "; then
+      if [ "$(uname)" = "Darwin" ]; then
+        sed -i '' "s|^BACKEND_PUBLIC_PORT=.*|BACKEND_PUBLIC_PORT=$ALT|" .env
+      else
+        sed -i "s|^BACKEND_PUBLIC_PORT=.*|BACKEND_PUBLIC_PORT=$ALT|" .env
+      fi
+      PORT=$ALT
+      ok "端口 8000 被占用，已自动切换为 $PORT（写入 .env）"
+      break
+    fi
+  done
+fi
 
 # ---------------------------------------------------------------- 5. 初始化数据库
 info "步骤 5/6 初始化数据库（建表 + 默认管理员）..."
@@ -147,8 +169,9 @@ echo "   ✔ 安装完成！"
 echo "==============================================${NC}"
 echo ""
 echo "  启动：      ./start.sh"
-echo "  平台地址：  http://localhost:8000        （完整管理界面，浏览器直接打开）"
-echo "  API 文档：  http://localhost:8000/docs"
+echo "  平台地址：  http://localhost:$PORT          （完整管理界面，浏览器直接打开）"
+echo "  API 文档：  http://localhost:$PORT/docs"
+echo "  管理员密码：已保存到 管理员密码.txt"
 echo "  管理员账号：admin"
 echo "  管理员密码：$ADMIN_PWD   （首次登录后请修改）"
 echo ""
