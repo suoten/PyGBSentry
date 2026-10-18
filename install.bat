@@ -130,7 +130,7 @@ echo [ OK ] Using port %PORT%
 
 REM ---------- 5. database ----------
 echo [5/6] Initializing database - tables + admin user ...
-python app\initial_data.py
+python -m app.initial_data
 if errorlevel 1 (
     echo [FAIL] Database init failed. Please report the full error above.
     pause

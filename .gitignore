@@ -265,3 +265,9 @@ frontend/vite_*.log
 
 # 便携版打包产物
 dist_portable/
+
+# 安装向导 exe 构建产物（发布到 Gitee Releases，不入库）
+packaging/windows/build/
+packaging/windows/dist/
+packaging/windows/*.spec
+dist_setup/

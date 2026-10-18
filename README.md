@@ -225,11 +225,16 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 | `update.bat` / `update.sh` | 一键更新（git pull + 依赖 + 数据库同步） |
 | `doctor.bat` | 环境自检报告——提 issue 时把输出贴上来，秒定位 |
 
-#### 进阶：Windows 便携版（连 Python 都不用装）
+#### 进阶：Windows 免环境方案（连 Python 都不用装）
 
-不想装 Python？在本机（有 Python 的机器）运行 `python make_portable.py --mirror`，
-会产出 `PyGBSentry-windows-portable.zip`——把这个 zip 发给任何人，解压后**双击
-「启动PyGBSentry.bat」就能跑**（内置嵌入式 Python，目标机器零环境要求）。
+两条路，按需选择：
+
+| 方案 | 制作 | 用户侧体验 |
+|---|---|---|
+| **安装向导 exe** | `packaging/windows/` 里一条命令打包出 `PyGBSentrySetup.exe`（10MB） | 双击 exe → 点开始 → 自动装 Python/下载源码/装依赖 → 桌面快捷方式 → 自动开浏览器 |
+| **便携版 zip** | `python make_portable.py --mirror` 产出 `PyGBSentry-windows-portable.zip` | 解压 → 双击「启动PyGBSentry.bat」即可（内置 Python，零环境要求） |
+
+两种产物都可上传到 Gitee Releases 分发；制作方法详见 `packaging/windows/README.md`。
 
 #### 下一步做什么
 

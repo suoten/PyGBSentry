@@ -170,7 +170,40 @@ Extend without forking:
 
 ## 🚀 Installation & Deployment
 
-> Not a developer? No problem. If you can copy and paste commands, you can get this running. Three methods below — **Docker is recommended**.
+> Not a developer? No problem. If you can copy and paste commands, you can get this running. Three methods below — **the one-click script is the easiest on Windows**.
+
+---
+
+### Method 0: One-Click Script (Beginner-friendly, Windows / Linux / macOS)
+
+> Only prerequisite: **Python 3.11 ~ 3.13** (3.8/3.9/3.10 will NOT work — the installer detects your version and tells you where to download the right one).
+> Quick mode uses SQLite — **no PostgreSQL, Redis or Node.js required**.
+
+```bash
+git clone https://github.com/suoten/PyGBSentry.git
+cd PyGBSentry/editions/open-source
+```
+
+- **Windows**: double-click `install.bat`, then double-click `start.bat` — the web UI opens in your browser automatically
+- **Linux / macOS**: `bash install.sh && ./start.sh` (slow network? add `--mirror`)
+
+The installer handles everything: venv, dependencies (CN mirror + fallback), config with random secrets, admin password (saved to `ADMIN_PASSWORD.txt`), database. When done, open **http://localhost:8000** — that is the full management UI (frontend is served by the backend, no Node.js needed).
+
+Handy companions: `stop.bat/sh` (stop), `update.bat/sh` (one-click update), `doctor.bat` (environment self-check report — paste it into an issue when asking for help).
+
+<details>
+<summary><b>Common install errors (click to expand)</b></summary>
+
+| Symptom | Fix |
+|---|---|
+| SyntaxError / mentions of 3.8/3.9/3.10 | Python too old — install 3.12 from python.org (CHECK "Add to PATH"), reopen terminal, retry |
+| Port 8000 busy | Installer auto-switches to 8010/8080...; or edit `BACKEND_PUBLIC_PORT` in backend/.env |
+| pip timeout | `bash install.sh --mirror` (Windows bat already uses CN mirror with fallback) |
+| Forgot admin password | See `ADMIN_PASSWORD.txt`, or set `ADMIN_INITIAL_PASSWORD` in backend/.env, delete `backend/data/gb_sentry.db*`, re-run installer |
+| Windows firewall popup on first start | Click "Allow access" — the backend needs to listen on its port |
+| Uninstall | Stop the service, delete the folder (SQLite mode leaves nothing behind) |
+
+</details>
 
 ---
 
