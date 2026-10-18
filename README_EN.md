@@ -191,6 +191,14 @@ The installer handles everything: venv, dependencies (CN mirror + fallback), con
 
 Handy companions: `stop.bat/sh` (stop), `update.bat/sh` (one-click update), `doctor.bat` (environment self-check report — paste it into an issue when asking for help).
 
+#### Other zero-friction options
+
+| Option | How | Target machine needs |
+|---|---|---|
+| **Setup wizard exe** (Windows) | Build `PyGBSentrySetup.exe` via `packaging/windows/` (see its README), or grab it from Releases | Nothing — auto-installs Python silently |
+| **Portable zip** (Windows) | `python make_portable.py --mirror` produces `PyGBSentry-windows-portable.zip` (~280MB) | Nothing — unzip, double-click 启动PyGBSentry.bat, browser opens |
+| Stop / Update / Doctor scripts | `stop.bat/sh`, `update.bat/sh`, `doctor.bat` in the install dir | — |
+
 <details>
 <summary><b>Common install errors (click to expand)</b></summary>
 

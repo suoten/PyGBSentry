@@ -174,12 +174,39 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 ## 🚀 快速开始
 
-### 方式一：一键脚本安装（小白推荐，装完即有完整网页界面）
+### 先选一条适合你的安装路线
 
-**你只需要装一样东西：Python 3.11 ~ 3.13**（3.8/3.9/3.10 装不了，这是硬性要求）。
-其他一切（依赖、配置、数据库、管理员账号）脚本全自动搞定，不需要 PostgreSQL、Redis、Node.js。
+| 你的情况 | 推荐路线 | 需要预装 | 耗时 |
+|---|---|---|---|
+| Windows 个人体验，**什么都不想装** | ① 安装向导 exe | 无 | 5~10 分钟 |
+| Windows，已装 Python 3.11+ | ② 一键脚本 `install.bat` | Python 3.11~3.13 | 3~5 分钟 |
+| Linux 服务器快速体验 | ② 一键脚本 `install.sh`（SQLite 模式） | Python 3.11~3.13 | 3~5 分钟 |
+| Linux 生产环境（真实摄像头、长期运行） | ③ Docker（含流媒体 ZLMediaKit） | Docker | 10 分钟 |
+| 给客户/内网交付，目标机不能联网 | ④ Windows 便携版 zip | 无 | 解压即用 |
 
-#### 第 1 步：安装 Python 3.12
+> 四条路线装出来的是**同一个平台**：启动后浏览器打开 `http://localhost:端口` 就是完整管理界面
+> （后端直接托管网页，无需单独部署前端）。管理员账号 `admin`。
+
+---
+
+### 路线 ①：安装向导 exe（Windows 小白首选，连 Python 都不用自己装）
+
+1. 到 [Gitee Releases](https://gitee.com/suoten/PyGBSentry/releases) 下载 `PyGBSentrySetup.exe`
+2. 双击运行——若 Windows SmartScreen 提示"未识别应用"，点「更多信息」→「仍要运行」
+3. 点「开始安装」，然后等。向导全自动完成：
+   - 检测并静默安装 Python 3.12（你什么都不用点）
+   - 下载源码（约 200~300MB）→ 创建虚拟环境 → 安装依赖 → 初始化数据库
+   - 生成随机管理员密码，保存到安装目录的 `ADMIN_PASSWORD.txt`
+   - 创建桌面快捷方式「PyGBSentry」，并自动打开浏览器
+4. 登录：账号 `admin`，密码打开 `ADMIN_PASSWORD.txt` 抄（登录后请修改）
+
+日常使用：桌面「PyGBSentry」= 启动；安装目录「停止PyGBSentry.bat」= 停止。
+
+---
+
+### 路线 ②：一键脚本安装（Windows 双击 / Linux 一行命令）
+
+#### 第 1 步：安装 Python 3.12（唯一需要手动装的东西）
 
 - Windows：到 [python.org/downloads](https://www.python.org/downloads/release/python-3128/) 下载安装，
   **安装第一屏务必勾选 `Add python.exe to PATH`**（国内镜像：[华为云](https://mirrors.huaweicloud.com/python/)）
@@ -188,6 +215,8 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 - macOS：`brew install python@3.12`
 
 装完验证：打开新终端输入 `python --version`（或 `python3 --version`），显示 `3.11` ~ `3.13` 即可。
+
+> ⚠️ Python 3.8 / 3.9 / 3.10 无法运行本项目（会报语法错误），脚本检测到会给出以上下载指引。
 
 #### 第 2 步：获取代码
 
@@ -199,66 +228,45 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 - **Windows**：进入 `editions/open-source` 文件夹，**双击 `install.bat`**，等它跑完（约 3 分钟）
 - **Linux / macOS**：`bash install.sh`（国内下载慢加 `--mirror` 参数），等它跑完
 
-脚本结束时**会打印管理员密码**（也写在 `backend/.env` 的 `ADMIN_INITIAL_PASSWORD=` 里），记下来。
+脚本会询问管理员密码（直接回车 = 自动生成），并保存到 `ADMIN_PASSWORD.txt`，记下来。
 
 #### 第 4 步：启动
 
-- **Windows**：双击 `start.bat`（窗口别关，关了服务就停）
+- **Windows**：双击 `start.bat`——浏览器会自动打开平台页面（窗口别关，关了服务就停）
 - **Linux / macOS**：`./start.sh`
 
-#### 第 5 步：打开平台
+#### 第 5 步：登录使用
 
-浏览器访问 **http://localhost:8000** —— 这就是完整管理界面（后端直接托管，无需任何额外步骤）。
+浏览器打开 **http://localhost:8000**（端口被占用时安装脚本会自动换并提示），
+账号 `admin`，密码为安装时设置的密码。
 
-| 项 | 值 |
+#### 常见问题（路线 ②）
+
+| 现象 | 解法 |
 |---|---|
-| 平台地址 | http://localhost:8000 |
-| API 文档 | http://localhost:8000/docs |
-| 管理员账号 | `admin` |
-| 管理员密码 | 第 3 步打印的密码（`backend/.env` 里可改，改完删除 `backend/data/gb_sentry.db*` 再跑一次安装脚本即重置）；凭据同时保存在 `ADMIN_PASSWORD.txt` |
+| 提示 Python 版本不对 / SyntaxError | Python 3.8/3.9/3.10 不行。按第 1 步装 3.12，**重开终端**再试 |
+| `python: command not found` | 用 `python3` 命令，或把 Python 加入 PATH 后重开终端 |
+| 8000 端口被占用 | 安装脚本会自动换 8010/8080 等空闲端口；也可手动改 `backend/.env` 的 `BACKEND_PUBLIC_PORT` |
+| pip 下载超时 | `bash install.sh --mirror`（Windows 的 install.bat 已内置清华镜像+自动回退） |
+| 双击 install.bat 一闪而过 | 用 cmd 进入目录后输入 `install.bat` 运行，能看到具体报错 |
+| 登录密码不对 | 密码在 `backend/.env` 的 `ADMIN_INITIAL_PASSWORD`；改成你想要的值后删除 `backend/data/gb_sentry.db*` 再跑一遍安装脚本即重置 |
+| 忘了服务怎么停 | 双击 `stop.bat`（Linux：`./stop.sh`） |
+| 怎么卸载 | 停止服务后直接删除整个文件夹即可（SQLite 模式无残留） |
 
-#### 日常使用小工具（脚本目录内）
+---
+
+### 日常运维三件套（路线 ①② 通用）
 
 | 脚本 | 作用 |
 |---|---|
 | `stop.bat` / `stop.sh` | 停止服务 |
-| `update.bat` / `update.sh` | 一键更新（git pull + 依赖 + 数据库同步） |
+| `update.bat` / `update.sh` | 一键更新（git pull + 刷新依赖 + 数据库同步） |
 | `doctor.bat` | 环境自检报告——提 issue 时把输出贴上来，秒定位 |
 
-#### 进阶：Windows 免环境方案（连 Python 都不用装）
+> 启动日志显示 `SIP bind failed / 5062 被占用`：平台仍可正常使用（仅设备注册暂不可用），
+> 先 stop 再 start；接真实摄像头前需解决。
 
-两条路，按需选择：
-
-| 方案 | 制作 | 用户侧体验 |
-|---|---|---|
-| **安装向导 exe** | `packaging/windows/` 里一条命令打包出 `PyGBSentrySetup.exe`（10MB） | 双击 exe → 点开始 → 自动装 Python/下载源码/装依赖 → 桌面快捷方式 → 自动开浏览器 |
-| **便携版 zip** | `python make_portable.py --mirror` 产出 `PyGBSentry-windows-portable.zip` | 解压 → 双击「启动PyGBSentry.bat」即可（内置 Python，零环境要求） |
-
-两种产物都可上传到 Gitee Releases 分发；制作方法详见 `packaging/windows/README.md`。
-
-#### 下一步做什么
-
-- **安装插件**（告警推送、AI 分析等 14 个）：平台左侧「插件中心」→ 登录官网账户 → 一键安装
-- **接入真实摄像头**：需要流媒体服务（ZLMediaKit），推荐用下面的 Docker 方式或看 [docs/INSTALL.md](docs/INSTALL.md) 第 6 节
-- **改端口**：`backend/.env` 的 `BACKEND_PUBLIC_PORT`，改完重启
-
-#### 常见问题
-
-| 现象 | 解法 |
-|---|---|
-| 双击 install.bat 一闪而过 | 右键"以管理员身份"没用时——用 cmd 打开：`cd 到目录` 后输入 `install.bat`，能看到具体报错 |
-| 提示 Python 版本不对 | 就是版本问题，3.8/3.9/3.10 都不行，按第 1 步装 3.12，**重开终端**再试 |
-| `pip` 下载超时 | Windows 的 install.bat 已内置清华镜像+自动回退；Linux 用 `bash install.sh --mirror` |
-| 8000 端口被占用 | `backend/.env` 改 `BACKEND_PUBLIC_PORT=8010` 等任意空闲端口，重启 |
-| 打不开网页/网页空白 | 确认 start.bat 窗口没关；确认浏览器访问的是 `http://localhost:8000`（不是 https、不是 5173） |
-| 忘记管理员密码 | 见第 5 步表格说明 |
-| 双击 start.bat 后浏览器没自动开 | 手动打开 `http://localhost:8000`（端口见 backend/.env 的 BACKEND_PUBLIC_PORT）；仍不通看 start.bat 窗口里的报错 |
-| 首次启动弹出"Windows 防火墙"提示 | 点「允许访问」——这是后端在监听端口，拒绝会导致页面打不开/设备连不上 |
-| 启动日志显示 SIP bind failed / 5062 被占用 | 平台仍可正常使用（仅设备注册暂不可用）：先双击 stop.bat 再 start.bat；或改 backend/.env 的 SIP_PORT。接真实摄像头前需解决 |
-| 杀毒软件报毒/删除文件 | Python 程序偶发误报，将安装目录加入白名单即可 |
-| 怎么卸载 | 快速模式（SQLite）：停止服务后直接删除整个文件夹即可，无残留 |
-
-### 方式二：Docker 一键部署（Linux 生产推荐，含流媒体服务）
+### 路线 ③：Docker 一键部署（Linux 生产推荐，含流媒体服务）
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
@@ -277,6 +285,31 @@ make docker-init
 访问 `http://<服务器IP>` 进入安装向导，首次使用创建管理员账号即可。
 
 > 🔍 部署诊断：`./deploy/setup.sh doctor` 一键检查端口、数据库、ZLM、SIP 服务状态。
+
+
+### 路线 ④：Windows 便携版 zip（给客户/内网交付，目标机零环境）
+
+在本机（有 Python 的机器）一条命令制作分发包：
+
+```bash
+python make_portable.py --mirror
+# 产出 dist_portable/PyGBSentry-windows-portable.zip（约 280MB）
+```
+
+把这个 zip 发给任何人：**解压到任意目录 → 双击「启动PyGBSentry.bat」→ 浏览器自动打开完整平台**。
+内置嵌入式 Python 与全部依赖，目标机器不需要装任何东西；
+管理员密码见包内 `ADMIN_PASSWORD.txt`。制作与分发详见 `packaging/windows/README.md`。
+
+---
+
+### 装好后做什么（所有路线通用）
+
+- **登录平台**：浏览器打开平台地址，账号 `admin`（密码见各路线说明），首次登录后请修改
+- **安装插件**（告警推送、AI 分析等 14 个）：平台左侧「插件中心」→ 登录官网账户 → 一键安装
+- **接入真实摄像头**：需要流媒体服务——路线 ③ 的 Docker 镜像已内置；其余路线看
+  [docs/INSTALL.md](docs/INSTALL.md)（关键词 ZLMediaKit）
+- **改端口**：`backend/.env` 的 `BACKEND_PUBLIC_PORT`，改完重启
+- **日常运维**：安装目录内有 `stop`（停止）、`update`（一键更新）、`doctor`（环境自检报告）脚本
 
 ### 本地开发模式（Windows / Linux / macOS）
 
