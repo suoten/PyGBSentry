@@ -59,9 +59,9 @@ async def create_test_alarm(
         },
     )()
     from app.core.plugin_manager import HOOK_ON_ALARM, plugin_manager
+
     await plugin_manager.emit(HOOK_ON_ALARM, alarm_obj)
     return {"ok": True, "alarm_type": payload.alarm_type, "device_id": payload.device_id, "channel_id": payload.channel_id}
-
 
 
 def _audit_tid(user: User) -> str:

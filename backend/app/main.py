@@ -2400,12 +2400,12 @@ if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
         if _sub_dir.is_dir():
             app.mount(f"/{_sub}", StaticFiles(directory=str(_sub_dir)), name=f"frontend-{_sub}")
 
-
     @app.get("/", include_in_schema=False)
     async def root():
         return _FileResponse(str(_FRONTEND_DIST / "index.html"))
 
 else:
+
     @app.get("/")
     async def root():
         data = {"message": "Welcome to PyGBSentry"}
@@ -2566,7 +2566,25 @@ if _FRONTEND_DIST.exists() and (_FRONTEND_DIST / "index.html").exists():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def frontend_spa_fallback(full_path: str):
-        if full_path.startswith(("api/", "docs", "redoc", "health", "assets/", "js/", "css/", "icons/", "static/", "images/", "fonts/", "docs/", "tools/", "umeditor/", "manifest.json")):
+        if full_path.startswith(
+            (
+                "api/",
+                "docs",
+                "redoc",
+                "health",
+                "assets/",
+                "js/",
+                "css/",
+                "icons/",
+                "static/",
+                "images/",
+                "fonts/",
+                "docs/",
+                "tools/",
+                "umeditor/",
+                "manifest.json",
+            )
+        ):
             raise HTTPException(status_code=404, detail="Not Found")
         candidate = _FRONTEND_DIST / full_path
         if full_path and candidate.is_file():

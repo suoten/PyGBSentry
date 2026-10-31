@@ -385,11 +385,7 @@ def _install_plugin_sandbox_builtin_guard(plugin_id: str) -> dict:
                             # 与加载期（meta_path hook 只拦黑名单）安全口径一致。
                             _mod_name = str(args[0]) if args else ""
                             _mod_top = _mod_name.split(".")[0] if _mod_name else ""
-                            if (
-                                _mod_name
-                                and _mod_name not in _PLUGIN_SANDBOX_BLOCKED_MODULES
-                                and _mod_top not in _PLUGIN_SANDBOX_BLOCKED_MODULES
-                            ):
+                            if _mod_name and _mod_name not in _PLUGIN_SANDBOX_BLOCKED_MODULES and _mod_top not in _PLUGIN_SANDBOX_BLOCKED_MODULES:
                                 # 与加载期同口径：非黑名单模块放行（含 concurrent.futures.thread
                                 # 等 PEP 562 懒加载的 stdlib 子模块）；黑名单模块即使已缓存仍拦
                                 return orig(*args, **kwargs)
