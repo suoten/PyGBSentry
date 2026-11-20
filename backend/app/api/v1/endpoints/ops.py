@@ -212,7 +212,7 @@ async def get_help_docs(current_user: User = Depends(deps.get_current_active_use
             "items": [
                 {
                     "title": "部署",
-                    "content": "在 <code>editions/open-source</code> 目录下运行 <code>docker compose --profile prod up -d</code> 一键启动，或分别启动后端和前端，然后通过浏览器访问并登录。详见 README-DOCKER.md。",
+                    "content": "在仓库根目录下运行 <code>docker compose --profile prod up -d</code> 一键启动，或分别启动后端和前端，然后通过浏览器访问并登录。详见 README-DOCKER.md。",
                 },
                 {
                     "title": "安装向导",

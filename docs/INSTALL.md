@@ -35,7 +35,7 @@
 
 ```bash
 git clone <你的仓库地址>
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 ### 2. 配置环境变量
@@ -251,7 +251,7 @@ This document provides a quick start guide to help you deploy and launch the sys
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 ### 2. Configure Environment Variables

@@ -223,6 +223,63 @@ async def _stop_record(proxy_host: str, proxy_http_port: int, proxy_secret: str,
         raise RuntimeError(f"stopRecord code={body.get('code')} msg={body.get('msg') or ''}".strip())
 
 
+async def _query_recording(proxy_host: str, proxy_http_port: int, proxy_secret: str, stream: str) -> bool:
+    """查询 ZLM 指定流的 MP4(type=1) 录制是否真的在跑(录制看门狗查询原语)。
+
+    兼容两种响应形态:{code,on} 与 {code,data:[{on}]}。失败向上抛异常。
+    """
+    url = f"http://{proxy_host}:{proxy_http_port}/index/api/isRecording"
+    async with httpx.AsyncClient(timeout=5) as client:
+        r = await client.post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": "live", "stream": stream, "type": 1})
+    if r.status_code >= 400:
+        raise RuntimeError(f"isRecording http={r.status_code}")
+    body = r.json()
+    if body.get("code") not in {0, "0"}:
+        raise RuntimeError(f"isRecording code={body.get('code')} msg={body.get('msg') or ''}".strip())
+    data = body.get("data")
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return bool(data[0].get("on"))
+    return bool(body.get("on"))
+
+
+async def _verify_recordings() -> None:
+    """FIX [2026-11-20 P0] 录制看门狗(wvp #2145 同款修复):
+
+    _run_loop 只在 should_record 状态翻转边沿批量 start/stop,"应当录制"持续为 True
+    期间从不复查。ZLM 重启或流闪断后录制已死但无人重发 startRecord,静默丢录像。
+    周期调用:逐流查询 ZLM 真实录制状态,中断的流重新 startRecord。
+    """
+    async with AsyncSessionLocal() as db:
+        proxy_host, proxy_http_port, proxy_secret = await _select_media_node(db)
+    if not proxy_host or proxy_http_port <= 0:
+        logger.warning("[AutoRecord] media node http port missing, skip verify")
+        return
+
+    stream_ids = await _get_target_stream_ids()
+    for sid in stream_ids:
+        # FIX [2026-11-20 P1]: 与 start/stop 相同的流名解析(isRecording 也需真实流名)
+        try:
+            from app.services.recording_guard import find_channel_live_stream
+
+            target = await find_channel_live_stream(sid) or sid
+        except Exception:
+            target = sid
+        try:
+            recording_on = await _query_recording(proxy_host, proxy_http_port, proxy_secret, target)
+        except Exception as e:
+            logger.debug(f"[AutoRecord] isRecording verify failed stream={target}: {e}")
+            continue
+        if recording_on:
+            continue
+        try:
+            await _start_record(proxy_host, proxy_http_port, proxy_secret, target)
+            _append_auto_record_event(op="start_record", stream_gb=target, ok=True)
+            logger.info(f"[AutoRecord] watchdog restarted recording for stream={target}")
+        except Exception as e:
+            logger.error(f"[AutoRecord] watchdog restart stream={target} failed: {e}")
+            _append_auto_record_event(op="start_record", stream_gb=target, ok=False, err=f"watchdog {e}")
+
+
 async def _get_target_stream_ids() -> list[str]:
     """
     为每个启用的设备选择“第一个通道”（与旧逻辑一致），返回 stream gb_id 列表。
@@ -256,12 +313,20 @@ async def _start_all_recordings() -> None:
         return
 
     for sid in stream_ids:
+        # FIX [2026-11-20 P1]: 解析通道真实 ZLM 流名（{gb_id}_{ssrc}），原先用 gb_id 调
+        # startRecord 永远打不到点播流
         try:
-            await _start_record(proxy_host, proxy_http_port, proxy_secret, sid)
-            _append_auto_record_event(op="start_record", stream_gb=sid, ok=True)
+            from app.services.recording_guard import find_channel_live_stream
+
+            target = await find_channel_live_stream(sid) or sid
+        except Exception:
+            target = sid
+        try:
+            await _start_record(proxy_host, proxy_http_port, proxy_secret, target)
+            _append_auto_record_event(op="start_record", stream_gb=target, ok=True)
         except Exception as e:
-            logger.error(f"[AutoRecord] startRecord stream={sid} failed: {e}")
-            _append_auto_record_event(op="start_record", stream_gb=sid, ok=False, err=str(e))
+            logger.error(f"[AutoRecord] startRecord stream={target} failed: {e}")
+            _append_auto_record_event(op="start_record", stream_gb=target, ok=False, err=str(e))
 
 
 async def _stop_all_recordings() -> None:
@@ -276,16 +341,25 @@ async def _stop_all_recordings() -> None:
         return
 
     for sid in stream_ids:
+        # FIX [2026-11-20 P1]: 与 start 相同的流名解析
         try:
-            await _stop_record(proxy_host, proxy_http_port, proxy_secret, sid)
-            _append_auto_record_event(op="stop_record", stream_gb=sid, ok=True)
+            from app.services.recording_guard import find_channel_live_stream
+
+            target = await find_channel_live_stream(sid) or sid
+        except Exception:
+            target = sid
+        try:
+            await _stop_record(proxy_host, proxy_http_port, proxy_secret, target)
+            _append_auto_record_event(op="stop_record", stream_gb=target, ok=True)
         except Exception as e:
-            logger.error(f"[AutoRecord] stopRecord stream={sid} failed: {e}")
-            _append_auto_record_event(op="stop_record", stream_gb=sid, ok=False, err=str(e))
+            logger.error(f"[AutoRecord] stopRecord stream={target} failed: {e}")
+            _append_auto_record_event(op="stop_record", stream_gb=target, ok=False, err=str(e))
 
 
 async def _run_loop() -> None:
     prev_should_record: bool | None = None
+    # 录制看门狗:上次全量校验的 monotonic 时间戳(节流,避免每轮全查)
+    last_verify_mono: float = 0.0
     while True:
         try:
             cfg = await _get_runtime_cfg()
@@ -310,6 +384,14 @@ async def _run_loop() -> None:
                 elif (not should_record) and prev_should_record:
                     await _stop_all_recordings()
                 prev_should_record = should_record
+
+            # FIX [2026-11-20 P0] 录制看门狗(wvp #2145 同款修复):"应当录制"持续为 True
+            # 期间周期复查 ZLM 真实录制状态,中断自愈(节流同 RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS)
+            if should_record:
+                verify_interval = max(30, int(settings.RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS))
+                if time.monotonic() - last_verify_mono >= verify_interval:
+                    last_verify_mono = time.monotonic()
+                    await _verify_recordings()
 
         except asyncio.CancelledError:
             raise

@@ -6,7 +6,7 @@
  *   - 在对应 frontend 包根下执行（cwd 须含 `src/`）：
  *     node ../../../tools/frontend/check-no-raw-axios-detail.mjs
  *   - 或显式传入包根目录（绝对/相对均可）：
- *     node tools/frontend/check-no-raw-axios-detail.mjs editions/open-source/frontend
+ *     node tools/frontend/check-no-raw-axios-detail.mjs frontend
  */
 import fs from 'node:fs'
 import path from 'node:path'

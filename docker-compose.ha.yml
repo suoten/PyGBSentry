@@ -26,8 +26,6 @@
 #   to avoid port conflicts. Use RTP_PORT_RANGE_START/END to split the range.
 # - PostgreSQL HA is not covered here — use Patroni or a managed PG service for DB HA.
 
-version: '3.8'
-
 services:
   # Nginx reverse proxy / load balancer for HTTP backend traffic
   nginx-lb:

@@ -2,7 +2,7 @@
 
 [中文](#) | [English](#english-version)
 
-> **适用目录**：`editions/open-source`  
+> **适用目录**：仓库根目录（`PyGBSentry`）  
 > **目标读者**：首次接触服务器部署的用户，无需编程经验也可按步骤完成。
 
 ---
@@ -83,7 +83,7 @@ cd PyGBSentry
 ### 4.1 进入目录
 
 ```bash
-cd editions/open-source
+cd PyGBSentry
 ```
 
 ### 4.2 准备环境变量
@@ -112,7 +112,7 @@ cp .env.example .env
 ### 4.3 启动服务
 
 ```bash
-# 回到 editions/open-source 目录
+# 回到仓库根目录（PyGBSentry）
 cd ..
 
 # 启动生产环境服务
@@ -173,7 +173,7 @@ GRANT ALL PRIVILEGES ON DATABASE pygbsentry TO your_user;
 ### 5.3 后端部署
 
 ```bash
-cd editions/open-source/backend
+cd PyGBSentry/backend
 
 # 创建虚拟环境
 python3 -m venv .venv
@@ -196,7 +196,7 @@ python -m app.main
 ### 5.4 前端部署
 
 ```bash
-cd editions/open-source/frontend
+cd PyGBSentry/frontend
 
 # 安装依赖
 npm install
@@ -461,7 +461,7 @@ curl http://localhost:8000/api/v1/ops/diagnose
 
 # Open Source Edition Installation & Deployment Guide (Ultra-Detailed)
 
-> **Applicable Directory**: `editions/open-source`  
+> **Applicable Directory**: repository root (`PyGBSentry`)  
 > **Target Audience**: Users deploying a server for the first time; no programming experience required.
 
 ---
@@ -542,7 +542,7 @@ cd PyGBSentry
 ### 4.1 Enter the Directory
 
 ```bash
-cd editions/open-source
+cd PyGBSentry
 ```
 
 ### 4.2 Prepare Environment Variables
@@ -571,7 +571,7 @@ cp .env.example .env
 ### 4.3 Start Services
 
 ```bash
-# Return to editions/open-source directory
+# Return to the repository root
 cd ..
 
 # Start production services
@@ -632,7 +632,7 @@ GRANT ALL PRIVILEGES ON DATABASE pygbsentry TO your_user;
 ### 5.3 Backend Deployment
 
 ```bash
-cd editions/open-source/backend
+cd PyGBSentry/backend
 
 # Create virtual environment
 python3 -m venv .venv
@@ -655,7 +655,7 @@ python -m app.main
 ### 5.4 Frontend Deployment
 
 ```bash
-cd editions/open-source/frontend
+cd PyGBSentry/frontend
 
 # Install dependencies
 npm install

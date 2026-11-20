@@ -590,6 +590,9 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             )
 
             seen_ids = set()
+            # FIX [2026-11-20 P0] (wvp #1779/#2246 同款):收集本次同步的目录变更,
+            # 提交后交给 notify_manager 防抖聚合器,向上级发增量 NOTIFY(原先只落库不通知)
+            _catalog_changes: list[dict] = []
 
             # 批量预查
             channel_ids = [it.get("channel_id") for it in all_items if it.get("channel_id")]
@@ -643,6 +646,16 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                     else:
                         node_type = "channel"
 
+                    # FIX [2026-11-20 P1] (wvp #2081 同款):音频端口通道识别。
+                    # 依据 wvp 源码口径(GbCode/DeviceChannel):类型码 138 = 带音频/广播
+                    # 能力的通道(hasAudio/enableBroadcast),132 是视频摄像机——不可当音频过滤!
+                    # AudioOut1/AudioIn 这类纯音频端口靠名称识别,标 type=3 供默认列表过滤。
+                    # 注意: caps 字典在下方才构建,这里先记局部标志
+                    _is_audio_broadcast = channel_type != 0 and len(channel_id) >= 13 and channel_id[10:13] == "138"
+                    _name_l = str(name or "").strip().lower()
+                    if channel_type != 0 and _name_l.startswith(("audioin", "audioout", "audio in", "audio out")):
+                        channel_type = 3
+
                     try:
                         lon_f = float(longitude) if longitude else None
                         lat_f = float(latitude) if latitude else None
@@ -675,6 +688,10 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                         caps["catalog_has_video"] = bool(has_video)
                         if channel_type:
                             caps["catalog_channel_type"] = int(channel_type)
+                        # FIX: 类型码 138 的音频/广播能力落 capabilities(对齐 wvp hasAudio/enableBroadcast)
+                        if _is_audio_broadcast:
+                            caps["has_audio"] = True
+                            caps["enable_broadcast"] = True
                     except Exception as _caps_set_err:
                         logger.warning(f"[CATALOG] Failed to set capabilities for {channel_id}: {_caps_set_err}")
                         caps = {"has_video": bool(has_video), "catalog_has_video": bool(has_video)}
@@ -708,7 +725,19 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                         session.add(resource)
                         if remaining is not None:
                             remaining -= 1
+                        _catalog_changes.append(
+                            {
+                                "tenant_id": asset.tenant_id or "default",
+                                "gb_id": channel_id,
+                                "name": name or "",
+                                "status": resource.status,
+                                "parent_gb_id": effective_parent or "",
+                                "event_type": "Add",
+                            }
+                        )
                     else:
+                        # 记录变更前签名,内容无变化的通道(如周期目录刷新)不发 Update 通知
+                        _prev_sig = (resource.name, resource.status, resource.node_type, resource.parent_gb_id, resource.type)
                         resource.asset_id = asset.id
                         resource.name = name
                         # is_online=None（状态未知）时保留现有状态，不翻转
@@ -728,6 +757,19 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                             resource.longitude = lon_f
                         if lat_f is not None:
                             resource.latitude = lat_f
+                        _new_sig = (resource.name, resource.status, resource.node_type, resource.parent_gb_id, resource.type)
+                        if _prev_sig != _new_sig:
+                            _catalog_changes.append(
+                                {
+                                    "tenant_id": asset.tenant_id or "default",
+                                    "resource_id": str(resource.id),
+                                    "gb_id": channel_id,
+                                    "name": name or "",
+                                    "status": resource.status,
+                                    "parent_gb_id": resource.parent_gb_id or "",
+                                    "event_type": "Update",
+                                }
+                            )
                 except Exception as _item_err:
                     logger.opt(exception=True).error(f"[CATALOG_ITEM_ERROR] device={device_id} channel_id={channel_id} error={_item_err}")
                     raise
@@ -740,7 +782,17 @@ async def handle_catalog_response(xml_body: str, device_id: str):
                         if asset.tenant_id:
                             existing_stmt = existing_stmt.where(Resource.tenant_id == asset.tenant_id)
                         existing_result = await session.execute(existing_stmt)
-                        ids_to_delete = [rid for rid, gid in existing_result.all() if gid not in seen_ids]
+                        _deleted_pairs = [(rid, gid) for rid, gid in existing_result.all() if gid not in seen_ids]
+                        ids_to_delete = [rid for rid, _gid in _deleted_pairs]
+                        for _rid, _gid in _deleted_pairs:
+                            _catalog_changes.append(
+                                {
+                                    "tenant_id": asset.tenant_id or "default",
+                                    "resource_id": str(_rid),
+                                    "gb_id": _gid,
+                                    "event_type": "Del",
+                                }
+                            )
                     logger.info(f"[CATALOG_DB_DEBUG] device={device_id} cleanup: ids_to_delete={len(ids_to_delete)}")
                     _BATCH_SIZE = 500
                     for batch_start in range(0, len(ids_to_delete), _BATCH_SIZE):
@@ -756,6 +808,17 @@ async def handle_catalog_response(xml_body: str, device_id: str):
             logger.info(f"[CATALOG_DB_DEBUG] device={device_id} flush done, committing")
             await session.commit()
             logger.info(f"[CATALOG_DB_DEBUG] device={device_id} commit done")
+
+            # FIX [2026-11-20 P0] (wvp #1779/#2246 同款):目录增删改原先只落库,不向上级发
+            # 任何通知(上级侧目录滞留)。提交成功后把变更交给防抖聚合器,对活跃 Catalog
+            # 订阅上级发增量 NOTIFY。设备上下线的 ON/OFF 通知在 notify_manager hook 里。
+            if _catalog_changes:
+                try:
+                    from app.services.notify_manager import report_catalog_changes
+
+                    await report_catalog_changes(_catalog_changes)
+                except Exception as _notify_err:
+                    logger.debug(f"queue incremental catalog notify failed: {_notify_err}")
 
             await patch_device_catalog_runtime(
                 device_id,

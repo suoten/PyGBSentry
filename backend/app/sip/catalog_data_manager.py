@@ -28,17 +28,81 @@ from loguru import logger
 from app.core.config import settings
 
 
+def loop_time() -> float:
+    """asyncio 单调时钟（wait_for 静止窗口用）。"""
+    return asyncio.get_running_loop().time()
+
+
 # 默认清理周期与条目过期阈值（秒）
 _DEFAULT_MONITOR_INTERVAL = 60.0
 _DEFAULT_ENTRY_TTL = 300.0
 # wait_for 默认超时（秒）
 _DEFAULT_WAIT_TIMEOUT = 10.0
 
+# FIX [2026-11-20 P1] (wvp #1892 同款修复):这些查询的响应会被部分厂商（海康等）
+# 拆成多个同 SN 的 SIP MESSAGE 分包发送。此前的 put() 后包覆盖前包、wait_for 首包
+# 即返回，导致预置位列表不全。多包命令走"聚合 + 静止窗口"路径。
+_MULTI_PACKET_CMDS = {"PresetQuery", "HomePosition"}
+# 静止窗口：距最后一个分包超过该时长即视为收完
+_MULTI_PACKET_SETTLE_SECONDS = 1.5
+
+
+def _merge_preset_packets(packets: list[str]) -> str:
+    """把同一查询的多个响应分包合并为单份 XML（按 PresetID 去重）。
+
+    取首个含 PresetList 的分包作为模板，合并所有分包的 <Item>；无 PresetList 的
+    分包（如错误响应）直接原样返回。
+    """
+    import copy
+    import xml.etree.ElementTree as ET
+
+    list_packets = [p for p in packets or [] if p]
+    if not list_packets:
+        return ""
+    if len(list_packets) == 1:
+        return list_packets[0]
+
+    template = None
+    seen_ids: set[str] = set()
+    merged_items: list = []
+    for pkt in list_packets:
+        try:
+            root = ET.fromstring(pkt)
+        except Exception:
+            continue
+        plist = root.find(".//PresetList")
+        if plist is None:
+            continue
+        if template is None:
+            template = copy.deepcopy(root)
+        for item in plist.findall("Item"):
+            pid = (item.findtext("PresetID") or "").strip()
+            dedupe_key = pid or ET.tostring(item, encoding="unicode")
+            if dedupe_key in seen_ids:
+                continue
+            seen_ids.add(dedupe_key)
+            merged_items.append(copy.deepcopy(item))
+    if template is None:
+        # 所有分包都无 PresetList:回退为最后一个分包（错误信息等）
+        return list_packets[-1]
+
+    plist = template.find(".//PresetList")
+    if plist is not None:
+        for child in list(plist.findall("Item")):
+            plist.remove(child)
+        for item in merged_items:
+            plist.append(item)
+        plist.set("Num", str(len(merged_items)))
+    try:
+        return ET.tostring(template, encoding="unicode")
+    except Exception:
+        return list_packets[0]
+
 
 class _Entry:
     """单条响应缓存条目。"""
 
-    __slots__ = ("body", "created_at", "event", "sn")
+    __slots__ = ("body", "created_at", "event", "sn", "packets", "last_packet_mono", "complete")
 
     def __init__(self, body: str = "", sn: str = "") -> None:
         """Internal helper:   init  ."""
@@ -48,6 +112,11 @@ class _Entry:
         self.event: asyncio.Event = asyncio.Event()
         # 可选的 SN（MANSCDP 序号），用于精确匹配请求与响应
         self.sn: str = sn
+        # FIX: 多包命令（PresetQuery/HomePosition）的分包缓存与静止窗口时间戳
+        self.packets: list[str] = []
+        self.last_packet_mono: float = 0.0
+        # 收到无 PresetList 的终态分包（错误响应等）时直接置完成
+        self.complete: bool = False
 
     def refresh(self, body: str, sn: str = "") -> None:
         """Refresh."""
@@ -78,17 +147,37 @@ class CatalogDataManager:
         """存储一条设备响应数据，并唤醒所有等待该 ``(gb_id, cmd_type)`` 的协程。
 
         若条目已存在则更新 body 并重新触发 event；若不存在则新建。
+
+        FIX [2026-11-20 P1] (wvp #1892 同款修复):多包命令（PresetQuery/HomePosition）
+        不再覆盖式写入——分包追加缓存,由 wait_for 按"静止窗口"聚合后返回完整列表。
         """
         if not gb_id or not cmd_type:
             return
         key = (str(gb_id), str(cmd_type))
+        is_multi = str(cmd_type) in _MULTI_PACKET_CMDS
         async with self._lock:
             entry = self._entries.get(key)
-            if entry is None:
-                entry = _Entry(body=body or "", sn=sn or "")
-                self._entries[key] = entry
+            if is_multi:
+                # 注意:必须复用已有条目对象（wait_for 会先创建占位条目并在其 event 上
+                # 等待），整条替换会导致等待方永远等不到唤醒
+                if entry is None:
+                    entry = _Entry(sn=sn or "")
+                    self._entries[key] = entry
+                if not getattr(entry, "packets", None):
+                    entry.packets = []
+                entry.packets.append(body or "")
+                entry.last_packet_mono = time.monotonic()
+                # 合并结果写入 body,首个分包唤醒等待方进入静止窗口等待
+                entry.body = _merge_preset_packets(entry.packets)
+                if sn:
+                    entry.sn = sn
+                entry.event.set()
             else:
-                entry.refresh(body or "", sn or "")
+                if entry is None:
+                    entry = _Entry(body=body or "", sn=sn or "")
+                    self._entries[key] = entry
+                else:
+                    entry.refresh(body or "", sn or "")
         logger.debug(f"catalog_data_manager.put: gb_id={gb_id} cmd_type={cmd_type} sn={sn or '-'} body_len={len(body or '')}")
 
     # ------------------------------------------------------------------
@@ -141,13 +230,25 @@ class CatalogDataManager:
                 entry = _Entry()
                 self._entries[key] = entry
 
+        is_multi = str(cmd_type) in _MULTI_PACKET_CMDS
         try:
             await asyncio.wait_for(entry.event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             logger.warning(f"catalog_data_manager.wait_for timeout: gb_id={gb_id} cmd_type={cmd_type} timeout={timeout}s")
             return ""
 
-        body = entry.body or ""
+        if is_multi:
+            # FIX [2026-11-20 P1]: 多包命令等待"静止窗口"聚合完所有分包再返回
+            deadline = loop_time() + timeout
+            while True:
+                now_mono = loop_time()
+                settled = (now_mono - entry.last_packet_mono) >= _MULTI_PACKET_SETTLE_SECONDS
+                if settled or now_mono >= deadline or entry.complete:
+                    break
+                await asyncio.sleep(0.2)
+            body = _merge_preset_packets(entry.packets) or (entry.body or "")
+        else:
+            body = entry.body or ""
         if clear_on_read:
             async with self._lock:
                 # 仅在仍是同一个 entry 时清除（避免清掉更新的响应）

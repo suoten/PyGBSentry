@@ -510,6 +510,15 @@ async def force_start_schedule(
             extra_summary=f"schedule_id={schedule_id}; resource_id={res.id}",
         )
         raise HTTPException(status_code=400, detail="Channel missing gb_id")
+    # FIX [2026-11-20 P1]: 解析通道真实 ZLM 流名（{gb_id}_{ssrc} 形态）——原先用 gb_id 调
+    # startRecord 永远打不到点播流;无在线流时回退 gb_id（兼容非 GB 命名的直连流）,
+    # 强制开启后执行器也会在流出现时按真实流名补录
+    try:
+        from app.services.recording_guard import find_channel_live_stream
+
+        stream = await find_channel_live_stream(stream) or stream
+    except Exception:
+        pass
     proxy_host, proxy_http_port, proxy_secret = await _select_media_node(db)
     now = datetime.now(timezone.utc)
     minutes = max(1, min(int(payload.minutes or 60), 24 * 60))
@@ -616,6 +625,13 @@ async def force_stop_schedule(
             extra_summary=f"schedule_id={schedule_id}; resource_id={res.id}",
         )
         raise HTTPException(status_code=400, detail="Channel missing gb_id")
+    # FIX [2026-11-20 P1]: 与 force-start 相同的流名解析——stopRecord 同样需要真实流名
+    try:
+        from app.services.recording_guard import find_channel_live_stream
+
+        stream = await find_channel_live_stream(stream) or stream
+    except Exception:
+        pass
     proxy_host, proxy_http_port, proxy_secret = await _select_media_node(db)
     now = datetime.now(timezone.utc)
     minutes = max(1, min(int(payload.minutes or 10), 24 * 60))

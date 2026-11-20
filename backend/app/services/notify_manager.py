@@ -111,6 +111,79 @@ async def _on_alarm(alarm: Alarm):
         logger.error(f"Error pushing Alarm NOTIFY: {e}")
 
 
+class _CatalogChangeDebouncer:
+    """级联目录变更防抖聚合器。
+
+    FIX [2026-11-20 P0] (wvp #2246 同款修复):设备闪断/反复重注册时,原实现对每个
+    订阅上级全量重推目录,形成"批量离线 + 全量同步风暴"。现把变更按
+    CATALOG_NOTIFY_DEBOUNCE_SECONDS 窗口聚合(同通道后到覆盖先到),窗口结束后对每个
+    活跃 Catalog 订阅上级做一次增量 NOTIFY(Add/Update/Del/ON/OFF)。
+    """
+
+    def __init__(self, delay_seconds: float):
+        self._delay = max(0.0, float(delay_seconds))
+        self._pending: dict[tuple[str, str], dict] = {}  # (tenant_id, gb_id) -> change dict,后者覆盖前者
+        self._lock = asyncio.Lock()
+        self._flush_task: asyncio.Task | None = None
+
+    async def report(self, changes: list[dict]) -> None:
+        if not changes:
+            return
+        if self._delay <= 0:
+            await self._flush(list(changes))
+            return
+        async with self._lock:
+            for ch in changes:
+                key = (str(ch.get("tenant_id") or "default"), str(ch.get("gb_id") or ""))
+                if not key[1]:
+                    continue
+                self._pending[key] = ch
+            if self._flush_task is None or self._flush_task.done():
+                self._flush_task = asyncio.create_task(self._delayed_flush())
+
+    async def _delayed_flush(self) -> None:
+        try:
+            await asyncio.sleep(self._delay)
+        except asyncio.CancelledError:
+            return
+        async with self._lock:
+            pending = list(self._pending.values())
+            self._pending.clear()
+        if pending:
+            await self._flush(pending)
+
+    async def _flush(self, changes: list[dict]) -> None:
+        if not changes:
+            return
+        try:
+            subs = await platform_subscription_service.get_active_subscriptions("Catalog")
+            if not subs:
+                return
+            for sub in subs:
+                try:
+                    await platform_service.push_catalog_incremental(
+                        tenant_id="default",
+                        platform_id=sub.platform_id,
+                        changed_resources=changes,
+                    )
+                except Exception as e:
+                    logger.error(f"Error pushing incremental catalog to platform {sub.platform_id}: {e}")
+        except Exception as e:
+            logger.error(f"Error flushing catalog changes notify: {e}")
+
+
+_catalog_debouncer = _CatalogChangeDebouncer(float(getattr(settings, "CATALOG_NOTIFY_DEBOUNCE_SECONDS", 15.0)))
+
+
+async def report_catalog_changes(changes: list[dict]) -> None:
+    """对外入口:目录同步(Add/Update/Del)与设备上下线(ON/OFF)变更统一走防抖增量通知。
+
+    change dict 约定:{"gb_id": 必填, "tenant_id": 可选, "resource_id"/"name"/
+    "status"/"parent_gb_id": 可选, "event_type": Add/Del/Update/ON/OFF}
+    """
+    await _catalog_debouncer.report(changes)
+
+
 async def _on_device_register(gb_id: str):
     if settings.WEBHOOK_DEVICE_STATUS_URL:
         msg = f"【设备上线】设备 {gb_id} 已注册上线"
@@ -119,12 +192,14 @@ async def _on_device_register(gb_id: str):
         )  # P0-16: 保存引用防 GC + 异常日志
 
     try:
+        # FIX [2026-11-20 P0] (wvp #2246 同款修复):原先每次设备注册都对每个订阅上级
+        # trigger_push_catalog 全量重推目录,设备闪断重连即触发全量同步风暴。
+        # 改为防抖聚合的增量 ON 通知;全量推送仍保留在手动"推送目录"入口(trigger_push_catalog)。
         subs = await platform_subscription_service.get_active_subscriptions("Catalog")
         if not subs:
             return
 
-        for sub in subs:
-            await platform_service.trigger_push_catalog(sub.platform_id)
+        await report_catalog_changes([{"gb_id": str(gb_id or ""), "event_type": "ON"}])
 
     except Exception as e:
         logger.error(f"Error pushing Catalog NOTIFY on register: {e}")
@@ -136,6 +211,18 @@ async def _on_device_offline(gb_id: str):
         fire_and_forget(
             _send_webhook(settings.WEBHOOK_DEVICE_STATUS_URL, {"text": msg, "device_id": gb_id, "status": "offline"})
         )  # P0-16: 保存引用防 GC + 异常日志
+
+    # FIX [2026-11-20 P0] (wvp #1779/#2246 同款修复):原先设备离线完全不通知上级,
+    # 上级侧通道状态滞留为 ON。改为防抖聚合的增量 OFF 通知。
+    try:
+        subs = await platform_subscription_service.get_active_subscriptions("Catalog")
+        if not subs:
+            return
+
+        await report_catalog_changes([{"gb_id": str(gb_id or ""), "event_type": "OFF"}])
+
+    except Exception as e:
+        logger.error(f"Error pushing Catalog NOTIFY on offline: {e}")
 
 
 def init_notify_manager():

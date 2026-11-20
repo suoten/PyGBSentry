@@ -21,7 +21,7 @@
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 ### Step 2：创建 `.env` 配置文件

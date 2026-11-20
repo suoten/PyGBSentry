@@ -1020,6 +1020,14 @@ async def _push_catalog_to_platform(
             civil = (res.civil_code or "340200")[:6]
             is_dir = getattr(res, "node_type", "channel") == "directory"
             parental = "1" if is_dir else "0"
+            # FIX [2026-11-20 P1] (wvp #1782 同款):目录 Item 携带经纬度与真实地址
+            try:
+                from app.services.platform_service import _resource_geo_xml as _geo_of
+
+                _geo_xml = _geo_of(res)
+            except Exception:
+                _geo_xml = ""
+            _addr_value = str(getattr(res, "address", "") or "").strip()
             items_xml += f"""<Item>
 <DeviceID>{_xml_escape(output_gb_id)}</DeviceID>
 <Name>{_xml_escape(output_name)}</Name>
@@ -1027,8 +1035,8 @@ async def _push_catalog_to_platform(
 <Model>AI-Sentry</Model>
 <Owner>Owner</Owner>
 <CivilCode>{_xml_escape(civil)}</CivilCode>
-<Address>Address</Address>
-<Parental>{parental}</Parental>
+<Address>{_xml_escape(_addr_value)}</Address>
+{_geo_xml}<Parental>{parental}</Parental>
 <ParentID>{_xml_escape(output_parent_id)}</ParentID>
 <SafetyWay>0</SafetyWay>
 <RegisterWay>1</RegisterWay>
@@ -1075,7 +1083,13 @@ async def _push_catalog_to_platform(
             req,
             {"platform_id": platform_id, "batch_idx": batch_idx, "batch_size": len(batch)},
         )
-        await send_sip_message(proto, transport, addr, req)
+        try:
+            await send_sip_message(proto, transport, addr, req)
+        except Exception as send_err:
+            # FIX [2026-11-20 P1] (wvp #1725 同源修复):单批发送异常原先直接抛出并终止
+            # 剩余批次,上级只能整目录重新查询。改为记录后继续推送后续批次,
+            # 尽量完成目录下发;全部失败时由上级重新查询兜底。
+            logger.warning(f"Catalog batch {batch_idx + 1}/{len(batches)} send failed to {server_gb_id}: {send_err}")
 
         if len(batches) > 1:
             await asyncio.sleep(0.2)
@@ -2550,6 +2564,35 @@ async def handle_message_request(message: SipMessage, addr: tuple, proto: str, t
                         logger.info(f"[MESSAGE] Forwarded cascade ConfigDownload from {gb_id} for channel {device_id_xml}")
                     else:
                         logger.warning(f"[MESSAGE] Failed to forward cascade ConfigDownload from {gb_id} for channel {device_id_xml}")
+            # FIX [2026-11-20 P1] (wvp #1549 同款修复):上级的预置位查询(PresetQuery/HomePosition,
+            # <Query> 根)原先只回 200 存库不转发,上级查不到下级通道预置位。转发给真实设备,
+            # 设备响应由 forward_cascade_preset_response 按 SN 映射回传上级。
+            elif is_cascade_query and cmd_type in ("PresetQuery", "HomePosition") and root_name == "query":
+                preset_device_id = get_xml_text(root, "DeviceID") or gb_id
+                preset_sn = get_xml_text(root, "SN") or "0"
+                import app.services.platform_service as _ps_mod
+
+                svc = getattr(_ps_mod, "platform_service", None)
+                # is_cascade_query=True 蕴含上方 try 内 platform 已成功绑定
+                if svc and is_cascade_query and platform is not None:
+                    ok = await svc.forward_cascade_preset_query(platform, preset_device_id, cmd_type, preset_sn)
+                    if ok:
+                        logger.info(f"[MESSAGE] Forwarded cascade {cmd_type} from {gb_id} for channel {preset_device_id}")
+                    else:
+                        logger.warning(f"[MESSAGE] Failed to forward cascade {cmd_type} from {gb_id} for channel {preset_device_id}")
+            elif root_name == "response" and cmd_type in ("PresetQuery", "HomePosition"):
+                # 设备侧预置位查询响应:存在待回传映射时按 SN 中继给上级(无映射则静默跳过,
+                # 本平台自身的查询响应仍走下方 catalog_data_manager)
+                import app.services.platform_service as _ps_mod
+
+                svc = getattr(_ps_mod, "platform_service", None)
+                if svc:
+                    try:
+                        preset_local_sn = int(get_xml_text(root, "SN") or 0)
+                    except (TypeError, ValueError):
+                        preset_local_sn = 0
+                    if preset_local_sn:
+                        await svc.forward_cascade_preset_response(preset_local_sn, body)
             try:
                 # FIX: [2026-08-22 PN] catalog_data_manager 定义在 app.sip.catalog_data_manager，
                 # app.sip.catalog 从未导出该符号 → ImportError 被吞，响应永远不进 data_manager
@@ -2693,13 +2736,31 @@ async def handle_mobile_position_notify(xml_body: str, device_id: str):
     if longitude and latitude:
         try:
             # Parse time
-            try:
-                if time_str:
-                    pos_time = datetime.datetime.strptime(time_str, "%Y-%m-%dT%H:%M:%S")
-                else:
-                    pos_time = datetime.datetime.now(datetime.timezone.utc)
-            except Exception as _pos_time_err:
-                logger.warning(f"Failed to parse position time: {_pos_time_err}")  # W-10 吞异常改为日志
+            # FIX [2026-11-20 P1] (wvp #1940 同源补强):设备时间格式五花八门
+            # (T/空格分隔、毫秒、时区偏移、Z 后缀),原先只支持一种严格格式,
+            # 其余全部静默丢弃真实时间换成当前时间。改为逐级容错解析。
+            pos_time = None
+            if time_str:
+                _t = time_str.strip()
+                try:
+                    pos_time = datetime.datetime.fromisoformat(_t.replace("Z", "+00:00"))
+                except Exception:
+                    for _fmt in (
+                        "%Y-%m-%dT%H:%M:%S",
+                        "%Y-%m-%dT%H:%M:%S.%f",
+                        "%Y-%m-%d %H:%M:%S",
+                        "%Y-%m-%d %H:%M:%S.%f",
+                        "%Y-%m-%d",
+                    ):
+                        try:
+                            pos_time = datetime.datetime.strptime(_t, _fmt)
+                            break
+                        except Exception:
+                            continue
+                if pos_time is not None and pos_time.tzinfo is not None:
+                    # 统一转 naive UTC,与库存储语义一致
+                    pos_time = pos_time.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+            if pos_time is None:
                 pos_time = datetime.datetime.now(datetime.timezone.utc)
 
             async with AsyncSessionLocal() as session:

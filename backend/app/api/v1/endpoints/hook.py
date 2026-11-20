@@ -860,6 +860,19 @@ async def on_stream_none_reader(request: Request):
         logger.info(f"[none_reader] Keeping recording/playback stream: {app_name}/{stream_id}")
         return {"code": 0, "close": False}
 
+    # FIX [2026-11-20 P1] (wvp #1943/#1744 短文件同款修复):录制计划执行中的流不因无人
+    # 观看而断流——观众退出时若照常断流,MP4 会被提前收尾产生大量 1 分多钟的碎文件。
+    # 录制结束由执行器主动 stopRecord+关流（record_schedule_executor 的 record_schedule_off 路径）
+    if app_name == "live":
+        try:
+            from app.services.recording_guard import is_stream_recording
+
+            if await is_stream_recording(str(app_name), str(stream_id)):
+                logger.info(f"[none_reader] Keeping live stream under scheduled recording: {app_name}/{stream_id}")
+                return {"code": 0, "close": False}
+        except Exception as _rec_guard_err:
+            logger.debug(f"[none_reader] recording guard check failed (fail-open to close): {_rec_guard_err}")
+
     none_reader_delay = float(settings.ZLM_NONE_READER_DELAY_SECONDS or 0)
     if none_reader_delay > 0 and app_name == "live":
         logger.info(f"[none_reader] Delayed close for live stream: {app_name}/{stream_id}, delay={none_reader_delay}s")

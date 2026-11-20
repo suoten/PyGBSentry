@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import json
 import os
+import time
 
 import httpx
 from sqlalchemy import select
@@ -17,6 +18,8 @@ from app.models.resource import Resource
 from loguru import logger
 
 _task: asyncio.Task | None = None
+# 看门狗:schedule_id -> 上次向 ZLM 校验 isRecording 的 monotonic 时间戳
+_last_verify: dict[str, float] = {}
 LOG_DIR = "logs/record_schedule_executor"
 
 
@@ -149,8 +152,31 @@ async def _stop_record(proxy_host: str, proxy_http_port: int, proxy_secret: str,
         raise RuntimeError(f"stopRecord code={body.get('code')} msg={body.get('msg') or ''}".strip())
 
 
+async def _query_recording(proxy_host: str, proxy_http_port: int, proxy_secret: str, app: str, stream: str) -> bool:
+    """查询 ZLM 指定流的 MP4(type=1) 录制是否真的在跑。
+
+    FIX [2026-11-20 P0] 录制看门狗的查询原语(wvp #2145 同款修复):
+    rt.is_recording 只是本地标志,ZLM 重启或流闪断重连后录制可能已经停止而标志仍为 True。
+    兼容两种响应形态:{code,on} 与 {code,data:[{on}]}。查询失败向上抛异常,由调用方决定策略。
+    """
+    url = f"http://{proxy_host}:{proxy_http_port}/index/api/isRecording"
+    async with httpx.AsyncClient(timeout=5) as client:
+        # secret 通过 POST body 传递,与 _start_record/_stop_record 一致
+        r = await client.post(url, data={"secret": proxy_secret, "vhost": "__defaultVhost__", "app": app, "stream": stream, "type": 1})
+    if r.status_code >= 400:
+        raise RuntimeError(f"isRecording http={r.status_code}")
+    body = r.json()
+    if body.get("code") not in {0, "0"}:
+        raise RuntimeError(f"isRecording code={body.get('code')} msg={body.get('msg') or ''}".strip())
+    data = body.get("data")
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return bool(data[0].get("on"))
+    return bool(body.get("on"))
+
+
 async def _run_loop():
     interval = max(2, settings.RECORD_SCHEDULE_EXECUTOR_INTERVAL_SECONDS)
+    _verify_interval = max(30, int(settings.RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS))
     while True:
         if not settings.RECORD_SCHEDULE_EXECUTOR_ENABLED:
             await asyncio.sleep(interval)
@@ -161,6 +187,7 @@ async def _run_loop():
         try:
             media_list = await asyncio.to_thread(get_all_media_from_nodes)
             running = {}
+            running_by_channel = {}
             for item in media_list or []:
                 try:
                     if str(item.get("app") or "") != "live":
@@ -168,6 +195,14 @@ async def _run_loop():
                     stream = str(item.get("stream") or "")
                     if stream:
                         running[stream] = item
+                        # FIX [2026-11-20 P1]: GB 点播流名为 {channel_id}_{ssrc}
+                        # （invite.py:2320-2323），原先只用 res.gb_id 全等匹配永远查不到流。
+                        # 建立全名 + 通道前缀双索引（全名优先，前缀兜底）
+                        running_by_channel.setdefault(stream, stream)
+                        if "_" in stream:
+                            _ch, _rest = stream.rsplit("_", 1)
+                            if _rest.isdigit():
+                                running_by_channel.setdefault(_ch, stream)
                 except Exception as e:
                     logger.debug(f"record_schedule item parse failed: {e}")
                     continue
@@ -176,8 +211,15 @@ async def _run_loop():
                 result = await session.execute(select(RecordSchedule))
                 schedules = result.scalars().all()
                 if not schedules:
+                    # 顺带清理已删除计划残留的看门狗时间戳,避免字典无界增长
+                    if _last_verify:
+                        _last_verify.clear()
                     await asyncio.sleep(interval)
                     continue
+                # 同步清掉本轮已不存在的计划对应的时间戳
+                _live_schedule_ids = {str(getattr(s, "id", "") or "") for s in schedules}
+                for _stale_id in [k for k in _last_verify if k not in _live_schedule_ids]:
+                    _last_verify.pop(_stale_id, None)
                 resource_ids = list({s.resource_id for s in schedules if s.resource_id})
                 res_rows = (await session.execute(select(Resource).where(Resource.id.in_(resource_ids)))).scalars().all()
                 res_by_id = {r.id: r for r in res_rows}
@@ -221,8 +263,10 @@ async def _run_loop():
                     rt.desired_recording = bool(should)
                     rt.last_eval_at = now_naive
                     rt.last_media_node_id = node_id or rt.last_media_node_id
-                    stream = str(res.gb_id or "")
-                    is_running = stream in running
+                    # FIX [2026-11-20 P1]: 解析通道的真实 ZLM 流名（{gb_id}_{ssrc} 形态），
+                    # start/stop/isRecording 全部使用真实流名而非 gb_id
+                    stream = running_by_channel.get(str(res.gb_id or "")) or ""
+                    is_running = bool(stream)
                     if is_running:
                         rt.last_stream_seen_at = now_naive
 
@@ -259,8 +303,52 @@ async def _run_loop():
                                 err=str(e),
                             )
 
+                    if should and rt.is_recording and is_running:
+                        # FIX [2026-11-20 P0] 录制看门狗(wvp #2145 同款修复):
+                        # is_recording 是本地标志,ZLM 重启/流闪断重连后录制可能已死而标志仍为
+                        # True,原先此时循环什么都不做,定时任务静默丢录像。按
+                        # RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS 周期向 ZLM 查询真实录制状态,
+                        # 发现中断立即重发 startRecord 自愈;查询失败不翻转标志,留待下轮。
+                        sch_id = str(getattr(sch, "id", "") or "")
+                        _now_mono = time.monotonic()
+                        if _now_mono - _last_verify.get(sch_id, 0.0) >= _verify_interval:
+                            _last_verify[sch_id] = _now_mono
+                            try:
+                                recording_on = await _query_recording(proxy_host, proxy_http_port, proxy_secret, "live", stream)
+                            except Exception as e:
+                                logger.debug(f"[RecordSchedule] isRecording verify failed stream={stream}: {e}")
+                                recording_on = None
+                            if recording_on is False:
+                                try:
+                                    await _start_record(proxy_host, proxy_http_port, proxy_secret, "live", stream)
+                                    rt.last_action_at = now_naive
+                                    rt.last_action = "re_record_watchdog"
+                                    rt.last_action_ok = True
+                                    rt.last_error = ""
+                                    changed = True
+                                    _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="start_ok")
+                                    logger.info(f"[RecordSchedule] watchdog restarted recording for stream={stream}")
+                                except Exception as e:
+                                    # 重启失败:翻转标志让下轮标准 start 路径按既有记账重试
+                                    rt.is_recording = False
+                                    rt.last_action_at = now_naive
+                                    rt.last_action = "re_record_watchdog"
+                                    rt.last_action_ok = False
+                                    rt.last_error = f"watchdog_restart_failed {str(e)[:200]}"
+                                    changed = True
+                                    _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="start_fail", err=str(e))
+
                     if (not should) and rt.is_recording:
                         sch_id = str(getattr(sch, "id", "") or "")
+                        if not stream:
+                            # FIX: 流已不在 ZLM,录制随之终止,直接落账,避免对空流名调 stopRecord
+                            rt.is_recording = False
+                            rt.last_action_at = now_naive
+                            rt.last_action = "stop_record"
+                            rt.last_action_ok = True
+                            rt.last_error = ""
+                            changed = True
+                            continue
                         try:
                             await _stop_record(proxy_host, proxy_http_port, proxy_secret, "live", stream)
                             rt.is_recording = False
@@ -270,6 +358,26 @@ async def _run_loop():
                             rt.last_error = ""
                             changed = True
                             _append_rse_event(schedule_id=sch_id, stream_gb=stream, evt="stop_ok")
+                            # FIX [2026-11-20 P1] H4:计划结束即关流+BYE。none-reader 对录制中
+                            # 的流会被豁免（services/recording_guard.py），计划结束后若不主动
+                            # 关流，该流将因"无人观看且被豁免"长期滞留占用设备推流
+                            try:
+                                from sqlalchemy import select as _sel
+
+                                from app.models.stream_session import StreamSession as _SS
+                                from app.services.recording_guard import STREAM_LIVE_APP
+                                from app.services.stream_session_service import _release_stream_session_no_db
+
+                                async with AsyncSessionLocal() as _sess:
+                                    _ss = (
+                                        (await _sess.execute(_sel(_SS).where(_SS.app == STREAM_LIVE_APP, _SS.stream == stream)))
+                                        .scalars()
+                                        .first()
+                                    )
+                                if _ss:
+                                    await _release_stream_session_no_db(_ss, reason="record_schedule_off")
+                            except Exception as _rel_err:
+                                logger.debug(f"[RecordSchedule] post-stop stream release failed: {_rel_err}")
                         except Exception as e:
                             rt.last_action_at = now_naive
                             rt.last_action = "stop_record"

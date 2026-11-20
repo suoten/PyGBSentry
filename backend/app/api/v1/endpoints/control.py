@@ -1,6 +1,7 @@
 from fastapi import Query, APIRouter, HTTPException, Depends, Body  # S-01 添加Body导入
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from loguru import logger
 from app.db.session import get_db
 from app.models.asset import Asset
 from app.models.resource import Resource
@@ -428,17 +429,52 @@ async def query_preset(
 
         if not getattr(sip_commander_module, "sip_commander", None):
             raise HTTPException(status_code=503, detail="SIP service not ready")
+        # 先清掉旧缓存,避免 wait_for 立即返回上一次查询的陈旧响应
+        from app.sip.catalog_data_manager import catalog_data_manager as _cdm_pre
+
+        await _cdm_pre.invalidate(gb_id=resource.gb_id, cmd_type="PresetQuery")
         sn = await sip_commander_module.sip_commander.send_preset_query(
             device_id=asset.gb_id,
             channel_id=resource.gb_id,
             transport_info=((asset.ip_addr, asset.port), asset.transport, transport),
         )
+        # FIX [2026-11-20 P1] (wvp #1892 同款修复):原先发出 PresetQuery 后立即返回 SN,
+        # 响应结果存入 catalog_data_manager 后无人消费——UI 永远拿不到远程预置位。
+        # 现在等待设备响应（多包自动聚合,静止窗口 1.5s 无新分包即认为收完）并解析返回
+        from app.sip.catalog_data_manager import catalog_data_manager
+
+        body = await catalog_data_manager.wait_for(resource.gb_id, "PresetQuery", timeout_seconds=10.0)
+        remote_presets: list[dict] = []
+        parse_error = ""
+        if body:
+            try:
+                from app.core.xml_utils import parse_xml
+
+                root = parse_xml(body)
+                if root is not None:
+                    seen_ids: set[str] = set()
+                    for item in root.findall(".//PresetList/Item"):
+                        pid = (item.findtext("PresetID") or "").strip()
+                        if not pid or pid in seen_ids:
+                            continue
+                        seen_ids.add(pid)
+                        remote_presets.append(
+                            {
+                                "preset_id": pid,
+                                "preset_name": (item.findtext("PresetName") or "").strip(),
+                            }
+                        )
+            except Exception as e:
+                parse_error = str(e)[:120]
+                logger.warning(f"remote preset parse failed for {resource.gb_id}: {e}")
         return {
-            "status": "ok",
+            "status": "ok" if remote_presets else ("timeout" if not body else "ok"),
             "device_id": device_id,
             "channel_id": channel_id,
             "sn": sn,
-            "message": "PresetQuery command sent to device, response will be processed asynchronously",
+            "preset_list": remote_presets,
+            "preset_range": {"min": 1, "max": 255},
+            "message": "" if remote_presets else ("device did not respond in time" if not body else (parse_error or "no presets parsed")),
         }
 
     key = _preset_setting_key(device_id, channel_id)

@@ -160,10 +160,14 @@ def fix_file(file_path: Path, dry_run: bool = False) -> tuple[int, bool]:
 def main() -> None:
     dry_run = "--dry-run" in sys.argv
 
+    # 相对仓库根定位（本文件位于 tools/system_check/）；目录不存在时自动跳过
+    repo_root = Path(__file__).resolve().parents[2]
     targets = [
-        Path("E:/硕腾网络/PyGBSentry/PyGBSentry/editions/open-source/backend/app"),
-        Path("E:/硕腾网络/PyGBSentry/PyGBSentry/editions/server/backend/app"),
+        repo_root / "backend" / "app",
+        # 官网代码（editions/server），不在本仓库中，缺失时自动跳过
+        repo_root / "editions" / "server" / "backend" / "app",
     ]
+    targets = [t for t in targets if t.is_dir()]
 
     total_fixed = 0
     total_files = 0

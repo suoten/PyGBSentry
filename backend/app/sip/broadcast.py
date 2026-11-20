@@ -72,6 +72,106 @@ class Broadcast:
         finally:
             self._watchdog_tasks.pop(call_id, None)
 
+    async def send_broadcast_message(self, asset, channel_id: str, transport_info: tuple) -> bool:
+        """发送标准 GB28181 §9.2.1 Broadcast MESSAGE(喊话前置信令)并等待设备最终响应。
+
+        FIX [2026-11-20 P1] (wvp #2268/#2265 大华喊话兼容):标准流程要求平台先发
+        Broadcast MESSAGE(SourceID/TargetID),设备 200 OK 确认后平台再 INVITE 音频流。
+        原实现跳过 MESSAGE 直接 INVITE,大华等严格按标准流程的设备会拒绝喊话。
+        返回 True=设备确认(或发出成功但未等响应的降级路径);False=发送失败。
+        调用方无论结果都应继续 INVITE(MESSAGE 只是兼容前置,不是硬性握手)。
+        """
+        addr, proto, transport = transport_info
+        device_id = str(getattr(asset, "gb_id", "") or "")
+        if not device_id or not channel_id:
+            return False
+        sn = secrets.randbelow(900000) + 100000
+        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Notify>
+<CmdType>Broadcast</CmdType>
+<SN>{sn}</SN>
+<SourceID>{settings.SIP_ID}</SourceID>
+<TargetID>{channel_id}</TargetID>
+</Notify>
+"""
+        req = SipMessage()
+        req.method = "MESSAGE"
+        req.uri = f"sip:{device_id}@{addr[0]}:{addr[1]}"
+        req.version = "SIP/2.0"
+        call_id = f"{secrets.token_hex(8)}_bcpre@{sip_via_host()}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch=z9hG4bK{secrets.token_hex(8)}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{sip_from_to_host()}>;tag={secrets.token_hex(8)}"
+        req.headers["To"] = f"<sip:{device_id}@{sip_from_to_host()}>"
+        req.headers["Call-ID"] = call_id
+        from app.sip.commander import _next_cseq as _bc_next_cseq
+
+        req.headers["CSeq"] = f"{_bc_next_cseq()} MESSAGE"
+        req.headers["Content-Type"] = "Application/MANSCDP+xml"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        req.body = xml_body
+        _attach_trace_header(req)
+
+        timeout_seconds = max(1.0, float(getattr(settings, "BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS", 5.0)))
+        tx_manager = None
+        try:
+            from app.sip.invite import _get_client_tx_manager
+
+            tx_manager = _get_client_tx_manager()
+        except Exception:
+            tx_manager = None
+
+        if tx_manager:
+            event = asyncio.Event()
+            result = {"status": 0}
+
+            async def _bc_message_response(msg: SipMessage, addr_t: tuple, proto_t: str, transport_t):
+                if msg.get_header("Call-ID") != call_id:
+                    return False
+                cseq_val = str(msg.get_header("CSeq") or "").strip()
+                cseq_method = cseq_val.split(" ", 1)[1].strip().upper() if " " in cseq_val else ""
+                if cseq_method != "MESSAGE":
+                    return False
+                status_code = int(getattr(msg, "status_code", 0) or 0)
+                if 200 <= status_code < 300:
+                    result["status"] = status_code
+                    event.set()
+                    return True
+                if 400 <= status_code < 700:
+                    result["status"] = status_code
+                    event.set()
+                    return True
+                return False
+
+            try:
+                self.sip_server.register_response_handler(_bc_message_response)
+                try:
+                    await tx_manager.send_request(req, addr, proto, transport)
+                    await asyncio.wait_for(event.wait(), timeout=timeout_seconds)
+                except asyncio.TimeoutError:
+                    logger.info(f"[Broadcast] Pre-MESSAGE no response from {device_id} in {timeout_seconds}s (device may not require it), continuing INVITE")
+                    return True
+                finally:
+                    try:
+                        self.sip_server.unregister_response_handler(_bc_message_response)
+                    except Exception:
+                        pass
+                if 200 <= result["status"] < 300:
+                    logger.info(f"[Broadcast] Pre-MESSAGE confirmed by {device_id} ({result['status']})")
+                    return True
+                logger.warning(f"[Broadcast] Pre-MESSAGE rejected by {device_id} ({result['status']}), continuing INVITE anyway")
+                return False
+            except Exception as e:
+                logger.warning(f"[Broadcast] Pre-MESSAGE via tx_manager failed: {e}, falling back to direct send")
+
+        try:
+            await send_sip_bytes(proto, transport, addr, req.to_bytes())
+            logger.info(f"[Broadcast] Pre-MESSAGE sent (fire-and-forget) to {device_id}")
+            return True
+        except Exception as e:
+            logger.warning(f"[Broadcast] Pre-MESSAGE send failed for {device_id}: {e}")
+            return False
+
     async def send_broadcast_invite(self, asset, resource, transport_info: tuple, ssrc: str, media_server_ip: str, media_server_port: int) -> str:
         """
         发送语音广播 INVITE 请求

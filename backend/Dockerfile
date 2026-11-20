@@ -43,8 +43,9 @@ COPY app/ ./app/
 # 若目录为空，COPY 仍会成功（复制空目录）。
 COPY binaries/ ./binaries/
 
-# 配置文件与入口脚本
-COPY alembic.ini initial_data.py ./
+# 配置文件（initial_data.py 位于 app/ 下，已由上方 COPY app/ 一并复制，
+# 不要在此单独 COPY —— 构建上下文根目录没有该文件，会导致构建失败）
+COPY alembic.ini ./
 COPY alembic/ ./alembic/
 COPY bin/ ./bin/
 COPY tools/ ./tools/

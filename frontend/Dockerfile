@@ -1,10 +1,13 @@
 # FIXED-P2: R4-04 使用pnpm替代npm，与项目锁文件一致
 # DEVOPS: node:20 LTS 已于 2026-04 EOL，升级到 node:22-alpine（当前活跃 LTS）
-FROM node:22-alpine as build-stage
+FROM node:22-alpine AS build-stage
 
 WORKDIR /app
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+# FIXED [issue IKMFK8]: pnpm@latest 已进入 12.x，会对未声明的依赖构建脚本直接报
+# ERR_PNPM_IGNORED_BUILDS 错误导致构建失败。锁定到与 pnpm-lock.yaml（lockfileVersion 9.0）
+# 兼容的 pnpm 10.x，并在 package.json 的 pnpm.onlyBuiltDependencies 中显式放行所需构建脚本。
+RUN corepack enable && corepack prepare pnpm@10.34.9 --activate
 
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -18,7 +21,7 @@ COPY . .
 RUN pnpm run build
 
 # Production Stage
-FROM nginx:stable-alpine as production-stage
+FROM nginx:stable-alpine AS production-stage
 
 COPY --from=build-stage /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

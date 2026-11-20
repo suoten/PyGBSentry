@@ -34,6 +34,9 @@ class ParentPlatform(Base):
 
     # Local client info for this platform
     client_gb_id = Column(String(20), nullable=False)
+    # FIX [2026-11-20 P1] (wvp #1507 同款修复):部分上级要求独立的鉴权账号而非国标编号,
+    # 空=沿用 client_gb_id(与旧行为一致)
+    auth_username = Column(String(64), nullable=True, comment="级联注册 Digest 鉴权用户名，空=使用 client_gb_id")
     password = Column(String(255), nullable=True, comment="上级平台密码（AES-256-GCM 密文，base64 编码）")
 
     @property

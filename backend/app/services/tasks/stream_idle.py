@@ -181,6 +181,16 @@ async def check_idle_streams():
                             logger.error(f"[StreamIdle] check failed: {res}")
                         continue
                     ss = res
+                    # FIX [2026-11-20 P1] (wvp #1943/#1744 短文件同款修复):录制计划执行中
+                    # 的流不参与空闲回收,否则长时间无人观看的定时录制会被空闲任务 BYE 断流
+                    try:
+                        from app.services.recording_guard import is_stream_recording
+
+                        if await is_stream_recording(str(getattr(ss, "app", "") or ""), str(getattr(ss, "stream", "") or "")):
+                            logger.debug(f"[StreamIdle] skip stream under scheduled recording: {getattr(ss, 'stream', '')}")
+                            continue
+                    except Exception as _rec_guard_err:
+                        logger.debug(f"[StreamIdle] recording guard check failed: {_rec_guard_err}")
                     try:
                         await release_stream_session(session, ss, reason="plugin_stream_idle")
                         cleaned += 1

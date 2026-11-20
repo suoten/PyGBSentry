@@ -5,8 +5,6 @@
 # This overlay adds Prometheus, Alertmanager, and Grafana to your deployment.
 # Alert rules and dashboard are automatically loaded from deploy/monitoring/.
 
-version: '3.8'
-
 services:
   prometheus:
     # DEVOPS: v2.51.0 升级到 v2.55.0（最新稳定 2.x，安全补丁最新；不升 3.x 以避免 UTF-8 名称等破坏性变更）

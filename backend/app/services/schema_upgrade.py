@@ -578,6 +578,8 @@ _MEDIA_NODES_AND_PLATFORMS_STMTS = [
     "ALTER TABLE parent_platforms ADD COLUMN IF NOT EXISTS transport VARCHAR(8) DEFAULT 'UDP'",
     "ALTER TABLE parent_platforms ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(64) DEFAULT 'default'",
     "ALTER TABLE parent_platforms ADD COLUMN IF NOT EXISTS last_keepalive TIMESTAMP",
+    # FIX [2026-11-20 P1] (wvp #1507 同款):独立级联鉴权用户名,空=用 client_gb_id
+    "ALTER TABLE parent_platforms ADD COLUMN IF NOT EXISTS auth_username VARCHAR(64)",
     "CREATE INDEX IF NOT EXISTS idx_parent_platforms_server_gb_id ON parent_platforms (server_gb_id)",
     "CREATE INDEX IF NOT EXISTS idx_parent_platforms_enable ON parent_platforms (enable)",
     "CREATE INDEX IF NOT EXISTS idx_parent_platforms_tenant_id ON parent_platforms (tenant_id)",

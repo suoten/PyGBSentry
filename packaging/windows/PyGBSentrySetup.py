@@ -113,9 +113,9 @@ def download_repo(target_dir, log):
     # ZIP 内根目录形如 PyGBSentry-master/，其下直接就是平台根
     entries = [e for e in os.listdir(target_dir) if os.path.isdir(os.path.join(target_dir, e))]
     inner = os.path.join(target_dir, entries[0]) if entries else target_dir
-    src = os.path.join(inner, "editions", "open-source")
-    if not os.path.isdir(src):
-        raise RuntimeError(f"源码结构异常：未找到 editions/open-source（{inner}）")
+    src = inner
+    if not os.path.isdir(os.path.join(src, "backend")):
+        raise RuntimeError(f"源码结构异常：未找到 backend/（{inner}）")
     return src
 
 

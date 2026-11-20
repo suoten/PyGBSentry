@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   db:
     # DEVOPS: postgres:14 存在已知 CVE，升级到 16-alpine（PG 16 长期支持，安全补丁最新）

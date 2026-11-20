@@ -289,7 +289,18 @@ class Settings(BaseSettings):
     SIP_CASCADE_REGISTER_TIMEOUT_SECONDS: float = 5.0
     SIP_PLATFORM_KEEPALIVE_TIMEOUT_SECONDS: float = 5.0  # 平台 keepalive 超时（秒）
     SIP_PLATFORM_KEEPALIVE_RETRIES: int = 1  # 平台 keepalive 重试次数
+    # FIX [2026-11-20 P2] (wvp #2160 同源补强):心跳地址变化可选回写设备表。
+    # 默认关闭保持防劫持语义（伪造 Keepalive 含目标 DeviceID 即可改写设备地址的风险）；
+    # 可信内网/纯内网部署且设备 NAT 重映射后不重注册的场景开启后，点播 INVITE 首发地址
+    # 不再打到旧地址（多目标重试+成功回写仍保留为第二道兜底）
+    SIP_KEEPALIVE_ADDR_UPDATE_ENABLED: bool = False
     SIP_IP_BLACKLIST_CACHE_TTL_SECONDS: float = 60.0  # IP 黑名单内存缓存 TTL（秒）
+
+    # FIX [2026-11-20 P2] (wvp #2135 部分同款修复):幽灵流周期对账 — ZLM 有 GB RTP 推流
+    # (rtp_push)但平台无对应 StreamSession 的流,持续超过宽限期后强制关闭,回收端口与带宽
+    STREAM_GHOST_RECONCILE_ENABLED: bool = True
+    STREAM_GHOST_RECONCILE_INTERVAL_SECONDS: int = 300  # 对账周期(秒),下限 60
+    STREAM_GHOST_RECONCILE_GRACE_SECONDS: int = 90  # 幽灵宽限期(秒),容忍 INVITE 建会话与首包到达的竞态,下限 30
 
     ZLM_NONE_READER_DELAY_SECONDS: float = 0
     ZLM_TCP_ACTIVE_CONNECT_RETRIES: int = 6  # TCP-ACTIVE 设备连接重试次数（覆盖设备端口准备时间）
@@ -367,7 +378,10 @@ class Settings(BaseSettings):
     GB28181_DEFAULT_STREAM_TYPE: str = "main"  # 全局默认码流(main/sub)；INVITE stream_type=auto 时的最终回退
     GB28181_PLAY_LEARNING_ENABLED: bool = True  # 传输模式自适应学习开关
     GB28181_PLAY_LEARNING_MIN_SAMPLES: int = 5  # 学习最小样本数，低于该值学习结果不计入
-    GB28181_VERSION: str = "2016"  # GB28181协议版本(2016/2022)，影响SDP a=track行等
+    # FIX [2026-11-20 P2]:默认对齐 README「基于 GB/T 28181-2022 构建(向下兼容 2016)」
+    # 的口径——原先默认 2016,SDP 缺 a=track 行,2022 设备/上级按旧版解析。SDP 的
+    # a=track 为附加属性行,2016 设备按 SDP 规范忽略未知 a= 行,向下兼容不受影响
+    GB28181_VERSION: str = "2022"  # GB28181协议版本(2016/2022)，影响SDP a=track行等
     GB28181_STREAM_SWITCH_USE_TRACK_SUBJECT: bool = True  # 默认开启GB28181-2022码流切换track标识，与wvp对齐
     GB28181_PLAYBACK_SDP_TIME_FORMAT: str = "iso"  # 回放SDP时间格式(iso/epoch)
     GB28181_VIDEO_QUALITY: int = 0  # 视频质量等级(0=主码流,1=子码流)
@@ -412,6 +426,11 @@ class Settings(BaseSettings):
     # 和 getattr(settings, "MEDIA_SERVER_BROADCAST_PORT", 20000) 动态获取违反硬约束 #41
     MEDIA_SERVER_IP: str = ""  # 空则回退到 SIP_IP
     MEDIA_SERVER_BROADCAST_PORT: int = 20000
+    # FIX [2026-11-20 P1] (wvp #2268 大华喊话兼容):喊话前先发标准 GB28181 §9.2.1
+    # Broadcast MESSAGE(Notify 根,SourceID/TargetID)并等待设备 200 OK,再走既有
+    # 直连 INVITE。大华等要求 MESSAGE 先行的机型需开启;默认关闭保持既有设备兼容
+    BROADCAST_PRE_MESSAGE_ENABLED: bool = False
+    BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS: float = 5.0
     # P1-fix [2026-07-17]: 流媒体公网 RTMP 端口 — 原 stream_proxy.py 使用 getattr(settings, "STREAM_PUBLIC_RTMP_PORT", 1935)
     # 动态获取违反硬约束 #41。默认 1935（与历史 getattr 默认值一致）
     STREAM_PUBLIC_RTMP_PORT: int = 1935
@@ -666,6 +685,18 @@ class Settings(BaseSettings):
 
     RECORD_SCHEDULE_EXECUTOR_ENABLED: bool = True
     RECORD_SCHEDULE_EXECUTOR_INTERVAL_SECONDS: int = 10
+    # 录制看门狗:周期性向 ZLM 查询 isRecording 校验本地 is_recording 标志,
+    # 覆盖 ZLM 重启/流闪断重连后"标志仍为 True 但录制已死"的场景(下限 30s)
+    RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS: int = 60
+
+    # 级联目录主动推送/增量通知的单条 SIP MESSAGE 最大条目数。
+    # 原先主动推送默认全目录塞单条报文,数千通道时远超 MTU,部分上级(UDP)收不到
+    # (wvp #2138 同款)。<=0 视为使用默认值。
+    PLATFORM_CATALOG_BATCH_SIZE: int = 100
+    # 级联目录变更通知防抖窗口(秒):设备闪断/频繁重注册时,把 ON/OFF/Add/Update/Del
+    # 变更合并进一个窗口后做一次增量 NOTIFY,替代原先"每次注册全量重推"的风暴行为
+    # (wvp #2246 同款)。<=0 表示不防抖(逐事件立即推送)。
+    CATALOG_NOTIFY_DEBOUNCE_SECONDS: float = 15.0
 
     RECORD_INDEX_VERIFY_ENABLED: bool = True
     RECORD_INDEX_VERIFY_INTERVAL_SECONDS: int = 60

@@ -465,6 +465,8 @@ class PlatformCreate(BaseModel):
     server_port: int = 5060
     transport: str = "UDP"
     client_gb_id: str
+    # FIX [2026-11-20 P1] (wvp #1507 同款):独立鉴权账号,空=用 client_gb_id
+    auth_username: str = ""
     password: str = ""
     register_interval: int = 3600
     keepalive_interval: int = 60
@@ -478,6 +480,7 @@ class PlatformUpdate(BaseModel):
     server_port: int | None = None
     transport: str | None = None
     client_gb_id: str | None = None
+    auth_username: str | None = None
     password: str | None = None
     register_interval: int | None = None
     keepalive_interval: int | None = None
@@ -500,6 +503,7 @@ class PlatformItem(BaseModel):
     server_port: int | None = None
     transport: str | None = None
     client_gb_id: str | None = None
+    auth_username: str | None = None
     tenant_id: str | None = None
     is_online: bool | None = None
     register_interval: int | None = None
@@ -535,6 +539,7 @@ async def list_platforms(
             "server_port": p.server_port,
             "transport": _normalize_transport(getattr(p, "transport", None)),
             "client_gb_id": p.client_gb_id,
+            "auth_username": getattr(p, "auth_username", None) or "",
             "tenant_id": p.tenant_id,
             "is_online": p.is_online,
             "register_interval": p.register_interval,
@@ -576,6 +581,7 @@ async def get_platform_runtime(
             "server_port": p.server_port,
             "transport": _normalize_transport(getattr(p, "transport", None)),
             "client_gb_id": p.client_gb_id,
+            "auth_username": getattr(p, "auth_username", None) or "",
             "tenant_id": p.tenant_id,
             "is_online": p.is_online,
             "register_interval": p.register_interval,
@@ -1012,6 +1018,7 @@ async def create_platform(
         server_port=payload.server_port,
         transport=_normalize_transport(payload.transport),
         client_gb_id=payload.client_gb_id.strip(),
+        auth_username=(payload.auth_username or "").strip(),
         password=(
             payload.password.strip() if payload.password and payload.password.strip() else (settings.SIP_DEFAULT_PASSWORD or "")
         ),  # 移除弱密码回退"12345678"
@@ -1096,6 +1103,8 @@ async def update_platform(
         p.transport = _normalize_transport(payload.transport)
     if payload.client_gb_id is not None:
         p.client_gb_id = payload.client_gb_id.strip()
+    if payload.auth_username is not None:
+        p.auth_username = str(payload.auth_username).strip()
     if payload.password is not None:
         if str(payload.password).strip():
             p.password = str(payload.password).strip()

@@ -610,6 +610,10 @@ async def _query_channel_page(
 
     stmt = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id)
     conditions: list = [Resource.node_type == "channel"]
+    # FIX [2026-11-20 P1] (wvp #2081 同款):默认列表排除音频通道(Resource.type==3,
+    # GB ID 类型码 132/133 的 AudioIn/AudioOut),避免每个视频通道旁多出 AudioOut1;
+    # NULL 兼容(历史行无 type 值时不过滤)
+    conditions.append(or_(Resource.type.is_(None), Resource.type != 3))
 
     if query:
         q = f"%{query.strip()}%"
@@ -683,6 +687,10 @@ async def _query_unusual_channel_page(
     skip = (page - 1) * limit
     stmt = select(Resource, Asset).join(Asset, Asset.id == Resource.asset_id)
     conditions: list = [Resource.node_type == "channel"]
+    # FIX [2026-11-20 P1] (wvp #2081 同款):默认列表排除音频通道(Resource.type==3,
+    # GB ID 类型码 132/133 的 AudioIn/AudioOut),避免每个视频通道旁多出 AudioOut1;
+    # NULL 兼容(历史行无 type 值时不过滤)
+    conditions.append(or_(Resource.type.is_(None), Resource.type != 3))
     if query:
         q = f"%{query.strip()}%"
         conditions.append(or_(Resource.gb_id.ilike(q), Resource.name.ilike(q)))

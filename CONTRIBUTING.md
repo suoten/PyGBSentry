@@ -16,7 +16,7 @@ Thank you for your interest in contributing to PyGBSentry! This document outline
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 
 # Install backend dependencies
 cd backend

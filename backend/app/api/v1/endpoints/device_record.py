@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import json
 import hashlib
+import time
 from app.core.redis import redis_client
 from loguru import logger
 
@@ -227,6 +228,261 @@ async def _load_records_by_sn(sn: str) -> tuple[list[dict], dict]:
     return records, meta
 
 
+# ---------------------------------------------------------------------------
+# FIX [2026-11-20 P1] (wvp #2232 同源补强): RecordInfo 自动翻页。
+# sip_record.query_device_record 支持 RecNum/PageNum,但两个查询端点此前都写死
+# page_num=1:设备按页返回时(如 300 条只回 50),端点只会标 partial/超时,永远
+# 不会取第 2 页。以下后台任务在首页数据静止后逐页续查,把结果合并回首个 SN 的
+# 缓存(内存 + Redis),轮询方与进度计算无需感知分页。防御:
+#   - 设备不支持 PageNum 重复返回同一页时去重后无新增 → 立即停止,避免死循环;
+#   - 单次查询最多 _RECORD_MAX_PAGES 页 + 整体时间预算,防异常 SumNum。
+# ---------------------------------------------------------------------------
+RECORD_PAGE_SIZE = 50  # 与 sip/record.py 的默认 page_size 保持一致
+_RECORD_MAX_PAGES = 100  # 单次查询最大页数(5000 条)
+_PAGE_SETTLE_SECONDS = 4.0  # 判定"本页收完"的静止窗口(无新增持续该时长)
+_PAGE_TIMEOUT_SECONDS = 12.0  # 单页最长等待
+_PAGINATION_TOTAL_BUDGET_SECONDS = 120.0  # 翻页整体时间预算(从启动翻页起算)
+
+_pagination_tasks: dict[str, dict] = {}  # base_sn -> {"task": Task, "started": monotonic}
+_page_seen: dict[str, tuple[int, float]] = {}  # base_sn -> (received, last_change_monotonic)
+
+
+def _page_settled(str_sn: str, records: list) -> bool:
+    """首页数据静止判定:条数在 _PAGE_SETTLE_SECONDS 内无增长即视为本页收完。"""
+    cnt = len(records)
+    now = time.monotonic()
+    prev = _page_seen.get(str_sn)
+    if not prev or prev[0] != cnt:
+        _page_seen[str_sn] = (cnt, now)
+        return False
+    return (now - prev[1]) >= _PAGE_SETTLE_SECONDS
+
+
+def _pagination_active(str_sn: str) -> bool:
+    st = _pagination_tasks.get(str_sn)
+    return bool(st and st.get("task") and not st["task"].done())
+
+
+def _dedup_merge(base: list, extra: list) -> list[dict]:
+    seen = set()
+    merged: list[dict] = []
+    for r in list(base) + list(extra):
+        if not isinstance(r, dict):
+            continue
+        key = (str(r.get("start_time") or ""), str(r.get("end_time") or ""), str(r.get("device_id") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(r)
+    try:
+        merged.sort(key=lambda x: str(x.get("start_time") or ""))
+    except Exception:
+        pass
+    return merged
+
+
+async def _store_records_for_sn(sn: str, records: list, sum_num: int) -> None:
+    """把翻页结果合并回首个 SN 的两套缓存(内存 + Redis),轮询方与进度计算无感知。"""
+    str_sn = str(sn)
+    try:
+        record_query_cache[str_sn] = list(records)
+    except Exception as e:
+        logger.warning(f"Failed to store paginated records in memory cache: {e}")
+    record_query_meta_cache[str_sn] = {
+        "sn": str_sn,
+        "device_id": "",
+        "sum_num": int(sum_num or 0),
+        "received": int(len(records)),
+        "_ts": time.time(),
+    }
+    if redis_client is not None:
+        try:
+            await redis_client.setex(_sn_key(str_sn), 600, json.dumps(list(records), ensure_ascii=False))
+            await redis_client.setex(
+                _sn_meta_key(str_sn),
+                600,
+                json.dumps({"sn": str_sn, "sum_num": int(sum_num or 0), "received": int(len(records))}, ensure_ascii=False),
+            )
+        except Exception as e:
+            logger.warning(f"Failed to store paginated records in Redis: {e}")
+
+
+async def _wait_for_page(page_sn: str, page_num: int, page_size: int, sum_num: int) -> list:
+    """等待单页数据:达到期望条数即返回;否则等数据静止或超时。"""
+    expected = min(page_size, max(0, sum_num - (page_num - 1) * page_size))
+    deadline = time.monotonic() + _PAGE_TIMEOUT_SECONDS
+    last_cnt = -1
+    last_change = time.monotonic()
+    while time.monotonic() < deadline:
+        recs, _m = await _load_records_by_sn(page_sn)
+        cnt = len(recs)
+        if cnt != last_cnt:
+            last_cnt = cnt
+            last_change = time.monotonic()
+        if expected > 0 and cnt >= expected:
+            return recs
+        if cnt > 0 and (time.monotonic() - last_change) >= _PAGE_SETTLE_SECONDS:
+            return recs
+        await asyncio.sleep(0.5)
+    recs, _m = await _load_records_by_sn(page_sn)
+    return recs
+
+
+async def _paginate_records(
+    *,
+    sn: str,
+    asset,
+    resource,
+    transport,
+    start_time: datetime,
+    end_time: datetime,
+    query_id: str = "",
+) -> None:
+    str_sn = str(sn)
+    started = time.monotonic()
+    try:
+        records, meta = await _load_records_by_sn(str_sn)
+        try:
+            sum_num = int(meta.get("sum_num") or 0)
+        except Exception:
+            return
+        if sum_num <= len(records):
+            return
+        page_size = RECORD_PAGE_SIZE
+        total_pages = min(_RECORD_MAX_PAGES, (sum_num + page_size - 1) // page_size)
+        for page_num in range(2, total_pages + 1):
+            if time.monotonic() - started > _PAGINATION_TOTAL_BUDGET_SECONDS:
+                logger.warning(f"[RecordPagination] SN={str_sn} budget exceeded at page {page_num}/{total_pages}, stopping")
+                break
+            try:
+                page_sn = await sip_record_module.sip_record.query_device_record(
+                    asset,
+                    resource,
+                    transport,
+                    start_time,
+                    end_time,
+                    page_size=page_size,
+                    page_num=page_num,
+                )
+            except Exception as e:
+                logger.warning(f"[RecordPagination] SN={str_sn} page {page_num} send failed: {e}")
+                break
+            page_records = await _wait_for_page(str(page_sn), page_num, page_size, sum_num)
+            if not page_records:
+                logger.info(f"[RecordPagination] SN={str_sn} page {page_num} empty, stop")
+                break
+            base_records, _base_meta = await _load_records_by_sn(str_sn)
+            merged = _dedup_merge(base_records, page_records)
+            if len(merged) <= len(base_records):
+                # 设备不支持 PageNum,重复返回同一页 — 停止翻页避免死循环
+                logger.info(f"[RecordPagination] SN={str_sn} page {page_num} no new records (device may ignore PageNum), stop")
+                break
+            await _store_records_for_sn(str_sn, merged, sum_num)
+            if query_id:
+                try:
+                    q = await _load_query(query_id)
+                    if q:
+                        q["last_activity_at"] = _now_utc().isoformat()
+                        await _store_query(query_id, q, ttl_seconds=max(60, int(q.get("timeout_seconds") or 15) + 900))
+                except Exception as e:
+                    logger.debug(f"[RecordPagination] refresh query activity failed: {e}")
+            if len(merged) >= sum_num:
+                break
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.warning(f"[RecordPagination] SN={str_sn} failed: {e}")
+    finally:
+        _page_seen.pop(str_sn, None)
+
+
+async def _ensure_auto_pagination(
+    *,
+    sn: str,
+    asset,
+    resource,
+    transport,
+    start_time: datetime,
+    end_time: datetime,
+    timeout_seconds: int,
+    query_id: str = "",
+) -> bool:
+    """首页收满(RECORD_PAGE_SIZE)且静止时启动后台翻页。
+
+    返回 True 表示翻页已启动或进行中;False 表示无需翻页(不分页/已收齐/未收满)。
+    """
+    str_sn = str(sn)
+    if _pagination_active(str_sn):
+        return True
+    records, meta = await _load_records_by_sn(str_sn)
+    try:
+        sum_num = int(meta.get("sum_num") or 0)
+    except Exception:
+        sum_num = 0
+    if sum_num <= RECORD_PAGE_SIZE or len(records) >= sum_num or len(records) < RECORD_PAGE_SIZE:
+        return False
+    task = asyncio.create_task(
+        _paginate_records(
+            sn=str_sn,
+            asset=asset,
+            resource=resource,
+            transport=transport,
+            start_time=start_time,
+            end_time=end_time,
+            query_id=query_id,
+        )
+    )
+    _pagination_tasks[str_sn] = {"task": task, "started": time.monotonic()}
+    if len(_pagination_tasks) > 2000:
+        for k in [k for k, v in _pagination_tasks.items() if v.get("task") and v["task"].done()][:1000]:
+            _pagination_tasks.pop(k, None)
+    return True
+
+
+async def _async_query_pagination_watch(
+    *,
+    query_id: str,
+    sn: str,
+    asset,
+    resource,
+    transport,
+    start_time: datetime,
+    end_time: datetime,
+    timeout_seconds: int,
+) -> None:
+    """异步查询(/device/queries)的后台看护:首页收满静止后自动翻页。"""
+    str_sn = str(sn)
+    deadline = time.monotonic() + max(30.0, timeout_seconds + _PAGINATION_TOTAL_BUDGET_SECONDS)
+    try:
+        while time.monotonic() < deadline:
+            records, meta = await _load_records_by_sn(str_sn)
+            try:
+                sum_num = int(meta.get("sum_num") or 0)
+            except Exception:
+                sum_num = 0
+            if sum_num <= 0 or len(records) >= sum_num:
+                return  # 无翻页需求或已收齐
+            if _pagination_active(str_sn):
+                return  # 已有翻页任务在跑
+            if len(records) >= RECORD_PAGE_SIZE and _page_settled(str_sn, records):
+                await _ensure_auto_pagination(
+                    sn=str_sn,
+                    asset=asset,
+                    resource=resource,
+                    transport=transport,
+                    start_time=start_time,
+                    end_time=end_time,
+                    timeout_seconds=timeout_seconds,
+                    query_id=query_id,
+                )
+                return
+            await asyncio.sleep(1.0)
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        logger.debug(f"[RecordPagination] watcher SN={str_sn} exit: {e}")
+
+
 def _slice(items: list, offset: int, limit: int) -> list:
     offset = max(0, int(offset or 0))
     limit = max(1, min(int(limit or 2000), 10000))
@@ -251,7 +507,9 @@ def _build_query_progress(query_payload: dict, records: list[dict], meta: dict) 
         timeout_seconds = int(query_payload.get("timeout_seconds") or 15)
     except (TypeError, ValueError):
         timeout_seconds = 15
-    created_at = _parse_created_at(query_payload.get("created_at"))
+    # FIX [2026-11-20 P1]: 优先用 last_activity_at(自动翻页进行中会刷新),
+    # 避免翻页仍在推进时按 created_at 误判超时/部分
+    created_at = _parse_created_at(query_payload.get("last_activity_at") or query_payload.get("created_at"))
     age_seconds = max(0, int((_now_utc() - created_at).total_seconds()))
     status = "pending"
     if received > 0:
@@ -464,6 +722,21 @@ async def start_device_record_query(
         query_id=query_id,
         ttl_seconds=max(60, timeout_seconds + 900),
     )
+    # FIX [2026-11-20 P1]: 异步查询的后台看护 — 首页收满静止后自动翻页合并(结果
+    # 写回首个 SN 的缓存,轮询端无感知);翻页期间刷新 last_activity_at,进度计算
+    # 不会在超时阈值后误标 partial
+    asyncio.create_task(
+        _async_query_pagination_watch(
+            query_id=query_id,
+            sn=str(sn),
+            asset=asset,
+            resource=resource,
+            transport=((asset.ip_addr, asset.port), asset.transport, transport),
+            start_time=start_time,
+            end_time=end_time,
+            timeout_seconds=timeout_seconds,
+        )
+    )
     await _device_record_audit(
         db,
         current_user,
@@ -603,6 +876,7 @@ async def query_device_records(
     )
 
     deadline = asyncio.get_running_loop().time() + timeout_seconds
+    pagination_started = False
     while asyncio.get_running_loop().time() < deadline:
         records, meta = await _load_records_by_sn(str(sn))
         if records:
@@ -613,6 +887,20 @@ async def query_device_records(
                 except Exception as e:
                     logger.warning(f"非关键操作失败: {e}")
                 return records
+            # FIX [2026-11-20 P1]: 设备按页返回时自动后台翻页合并,避免只会超时返回 partial;
+            # 翻页期间适当延长等待(封顶 +60s),等不到完整结果仍按超时返回已收数据
+            if not pagination_started and len(records) >= RECORD_PAGE_SIZE and _page_settled(str(sn), records):
+                pagination_started = await _ensure_auto_pagination(
+                    sn=str(sn),
+                    asset=asset,
+                    resource=resource,
+                    transport=((asset.ip_addr, asset.port), asset.transport, transport),
+                    start_time=start_time,
+                    end_time=end_time,
+                    timeout_seconds=timeout_seconds,
+                )
+                if pagination_started:
+                    deadline = max(deadline, asyncio.get_running_loop().time() + min(60.0, timeout_seconds + 45))
         await asyncio.sleep(0.5)
     records, _ = await _load_records_by_sn(str(sn))
     return records or []

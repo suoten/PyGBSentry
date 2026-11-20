@@ -4,6 +4,50 @@
 
 ---
 
+## [Unreleased]
+
+### 修复
+- **P0 定时录制无看门狗静默丢录像**（对照 wvp-GB28181-pro #2145）：`record_schedule_executor` / `auto_record` 此前只维护本地 `is_recording` 标志，ZLM 重启或流闪断重连后录制已死但标志仍为 True，任务期内不会重发 `startRecord`。新增周期性 ZLM `isRecording` 校验（`RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS`，默认 60s，下限 30s），发现录制中断立即重启录制自愈；重启失败翻转标志交由标准 start 路径记账重试
+- **P0 级联目录变更通知体系未接通**（对照 wvp #2246/#1779/#2138/#1725）：
+  - `push_catalog_incremental` 此前为死代码（零调用方），设备上下线走全量重推。现已重写并接线：Event 取值扩展为 Add/Del/Update/ON/OFF（GB28181-2016 §A.2.5）；按 `PlatformCatalogResource` 应用虚拟目录重映射（不向上级泄漏真实 gb_id）；ON/OFF 未携带完整字段时按平台租户回查 Resource 补齐；按 `PLATFORM_CATALOG_BATCH_SIZE`（默认 100）分批发送
+  - 新增 `_CatalogChangeDebouncer`（`CATALOG_NOTIFY_DEBOUNCE_SECONDS`，默认 15s）：设备注册不再触发全量重推，改为防抖聚合的增量 ON 通知；设备离线从"完全不通知"改为增量 OFF 通知（修复上级侧状态滞留 ON）；`catalog.py` 同步入库时收集 Add/Update/Del 变更（Update 做内容比对去噪，周期刷新未变化的通道不产生通知），提交后交防抖器增量 NOTIFY；接收端 `handle_catalog_notify_items` 原生支持上述全部 Event 取值，双端互操作闭环
+  - 上级主动推送目录默认不再把全目录塞单条报文（原先 `catalog_batch_size<=0` → 单条，数千通道超 MTU 上级收不到），与入站路径对齐默认 100 条/批
+  - 入站目录查询的分批推送加单批异常保护：单批发送失败记录告警并继续后续批次，不再整目录中断
+- **P1 安全**：`GET /api/v1/apps/remote-config` 补登录鉴权（原匿名可读插件套件远程配置 JSON）
+
+- **P1 设备录像查询自动翻页**（对照 wvp #2232 补强）：`sip_record.query_device_record` 支持 RecNum/PageNum 但两个查询端点写死 `page_num=1`，设备按 50 条/页返回时只会标 partial 永远不取第 2 页。新增后台自动翻页：首页收满且静止（4s 无新增）后逐页续查合并回首个 SN 缓存（内存+Redis），轮询方无感知；防死循环三重护栏（去重后无新增即停、单查询最多 100 页、整体 120s 预算）；异步查询进度改用 `last_activity_at` 计算，翻页推进中不再误判 partial
+- **P1 级联预置位查询转发**（对照 wvp #1549）：上级的 PresetQuery/HomePosition 查询（`<Query>` 根）此前只回 200 存库不转发，上级永远查不到下级通道预置位。新增 `forward_cascade_preset_query` 转发真实设备 + `forward_cascade_preset_response` 按 SN 映射回传（SN/DeviceID 字符串级替换，保留厂商响应全部其他元素，虚拟通道 ID 反向映射防止泄漏真实 gb_id）；映射表随既有 prune 清理
+- **P1 级联注册独立鉴权账号**（对照 wvp #1507）：`ParentPlatform` 新增 `auth_username` 列（schema_upgrade 自动迁移），Digest 鉴权用户名支持独立配置，空=沿用 client_gb_id 与旧行为一致；API create/update/list/runtime 全链路 + 前端级联平台表单（中英文案）支持
+- **P1 喊话标准 MESSAGE 前置流程**（对照 wvp #2268/#2265 大华兼容）：新增 `Broadcast.send_broadcast_message`（GB28181 §9.2.1 Broadcast MESSAGE + 事务层响应等待），`BROADCAST_PRE_MESSAGE_ENABLED`（默认关闭）开启后 `/stream/broadcast/start` 先发 MESSAGE 等设备确认再走既有 INVITE；MESSAGE 结果不影响 INVITE 继续（兼容前置而非硬性握手）。对讲（talk, s=Play）流程不受影响
+- **P2 TCP 设备 BYE 等待响应**（对照 wvp #2216 弱化版）：`send_bye` 的响应等待原先仅 UDP，TCP 设备 BYE 走 fire-and-forget，设备未确认就清理会话，残留旧对话可致新 INVITE 被 486 Busy 拒绝。响应匹配按 Call-ID/CSeq 与传输无关，去掉 UDP-only 限制（TCP 下事务层只发一次不重传，条目由 prune 兜底）
+- **P2 心跳地址可选回写**（对照 wvp #2160 同源补强）：新增 `SIP_KEEPALIVE_ADDR_UPDATE_ENABLED`（默认关闭，保持"心跳不改地址"的防劫持语义）。可信内网/NAT 重映射且设备不重注册的场景开启后，心跳地址与注册地址不同才回写设备表，点播 INVITE 首发即命中新地址（多目标重试+成功回写仍保留为第二道兜底）
+- **P2 幽灵流周期对账**（对照 wvp #2135 部分）：新增 `stream_ghost_reconcile` 后台任务（默认开启，300s 周期）。聚合 ENV+DB 两个节点源的 getMediaList，仅取 GB RTP 推流（`originTypeStr=rtp_push`，RTMP 推送通道等排除），与 StreamSession 按 (app, stream) 对账；无会话的流持续超过宽限期（`STREAM_GHOST_RECONCILE_GRACE_SECONDS`，默认 90s，容忍 INVITE 建会话与首包到达的竞态）后强制 `close_stream` 回收端口与带宽；行为测试覆盖宽限门控/有主流保留/非 RTP 排除/候选清理
+- **P0（closed-issue 审计新发现）17 个后台任务模块未接线，整体从未运行**：`migrate_plugins.py` 把任务从 plugins/ 迁入 services/tasks/ 时剥掉了 HOOK_ON_STARTUP/register() 启动接线且未补——`record_schedule_executor`（录制计划执行器）、`auto_record`、`stream_idle`（空闲流回收）、`snapshot_refresh`（定时截图）、`pull_proxy_monitor`（拉流代理自愈）、`stream_health`、`ptz_tour`、`event_bridge` 等 17 个模块的 `start()` 全仓零调用方，此前两轮修复的录制看门狗/断流兜底也因此从未生效。已在 `task_manager` 统一接线（各模块自带 settings / plugin_runtime_config 开关仍生效，hook 型模块走 `register(pm)`）；真实启动烟雾测试 22 个任务全部启动并优雅停止。`ssl_certbot_renewer.py` 为 0 字节空文件未接线
+- **P1（wvp #2097/#1907 同款）SSRC 三处泄漏修复**：①`_cleanup_once` 清理本地过期条目时同步 SREM Redis 集合（原先只清本地，Redis 残留蚕食 1 万序号空间后分配必 503）；②新增 Redis 周期对账——清除"本地桶与 DB StreamSession（含其他节点）均不存在"的孤儿 SSRC，多节点安全；③回放切片预取复用路径释放旧 SSRC（原先 BYE 旧会话+关流+释放端口租约但旧 SSRC 永不释放，每小时预取泄漏一个）
+- **P1（自研缺陷）录制流名全链路不匹配**：GB 点播流在 ZLM 的名字是 `{channel_id}_{ssrc}`（invite.py:2320-2323），而录制计划执行器、自动录制、force-start/force-stop 端点一律用 `Resource.gb_id` 匹配 getMediaList 与调用 startRecord/stopRecord/isRecording——永远打不到真实流，录制计划即使接线后也不会生效。新增 `services/recording_guard.py`（`channel_stream_matches` 严格规则：全等或 `{gb_id}_{纯数字SSRC}` 后缀，避免下划线命名误匹配），执行器建立全名+通道前缀双索引并全链路改用真实流名
+- **P1（wvp #1943/#1744 同款）录制中的流豁免无人观看断流/空闲回收**：`on_stream_none_reader` 与 `stream_idle` 对录制计划执行中的流（`recording_guard.is_stream_recording`）豁免断流，避免观众退出导致 MP4 提前收尾产生大量短文件；配套在执行器"计划结束"路径主动 stopRecord+释放会话（关流+BYE），防止被豁免的流在计划结束后滞留
+- **P1（wvp #1892 同款）预置位响应多包聚合（双路径）**：①本地查询——`catalog_data_manager` 对 PresetQuery/HomePosition 启用多包聚合（分包追加、静止窗口 1.5s 无新分包即收完），`/preset/query?remote=true` 此前发出命令立即返回 SN 且结果无人消费，现等待聚合结果解析为 preset_list 返回；②级联转发——`forward_cascade_preset_response` 原先首包即 pop 映射回传、后续分包全部丢弃（上级只能收到不完整列表），现按 SN 保留映射逐包聚合（PresetID 去重、真实通道 ID 反向替换），收满 SumNum 或静止窗口后一次性回传合并结果，prune 时取消挂起任务。行为测试覆盖：分包合并去重、占位条目竞态、静止窗口等待、SSRC 清理、流名匹配边界
+- **P1（wvp #1417 同款）显式注销/离线注册联动通道离线**：`storm_handler` register 分支原先仅上线恢复通道，离线（expires=0）只置设备状态——而两条离线巡检只扫 `Asset.status==1` 的设备，注销设备的通道将永久滞留 ON。补齐离线分支按 asset_id 批量置通道离线
+- **P1（wvp #1782 同款）级联目录 Item 补经纬度/真实地址**：三条推送路径（`_push_catalog` 全量、`_push_catalog_to_platform` 入站、`push_catalog_incremental` 增量）此前缺 `Longitude/Latitude`（上级地图全为 0）且 `Address` 是写死的占位符。新增 `_resource_geo_xml` 辅助：有坐标带 6 位小数经纬度、无坐标省略元素（不写 0），Address 用真实值，增量 Item 同时补 CivilCode
+- **P1（wvp #2081 同款）音频端口通道识别与默认列表过滤**：依据 wvp 源码口径（GbCode 类型码 138=音频/广播能力，132=视频摄像机——绝不能当音频过滤），目录入库时类型码 138 通道在 capabilities 标记 `has_audio/enable_broadcast`；`AudioOut1/AudioIn` 等纯音频端口按名称识别标 `type=3`，默认通道列表（`api/common/channel.py` 两处，NULL 兼容）排除
+- **P1（wvp #1940 同源）MobilePosition 时间容错解析**：原先仅支持严格 `%Y-%m-%dT%H:%M:%S`，带毫秒/时区/空格分隔的时间全部静默丢弃真实值换成当前时间。改为 `fromisoformat` + 多格式逐级解析，带时区的统一转 naive UTC 落库
+- **P1（wvp #1902 同类）看门狗心跳阈值字段统一**：`device_watchdog` 原先读 `keepalive_interval`（全仓无写入点的建表默认列），运维经 API 修改 `heartbeat_interval` 后该路径仍按 60s 判定，长心跳周期设备被误判离线。改为优先 `heartbeat_interval`、回退 `keepalive_interval`
+- **P1（wvp #1852 同款防护）回放重新点播前释放同通道旧会话**：`/playback/{device}/{channel}` 原先直接发新 INVITE 不清理旧回放会话，频繁拖动若走重新点播，设备侧会话数累积至上限（"Session number has reached the upper limit '10'"）。INVITE 前按通道前缀查询并释放旧 playback 会话；`/stream/stop` 停止回放时取消跨小时切片预取任务（`cancel_prefetch_task` 此前无调用方，任务最长滞留 3590s）
+- **P1（wvp #2148/#2150 同类）nginx 反代补 ZLM 媒体路径**：`deploy/nginx/nginx-lb.conf` 新增 `pygbsentry_media` 上游与 `/(record|live|rtp|index/api)/` 反代（含 WS upgrade、关闭缓冲），缺这些 location 时按模板部署的用户云端录像播放/下载 404；`docs/deployment.md` 的 nginx 样例同步补充说明
+- **P2 GB28181_VERSION 默认值对齐 README**：`2016` → `2022`（README 宣称「基于 GB/T 28181-2022 构建向下兼容 2016」，原先默认 2016 导致 SDP 缺 `a=track`；a=track 为附加属性行，2016 设备按 SDP 规范忽略未知 a= 行）
+
+### 变更
+
+- 新增配置项：`RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS`、`PLATFORM_CATALOG_BATCH_SIZE`、`CATALOG_NOTIFY_DEBOUNCE_SECONDS`、`BROADCAST_PRE_MESSAGE_ENABLED`、`BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS`、`SIP_KEEPALIVE_ADDR_UPDATE_ENABLED`、`STREAM_GHOST_RECONCILE_ENABLED`、`STREAM_GHOST_RECONCILE_INTERVAL_SECONDS`、`STREAM_GHOST_RECONCILE_GRACE_SECONDS`
+
+### 部署与仓库清理（issue IKMFK8）
+
+- **P0**：`backend/Dockerfile` 的 `COPY alembic.ini initial_data.py ./` 引用构建上下文中不存在的文件（`initial_data.py` 实际位于 `app/` 内，已随 `COPY app/` 复制），镜像构建必失败 → 改为 `COPY alembic.ini ./`
+- **P0**：前端镜像构建报 `ERR_PNPM_IGNORED_BUILDS`：Dockerfile 用 `corepack prepare pnpm@latest` 会拉到 pnpm 12.x，其对未声明构建脚本的依赖直接报错 → 锁定 `pnpm@10.34.9`（与 `pnpm-lock.yaml` 的 lockfileVersion 9.0 兼容）；`package.json` 增加 `packageManager` 字段与 `pnpm.onlyBuiltDependencies`（放行 `@parcel/watcher`、`esbuild`、`vue-demi`）
+- **P1**：README / README_EN / CONTRIBUTING / docs（INSTALL、INSTALL_DEPLOY、deployment、quickstart、DEPENDENCY_BASELINE）及 CI workflows 中残留 monorepo 路径 `editions/open-source`（本仓库根目录即平台根）→ 全部修正；`frontend-static-checks.yml` 删除引用不存在目录的 `server-frontend` / `open-source-mobile` job
+- **P2**：移除 `docker-compose.yml` / `docker-compose.ha.yml` / `docker-compose.monitoring.yml` 已弃用的 `version: '3.8'` 键；`frontend/Dockerfile` 的 `from` 统一为大写 `AS` 消除 FromAsCasing 告警
+- **P2**：打包与工具脚本残留路径修复：`PyGBSentrySetup.py` 解压后直接定位平台根；`check_plugin_display_metadata.py` / `check_runtime_coverage.py` 改为相对仓库根定位（后者兼容 `plugins/` 包形态）；`fix_exception_swallow.py` 移除硬编码本机盘符路径；`ops.py` 快速开始文案、`make_portable.py` / `build-green-package.*` 注释同步更新
+
 ## [1.2.0] — 2026-08-22
 
 两轮独立复审驱动的工业级质量加固：审计基线清零、前后端契约类型化、前端类型检查从 655 错误清零。

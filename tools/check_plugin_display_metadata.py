@@ -4,9 +4,9 @@ import json
 import sys
 from pathlib import Path
 
-# 本文件位于 editions/open-source/tools/，仓库根目录为上三级
-ROOT = Path(__file__).resolve().parents[3]
-BACKEND_PLUGINS = ROOT / "editions/open-source/backend/plugins"
+# 本文件位于 tools/，仓库根目录为上一级
+ROOT = Path(__file__).resolve().parents[1]
+BACKEND_PLUGINS = ROOT / "backend/plugins"
 SERVER_PACKAGES = ROOT / "editions/server/backend/plugin_packages"
 MARKETPLACE = BACKEND_PLUGINS / "marketplace.json"
 

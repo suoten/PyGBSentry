@@ -181,7 +181,7 @@ Extend without forking:
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 - **Windows**: double-click `install.bat`, then double-click `start.bat` — the web UI opens in your browser automatically
@@ -245,14 +245,14 @@ docker --version
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 > No git? Install it first: `sudo apt install git -y` (Linux) or download from [git-scm.com](https://git-scm.com) (Windows)
 
 #### Step 3: Create Configuration File
 
-Create a `.env` file in the `editions/open-source` directory:
+Create a `.env` file in the repository root (`PyGBSentry`) directory:
 
 ```bash
 cat > .env << 'EOF'

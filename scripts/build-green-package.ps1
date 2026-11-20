@@ -1,5 +1,5 @@
 # 构建开源版绿色包（Windows PowerShell 5.1+）：backend + frontend/dist + run.sh + run.bat，产出 zip。
-# 用法（在 editions/open-source 目录下）：
+# 用法（在仓库根目录）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-green-package.ps1 -Version 1.0.0
 param(
   [string]$Version = "1.0.0",

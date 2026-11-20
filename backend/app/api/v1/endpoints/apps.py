@@ -335,6 +335,9 @@ async def app_log_stats(
 async def app_remote_config(
     plugin_id: str,
     app_version: str = "",
+    # FIX [2026-11-20 P1 安全审计]:原端点无鉴权,匿名可读取插件套件的远程配置 JSON
+    # (可能含业务配置/密钥类字段)。与同文件其他查询端点对齐,要求登录。
+    current_user: User = Depends(deps.get_current_active_user),
 ):
     if plugin_id not in ("mobile_app_suite", "mini_program_suite"):
         return {"plugin_id": plugin_id, "config": {}}

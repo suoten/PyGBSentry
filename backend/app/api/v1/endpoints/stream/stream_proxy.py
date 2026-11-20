@@ -187,6 +187,20 @@ async def broadcast_start(
         if ffmpeg_key:
             logger.info(f"Added FFmpeg source for AAC->PCMA transcoding: key={ffmpeg_key}")
 
+    # FIX [2026-11-20 P1] (wvp #2268/#2265 大华喊话兼容):标准 GB28181 §9.2.1 流程要求
+    # 先发 Broadcast MESSAGE 等设备确认,再 INVITE 音频流。默认关闭(既有直连 INVITE 设备
+    # 不需要);大华等要求 MESSAGE 先行的机型开启 BROADCAST_PRE_MESSAGE_ENABLED。
+    # 无论 MESSAGE 结果如何都继续 INVITE —— MESSAGE 只是兼容前置,不是硬性握手。
+    if getattr(settings, "BROADCAST_PRE_MESSAGE_ENABLED", False):
+        try:
+            await broadcast.send_broadcast_message(
+                asset,
+                str(resource.gb_id or payload.channel_id or ""),
+                ((asset.ip_addr, asset.port), asset.transport, transport),
+            )
+        except Exception as pre_err:
+            logger.warning(f"[Broadcast] Pre-MESSAGE step failed (continuing INVITE): {pre_err}")
+
     # Send broadcast invite
     call_id = await broadcast.send_broadcast_invite(
         asset, resource, ((asset.ip_addr, asset.port), asset.transport, transport), ssrc, media_server_ip, media_server_port

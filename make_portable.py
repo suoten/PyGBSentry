@@ -27,8 +27,8 @@ import sys
 import urllib.request
 import zipfile
 
-HERE = os.path.dirname(os.path.abspath(__file__))            # editions/open-source
-REPO = os.path.dirname(HERE)                                  # editions
+HERE = os.path.dirname(os.path.abspath(__file__))            # 仓库根目录
+REPO = os.path.dirname(HERE)                                  # 仓库上级目录
 OUT_ROOT = os.path.join(HERE, "dist_portable")
 BUILD = os.path.join(OUT_ROOT, "PyGBSentry")
 PY_DIR = os.path.join(BUILD, "python")

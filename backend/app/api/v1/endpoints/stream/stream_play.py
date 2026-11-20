@@ -1403,6 +1403,36 @@ async def playback_stream(
     await db.commit()
     await db.close()
 
+    # FIX [2026-11-20 P1] (wvp #1852 同款防护):重新点播/换时间回放前,先释放同通道
+    # 的旧回放会话(BYE+关流)。频繁拖动时间轴若每次都走重新点播,设备侧 SIP 会话数
+    # 会累积到上限(设备报 "Session number has reached the upper limit '10'")。
+    try:
+        _old_prefix = f"{channel_id or resource.gb_id or ''}_%"
+        async with AsyncSessionLocal() as _old_db:
+            _old_rows = (
+                (
+                    await _old_db.execute(
+                        select(StreamSession).where(
+                            StreamSession.app == "playback",
+                            StreamSession.stream.like(_old_prefix),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        if _old_rows:
+            from app.services.stream_session_service import _release_stream_session_no_db as _release_old
+
+            for _old in _old_rows:
+                try:
+                    await _release_old(_old, reason="playback_superseded", wait_bye_response=False)
+                except Exception as _rel_err:
+                    logger.debug(f"[playback_stream] old playback session release failed: {_rel_err}")
+            logger.info(f"[playback_stream] released {len(_old_rows)} superseded playback session(s) for channel={channel_id}")
+    except Exception as _old_err:
+        logger.debug(f"[playback_stream] old playback session scan failed: {_old_err}")
+
     # 5. 发送 Playback INVITE
     try:
         invite_ret = await sip_invite_module.sip_invite.send_playback_invite(
@@ -1704,6 +1734,15 @@ async def stop_stream(payload: StopStreamRequest, db: AsyncSession = Depends(get
         ssrc = str(getattr(stream_session, "ssrc", "") or "")
         if app_name and stream_id and ssrc:
             released_infos.append((app_name, stream_id, ssrc))
+        # FIX [2026-11-20 P1]: 回放会话停止时取消跨小时切片预取任务
+        # （cancel_prefetch_task 此前无调用方,预取任务停止后最长滞留 3590s 才自检出退出）
+        if app_name == "playback" and stream_id:
+            try:
+                from app.services.playback_timeline import cancel_prefetch_task
+
+                cancel_prefetch_task(stream_id)
+            except Exception as _pf_err:
+                logger.debug(f"[stop_stream] cancel prefetch failed: {_pf_err}")
         await release_stream_session(db, stream_session, reason="stop_stream_api")
         stopped += 1
     await db.commit()

@@ -32,6 +32,22 @@ from app.sip.send import send_sip_bytes
 from app.sip.sdp import build_sdp as _build_sdp
 
 
+def _resource_geo_xml(res) -> str:
+    """目录 Item 的经纬度片段。
+
+    FIX [2026-11-20 P1] (wvp #1782 同款):目录推送携带 Longitude/Latitude,
+    无坐标时返回空串(省略元素而非写 0,避免上级地图显示在 (0,0))。
+    """
+    try:
+        _lon = getattr(res, "longitude", None)
+        _lat = getattr(res, "latitude", None)
+        if _lon is None or _lat is None:
+            return ""
+        return f"<Longitude>{float(_lon):.6f}</Longitude><Latitude>{float(_lat):.6f}</Latitude>"
+    except (TypeError, ValueError):
+        return ""
+
+
 def _parse_host_port(value: str) -> tuple[str, int] | None:
     raw = (value or "").strip()
     if not raw:
@@ -118,6 +134,10 @@ class PlatformService:
         self._catalog_states = {}  # CallID -> {platform_id, tenant_id, batch_idx, batch_total}
         self._catalog_ack_counter = {}  # (tenant_id, platform_id) -> {total, ok, last_status_code}
         self._cascade_record_queries = {}  # local_sn -> {platform_id, server_gb_id, original_sn, original_channel_id, real_channel_id, created_at}
+        # FIX [2026-11-20 P1] (wvp #1549 同款修复):上级 PresetQuery/HomePosition 查询
+        # 的转发回传映射 — local_sn -> {platform_id, server_gb_id, original_sn,
+        # original_channel_id, real_channel_id, cmd_type, created_at}
+        self._cascade_preset_queries = {}
 
     def _next_keepalive_sn(self, server_gb_id: str) -> int:
         """FIX: [2026-07-16 P0] 为每个上级平台维护单调递增的 keepalive 序号，
@@ -893,7 +913,11 @@ class PlatformService:
                 )
                 batch_size = getattr(p, "catalog_batch_size", None) or 0
                 if batch_size <= 0:
-                    batch_size = len(resources)
+                    # FIX [2026-11-20 P0] (wvp #2138 同款修复):原先未配置 catalog_batch_size
+                    # 时把全目录塞进单条 MESSAGE,数千通道时报文远超 MTU,上级(尤其 UDP)收不到。
+                    # 与入站路径(handlers._push_catalog_to_platform)对齐,默认
+                    # PLATFORM_CATALOG_BATCH_SIZE(100) 条/批。
+                    batch_size = min(len(resources), max(10, int(getattr(settings, "PLATFORM_CATALOG_BATCH_SIZE", 100))))
                 batches = [resources[i : i + batch_size] for i in range(0, len(resources), batch_size)]
                 await self._runtime_patch(
                     p.tenant_id or "default",
@@ -1010,6 +1034,10 @@ class PlatformService:
                         civil = (res.civil_code or "340200")[:6]
                         is_dir = getattr(res, "node_type", "channel") == "directory"
                         parental = "1" if is_dir else "0"
+                        # FIX [2026-11-20 P1] (wvp #1782 同款):目录 Item 携带经纬度与真实
+                        # 地址,否则上级平台地图全部显示 0;无坐标时省略元素而非写 0
+                        _addr_value = str(getattr(res, "address", "") or "").strip()
+                        _geo_xml = _resource_geo_xml(res)
 
                         items_xml += f"""<Item>
 <DeviceID>{output_gb_id}</DeviceID>
@@ -1018,8 +1046,8 @@ class PlatformService:
 <Model>AI-Sentry</Model>
 <Owner>Owner</Owner>
 <CivilCode>{civil}</CivilCode>
-<Address>Address</Address>
-<Parental>{parental}</Parental>
+<Address>{_xml_escape(_addr_value)}</Address>
+{_geo_xml}<Parental>{parental}</Parental>
 <ParentID>{output_parent_id}</ParentID>
 <SafetyWay>0</SafetyWay>
 <RegisterWay>1</RegisterWay>
@@ -1160,6 +1188,9 @@ class PlatformService:
                 error=str(e)[:200],
             )
 
+    # GB28181-2016 §A.2.5: Catalog NOTIFY 的 <Event> 取值(Add/Del/Update/ON/OFF)
+    _CATALOG_NOTIFY_EVENTS = {"Add", "Del", "Update", "ON", "OFF"}
+
     async def push_catalog_incremental(
         self,
         tenant_id: str,
@@ -1169,27 +1200,53 @@ class PlatformService:
     ) -> None:
         """
         级联增量目录同步 — 仅推送变更的通道条目，替代全量推送。
-        当设备上下线时调用此方法，通过 SIP NOTIFY 推送增量变更给上级平台。
+        当设备上下线/目录增删改时调用此方法，通过 SIP NOTIFY 推送增量变更给上级平台。
 
         FIX [2026-07-17 P1]: GB28181-2016 §A.2.3 规定 Catalog NOTIFY 的每个 <Item>
         必须包含 <Event> 元素标识变更类型（Add/Del/Update）。原实现缺少 <Event> 元素，
         导致上级平台无法区分增量变更是新增、删除还是更新，只能按全量处理。
 
+        FIX [2026-11-20 P0] (wvp #2246/#1779/#2138 同款修复 — 本方法此前无任何调用方,
+        增量通知体系实际未接通,设备上下线走的是全量重推):
+        1) Event 取值扩展为 Add/Del/Update/ON/OFF(GB28181-2016 §A.2.5 允许 ON/OFF
+           表达通道上下线),设备闪断/重注册不再需要全量重推;
+        2) 按 PlatformCatalogResource 应用虚拟目录重映射,与全量推送口径一致,
+           避免增量通知向上级泄漏真实 gb_id;
+        3) 未携带完整字段(ON/OFF 场景只报 gb_id)时按平台租户回查 Resource 补齐
+           Name/Status/ParentID;
+        4) 按 PLATFORM_CATALOG_BATCH_SIZE 分批发送,单条 NOTIFY 不超 MTU;
+        5) 过滤租户不匹配的变更项。
+
         参数:
             event_type: 默认事件类型，当资源对象未携带 event_type 属性时使用。
-                        调用方可传 "Add"/"Del"/"Update"。
+                        调用方可传 "Add"/"Del"/"Update"/"ON"/"OFF"。
                         每个资源对象也可通过 event_type 属性/dict 键覆盖默认值。
         """
         try:
             async with AsyncSessionLocal() as session:
-                # FIX: [2026-08-22 P1] get_or_404 签名为 (result, detail)，原
-                # get_or_404(session, ParentPlatform, platform_id) 必抛 TypeError
-                # 被吞掉（方法从未真正执行过）。改为直接查询。
                 p = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
                 if not p:
                     return
                 if not p.is_online:
                     return
+                plat_tenant = (getattr(p, "tenant_id", None) or "default")
+
+                def _item_field(item, key, default=""):
+                    if isinstance(item, dict):
+                        v = item.get(key, default)
+                    else:
+                        v = getattr(item, key, default)
+                    return default if v is None else v
+
+                # 过滤租户不匹配的变更项(防抖聚合器可能合并了多个设备/租户的事件)
+                items_in = []
+                for c in changed_resources or []:
+                    it = str(_item_field(c, "tenant_id", "") or "")
+                    if not it or it in {"default", plat_tenant, str(tenant_id or "default")}:
+                        items_in.append(c)
+                if not items_in:
+                    return
+
                 # FIX: [2026-08-22 P1] ParentPlatform 无 catalog_subscribed 列（原代码
                 # 读取该属性必抛 AttributeError 被吞掉，增量推送永远不发送）。
                 # 目录订阅状态实际存于 PlatformSubscription 表（event="catalog" 且未过期），
@@ -1212,10 +1269,108 @@ class PlatformService:
                 )
                 if not sub:
                     return
-                from app.core.config import settings, sip_host_for_contact, sip_via_host
-                from app.sip.send import send_sip_bytes
+
+                # 虚拟目录映射(与 _push_catalog 全量推送同口径)
+                scope_rows = (
+                    (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id)))
+                    .scalars()
+                    .all()
+                )
+                scope_by_resource = {str(m.resource_id): m for m in scope_rows}
+
+                # 解析资源行:优先 resource_id,否则按 gb_id 回查,补齐 Name/Status/ParentID
+                res_ids = {str(_item_field(c, "resource_id", "") or "") for c in items_in}
+                res_gb_ids = {str(_item_field(c, "gb_id", "") or "") for c in items_in}
+                res_ids.discard("")
+                res_gb_ids.discard("")
+                res_by_id: dict = {}
+                res_by_gb: dict = {}
+                if res_ids or res_gb_ids:
+                    from sqlalchemy import or_ as _or
+
+                    _cond = []
+                    if res_ids:
+                        _cond.append(Resource.id.in_(res_ids))
+                    if res_gb_ids:
+                        _cond.append(Resource.gb_id.in_(res_gb_ids))
+                    _rows = (
+                        (await session.execute(select(Resource).where(_or(*_cond), Resource.tenant_id.in_(["default", plat_tenant]))))
+                        .scalars()
+                        .all()
+                    )
+                    for _r in _rows:
+                        res_by_id[str(_r.id)] = _r
+                        res_by_gb[str(_r.gb_id)] = _r
+
+                default_ev = event_type if event_type in self._CATALOG_NOTIFY_EVENTS else "Update"
+                batch_limit = max(10, int(getattr(settings, "PLATFORM_CATALOG_BATCH_SIZE", 100)))
+
+                def _build_item(c) -> str | None:
+                    ev = str(_item_field(c, "event_type", "") or default_ev)
+                    if ev not in self._CATALOG_NOTIFY_EVENTS:
+                        ev = default_ev
+                    rid = str(_item_field(c, "resource_id", "") or "")
+                    gid = str(_item_field(c, "gb_id", "") or "")
+                    r = res_by_id.get(rid) or res_by_gb.get(gid)
+                    if r is not None:
+                        gid = gid or str(r.gb_id)
+                        name = str(_item_field(c, "name", "") or (r.name or ""))
+                        parent = str(_item_field(c, "parent_gb_id", "") or (r.parent_gb_id or ""))
+                        status_val = bool(r.status)
+                    else:
+                        name = str(_item_field(c, "name", "") or "")
+                        parent = str(_item_field(c, "parent_gb_id", "") or "")
+                        st = _item_field(c, "status", None)
+                        if st in (1, "1", "ON", True):
+                            status_val = True
+                        elif st in (0, "0", "OFF", False):
+                            status_val = False
+                        else:
+                            status_val = ev != "OFF"
+                    if ev == "OFF":
+                        status_val = False
+                    elif ev == "ON":
+                        status_val = True
+                    if not gid:
+                        return None
+                    out_gb = gid
+                    out_name = name or gid
+                    out_parent = parent or p.client_gb_id
+                    mapping = scope_by_resource.get(str(r.id)) if r is not None else (scope_by_resource.get(rid) if rid else None)
+                    if mapping:
+                        if mapping.virtual_gb_id:
+                            out_gb = mapping.virtual_gb_id
+                        if mapping.virtual_name:
+                            out_name = mapping.virtual_name
+                        if mapping.virtual_parent_id:
+                            out_parent = mapping.virtual_parent_id
+                    status_str = "ON" if status_val else "OFF"
+                    # FIX [2026-11-20 P1] (wvp #1782 同款):增量 Item 同样携带经纬度/地址/
+                    # 行政区划(有则带),上级做增量 Update 后地图信息不丢失
+                    _extra = ""
+                    if r is not None:
+                        _extra = _resource_geo_xml(r)
+                        _addr = str(getattr(r, "address", "") or "").strip()
+                        if _addr:
+                            _extra += f"<Address>{_xml_escape(_addr)}</Address>"
+                        _civil = str(getattr(r, "civil_code", "") or "").strip()
+                        if _civil:
+                            _extra += f"<CivilCode>{_xml_escape(_civil[:6])}</CivilCode>"
+                    return (
+                        f"<Item><DeviceID>{_xml_escape(out_gb)}</DeviceID><Name>{_xml_escape(out_name)}</Name>"
+                        f"<Status>{status_str}</Status><ParentID>{_xml_escape(out_parent)}</ParentID>"
+                        f"{_extra}<Event>{ev}</Event></Item>\n"
+                    )
+
+                items: list[str] = []
+                for c in items_in:
+                    item_xml = _build_item(c)
+                    if item_xml:
+                        items.append(item_xml)
+                if not items:
+                    return
+
                 from app.sip.server import sip_server
-                from xml.sax.saxutils import escape as _xml_escape
 
                 addr = (p.server_ip, p.server_port or 5060)
                 # FIX: [2026-08-22 P1] ParentPlatform 传输协议列为 transport（无 transport_protocol 列）
@@ -1224,71 +1379,51 @@ class PlatformService:
                 if not transport:
                     return
 
-                # 构建增量 Catalog Notify XML — 每个 Item 必须包含 <Event> 元素
-                # GB28181-2016 §A.2.3: Event 取值 Add(新增)/Del(删除)/Update(更新)
-                _VALID_EVENTS = {"Add", "Del", "Update"}
-                default_ev = event_type if event_type in _VALID_EVENTS else "Update"
-                items_xml = ""
-                for res in changed_resources:
-                    # 兼容 dict 与对象两种传入形式（删除场景通常传 dict）
-                    if isinstance(res, dict):
-                        res_gb_id = str(res.get("gb_id", "") or "")
-                        res_name = _xml_escape(str(res.get("name", "") or ""))
-                        res_status = "ON" if res.get("status", 0) == 1 else "OFF"
-                        res_parent = str(res.get("parent_gb_id", "") or p.client_gb_id)
-                        ev = str(res.get("event_type", "") or default_ev)
-                    else:
-                        res_gb_id = str(getattr(res, "gb_id", "") or "")
-                        res_name = _xml_escape(str(getattr(res, "name", "") or ""))
-                        res_status = "ON" if getattr(res, "status", 0) == 1 else "OFF"
-                        res_parent = str(getattr(res, "parent_gb_id", "") or p.client_gb_id)
-                        ev = str(getattr(res, "event_type", "") or default_ev)
-                    if ev not in _VALID_EVENTS:
-                        ev = default_ev
-                    items_xml += (
-                        f"<Item><DeviceID>{res_gb_id}</DeviceID><Name>{res_name}</Name>"
-                        f"<Status>{res_status}</Status><ParentID>{res_parent}</ParentID>"
-                        f"<Event>{ev}</Event></Item>\n"
-                    )
-
-                sn = int(time.time() * 1000) % 100000
-                xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+                sub_key = f"plat_{platform_id}"
+                batches = [items[i : i + batch_limit] for i in range(0, len(items), batch_limit)]
+                for batch_no, batch in enumerate(batches):
+                    sn = (int(time.time() * 1000) + batch_no) % 100000
+                    xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Notify>
 <CmdType>Catalog</CmdType>
 <SN>{sn}</SN>
 <DeviceID>{p.client_gb_id}</DeviceID>
-<SumNum>{len(changed_resources)}</SumNum>
-<DeviceList Num="{len(changed_resources)}">
-{items_xml}</DeviceList>
+<SumNum>{len(batch)}</SumNum>
+<DeviceList Num="{len(batch)}">
+{''.join(batch)}</DeviceList>
 </Notify>
 """
-                sub_key = f"plat_{platform_id}"
-                async with self._state_lock:
-                    sub_state = dict(self._reg_states.get(sub_key, {}))
-                    cseq = sub_state.get("notify_cseq", 0) + 1
-                    sub_state["notify_cseq"] = cseq
-                    self._reg_states[sub_key] = sub_state
+                    async with self._state_lock:
+                        sub_state = dict(self._reg_states.get(sub_key, {}))
+                        cseq = sub_state.get("notify_cseq", 0) + 1
+                        sub_state["notify_cseq"] = cseq
+                        self._reg_states[sub_key] = sub_state
 
-                branch = f"z9hG4bK{secrets.token_hex(8)}"
-                req = SipMessage()
-                req.method = "NOTIFY"
-                req.uri = f"sip:{p.server_gb_id}@{addr[0]}:{addr[1]}"
-                req.version = "SIP/2.0"
-                req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
-                req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('from_tag', 'pygb')}"
-                req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('to_tag', '')}"
-                req.headers["Call-ID"] = sub_state.get("catalog_call_id", f"cat_{p.server_gb_id}@{sip_via_host()}")
-                req.headers["CSeq"] = f"{cseq} NOTIFY"
-                req.headers["Contact"] = f"<sip:{p.client_gb_id}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
-                req.headers["Event"] = "Catalog"
-                req.headers["Subscription-State"] = "active"
-                req.headers["Content-Type"] = "Application/MANSCDP+xml"
-                req.headers["Max-Forwards"] = "70"
-                req.headers["User-Agent"] = settings.PROJECT_NAME
-                req.body = xml_body
+                    branch = f"z9hG4bK{secrets.token_hex(8)}"
+                    req = SipMessage()
+                    req.method = "NOTIFY"
+                    req.uri = f"sip:{p.server_gb_id}@{addr[0]}:{addr[1]}"
+                    req.version = "SIP/2.0"
+                    req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+                    req.headers["From"] = f"<sip:{p.client_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('from_tag', 'pygb')}"
+                    req.headers["To"] = f"<sip:{p.server_gb_id}@{settings.SIP_DOMAIN}>;tag={sub_state.get('to_tag', '')}"
+                    req.headers["Call-ID"] = sub_state.get("catalog_call_id", f"cat_{p.server_gb_id}@{sip_via_host()}")
+                    req.headers["CSeq"] = f"{cseq} NOTIFY"
+                    req.headers["Contact"] = f"<sip:{p.client_gb_id}@{sip_host_for_contact()}:{settings.SIP_PORT}>"
+                    req.headers["Event"] = "Catalog"
+                    req.headers["Subscription-State"] = "active"
+                    req.headers["Content-Type"] = "Application/MANSCDP+xml"
+                    req.headers["Max-Forwards"] = "70"
+                    req.headers["User-Agent"] = settings.PROJECT_NAME
+                    req.body = xml_body
 
-                await send_sip_bytes(proto, transport, addr, req.to_bytes())
-                logger.info(f"[PlatformService] Sent incremental catalog NOTIFY to {p.server_gb_id} with {len(changed_resources)} items")
+                    await send_sip_bytes(proto, transport, addr, req.to_bytes())
+                    if len(batches) > 1:
+                        await asyncio.sleep(0.2)
+                logger.info(
+                    f"[PlatformService] Sent incremental catalog NOTIFY to {p.server_gb_id} "
+                    f"with {len(items)} item(s) in {len(batches)} message(s)"
+                )
 
         except Exception as e:
             logger.error(f"[PlatformService] Incremental catalog push failed for {platform_id}: {e}")
@@ -1492,8 +1627,11 @@ class PlatformService:
                 algorithm = "SHA-256"
             else:
                 algorithm = "MD5"
+            # FIX [2026-11-20 P1] (wvp #1507 同款修复):Digest 鉴权用户名支持独立配置
+            # (auth_username),部分上级要求手填账号而非默认国标编号;空=沿用 client_gb_id
+            _digest_username = (getattr(p, "auth_username", None) or "").strip() or p.client_gb_id
             response = DigestAuth.calculate_response(
-                username=p.client_gb_id,
+                username=_digest_username,
                 password=_plain_pw,
                 realm=auth_params.get("realm"),
                 method="REGISTER",
@@ -1505,7 +1643,7 @@ class PlatformService:
                 algorithm=algorithm,
             )
             auth_parts = [
-                f'username="{p.client_gb_id}"',
+                f'username="{_digest_username}"',
                 f'realm="{auth_params.get("realm")}"',
                 f'nonce="{auth_params.get("nonce")}"',
                 f'uri="{req.uri}"',
@@ -2333,8 +2471,241 @@ class PlatformService:
         stale_keys = [k for k, v in self._cascade_record_queries.items() if now - v.get("created_at", 0) > max_age_seconds]
         for k in stale_keys:
             self._cascade_record_queries.pop(k, None)
-        if stale_keys:
-            logger.debug(f"[PlatformService] Pruned {len(stale_keys)} stale cascade record queries")
+        # FIX [2026-11-20 P1]: PresetQuery 转发映射一并清理（取消挂起的静止窗口回传任务）
+        stale_preset_keys = [k for k, v in self._cascade_preset_queries.items() if now - v.get("created_at", 0) > max_age_seconds]
+        for k in stale_preset_keys:
+            entry = self._cascade_preset_queries.pop(k, None)
+            if entry:
+                relay_task = entry.get("relay_task")
+                if relay_task and not relay_task.done():
+                    relay_task.cancel()
+        if stale_keys or stale_preset_keys:
+            logger.debug(f"[PlatformService] Pruned {len(stale_keys)} record + {len(stale_preset_keys)} preset stale cascade queries")
+
+    async def forward_cascade_preset_query(self, platform: ParentPlatform, channel_id: str, query_cmd_type: str, sn: str) -> bool:
+        """FIX [2026-11-20 P1] (wvp #1549 同款修复):
+
+        把上级平台的预置位查询(PresetQuery/HomePosition)转发给真实设备。
+        原实现只回 200 OK 存入 catalog_data_manager,不转发也不回传,上级永远查不到
+        下级通道的预置位。设备响应由 forward_cascade_preset_response 按 SN 映射回传。
+        """
+        from app.models.resource import Resource
+        from app.models.asset import Asset
+
+        real_gb_id = channel_id
+        asset_id = None
+        async with AsyncSessionLocal() as session:
+            mapping = (
+                (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.virtual_gb_id == channel_id))).scalars().first()
+            )
+            if mapping:
+                mapped_resource = (await session.execute(select(Resource).where(Resource.id == mapping.resource_id))).scalars().first()
+                if mapped_resource:
+                    real_gb_id = mapped_resource.gb_id
+                    asset_id = mapped_resource.asset_id
+            if not asset_id:
+                res = (await session.execute(select(Resource).where(Resource.gb_id == channel_id))).scalars().first()
+                if res:
+                    real_gb_id = res.gb_id
+                    asset_id = res.asset_id
+            if not asset_id:
+                logger.warning(f"[PlatformService] Cannot forward {query_cmd_type}: no asset for channel {channel_id}")
+                return False
+            asset = (await session.execute(select(Asset).where(Asset.id == asset_id))).scalars().first()
+            if not asset:
+                logger.warning(f"[PlatformService] Cannot forward {query_cmd_type}: asset {asset_id} not found")
+                return False
+            device_gb_id = asset.gb_id
+            device_ip = getattr(asset, "ip", None) or getattr(asset, "ip_addr", None) or ""
+            device_port = getattr(asset, "port", None) or 5060
+            device_proto = getattr(asset, "transport", None) or "UDP"
+            if not device_ip:
+                logger.warning(f"[PlatformService] Cannot forward {query_cmd_type}: device {device_gb_id} has no IP")
+                return False
+        local_sn = secrets.randbelow(900000) + 100000
+        xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Query>
+<CmdType>{_xml_escape(query_cmd_type or "PresetQuery")}</CmdType>
+<SN>{local_sn}</SN>
+<DeviceID>{_xml_escape(real_gb_id)}</DeviceID>
+</Query>
+"""
+        req = SipMessage()
+        req.method = "MESSAGE"
+        req.uri = f"sip:{device_gb_id}@{device_ip}:{device_port}"
+        req.version = "SIP/2.0"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{device_proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{settings.SIP_ID}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
+        req.headers["To"] = f"<sip:{device_gb_id}@{settings.SIP_DOMAIN}>"
+        req.headers["Call-ID"] = f"{local_sn}preset@{sip_via_host()}"
+        req.headers["CSeq"] = f"{local_sn} MESSAGE"
+        req.headers["Content-Type"] = "Application/MANSCDP+xml"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        req.body = xml_body
+        await self._send_sip_message(device_proto, (device_ip, device_port), req)
+        self._cascade_preset_queries[local_sn] = {
+            "platform_id": str(platform.id),
+            "server_gb_id": platform.server_gb_id,
+            "original_sn": sn,
+            "original_channel_id": channel_id,
+            "real_channel_id": real_gb_id,
+            "cmd_type": query_cmd_type,
+            "created_at": time.monotonic(),
+            # FIX: 多包聚合容器（见 forward_cascade_preset_response）
+            "items": [],
+            "last_packet_mono": time.monotonic(),
+            "relay_task": None,
+            "first_body": "",
+            "final_body": "",
+        }
+        logger.info(
+            f"[PlatformService] Forwarded {query_cmd_type} to device {device_gb_id}, channel={real_gb_id}, local_sn={local_sn}, original_sn={sn}"
+        )
+        return True
+
+    async def forward_cascade_preset_response(self, local_sn: int, xml_body: str) -> None:
+        """把设备对预置位查询的响应按 SN 映射回传给发起查询的上级平台。
+
+        FIX [2026-11-20 P1] (wvp #1892 同款修复 — 多包聚合):海康等厂商会把预置位响应
+        拆成多个同 SN 的 MESSAGE 分包发送,原实现首包到达即 pop 映射并回传,后续分包
+        全部丢弃,上级只能收到不完整的 PresetList。现改为:
+            1. 按 local_sn 保留映射(带 TTL,由 prune 清理),逐包聚合 <Item>(按 PresetID 去重);
+            2. 设备响应带 SumNum 且已收满 → 立即回传;
+            3. 否则按"静止窗口"(2.5s 无新分包)聚合回传一次合并后的完整列表;
+            4. 真实通道 gb_id 在 Item 内全部替换为上级所知的(虚拟)通道 ID。
+        无待回传映射时静默返回,不影响本平台自身查询(响应仍会进入 catalog_data_manager)。
+        """
+        query_info = self._cascade_preset_queries.get(local_sn)
+        if not query_info:
+            return
+
+        # 解析并聚合本分包的 Item
+        import xml.etree.ElementTree as _ET
+
+        from app.core.xml_utils import parse_xml
+
+        root = parse_xml(xml_body or "")
+        added = 0
+        if root is not None:
+            seen = {str(i.get("_pid") or "") for i in query_info.setdefault("items", [])}
+            for item in root.findall(".//PresetList/Item"):
+                pid = (item.findtext("PresetID") or "").strip()
+                key = pid or _ET.tostring(item, encoding="unicode")
+                if key in seen:
+                    continue
+                seen.add(key)
+                item_str = _ET.tostring(item, encoding="unicode")
+                real_channel_id = str(query_info.get("real_channel_id") or "")
+                original_channel_id = str(query_info.get("original_channel_id") or "")
+                if real_channel_id and original_channel_id and real_channel_id != original_channel_id:
+                    item_str = item_str.replace(real_channel_id, original_channel_id)
+                query_info["items"].append({"_pid": pid, "xml": item_str})
+                added += 1
+        # 无 PresetList 的分包视为终态(错误响应等):直接按单包回传
+        has_preset_list = root is not None and root.find(".//PresetList") is not None
+        if not has_preset_list:
+            query_info["final_body"] = xml_body or ""
+            await self._relay_cascade_preset(local_sn)
+            return
+
+        query_info["last_packet_mono"] = time.monotonic()
+        # SumNum 已收满 → 立即回传
+        try:
+            sum_num = int((root.findtext("SumNum") if root is not None else "") or 0)
+        except (TypeError, ValueError):
+            sum_num = 0
+        if sum_num > 0 and len(query_info["items"]) >= sum_num:
+            await self._relay_cascade_preset(local_sn)
+            return
+        # 否则挂静止窗口任务(重复分包会刷新时间戳并重挂任务)
+        old_task = query_info.get("relay_task")
+        if old_task and not old_task.done():
+            old_task.cancel()
+        query_info["relay_task"] = asyncio.create_task(self._relay_cascade_preset_after_quiet(local_sn))
+        logger.debug(
+            f"[PlatformService] preset packet accumulated: local_sn={local_sn} +{added} total={len(query_info['items'])}"
+        )
+
+    async def _relay_cascade_preset_after_quiet(self, local_sn: int) -> None:
+        """静止窗口(2.5s 无新分包)后聚合回传。"""
+        try:
+            await asyncio.sleep(2.5)
+        except asyncio.CancelledError:
+            return
+        try:
+            await self._relay_cascade_preset(local_sn)
+        except Exception as e:
+            logger.warning(f"[PlatformService] preset quiet-window relay failed for sn={local_sn}: {e}")
+
+    async def _relay_cascade_preset(self, local_sn: int) -> None:
+        """聚合回传并清理映射。"""
+        query_info = self._cascade_preset_queries.pop(local_sn, None)
+        if not query_info:
+            return
+        relay_task = query_info.get("relay_task")
+        if relay_task and not relay_task.done():
+            relay_task.cancel()
+        platform_id = query_info["platform_id"]
+        server_gb_id = query_info["server_gb_id"]
+        original_sn = str(query_info["original_sn"] or "")
+        original_channel_id = str(query_info["original_channel_id"] or "")
+        cmd_type = str(query_info.get("cmd_type") or "PresetQuery")
+        items = query_info.get("items") or []
+        try:
+            async with AsyncSessionLocal() as session:
+                platform = (await session.execute(select(ParentPlatform).where(ParentPlatform.id == platform_id))).scalars().first()
+                if not platform:
+                    logger.warning(f"[PlatformService] Cannot forward preset response: platform {platform_id} not found")
+                    return
+        except Exception as e:
+            logger.warning(f"[PlatformService] Cannot forward preset response: {e}")
+            return
+
+        if items:
+            items_xml = "".join(str(i.get("xml") or "") for i in items)
+            relay_body = f"""<?xml version="1.0" encoding="GB2312"?>
+<Response>
+<CmdType>{cmd_type}</CmdType>
+<SN>{original_sn}</SN>
+<DeviceID>{_xml_escape(original_channel_id)}</DeviceID>
+<PresetList Num="{len(items)}">
+{items_xml}</PresetList>
+</Response>
+"""
+        else:
+            # 无聚合到内容(错误响应等):回传原始分包,仅替换 SN/DeviceID
+            relay_body = str(query_info.get("final_body") or "") or str(query_info.get("first_body") or "")
+            if original_sn:
+                relay_body = relay_body.replace(f"<SN>{local_sn}</SN>", f"<SN>{original_sn}</SN>")
+            real_channel_id = str(query_info.get("real_channel_id") or "")
+            if real_channel_id and original_channel_id and real_channel_id != original_channel_id:
+                relay_body = relay_body.replace(real_channel_id, original_channel_id)
+
+        addr = (platform.server_ip, platform.server_port)
+        proto = _platform_proto(platform)
+        domain = platform.server_ip or ""
+        device_id = platform.client_gb_id or ""
+        response_sn = secrets.randbelow(900000) + 100000
+        req = SipMessage()
+        req.method = "MESSAGE"
+        req.uri = f"sip:{server_gb_id}@{domain}"
+        req.version = "SIP/2.0"
+        branch = f"z9hG4bK{secrets.token_hex(8)}"
+        req.headers["Via"] = f"SIP/2.0/{proto} {sip_via_host()}:{settings.SIP_PORT};rport;branch={branch}"
+        req.headers["From"] = f"<sip:{device_id}@{settings.SIP_DOMAIN}>;tag={secrets.token_hex(8)}"
+        req.headers["To"] = f"<sip:{server_gb_id}@{domain}>"
+        req.headers["Call-ID"] = f"{response_sn}presetresp@{sip_via_host()}"
+        req.headers["CSeq"] = f"{response_sn} MESSAGE"
+        req.headers["Content-Type"] = "Application/MANSCDP+xml"
+        req.headers["Max-Forwards"] = "70"
+        req.headers["User-Agent"] = settings.PROJECT_NAME
+        req.body = relay_body
+        await self._send_sip_message(proto, addr, req)
+        logger.info(
+            f"[PlatformService] Forwarded preset response to {server_gb_id}, items={len(items)}, original_sn={original_sn}"
+        )
 
     async def forward_cascade_broadcast(
         self,

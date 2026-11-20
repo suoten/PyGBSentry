@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.2.0",
   "type": "module",
+  "packageManager": "pnpm@10.34.9",
   "scripts": {
     "dev": "vite",
     "build": "npm run check:no-js-mirrors && npm run check:no-raw-axios-detail && vite build",
@@ -21,6 +22,13 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "esbuild",
+      "vue-demi"
+    ]
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

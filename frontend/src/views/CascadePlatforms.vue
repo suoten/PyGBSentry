@@ -158,6 +158,9 @@
         <el-form-item :label="t('cascade.localGbId')" prop="client_gb_id">
           <el-input v-model="form.client_gb_id" :placeholder="t('cascade.localGbIdPlaceholder')" />
         </el-form-item>
+        <el-form-item :label="t('cascade.authUsername')">
+          <el-input v-model="form.auth_username" :placeholder="t('cascade.authUsernamePlaceholder')" />
+        </el-form-item>
         <el-form-item :label="t('cascade.password')">
           <el-input v-model="form.password" type="password" :placeholder="t('cascade.assignedPassword')" show-password />
         </el-form-item>
@@ -409,6 +412,7 @@ const form = reactive({
   server_port: 5060,
   transport: 'UDP',
   client_gb_id: '',
+  auth_username: '',
   password: '',
   register_interval: 3600,
   keepalive_interval: 60,
@@ -542,6 +546,7 @@ const resetForm = () => {
   form.server_port = 5060
   form.transport = 'UDP'
   form.client_gb_id = ''
+  form.auth_username = ''
   form.password = ''
   form.register_interval = 3600
   form.keepalive_interval = 60
@@ -561,6 +566,7 @@ const openForm = (row?: Record<string, unknown>) => {
     form.server_port = Number(row.server_port || 5060)
     form.transport = String(row.transport || 'UDP').toUpperCase()
     form.client_gb_id = String(row.client_gb_id || '')
+    form.auth_username = String(row.auth_username || '')
     form.register_interval = Number(row.register_interval || 3600)
     form.keepalive_interval = Number(row.keepalive_interval || 60)
     form.catalog_batch_size = Number(row.catalog_batch_size || 0)
@@ -583,6 +589,7 @@ const submitForm = async () => {
         server_port: form.server_port,
         transport: form.transport,
         client_gb_id: form.client_gb_id,
+        auth_username: form.auth_username,
         password: form.password,
         register_interval: form.register_interval,
         keepalive_interval: form.keepalive_interval,

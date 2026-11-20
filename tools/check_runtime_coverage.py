@@ -4,11 +4,12 @@ import re
 import sys
 from pathlib import Path
 
-# 本文件位于 editions/open-source/tools/，仓库根目录为上三级
-ROOT = Path(__file__).resolve().parents[3]
-backend_plugins_dir = ROOT / "editions/open-source/backend/plugins"
-plugins_api = ROOT / "editions/open-source/backend/app/api/v1/endpoints/plugins.py"
-plugin_runtime_vue = ROOT / "editions/open-source/frontend/src/views/PluginRuntime.vue"
+# 本文件位于 tools/，仓库根目录为上一级
+ROOT = Path(__file__).resolve().parents[1]
+backend_plugins_dir = ROOT / "backend/plugins"
+plugins_api_pkg = ROOT / "backend/app/api/v1/endpoints/plugins"
+plugins_api_flat = ROOT / "backend/app/api/v1/endpoints/plugins.py"
+plugin_runtime_vue = ROOT / "frontend/src/views/PluginRuntime.vue"
 
 plugin_files = sorted(
     p.stem
@@ -19,7 +20,13 @@ plugin_files = sorted(
 excluded = {"main_path_ai_suite", "dev_main_path_ai_template"}
 plugin_ids = [p for p in plugin_files if p not in excluded]
 
-api_text = plugins_api.read_text(encoding="utf-8")
+# 插件 API 可能是单文件 plugins.py 或拆分后的 plugins/ 包，两种形态都兼容
+if plugins_api_pkg.is_dir():
+    api_text = "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(plugins_api_pkg.glob("*.py"))
+    )
+else:
+    api_text = plugins_api_flat.read_text(encoding="utf-8")
 vue_text = plugin_runtime_vue.read_text(encoding="utf-8")
 
 route_ids = set(re.findall(r'@router\.get\("/runtime/([^"/]+)/(?:events|logs|health)"', api_text))

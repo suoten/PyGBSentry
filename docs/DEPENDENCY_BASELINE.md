@@ -4,9 +4,9 @@
 
 ## 1. 基线范围
 
-- 后端依赖文件：`editions/open-source/backend/requirements.txt`
-- 前端运行时约束：`editions/open-source/frontend/package.json`（Node.js `>=20`）
-- 前端构建镜像：`editions/open-source/frontend/Dockerfile`（`node:20-alpine`）
+- 后端依赖文件：`backend/requirements.txt`
+- 前端运行时约束：`frontend/package.json`（Node.js `>=20`）
+- 前端构建镜像：`frontend/Dockerfile`（`node:22-alpine`）
 - 开源后端 CI：`.github/workflows/open-source-backend-ci.yml`
 
 ## 2. 后端冻结版本
@@ -32,7 +32,7 @@
 - cachetools==5.5.2
 - orjson==3.10.18
 
-完整清单以 [requirements.txt](file:///e:/硕腾网络/PyGBSentry/PyGBSentry/editions/open-source/backend/requirements.txt) 为准。
+完整清单以 [requirements.txt](../../backend/requirements.txt) 为准。
 
 ## 3. 校验口径
 
@@ -41,7 +41,7 @@
 - CI 校验流程：
   - 安装 `requirements.txt`
   - 执行同等价的 `unittest discover`
-  - 文件： [open-source-backend-ci.yml](file:///e:/硕腾网络/PyGBSentry/PyGBSentry/.github/workflows/open-source-backend-ci.yml)
+  - 文件： [open-source-backend-ci.yml](../.github/workflows/open-source-backend-ci.yml)
 
 ## 4. 回滚策略
 

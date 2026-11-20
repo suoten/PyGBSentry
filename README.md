@@ -220,12 +220,12 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 #### 第 2 步：获取代码
 
-- 会用 Git：`git clone https://gitee.com/suoten/PyGBSentry.git`，然后 `cd PyGBSentry/editions/open-source`
-- 不会 Git：打开 https://gitee.com/suoten/PyGBSentry → 点「克隆/下载」→「下载 ZIP」→ 解压后进入 `PyGBSentry-master/editions/open-source`
+- 会用 Git：`git clone https://gitee.com/suoten/PyGBSentry.git`，然后 `cd PyGBSentry`
+- 不会 Git：打开 https://gitee.com/suoten/PyGBSentry → 点「克隆/下载」→「下载 ZIP」→ 解压后进入 `PyGBSentry-master` 文件夹
 
 #### 第 3 步：一键安装
 
-- **Windows**：进入 `editions/open-source` 文件夹，**双击 `install.bat`**，等它跑完（约 3 分钟）
+- **Windows**：进入解压出来的 `PyGBSentry` 文件夹（代码根目录，`install.bat` 就在里面），**双击 `install.bat`**，等它跑完（约 3 分钟）
 - **Linux / macOS**：`bash install.sh`（国内下载慢加 `--mirror` 参数），等它跑完
 
 脚本会询问管理员密码（直接回车 = 自动生成），并保存到 `ADMIN_PASSWORD.txt`，记下来。
@@ -270,7 +270,7 @@ RTP 端口池预分配 + 四路并行 INVITE + RTT 自适应定时器，交付�
 
 ```bash
 git clone https://github.com/suoten/PyGBSentry.git
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 
 # 方式一：自动生成密钥并启动（推荐）
 python tools/generate_env.py --docker

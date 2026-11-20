@@ -158,6 +158,7 @@ export interface CascadePlatform {
   server_port?: number
   transport?: string
   client_gb_id?: string
+  auth_username?: string
   is_online?: boolean
   enable?: boolean
   register_interval?: number

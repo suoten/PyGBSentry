@@ -1,6 +1,6 @@
 # 部署指南
 
-> **适用目录**：`editions/open-source`
+> **适用目录**：仓库根目录（`PyGBSentry`）
 > **目标读者**：运维工程师、系统管理员、首次部署用户
 
 ---
@@ -89,7 +89,7 @@ Docker 部署是最简单、成功率最高的方式，适合大部分用户。
 ```bash
 cd /opt
 git clone <你的仓库地址> PyGBSentry
-cd PyGBSentry/editions/open-source
+cd PyGBSentry
 ```
 
 ### 4.2 创建环境变量文件
@@ -129,7 +129,7 @@ REDIS_PASSWORD=你的强密码
 ### 4.3 启动服务
 
 ```bash
-# 回到 editions/open-source 目录
+# 回到仓库根目录（PyGBSentry）
 cd ..
 
 # 启动所有服务（后台运行）
@@ -212,7 +212,7 @@ GRANT ALL PRIVILEGES ON DATABASE pygbsentry TO pygbsentry;
 ### 5.3 后端部署
 
 ```bash
-cd /opt/PyGBSentry/editions/open-source/backend
+cd /opt/PyGBSentry/backend
 
 # 创建虚拟环境
 python3 -m venv .venv
@@ -252,7 +252,7 @@ sudo systemctl status pygbsentry
 ### 5.4 前端构建
 
 ```bash
-cd /opt/PyGBSentry/editions/open-source/frontend
+cd /opt/PyGBSentry/frontend
 
 # 安装依赖
 npm install
@@ -400,6 +400,20 @@ server {
         proxy_set_header Connection "upgrade";
         proxy_read_timeout 3600;
     }
+
+    # 流媒体(ZLM)路径反代——云端录像 /record/ 播放与下载、live ws-flv(/live/)、
+    # rtp(/rtp/)、ZLM API(/index/api/) 必须反代到 ZLM HTTP 端口（单机 compose 内嵌
+    # ZLM 在 backend 容器的 8880 端口），否则云端录像播放/下载 404。
+    # 完整样例见 deploy/nginx/nginx-lb.conf。
+    location ~ ^/(record|live|rtp|index/api)/ {
+        proxy_pass http://127.0.0.1:8880;
+        proxy_set_header Host $host;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600;
+        proxy_buffering off;
+    }
 }
 ```
 
@@ -522,7 +536,7 @@ git log --oneline -1
 ### 12.2 Docker 升级
 
 ```bash
-cd /opt/PyGBSentry/editions/open-source
+cd /opt/PyGBSentry
 
 # 拉取最新代码
 git pull origin main
@@ -534,7 +548,7 @@ docker compose --profile prod up -d --build
 ### 12.3 手工升级
 
 ```bash
-cd /opt/PyGBSentry/editions/open-source
+cd /opt/PyGBSentry
 
 # 拉取最新代码
 git pull origin main

@@ -3,6 +3,7 @@ import asyncio
 from loguru import logger
 import datetime
 from sqlalchemy import select, update
+from app.core.config import settings
 from app.core.redis import redis_client
 from app.db.session import AsyncSessionLocal
 from app.models.asset import Asset
@@ -213,13 +214,32 @@ async def _process_batch(batch: list):
                         if _arow is None:
                             continue
                         _was_offline = (_arow.status or 0) == 0
+                        _ka_values = {
+                            "last_keepalive": item["time"],
+                            "status": 1,
+                        }
+                        # FIX [2026-11-20 P2] (wvp #2160 同源补强):可选回写心跳源地址。
+                        # 默认关闭保持 R23-SEVERE 的防劫持语义（伪造心跳即可改写设备地址）；
+                        # SIP_KEEPALIVE_ADDR_UPDATE_ENABLED=true 时（可信内网/NAT 重映射且
+                        # 设备不重注册的场景），心跳地址与注册地址不同才回写，点播 INVITE
+                        # 首发即命中新地址，不再依赖多目标重试兜底。
+                        if getattr(settings, "SIP_KEEPALIVE_ADDR_UPDATE_ENABLED", False):
+                            try:
+                                _ka_port = int(item.get("port") or 0)
+                            except (TypeError, ValueError):
+                                _ka_port = 0
+                            if item.get("ip") and _ka_port > 0:
+                                _ka_values.update(
+                                    {
+                                        "ip_addr": str(item["ip"]),
+                                        "port": _ka_port,
+                                        "transport": str(item.get("proto") or "UDP"),
+                                    }
+                                )
                         stmt = (
                             update(Asset)
                             .where(Asset.id == _arow.id)
-                            .values(
-                                last_keepalive=item["time"],
-                                status=1,
-                            )
+                            .values(**_ka_values)
                         )
                         await session.execute(stmt)
                         if _was_offline:
@@ -263,6 +283,15 @@ async def _process_batch(batch: list):
                             if _asset_id:
                                 restore_stmt = update(Resource).where(Resource.asset_id == _asset_id).values(status=1)
                                 await session.execute(restore_stmt)
+                        else:
+                            # FIX [2026-11-20 P1] (wvp #1417 同款):显式注销/离线注册同样联动
+                            # 通道状态置离线,否则设备注销后通道滞留 ON——两条离线巡检只扫
+                            # Asset.status==1 的设备,Asset 已置 0 后不会再兜底该设备的通道
+                            _asset_id_row = await session.execute(select(Asset.id).where(Asset.gb_id == item["gb_id"]))
+                            _asset_id = _asset_id_row.scalar()
+                            if _asset_id:
+                                offline_stmt = update(Resource).where(Resource.asset_id == _asset_id).values(status=0)
+                                await session.execute(offline_stmt)
 
                         platform_stmt = (
                             update(ParentPlatform)

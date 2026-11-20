@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # 构建开源版绿色包：backend + frontend/dist + run.sh + run.bat，产出 zip。
-# 用法：在 editions/open-source 目录下执行 ./scripts/build-green-package.sh
-# 或从仓库根目录：cd editions/open-source && ./scripts/build-green-package.sh
+# 用法：在仓库根目录执行 ./scripts/build-green-package.sh
 set -e
 
 fail() {

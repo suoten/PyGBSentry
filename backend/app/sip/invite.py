@@ -1353,9 +1353,13 @@ class SipInvite:
 
         data = req.to_bytes()
 
-        # 通过事务管理器发送 BYE，支持重传和响应等待
+        # 通过事务管理器发送 BYE，支持重传（UDP）和响应等待。
+        # FIX [2026-11-20 P2] (wvp #2216 弱化版修复):原先仅在 UDP 等待响应,TCP 设备的
+        # BYE 走 fire-and-forget,设备未确认就清理会话,残留旧对话可能导致新 INVITE 被
+        # 486 Busy 拒绝。响应匹配按 Call-ID/CSeq 与传输无关,TCP 同样适用
+        # （TCP 下 send_request 仅发送一次、无重传定时器,事务条目由 prune 兜底清理）。
         tx_manager = _get_client_tx_manager()
-        if tx_manager and wait_response and proto.upper() == "UDP":
+        if tx_manager and wait_response:
             try:
                 event = asyncio.Event()
                 result_container = {"received": False, "status_code": 0}
@@ -2496,6 +2500,9 @@ class SipInvite:
                         "stream": str(getattr(reuse_session, "stream", "") or ""),
                         "media_server_id": str(getattr(reuse_session, "media_server_id", "") or ""),
                         "media_port_lease_id": str(getattr(reuse_session, "media_port_lease_id", "") or ""),
+                        # FIX [2026-11-20 P1] (wvp #2097/#1907 同款):快照带上旧 SSRC,
+                        # 复用清理时一并释放(原先不释放,回放每小时切片预取泄漏一个 SSRC)
+                        "ssrc": str(getattr(reuse_session, "ssrc", "") or "").strip(),
                     }
                     reuse_session = None
             db_node = await get_db_media_node_by_id(session, node_id)
@@ -2541,6 +2548,14 @@ class SipInvite:
                     async with AsyncSessionLocal() as cleanup_session:
                         await release_lease(cleanup_session, old_lease_id)
                         await cleanup_session.commit()
+            # FIX [2026-11-20 P1] (wvp #2097/#1907 同款):释放旧 SSRC(原先只释放端口租约,
+            # 旧 SSRC 仍留在本地桶与 Redis 集合中,回放切片预取每小时泄漏一个)
+            _old_ssrc = str((reuse_session_snapshot or {}).get("ssrc") or "").strip()
+            if _old_ssrc:
+                with contextlib.suppress(Exception):
+                    from app.sip.ssrc_manager import ssrc_manager as _old_ssrc_mgr
+
+                    await _old_ssrc_mgr.release(_old_ssrc)
 
         # Phase 2: ZLM HTTP 慢 I/O — _open_zlm_rtp_server 内部使用短 session 做 lease 分配/释放
         if db_node:

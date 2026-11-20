@@ -405,7 +405,14 @@ class SsrcManager:
             self._cleanup_running = False
 
     async def _cleanup_once(self) -> int:
-        """执行一次清理，返回清理的 SSRC 数量。"""
+        """执行一次清理，返回清理的 SSRC 数量。
+
+        FIX [2026-11-20 P1] (wvp #2097/#1907「SSRC 已经用完」同款修复 — SSRC 泄漏):
+        1) 本地过期条目清理时同步 SREM Redis 集合——原先只清本地桶，Redis 侧残留导致
+           序号空间被跨进程蚕食，最终 200 次探测分配失败、点播 503；
+        2) 每轮附带 Redis 对账：清除"既不在本地桶、也不在 DB StreamSession(含其他节点)
+           中"的孤儿 SSRC——多节点安全（任意节点在用的 SSRC 必然出现在共享 DB 里）。
+        """
         import time as _time
 
         released = 0
@@ -422,10 +429,58 @@ class SsrcManager:
                 self._live_allocated.discard(ssrc)
                 self._playback_allocated.discard(ssrc)
                 self._alloc_time.pop(ssrc, None)
+                # FIX: 本地清理必须同步 Redis，否则跨节点集合只增不减（泄漏点 A）
+                await self._redis_srem(ssrc)
                 released += 1
         if released:
             logger.info(f"SSRC cleanup released {released} stale entries")
+
+        # FIX: Redis 孤儿对账（泄漏点 B），失败不阻塞清理主流程
+        try:
+            await self._reconcile_redis()
+        except Exception as e:
+            logger.debug(f"[SSRC] Redis reconcile failed (non-critical): {e}")
         return released
+
+    async def _reconcile_redis(self) -> int:
+        """对账 Redis 已分配集合：移除 DB 与本地桶都不存在的孤儿 SSRC。
+
+        在锁外执行（内部只做只读快照，避免阻塞分配路径）。竞态方向是良性的：
+        并发释放先 SREM 时对账最多多保留一轮；并发分配 SADD 晚于 smembers 时不会被误删。
+        """
+        local = set(self._live_allocated) | set(self._playback_allocated)
+        db_ssrcs: set[str] = set()
+        try:
+            from app.db.session import AsyncSessionLocal
+            from app.models.stream_session import StreamSession
+            from sqlalchemy import select
+
+            async with AsyncSessionLocal() as session:
+                rows = (
+                    (await session.execute(select(StreamSession.ssrc).where(StreamSession.ssrc.is_not(None)))).all()
+                )
+            for (s,) in rows:
+                s_str = str(s or "").strip()
+                if _is_valid_ssrc(s_str):
+                    db_ssrcs.add(s_str)
+        except Exception as e:
+            logger.debug(f"[SSRC] reconcile DB query failed, skip this round: {e}")
+            return 0
+        try:
+            from app.core.redis import redis_client
+
+            if redis_client is None:
+                return 0
+            members = await redis_client.smembers(_REDIS_ALLOCATED_KEY)
+            valid = local | db_ssrcs
+            stale_in_redis = [str(m) for m in (members or []) if str(m) not in valid]
+            if stale_in_redis:
+                await redis_client.srem(_REDIS_ALLOCATED_KEY, *stale_in_redis)
+                logger.info(f"[SSRC] Redis reconcile removed {len(stale_in_redis)} orphaned SSRC(s)")
+                return len(stale_in_redis)
+        except Exception as e:
+            logger.debug(f"[SSRC] Redis reconcile failed (non-critical): {e}")
+        return 0
 
     # ------------------------------------------------------------------
     # 调试 / 状态

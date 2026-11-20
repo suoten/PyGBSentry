@@ -739,9 +739,9 @@ class PluginManager:
                     meta = json.load(f)
                 return meta if isinstance(meta, dict) else None
 
-            # 2) 仓库内 server/backend plugin_packages/{module_name}/plugin.json
-            # plugin_manager.py: editions/open-source/backend/app/core/plugin_manager.py
-            editions_dir = Path(__file__).resolve().parents[4]  # editions/
+            # 2) 官网代码（editions/server）内的 plugin_packages/{module_name}/plugin.json
+            # （官网代码不在开源版仓库中，缺失时自动跳过）
+            editions_dir = Path(__file__).resolve().parents[4]  # 官网仓库的 editions/
             server_candidate = editions_dir / "server" / "backend" / "plugin_packages" / module_name / "plugin.json"
             if server_candidate.exists():
                 with open(server_candidate, "r", encoding="utf-8") as f:
