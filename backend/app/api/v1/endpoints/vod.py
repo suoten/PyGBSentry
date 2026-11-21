@@ -9,11 +9,11 @@
 5. 端到端延迟优化
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Request, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.db.session import get_db
+from app.db.session import get_db, AsyncSessionLocal
 from app.models.record import Record
 from app.models.resource import Resource
 from app.models.asset import Asset
@@ -22,10 +22,22 @@ from app.api import deps
 from app.services.vod_source_selector import vod_source_selector
 from app.services.vod_quality_monitor import vod_quality_monitor
 from app.core.config import settings
+from loguru import logger
 import time
 
 
 router = APIRouter()
+
+
+def _format_bytes(n: int) -> str:
+    """字节人性化显示(MP4 虚拟通道列表用)。"""
+    step = 1024.0
+    value = float(max(0, int(n)))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < step:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= step
+    return f"{value:.1f} PB"
 
 
 class VodPlayRequest(BaseModel):
@@ -540,3 +552,285 @@ def _get_play_suggestion(urls: dict) -> dict:
         suggestions.append({"protocol": "webrtc", "label": "WebRTC", "description": "超低延迟，需要HTTPS环境", "score": 85})
 
     return {"recommended": suggestions[0] if suggestions else None, "alternatives": suggestions[1:] if len(suggestions) > 1 else []}
+
+
+# ---------------------------------------------------------------------------
+# 本地 MP4 虚拟通道(ROADMAP Phase3,wvp #2257 类需求)
+# ---------------------------------------------------------------------------
+# 用户上传 MP4 → ZLM loadMP4File 以直播协议循环点播。文件名服务端生成
+# (不含用户输入,防路径穿越);播放要求所选 ZLM 节点本地可读 VOD_MP4_DIR
+# (单机/内嵌部署天然满足,多节点需共享存储)。不计入 GB28181 通道配额。
+
+import os as _os
+import secrets as _secrets
+
+from fastapi import UploadFile, File  # noqa: E402
+
+_VOD_MP4_ALLOWED_EXT = {".mp4"}
+
+
+def _vod_mp4_abs_path(tenant_id: str, file_name: str) -> str:
+    """拼接绝对路径并做穿越防护:file_name 必须是服务端生成的相对名。"""
+    safe = str(file_name or "").replace("\\", "/").strip().lstrip("/")
+    if ".." in safe.split("/") or not safe.lower().endswith(".mp4"):
+        raise HTTPException(status_code=400, detail="invalid file name")
+    return _os.path.join(settings.VOD_MP4_DIR, safe)
+
+
+@router.post("/vod/mp4-channels", tags=["vod"])
+async def create_mp4_vod_channel(
+    request: Request = None,
+    file: UploadFile = File(...),
+    name: str = Query("", description="展示名,留空取文件名"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.require_permission("devices.manage")),
+):
+    """上传 MP4 创建虚拟通道(multipart)。"""
+    tenant_id = current_user.tenant_id or "default"
+    original_name = str(getattr(file, "filename", "") or "video.mp4")
+    ext = _os.path.splitext(original_name)[1].lower()
+    if ext not in _VOD_MP4_ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail="Only .mp4 files are supported")
+
+    max_bytes = max(1, int(settings.VOD_MP4_MAX_MB)) * 1024 * 1024
+    tenant_dir = _os.path.join(settings.VOD_MP4_DIR, tenant_id)
+    _os.makedirs(tenant_dir, exist_ok=True)
+
+    file_stem = _secrets.token_hex(8)
+    rel_name = f"{tenant_id}/{file_stem}{ext}"
+    abs_path = _os.path.join(settings.VOD_MP4_DIR, rel_name)
+
+    size = 0
+    try:
+        with open(abs_path, "wb") as out:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(status_code=413, detail=f"File too large (max {settings.VOD_MP4_MAX_MB} MB)")
+                out.write(chunk)
+    except HTTPException:
+        try:
+            _os.remove(abs_path)
+        except OSError:
+            pass
+        raise
+    except Exception as e:
+        try:
+            _os.remove(abs_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=500, detail=f"Save failed: {str(e)[:120]}")
+    if size <= 0:
+        try:
+            _os.remove(abs_path)
+        except OSError:
+            pass
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    from app.models.mp4_vod import Mp4VodChannel
+
+    display_name = (name or _os.path.splitext(original_name)[0]).strip()[:128] or "MP4 Channel"
+    row = Mp4VodChannel(
+        tenant_id=tenant_id,
+        name=display_name,
+        original_name=original_name[:255],
+        file_name=rel_name,
+        file_size=size,
+        created_by=str(current_user.username or "")[:64],
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {
+        "id": row.id,
+        "name": row.name,
+        "file_size": size,
+        "file_size_text": _format_bytes(size),
+        "created_at": None,
+    }
+
+
+@router.get("/vod/mp4-channels", tags=["vod"])
+async def list_mp4_vod_channels(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """列出本租户的 MP4 虚拟通道。"""
+    from app.models.mp4_vod import Mp4VodChannel
+
+    stmt = select(Mp4VodChannel).order_by(Mp4VodChannel.created_at.desc())
+    if not current_user.is_superuser:
+        stmt = stmt.where(Mp4VodChannel.tenant_id == (current_user.tenant_id or "default"))
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "original_name": r.original_name,
+            "file_size": int(r.file_size or 0),
+            "file_size_text": _format_bytes(int(r.file_size or 0)),
+            "enabled": bool(r.enabled),
+            "created_by": r.created_by,
+        }
+        for r in rows
+    ]
+
+
+@router.delete("/vod/mp4-channels/{channel_id}", tags=["vod"])
+async def delete_mp4_vod_channel(
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.require_permission("devices.manage")),
+):
+    """删除虚拟通道:尽力停止 ZLM 点播流,删除文件与记录。"""
+    from app.models.mp4_vod import Mp4VodChannel
+
+    stmt = select(Mp4VodChannel).where(Mp4VodChannel.id == channel_id)
+    if not current_user.is_superuser:
+        stmt = stmt.where(Mp4VodChannel.tenant_id == (current_user.tenant_id or "default"))
+    row = (await db.execute(stmt)).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MP4 channel not found")
+
+    stream_id = f"mp4_{str(row.id)[:8]}"
+    try:
+        from app.services.stream_session_service import close_stream
+
+        await close_stream(settings.VOD_MP4_APP, stream_id, node_id=None)
+    except Exception as e:
+        logger.debug(f"[Mp4Vod] stop stream on delete failed (non-fatal): {e}")
+
+    try:
+        abs_path = _vod_mp4_abs_path(str(row.tenant_id or "default"), row.file_name)
+        if _os.path.exists(abs_path):
+            _os.remove(abs_path)
+    except Exception as e:
+        logger.warning(f"[Mp4Vod] remove file failed: {e}")
+
+    await db.delete(row)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/vod/mp4-channels/{channel_id}/play", tags=["vod"])
+async def play_mp4_vod_channel(
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """启动 ZLM loadMP4File 点播并返回带一次性 playToken 的播放地址。"""
+    from app.core.media_nodes_db import get_active_media_node_id, get_db_media_node_by_id, select_best_db_node
+    from app.core.play_token import issue_play_token
+    from app.models.mp4_vod import Mp4VodChannel
+    from app.sip.server import sip_server as _sip_server
+
+    stmt = select(Mp4VodChannel).where(Mp4VodChannel.id == channel_id)
+    if not current_user.is_superuser:
+        stmt = stmt.where(Mp4VodChannel.tenant_id == (current_user.tenant_id or "default"))
+    row = (await db.execute(stmt)).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MP4 channel not found")
+
+    async with AsyncSessionLocal() as node_db:
+        active_id = await get_active_media_node_id(node_db)
+        node = await get_db_media_node_by_id(node_db, active_id) if active_id else None
+        if not node:
+            node = await select_best_db_node(node_db)
+    node_id = str(node.id) if node else None
+    host = (node.host if node else None) or settings.MEDIA_SERVER_HOST
+    http_port = int((node.http_port if node else 0) or settings.MEDIA_SERVER_HTTP_PORT)
+    secret = str((node.secret if node else "") or settings.MEDIA_SERVER_SECRET or "")
+    if not host or http_port <= 0:
+        raise HTTPException(status_code=503, detail="Media node not configured")
+
+    abs_path = _vod_mp4_abs_path(str(row.tenant_id or "default"), row.file_name)
+    if not _os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="MP4 file missing on server disk")
+
+    stream_id = f"mp4_{str(row.id)[:8]}"
+    if not _os.path.exists(abs_path):
+        raise HTTPException(status_code=404, detail="MP4 file missing on server disk")
+
+    stream_id = f"mp4_{str(row.id)[:8]}"
+    try:
+        from app.services.zlm_stream_control import _get_zlm_client
+
+        client = await _get_zlm_client()
+        resp = await client.post(
+            f"http://{host}:{http_port}/index/api/loadMP4File",
+            data={
+                "secret": secret,
+                "vhost": "__defaultVhost__",
+                "app": settings.VOD_MP4_APP,
+                "stream": stream_id,
+                "mp4_path": abs_path,
+            },
+            timeout=5.0,
+        )
+        body = resp.json()
+        if body.get("code") not in (0, "0"):
+            raise HTTPException(
+                status_code=502,
+                detail=f"loadMP4File failed: {body.get('msg') or body.get('code')} (check file readable by ZLM on the node)",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"loadMP4File request failed: {str(e)[:120]}")
+
+    token = issue_play_token(settings.VOD_MP4_APP, stream_id, ttl=300)
+    from app.api.v1.endpoints.stream._response import _build_play_urls
+
+    https_port = int(settings.STREAM_PUBLIC_HTTPS_PORT or 0)
+    public_host = (str(node.public_host) if node and getattr(node, "public_host", None) else None) or settings.STREAM_PUBLIC_HOST or host
+    public_http_port = int((node.public_http_port if node else 0) or settings.STREAM_PUBLIC_HTTP_PORT or http_port)
+    urls = _build_play_urls(
+        settings.VOD_MP4_APP,
+        stream_id,
+        public_host,
+        public_http_port,
+        https_port,
+        settings.STREAM_PUBLIC_RTMP_PORT,
+        0,
+        settings.ZLM_RTSP_PORT,
+        0,
+        token,
+    )
+    return {
+        "id": row.id,
+        "name": row.name,
+        "stream": stream_id,
+        "app": settings.VOD_MP4_APP,
+        "urls": {"flv": urls.get("flv"), "ws_flv": urls.get("ws_flv"), "wss_flv": urls.get("wss_flv"), "hls": urls.get("hls"), "https_hls": urls.get("https_hls")},
+        "hint": "Stream loops the MP4 as live; use stop endpoint or delete to release.",
+    }
+
+
+@router.post("/vod/mp4-channels/{channel_id}/stop", tags=["vod"])
+async def stop_mp4_vod_channel(
+    channel_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """停止 ZLM 点播流(释放资源;文件与记录保留)。"""
+    from app.models.mp4_vod import Mp4VodChannel
+
+    stmt = select(Mp4VodChannel).where(Mp4VodChannel.id == channel_id)
+    if not current_user.is_superuser:
+        stmt = stmt.where(Mp4VodChannel.tenant_id == (current_user.tenant_id or "default"))
+    row = (await db.execute(stmt)).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="MP4 channel not found")
+
+    stream_id = f"mp4_{str(row.id)[:8]}"
+    try:
+        from app.services.stream_session_service import close_stream
+
+        await close_stream(settings.VOD_MP4_APP, stream_id, node_id=None)
+        return {"ok": True, "stopped": stream_id}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"stop failed: {str(e)[:120]}")
+

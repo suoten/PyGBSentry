@@ -182,7 +182,7 @@ import api from '@/utils/http'
 import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import enUs from 'element-plus/es/locale/lang/en'
-import { Odometer, VideoCamera, Monitor, User, Setting, MapLocation, DataLine, TrendCharts, Shop, Box, Promotion, Connection, Bell, Folder, Calendar, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
+import { Odometer, VideoCamera, VideoPlay, Monitor, User, Setting, MapLocation, DataLine, TrendCharts, Shop, Box, Promotion, Connection, Bell, Folder, Calendar, Document, Lock, InfoFilled } from '@element-plus/icons-vue'
 import TopBar from './components/TopBar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import TagsView from './components/TagsView.vue'
@@ -352,6 +352,7 @@ const ossMenu = [
   { path: '/dashboard', title: 'menu.dashboard', icon: Odometer },
   { path: '/plugins', title: 'menu.plugins', icon: Box },
   { path: '/monitor', title: 'menu.monitor', icon: Monitor },
+  { path: '/vod-channels', title: 'menu.vodChannels', icon: VideoPlay },
   { path: '/health', title: 'menu.health', icon: DataLine },
   { path: '/sla', title: 'menu.sla', icon: TrendCharts },
   { path: '/alarms', title: 'menu.alarms', icon: Bell },
@@ -457,7 +458,7 @@ const menuGroups = computed<MenuGroup[]>(() => {
 
   const groups: MenuGroup[] = [
     { title: 'app.menuGroupOverview', icon: Odometer, base: '/_g1', children: filterPerms(all.filter(i => ['/dashboard', '/plugins'].includes(i.path))) },
-    { title: 'app.menuGroupBusiness', icon: Monitor, base: '/_g2', children: filterPerms(all.filter(i => ['/monitor','/tv-wall','/devices','/push-streams','/pull-proxies','/channelmanager','/device-records','/cloud-records','/record-schedule','/legacy-gateway','/platforms'].includes(i.path))) },
+    { title: 'app.menuGroupBusiness', icon: Monitor, base: '/_g2', children: filterPerms(all.filter(i => ['/monitor','/tv-wall','/devices','/push-streams','/pull-proxies','/channelmanager','/device-records','/cloud-records','/vod-channels','/record-schedule','/legacy-gateway','/platforms'].includes(i.path))) },
     { title: 'app.menuGroupAlarm', icon: Bell, base: '/_g3', children: filterPerms(all.filter(i => ['/alarms','/alarm-notifications','/work-orders'].includes(i.path))) },
     { title: 'app.menuGroupVisualization', icon: MapLocation, base: '/_g4', children: filterPerms(all.filter(i => ['/map','/visual-command','/mobile-command'].includes(i.path))) },
     { title: 'app.menuGroupOps', icon: Setting, base: '/_g5', children: filterPerms(all.filter(i => ['/health','/sla','/ops','/app-logs','/network','/asset-management'].includes(i.path))) },

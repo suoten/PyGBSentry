@@ -309,6 +309,11 @@ class Settings(BaseSettings):
     # ---- 流量账单(ROADMAP Phase3:按通道累计流量) ----
     TRAFFIC_METER_ENABLED: bool = True
     TRAFFIC_METER_INTERVAL_SECONDS: int = 60  # 采样间隔(秒),下限 10;增量 = bytesSpeed × 间隔
+
+    # ---- 本地 MP4 虚拟通道(ROADMAP Phase3) ----
+    VOD_MP4_DIR: str = "data/vod-channels"  # 上传文件存储目录(相对 backend 工作目录)
+    VOD_MP4_MAX_MB: int = 2048  # 单文件大小上限(MB)
+    VOD_MP4_APP: str = "vod"  # ZLM 点播流所属 app(流名 mp4_{id 前 8 位})
     # 嵌入页对外基础地址(平台后端,非 ZLM);空=按请求 base_url 推断,反代场景建议显式配置
     STREAM_EMBED_PUBLIC_BASE_URL: str = ""
     # 嵌入播放页的外部播放器库 CDN(可自托管替换以适配离线/内网环境)

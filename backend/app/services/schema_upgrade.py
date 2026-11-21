@@ -932,6 +932,24 @@ _TRAFFIC_DAILY_STMTS = [
     "CREATE INDEX IF NOT EXISTS idx_traffic_daily_day ON traffic_daily (day)",
 ]
 
+_VOD_MP4_STMTS = [
+    # FIX [2026-11-21] (ROADMAP Phase3:本地 MP4 虚拟通道)
+    """
+    CREATE TABLE IF NOT EXISTS mp4_vod_channels (
+        id VARCHAR(32) PRIMARY KEY,
+        tenant_id VARCHAR(64) DEFAULT 'default',
+        name VARCHAR(128) NOT NULL,
+        original_name VARCHAR(255),
+        file_name VARCHAR(128) NOT NULL UNIQUE,
+        file_size BIGINT DEFAULT 0,
+        enabled BOOLEAN DEFAULT TRUE,
+        created_by VARCHAR(64),
+        created_at TIMESTAMP
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_mp4_vod_tenant ON mp4_vod_channels (tenant_id)",
+]
+
 _ALL_STMT_GROUPS = [
     _USER_AND_TENANT_STMTS,
     _MEDIA_AND_STREAM_STMTS,
@@ -945,6 +963,7 @@ _ALL_STMT_GROUPS = [
     _COMMAND_AND_EVENT_STMTS,
     _GB28181_EXTENDED_STMTS,
     _TRAFFIC_DAILY_STMTS,
+    _VOD_MP4_STMTS,
 ]
 
 

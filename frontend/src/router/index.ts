@@ -87,6 +87,7 @@ const ossRoutes = [
   { path: '/config-center', name: 'ConfigCenter', component: () => import('../views/ConfigCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.configCenter', requiredRoles: ['admin', 'owner'] } }, // FIXED: RBAC
   { path: '/release-center', name: 'ReleaseCenter', component: () => import('../views/ReleaseCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.releaseCenter', requiredRoles: ['admin', 'owner'] } }, // FIXED: RBAC
   { path: '/audit-center', name: 'AuditCenter', component: () => import('../views/AuditCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.auditCenter', requiredRoles: ['admin', 'owner', 'operator'] } }, // FIXED: 国际化 + RBAC
+  { path: '/vod-channels', name: 'VodChannels', component: () => import('../views/VodChannels.vue'), meta: { requiresAuth: true, titleKey: 'route.vodChannels', requiredRoles: ['admin', 'owner', 'operator'] } },
   { path: '/reports', name: 'Reports', component: () => import('../views/ReportCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.reports', requiredRoles: ['admin', 'owner', 'operator'] } }, // FIXED: RBAC
   { path: '/suite-center', name: 'SuiteCenter', component: () => import('../views/SuiteCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.suiteCenter', requiredRoles: ['admin', 'owner'] } }, // FIXED: RBAC
   { path: '/m/reports', name: 'MobileReports', component: () => import('../views/ReportCenter.vue'), meta: { requiresAuth: true, titleKey: 'route.reportsMobile' } }, // FIXED: 国际化

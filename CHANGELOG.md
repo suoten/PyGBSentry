@@ -8,6 +8,7 @@
 
 ### 新增
 
+- **本地 MP4 虚拟通道**（路线图 Phase3，wvp #2257 类需求）：新页面「MP4 虚拟通道」（业务菜单组，admin/operator）——上传本地 MP4（服务端生成文件名防路径穿越、单文件上限 `VOD_MP4_MAX_MB` 默认 2GB），通过 ZLM `loadMP4File` 以直播协议循环点播，播放直接复用 AdvancedVideoPlayerDialog（flv/hls 自动降级）；删除时联动停止点播+删文件。不计入 GB28181 通道配额；多节点部署需 MP4 目录对各节点可读（文档注明）。新模型 `mp4_vod_channels`（schema_upgrade 自动建表）+ API `POST/GET /api/v1/vod/mp4-channels`、`/{id}/play`、`/{id}/stop`、`DELETE /{id}`（devices.manage 权限管控写操作）
 - **流量账单统计(按通道累计)**（路线图 Phase3，wvp #1632 类需求）：新增 `traffic_meter` 后台任务（默认开启，60s 采样，`TRAFFIC_METER_*` 可配）——聚合全部节点 getMediaList 的 `bytesSpeed`，按采样间隔折算增量累计进新表 `traffic_daily`（唯一键 tenant+channel+day，幂等 upsert；GB 流名提取通道前缀与 recording_guard 同规则，未映射流按 ZLM 流名记账不丢数据）；报表中心流量页新增「按通道累计流量(近 7 天)」表格（通道/设备/累计/峰值），新增 API `GET /api/v1/reports/data/traffic-by-channel` 与 `/data/traffic-daily-summary`（租户隔离）
 - **按通道云端录像开关**（路线图 Phase3，wvp #2143 类需求）：`on_publish` 此前只有全局 `ZLM_DEFAULT_ENABLE_MP4`，无法按通道细化。现在通道编辑对话框新增「云端录像」三态选择（跟随全局 / 强制开启 / 强制关闭），存于通道 `capabilities["cloud_record"]`（免迁移，目录同步合并时保留）；hook 按 GB 流名通道前缀查询——True 强制录（覆盖全局关闭）、False 强制不录（如存储敏感通道）、缺省跟随全局；仅作用 live 流，查询失败跟随全局（fail-open）。行为测试覆盖三态 + 非 GB 流名 + DB 故障回退
 - **飞书机器人原生格式**（路线图 Phase3）：`_send_webhook` 此前只特判钉钉/企微 payload 结构，飞书自定义机器人直发（open.feishu.cn）会因格式不符被拒。补飞书 `msg_type/content` 原生格式分支——`WEBHOOK_ALARM_URL` / `WEBHOOK_DEVICE_STATUS_URL` 填飞书 webhook 地址即可用
