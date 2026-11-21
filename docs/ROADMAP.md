@@ -30,7 +30,7 @@
 | 对讲旗舰能力 | 厂商模式自动探测(大华 MESSAGE 先行/海康直连 INVITE),"对讲一定能通"作为差异化卖点 | 🔄 探测学习已实现(`BROADCAST_PRE_MESSAGE_ENABLED` 开启后自动适配每台设备);真机矩阵验证中 |
 | 嵌入场景官方化 | "分享/嵌入"一键生成(签名令牌 + 有效期 + iframe 代码),无框播放页替代全局 X-Frame-Options 一刀切 | ✅ 已完成(`/api/v1/embed/links` + `/embed/play`;令牌吊销黑名单规划中) |
 | 多租户权限文档化 | 不同账号看不同设备(#1787 同类诉求)——能力已内置,补使用指南与宣传 |
-| API 契约稳定承诺 | OpenAPI 快照测试 + 破坏性变更清单制度,给应用开发者确定性 |
+| API 契约稳定承诺 | OpenAPI 快照测试(只增不减,CI 强制)+ 破坏性变更清单制度,给应用开发者确定性 | ✅ 已完成(`tests/test_api_contract.py` + 基线 533 路径;`docs/API_CONTRACT.md`) |
 
 ## Phase 3 — 规模化与企业市场(季度级)
 
