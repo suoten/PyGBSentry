@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### 新增
+
+- **播放失败一键自诊断**（路线图 Phase1，源自 wvp 456 个 issue 分析——"收流超时/播放失败"占 1/4 且用户难以描述根因）：新增 `POST /api/v1/network-diagnostics/diagnose-play`，把播放链路拆成六道关卡逐项检查（设备注册与租户归属、信令地址、平台 SIP 传输/设备 TCP 可达、流媒体节点可达+secret 匹配、对外播放地址是否内网、SSRC 余量），每项返回 ok/warn/fail + 中英双语结论与修复指引，汇总为 ok/warning/blocked 判定；前端 `AdvancedVideoPlayerDialog` 播放失败界面新增「运行播放诊断」按钮与检查面板（覆盖 ChannelManager/ChannelList/DeviceDetailDrawer 三处播放入口）。配套公开产品路线图 `docs/ROADMAP.md`
+- **产品路线图**：新增 `docs/ROADMAP.md`，基于对同类项目 456 个公开 issue 的用户画像/痛点分析制定 Phase1-3 计划并公开进展
+
 ### 修复
 - **P0 定时录制无看门狗静默丢录像**（对照 wvp-GB28181-pro #2145）：`record_schedule_executor` / `auto_record` 此前只维护本地 `is_recording` 标志，ZLM 重启或流闪断重连后录制已死但标志仍为 True，任务期内不会重发 `startRecord`。新增周期性 ZLM `isRecording` 校验（`RECORD_SCHEDULE_VERIFY_INTERVAL_SECONDS`，默认 60s，下限 30s），发现录制中断立即重启录制自愈；重启失败翻转标志交由标准 start 路径记账重试
 - **P0 级联目录变更通知体系未接通**（对照 wvp #2246/#1779/#2138/#1725）：

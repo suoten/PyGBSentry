@@ -93,7 +93,34 @@
                 <div class="skeleton-text text-danger">{{ requestTitle || t('player.playFailure') }}</div>
                 <div class="skeleton-subtext">{{ requestMessage }}</div>
                 <div v-if="requestSuggestion" class="skeleton-subtext skeleton-suggestion">{{ requestSuggestion }}</div>
-                <el-button v-if="requestRetryable" size="small" type="primary" plain @click="emit('refresh')" style="margin-top: 16px;">{{ t('player.retryRequest') }}</el-button>
+                <div style="margin-top: 16px; display: flex; gap: 8px; justify-content: center;">
+                  <el-button v-if="requestRetryable" size="small" type="primary" plain @click="emit('refresh')">{{ t('player.retryRequest') }}</el-button>
+                  <el-button
+                    v-if="hasDeviceChannel"
+                    size="small"
+                    type="warning"
+                    plain
+                    :loading="diagRunning"
+                    @click="runPlayDiagnosis"
+                  >{{ t('player.diagRun') }}</el-button>
+                </div>
+                <!-- FIX [2026-11-21] (ROADMAP Phase1):播放失败一键自诊断 — 把"收流超时"类
+                     黑盒问题拆成可自检的关卡(设备注册/信令地址/流媒体可达/公网地址/SSRC 余量),
+                     每项给出结论与修复指引,替代让用户翻文档猜配置 -->
+                <div v-if="diagResult" class="diag-panel">
+                  <div class="diag-verdict" :class="'diag-' + diagResult.verdict">{{ diagVerdictText }}</div>
+                  <div v-for="item in diagResult.items" :key="item.key" class="diag-item">
+                    <span class="diag-icon" :class="'diag-' + item.severity">
+                      {{ item.severity === 'ok' ? '✓' : item.severity === 'warn' ? '!' : '✕' }}
+                    </span>
+                    <span class="diag-body">
+                      <span class="diag-label">{{ item.label?.[locale] || item.label?.zh }}</span>
+                      <span class="diag-detail">{{ item.detail?.[locale] || item.detail?.zh }}</span>
+                      <span v-if="item.hint && (item.hint[locale] || item.hint.zh)" class="diag-hint">{{ item.hint?.[locale] || item.hint?.zh }}</span>
+                    </span>
+                  </div>
+                </div>
+                <div v-if="diagError" class="diag-panel diag-error-text">{{ diagError }}</div>
               </div>
               
               <div v-else class="skeleton-loading-content">
@@ -260,8 +287,50 @@ import NativeHlsPlayer from './NativeHlsPlayer.vue'
 import AdvancedPtzControl from './AdvancedPtzControl.vue'
 import CodecInfo from './CodecInfo.vue'
 import TalkControl from './TalkControl.vue'
+import api from '@/utils/http'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+
+// ---- 播放失败一键诊断(ROADMAP Phase1) ----
+type DiagItem = {
+  key: string
+  severity: 'ok' | 'warn' | 'fail'
+  label: Record<string, string>
+  detail: Record<string, string>
+  hint?: Record<string, string>
+}
+type DiagResult = {
+  verdict: 'ok' | 'warning' | 'blocked'
+  verdict_text: Record<string, string>
+  blockers: string[]
+  items: DiagItem[]
+}
+const diagRunning = ref(false)
+const diagResult = ref<DiagResult | null>(null)
+const diagError = ref('')
+const diagVerdictText = computed(() => {
+  const v = diagResult.value
+  if (!v) return ''
+  return v.verdict_text?.[locale.value === 'en-US' ? 'en' : 'zh'] || v.verdict_text?.zh || ''
+})
+
+const runPlayDiagnosis = async () => {
+  diagRunning.value = true
+  diagResult.value = null
+  diagError.value = ''
+  try {
+    const resp = await api.post('/api/v1/network-diagnostics/diagnose-play', {
+      device_id: String(props.deviceId || '').trim(),
+      channel_id: String(props.channelId || '').trim(),
+    })
+    diagResult.value = resp.data
+  } catch (e: unknown) {
+    const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    diagError.value = msg || t('player.diagFailed')
+  } finally {
+    diagRunning.value = false
+  }
+}
 
 type StreamUrls = Record<string, string | undefined>
 // FIX: [2026-07-10] auto-heal profile.preferredPlayer 可能返回 'hls'，
@@ -1322,6 +1391,52 @@ watch(
   font-size: 12px;
   opacity: 0.8;
 }
+
+/* 播放失败一键诊断面板(ROADMAP Phase1) */
+.diag-panel {
+  margin-top: 14px;
+  width: 100%;
+  max-width: 520px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.diag-verdict {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.diag-verdict.diag-ok { color: #67c23a; }
+.diag-verdict.diag-warning { color: #e6a23c; }
+.diag-verdict.diag-blocked { color: #f56c6c; }
+.diag-item {
+  display: flex;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px dashed rgba(255, 255, 255, 0.08);
+}
+.diag-item:first-of-type { border-top: none; }
+.diag-icon {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+.diag-icon.diag-ok { background: rgba(103, 194, 58, 0.2); color: #67c23a; }
+.diag-icon.diag-warn { background: rgba(230, 162, 60, 0.2); color: #e6a23c; }
+.diag-icon.diag-fail { background: rgba(245, 108, 108, 0.2); color: #f56c6c; }
+.diag-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.diag-label { font-weight: 600; }
+.diag-detail { opacity: 0.75; }
+.diag-hint { opacity: 0.9; color: #e6a23c; }
+.diag-error-text { color: #f56c6c; }
 
 .player-empty {
   width: 100%;
