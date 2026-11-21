@@ -16,6 +16,7 @@ from sqlalchemy import select
 from loguru import logger
 import secrets  # P4 安全随机数 — random→secrets
 import asyncio
+import time
 
 
 def _attach_trace_header(req: SipMessage) -> str:
@@ -72,6 +73,34 @@ class Broadcast:
         finally:
             self._watchdog_tasks.pop(call_id, None)
 
+    # ---- 前置 MESSAGE 探测学习(ROADMAP Phase2:厂商模式自动探测) ----
+    # FIX [2026-11-21]:开启 BROADCAST_PRE_MESSAGE_ENABLED 后不再需要按厂商手工判断——
+    # 平台自动探测每台设备对标准流程的支持:
+    #   设备 200 OK 确认 → 清除记忆,后续继续走 MESSAGE 前置;
+    #   设备 4xx/6xx 拒绝 → 记忆 24h,后续直接 INVITE(不认标准流程的机型);
+    #   等待超时   → 记忆 1h(短周期),后续先直接 INVITE 避免每次喊话都干等超时,
+    #               1h 后会重新探测一次(设备固件可能升级)。
+    # 进程内存缓存即可(重启后重新探测一次,代价可忽略)。
+    _pre_message_skip_until: dict[str, float] = {}
+    _PRE_MSG_SKIP_DENY_TTL_SECONDS = 24 * 3600.0
+    _PRE_MSG_SKIP_TIMEOUT_TTL_SECONDS = 3600.0
+
+    def _pre_message_skipped(self, device_id: str) -> bool:
+        until = self._pre_message_skip_until.get(device_id, 0.0)
+        if until <= 0.0:
+            return False
+        if time.monotonic() >= until:
+            self._pre_message_skip_until.pop(device_id, None)
+            return False
+        return True
+
+    def _remember_pre_message_skip(self, device_id: str, ttl_seconds: float) -> None:
+        self._pre_message_skip_until[device_id] = time.monotonic() + max(60.0, float(ttl_seconds))
+        if len(self._pre_message_skip_until) > 20000:
+            now = time.monotonic()
+            for k in [k for k, v in self._pre_message_skip_until.items() if v <= now][:10000]:
+                self._pre_message_skip_until.pop(k, None)
+
     async def send_broadcast_message(self, asset, channel_id: str, transport_info: tuple) -> bool:
         """发送标准 GB28181 §9.2.1 Broadcast MESSAGE(喊话前置信令)并等待设备最终响应。
 
@@ -80,11 +109,18 @@ class Broadcast:
         原实现跳过 MESSAGE 直接 INVITE,大华等严格按标准流程的设备会拒绝喊话。
         返回 True=设备确认(或发出成功但未等响应的降级路径);False=发送失败。
         调用方无论结果都应继续 INVITE(MESSAGE 只是兼容前置,不是硬性握手)。
+
+        FIX [2026-11-21] (ROADMAP Phase2 厂商模式自动探测):对每台设备自动学习其对
+        标准流程的支持情况——拒绝(记 24h)/超时(记 1h)的设备后续直接 INVITE,
+        确认的设备继续 MESSAGE 前置。开启开关后无需按厂商手工区分。
         """
         addr, proto, transport = transport_info
         device_id = str(getattr(asset, "gb_id", "") or "")
         if not device_id or not channel_id:
             return False
+        if self._pre_message_skipped(device_id):
+            logger.debug(f"[Broadcast] Pre-MESSAGE skipped for {device_id} (device does not support it, cached)")
+            return True
         sn = secrets.randbelow(900000) + 100000
         xml_body = f"""<?xml version="1.0" encoding="GB2312"?>
 <Notify>
@@ -150,6 +186,8 @@ class Broadcast:
                     await asyncio.wait_for(event.wait(), timeout=timeout_seconds)
                 except asyncio.TimeoutError:
                     logger.info(f"[Broadcast] Pre-MESSAGE no response from {device_id} in {timeout_seconds}s (device may not require it), continuing INVITE")
+                    # 自动探测:超时设备短周期跳过,避免每次喊话干等超时;1h 后重新探测
+                    self._remember_pre_message_skip(device_id, self._PRE_MSG_SKIP_TIMEOUT_TTL_SECONDS)
                     return True
                 finally:
                     try:
@@ -158,8 +196,11 @@ class Broadcast:
                         pass
                 if 200 <= result["status"] < 300:
                     logger.info(f"[Broadcast] Pre-MESSAGE confirmed by {device_id} ({result['status']})")
+                    self._pre_message_skip_until.pop(device_id, None)
                     return True
                 logger.warning(f"[Broadcast] Pre-MESSAGE rejected by {device_id} ({result['status']}), continuing INVITE anyway")
+                # 自动探测:设备明确拒绝标准流程 → 记忆 24h,后续直接 INVITE
+                self._remember_pre_message_skip(device_id, self._PRE_MSG_SKIP_DENY_TTL_SECONDS)
                 return False
             except Exception as e:
                 logger.warning(f"[Broadcast] Pre-MESSAGE via tx_manager failed: {e}, falling back to direct send")

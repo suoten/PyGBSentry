@@ -184,7 +184,7 @@
 
 | 配置项 | 默认 | 适用场景 | 说明 |
 |:---|:---|:---|:---|
-| `BROADCAST_PRE_MESSAGE_ENABLED` | `false` | **大华**摄像头喊话失败时开启 | 标准 GB28181 §9.2.1 要求喊话前先发 Broadcast MESSAGE 等设备确认；大华等严格按标准流程的机型需要此步骤，海康等直连 INVITE 即可。对讲（talk）流程不受影响 |
+| `BROADCAST_PRE_MESSAGE_ENABLED` | `false` | 喊话/对讲兼容探测（大华等标准流程机型 + 海康等直连机型混部） | 开启后**无需按厂商区分**：平台先发标准 Broadcast MESSAGE 并自动学习每台设备的支持情况——200 确认的设备继续 MESSAGE 前置；明确拒绝的设备记忆 24h 后续直接 INVITE；超时的设备记忆 1h 避免每次干等。对讲（talk）流程不受影响 |
 | `BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS` | `5.0` | 配合上一项 | 等待设备确认 MESSAGE 的超时；超时不会阻断喊话，仅记录日志 |
 | `SIP_KEEPALIVE_ADDR_UPDATE_ENABLED` | `false` | **可信内网**且设备 NAT 重映射后不重注册 | 心跳源地址回写设备表，点播首发即命中新地址。默认关闭保持防劫持语义（伪造心跳不能改写设备地址），**公网部署勿开** |
 | `CATALOG_IGNORE_OFF_STATUS` | `false` | 部分 NVR 空闲时把全部通道报为 OFF | 开启后目录里的 OFF 视为"状态未知"，不翻转通道在线状态；通道可达性以注册/心跳为准。适合"在线通道慢慢变少、手动同步又恢复"的 NVR 固件 |

@@ -8,6 +8,7 @@
 
 ### 新增
 
+- **对讲厂商模式自动探测**（路线图 Phase2）：`BROADCAST_PRE_MESSAGE_ENABLED` 开启后不再需要按厂商手工区分——平台对每台设备自动学习其对标准 Broadcast MESSAGE 流程的支持：200 确认→继续前置；4xx/6xx 拒绝→记忆 24h 后续直接 INVITE；超时→记忆 1h 避免每次喊话干等（周期性重探测）。行为测试覆盖三场景。配套 `docs/TENANCY.md` 多租户使用指南（租户模型/角色体系/典型场景/FAQ）
 - **部署体检**（路线图 Phase1）：新增 `GET /api/v1/network-diagnostics/deployment-check`（admin），一键全面检查部署环境——SIP 信令服务、数据库/Redis 连通与延迟、设备概况（总数/在线）、流媒体节点逐个探测（含 secret 匹配失败识别）、对外播放地址（内网地址告警 + 可选公网出口 IP 对比）、收流模式与防火墙提示、安全基线（SECRET_KEY/OpenAPI 文档暴露/CORS，只报状态不泄露密钥）、关键后台任务启用状态、CPU/内存快照；每项 ok/warn/fail + 双语结论与修复指引。前端运维中心新增「部署体检」标签页与报告面板
 - **兼容性文档：厂商特性开关**（`docs/COMPATIBILITY.md`）：整理大华喊话 MESSAGE 前置、可信内网心跳地址回写、NVR 目录 OFF 状态忽略、协议版本、设备级 TCP/UDP 收流策略等兼容开关的适用场景与默认值
 - **播放失败一键自诊断**（路线图 Phase1，源自 wvp 456 个 issue 分析——"收流超时/播放失败"占 1/4 且用户难以描述根因）：新增 `POST /api/v1/network-diagnostics/diagnose-play`，把播放链路拆成六道关卡逐项检查（设备注册与租户归属、信令地址、平台 SIP 传输/设备 TCP 可达、流媒体节点可达+secret 匹配、对外播放地址是否内网、SSRC 余量），每项返回 ok/warn/fail + 中英双语结论与修复指引，汇总为 ok/warning/blocked 判定；前端 `AdvancedVideoPlayerDialog` 播放失败界面新增「运行播放诊断」按钮与检查面板（覆盖 ChannelManager/ChannelList/DeviceDetailDrawer 三处播放入口）。配套公开产品路线图 `docs/ROADMAP.md`

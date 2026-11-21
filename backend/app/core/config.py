@@ -428,7 +428,10 @@ class Settings(BaseSettings):
     MEDIA_SERVER_BROADCAST_PORT: int = 20000
     # FIX [2026-11-20 P1] (wvp #2268 大华喊话兼容):喊话前先发标准 GB28181 §9.2.1
     # Broadcast MESSAGE(Notify 根,SourceID/TargetID)并等待设备 200 OK,再走既有
-    # 直连 INVITE。大华等要求 MESSAGE 先行的机型需开启;默认关闭保持既有设备兼容
+    # 直连 INVITE。
+    # FIX [2026-11-21] (ROADMAP Phase2 厂商模式自动探测):开启后无需按厂商手工区分——
+    # 平台自动学习每台设备的支持情况:200 OK 确认→继续 MESSAGE 前置;4xx/6xx 拒绝→
+    # 记忆 24h 后续直接 INVITE;超时→记忆 1h 后续先直接 INVITE(周期性重探测)。
     BROADCAST_PRE_MESSAGE_ENABLED: bool = False
     BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS: float = 5.0
     # P1-fix [2026-07-17]: 流媒体公网 RTMP 端口 — 原 stream_proxy.py 使用 getattr(settings, "STREAM_PUBLIC_RTMP_PORT", 1935)
