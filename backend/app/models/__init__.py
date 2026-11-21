@@ -27,6 +27,7 @@ from app.models.map_config import MapConfig
 from app.models.media_node import MediaNode
 from app.models.media_port_lease import MediaPortLease
 from app.models.network_metric import NetworkMetric
+from app.models.traffic_daily import TrafficDaily
 from app.models.operation_audit import OperationAudit
 from app.models.organization import Organization
 from app.models.platform import ParentPlatform

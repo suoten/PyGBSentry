@@ -1036,3 +1036,114 @@ async def reports_export_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# 按通道流量账单(ROADMAP Phase3) —— 数据由 tasks/traffic_meter.py 周期采样累计
+# ---------------------------------------------------------------------------
+
+
+def _format_bytes(n: int) -> str:
+    step = 1024.0
+    value = float(max(0, int(n)))
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if value < step:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+        value /= step
+    return f"{value:.1f} PB"
+
+
+@router.get("/data/traffic-by-channel")
+async def report_traffic_by_channel(
+    days: int = Query(7, ge=1, le=90, description="统计近 N 天(自 UTC 今日回溯)"),
+    limit: int = Query(50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """按通道累计流量:近 N 天总字节排序,附通道/设备名称与峰值速率。"""
+    from app.models.asset import Asset
+    from app.models.resource import Resource
+    from app.models.traffic_daily import TrafficDaily
+
+    tenant_id = current_user.tenant_id or "default"
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).date()
+
+    stmt = (
+        select(
+            TrafficDaily.channel_gb_id,
+            func.sum(TrafficDaily.total_bytes).label("total_bytes"),
+            func.max(TrafficDaily.peak_bps).label("peak_bps"),
+        )
+        .where(TrafficDaily.day >= since)
+        .group_by(TrafficDaily.channel_gb_id)
+        .order_by(func.sum(TrafficDaily.total_bytes).desc())
+        .limit(max(1, min(limit, 500)))
+    )
+    if not current_user.is_superuser:
+        # FIX: 租户过滤用 WHERE(HAVING 引用非聚合列在 PG 报错)
+        stmt = stmt.where(TrafficDaily.tenant_id == tenant_id)
+    rows = (await db.execute(stmt)).all()
+
+    # 名称映射:通道 → (通道名, 设备名);未映射流(SUM 中 resource_id 为空)标注"未映射流"
+    gb_ids = [str(r[0]) for r in rows]
+    chan_map: dict[str, tuple[str, str]] = {}
+    if gb_ids:
+        res_rows = (
+            (
+                await db.execute(
+                    select(Resource.gb_id, Resource.name, Resource.asset_id).where(Resource.gb_id.in_(gb_ids))
+                )
+            )
+            .all()
+        )
+        asset_ids = {str(a) for (_gb, _n, a) in res_rows if a}
+        asset_names: dict[str, str] = {}
+        if asset_ids:
+            for aid, aname in (await db.execute(select(Asset.id, Asset.name).where(Asset.id.in_(asset_ids)))).all():
+                asset_names[str(aid)] = str(aname or "")
+        chan_map = {str(gb): (str(n or gb), asset_names.get(str(a), "")) for gb, n, a in res_rows}
+
+    return [
+        {
+            "channel_gb_id": str(r[0]),
+            "channel_name": chan_map.get(str(r[0]), (str(r[0]), ""))[0],
+            "asset_name": chan_map.get(str(r[0]), ("", ""))[1],
+            "total_bytes": int(r[1] or 0),
+            "total_bytes_text": _format_bytes(int(r[1] or 0)),
+            "peak_bps": int(r[2] or 0),
+        }
+        for r in rows
+    ]
+
+
+@router.get("/data/traffic-daily-summary")
+async def report_traffic_daily_summary(
+    days: int = Query(7, ge=1, le=90),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(deps.get_current_active_user),
+):
+    """按日流量汇总:近 N 天每日总字节(供账单趋势图)。"""
+    from app.models.traffic_daily import TrafficDaily
+
+    tenant_id = current_user.tenant_id or "default"
+    since = (datetime.now(timezone.utc) - timedelta(days=max(1, days))).date()
+
+    stmt = (
+        select(TrafficDaily.day, func.sum(TrafficDaily.total_bytes))
+        .where(TrafficDaily.day >= since)
+        .group_by(TrafficDaily.day)
+        .order_by(TrafficDaily.day.asc())
+    )
+    if not current_user.is_superuser:
+        stmt = stmt.where(TrafficDaily.tenant_id == tenant_id)
+    rows = (await db.execute(stmt)).all()
+
+    total = sum(int(r[1] or 0) for r in rows)
+    return {
+        "total_bytes": total,
+        "total_bytes_text": _format_bytes(total),
+        "by_day": [
+            {"day": str(r[0]), "total_bytes": int(r[1] or 0), "total_bytes_text": _format_bytes(int(r[1] or 0))}
+            for r in rows
+        ],
+    }

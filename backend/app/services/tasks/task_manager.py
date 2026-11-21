@@ -78,6 +78,16 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     except Exception as e:
         logger.warning(f"Failed to start stream_ghost_reconcile: {e}")
 
+    # 5. 流量账单采样（ROADMAP Phase3:按通道累计流量进 traffic_daily）
+    try:
+        from app.services.tasks import traffic_meter
+
+        await traffic_meter.start()
+        _stop_callbacks.append(traffic_meter.stop)
+        logger.info("Background task started: traffic_meter")
+    except Exception as e:
+        logger.warning(f"Failed to start traffic_meter: {e}")
+
     # 5. 迁移自 plugins 的周期任务与 hook 模块统一接线
     # FIX [2026-11-20 P0]:scripts/migrate_plugins.py 把这些模块从 plugins/ 迁入 tasks/ 时
     # 剥掉了 HOOK_ON_STARTUP/register() 启动接线,新接线从未补上,导致它们整体成为死代码

@@ -234,6 +234,22 @@
                 <el-table-column prop="health_level" :label="t('reportPage.levelLabel')" width="120" />
               </el-table>
             </div>
+            <!-- 按通道流量账单(ROADMAP Phase3):traffic_meter 采样累计,近 7 天 -->
+            <div class="rounded-xl p-3 mt-4" style="border: 1px solid var(--el-border-color-lighter)" v-loading="trafficByChannelLoading">
+              <div class="font-medium mb-2">{{ t('reportPage.trafficByChannelTitle') }}</div>
+              <el-table v-if="trafficByChannel.length" :data="trafficByChannel" size="small" stripe>
+                <el-table-column prop="channel_name" :label="t('reportPage.trafficChannelLabel')" min-width="160" show-overflow-tooltip />
+                <el-table-column prop="asset_name" :label="t('reportPage.trafficAssetLabel')" min-width="140" show-overflow-tooltip />
+                <el-table-column :label="t('reportPage.trafficTotalLabel')" width="130">
+                  <template #default="{ row }">{{ row.total_bytes_text }}</template>
+                </el-table-column>
+                <el-table-column :label="t('reportPage.trafficPeakLabel')" width="130">
+                  <template #default="{ row }">{{ formatSpeedBps(row.peak_bps) }}</template>
+                </el-table-column>
+                <el-table-column prop="channel_gb_id" :label="t('reportPage.trafficGbLabel')" min-width="170" show-overflow-tooltip />
+              </el-table>
+              <el-empty v-else :description="t('reportPage.trafficByChannelEmpty')" :image-size="60" />
+            </div>
           </template>
           <el-empty v-else :description="t('reportPage.noTrafficData')" />
         </div>
@@ -676,6 +692,26 @@ const trafficQualitySummary = ref<{
 const trafficQualityTrend = ref<{ t: string; avg_health_score: number }[]>([])
 const trafficRiskSessions = ref<Array<{ session_id: string; device_id: string; channel_id: string; health_score: number; health_level: string }>>([])
 
+// ---- 按通道流量账单(ROADMAP Phase3) ----
+const trafficByChannel = ref<Array<{ channel_gb_id: string; channel_name: string; asset_name: string; total_bytes: number; total_bytes_text: string; peak_bps: number }>>([])
+const trafficByChannelLoading = ref(false)
+const formatSpeedBps = (bps: number) => {
+  const mbps = (Number(bps || 0) * 8) / 1_000_000
+  return mbps >= 1 ? `${mbps.toFixed(2)} Mbps` : `${(mbps * 1000).toFixed(0)} Kbps`
+}
+async function loadTrafficByChannel() {
+  trafficByChannelLoading.value = true
+  try {
+    const res = await api.get('/api/v1/reports/data/traffic-by-channel', { params: { days: 7, limit: 50 } })
+    trafficByChannel.value = Array.isArray(res.data) ? res.data : []
+  } catch (e: unknown) {
+    logger.error('加载按通道流量失败', e)
+    trafficByChannel.value = []
+  } finally {
+    trafficByChannelLoading.value = false
+  }
+}
+
 const formatKbps = (kbps: number): string => {
   if (kbps >= 1_000_000) return (kbps / 1_000_000).toFixed(1) + ' Gbps'
   if (kbps >= 1_000) return (kbps / 1_000).toFixed(1) + ' Mbps'
@@ -737,6 +773,8 @@ async function loadTrafficData() {
       trafficQualityTrend.value = []
       trafficRiskSessions.value = []
     }
+    // 按通道流量账单(并行非阻塞)
+    loadTrafficByChannel()
   } catch (e: unknown) {
     logger.error('加载流量数据失败', e)
     const friendly = getFriendlyError(e)

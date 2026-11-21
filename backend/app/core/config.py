@@ -304,8 +304,11 @@ class Settings(BaseSettings):
 
     # ---- 分享/嵌入(ROADMAP Phase2) ----
     # 嵌入令牌最长有效期(小时)。令牌 HMAC 签名且仅绑定通道(不含密钥),
-    # resolve 时换发 300s 短周期点播令牌,避免长周期凭证进入媒体路径
+    # resolve 时换发 300s 短周期点播令牌,避免把长周期凭证直接交给媒体路径
     STREAM_EMBED_MAX_TTL_HOURS: int = 168
+    # ---- 流量账单(ROADMAP Phase3:按通道累计流量) ----
+    TRAFFIC_METER_ENABLED: bool = True
+    TRAFFIC_METER_INTERVAL_SECONDS: int = 60  # 采样间隔(秒),下限 10;增量 = bytesSpeed × 间隔
     # 嵌入页对外基础地址(平台后端,非 ZLM);空=按请求 base_url 推断,反代场景建议显式配置
     STREAM_EMBED_PUBLIC_BASE_URL: str = ""
     # 嵌入播放页的外部播放器库 CDN(可自托管替换以适配离线/内网环境)

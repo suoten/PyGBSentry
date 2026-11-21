@@ -913,6 +913,25 @@ _GB28181_EXTENDED_STMTS = [
 ]
 
 # All statement groups in execution order
+_TRAFFIC_DAILY_STMTS = [
+    # FIX [2026-11-21] (ROADMAP Phase3:流量账单统计):按通道每日流量累计表
+    """
+    CREATE TABLE IF NOT EXISTS traffic_daily (
+        id VARCHAR(32) PRIMARY KEY,
+        tenant_id VARCHAR(64) DEFAULT 'default',
+        channel_gb_id VARCHAR(64) NOT NULL,
+        resource_id VARCHAR(32),
+        asset_id VARCHAR(32),
+        day DATE NOT NULL,
+        total_bytes BIGINT DEFAULT 0,
+        peak_bps INTEGER DEFAULT 0,
+        updated_at TIMESTAMP
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_traffic_daily_channel_day ON traffic_daily (tenant_id, channel_gb_id, day)",
+    "CREATE INDEX IF NOT EXISTS idx_traffic_daily_day ON traffic_daily (day)",
+]
+
 _ALL_STMT_GROUPS = [
     _USER_AND_TENANT_STMTS,
     _MEDIA_AND_STREAM_STMTS,
@@ -925,6 +944,7 @@ _ALL_STMT_GROUPS = [
     _REGIONS_AND_ORGS_STMTS,
     _COMMAND_AND_EVENT_STMTS,
     _GB28181_EXTENDED_STMTS,
+    _TRAFFIC_DAILY_STMTS,
 ]
 
 
