@@ -692,6 +692,32 @@
         </el-card>
       </el-tab-pane>
 
+      <el-tab-pane :label="t('ops.deploymentCheck')" name="deployment_check">
+        <el-card>
+          <template #header>
+            <div class="flex justify-between items-center">
+              <span class="font-semibold">{{ t('ops.deploymentCheckTitle') }}</span>
+              <el-button type="primary" :loading="depCheckRunning" @click="runDeploymentCheck">{{ t('ops.runDeploymentCheck') }}</el-button>
+            </div>
+          </template>
+          <el-alert type="info" :closable="false" class="mb-4" show-icon :title="t('ops.deploymentCheckHint')" />
+          <div v-if="depCheckResult" class="dep-check-report">
+            <div class="dep-check-verdict" :class="'dep-' + depCheckResult.verdict">{{ depCheckVerdictText }}</div>
+            <div v-for="item in depCheckResult.items" :key="item.key" class="dep-check-item">
+              <span class="dep-check-icon" :class="'dep-' + item.severity">
+                {{ item.severity === 'ok' ? '✓' : item.severity === 'warn' ? '!' : '✕' }}
+              </span>
+              <div class="dep-check-body">
+                <div class="dep-check-label">{{ item.label?.[locale] || item.label?.zh }}</div>
+                <div class="dep-check-detail">{{ item.detail?.[locale] || item.detail?.zh }}</div>
+                <div v-if="item.hint && (item.hint?.[locale] || item.hint?.zh)" class="dep-check-hint">{{ item.hint?.[locale] || item.hint?.zh }}</div>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else-if="!depCheckRunning" :description="t('ops.deploymentCheckEmpty')" />
+        </el-card>
+      </el-tab-pane>
+
       </el-tabs>
     </PageContainer>
 
@@ -1042,9 +1068,43 @@ interface DiagItem {
   suggestion?: string
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const route = useRoute()
 const activeTab = ref(String(route.query.tab || 'status'))
+
+// ---- 部署体检(ROADMAP Phase1):一键全面检查部署环境 ----
+type DepCheckItem = {
+  key: string
+  severity: 'ok' | 'warn' | 'fail'
+  label: Record<string, string>
+  detail: Record<string, string>
+  hint?: Record<string, string>
+}
+type DepCheckResult = {
+  verdict: 'ok' | 'warning' | 'blocked'
+  verdict_text: Record<string, string>
+  blockers: string[]
+  items: DepCheckItem[]
+}
+const depCheckRunning = ref(false)
+const depCheckResult = ref<DepCheckResult | null>(null)
+const depCheckVerdictText = computed(() => {
+  const r = depCheckResult.value
+  if (!r) return ''
+  return r.verdict_text?.[locale.value === 'en-US' ? 'en' : 'zh'] || r.verdict_text?.zh || ''
+})
+const runDeploymentCheck = async () => {
+  depCheckRunning.value = true
+  try {
+    const resp = await api.get('/api/v1/network-diagnostics/deployment-check')
+    depCheckResult.value = resp.data
+  } catch (e: unknown) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(detail || t('ops.deploymentCheckFailed'))
+  } finally {
+    depCheckRunning.value = false
+  }
+}
 const status = ref({
   cpu: 0,
   memory_percent: 0,
@@ -2516,6 +2576,44 @@ const exportDiagReport = () => {
 .ops-log-box--dialog {
   height: 500px;
 }
+
+/* 部署体检报告(ROADMAP Phase1) */
+.dep-check-report {
+  max-width: 780px;
+}
+.dep-check-verdict {
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.dep-check-verdict.dep-ok { color: var(--el-color-success); }
+.dep-check-verdict.dep-warning { color: var(--el-color-warning); }
+.dep-check-verdict.dep-blocked { color: var(--el-color-danger); }
+.dep-check-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--el-border-color-lighter);
+}
+.dep-check-item:first-of-type { border-top: none; }
+.dep-check-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.dep-check-icon.dep-ok { background: var(--el-color-success-light-8); color: var(--el-color-success); }
+.dep-check-icon.dep-warn { background: var(--el-color-warning-light-8); color: var(--el-color-warning); }
+.dep-check-icon.dep-fail { background: var(--el-color-danger-light-8); color: var(--el-color-danger); }
+.dep-check-body { min-width: 0; }
+.dep-check-label { font-weight: 600; }
+.dep-check-detail { color: var(--el-text-color-secondary); font-size: 12px; margin-top: 2px; }
+.dep-check-hint { color: var(--el-color-warning); font-size: 12px; margin-top: 2px; }
 
 .ops-input-120 {
   width: 120px;

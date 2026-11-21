@@ -850,3 +850,334 @@ def _diag_verdict(items: list[dict]) -> dict:
         "items": items,
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# 7. GET /deployment-check — 部署体检(ROADMAP Phase1)
+# ---------------------------------------------------------------------------
+# 运维中心一键体检:全面检查部署环境的健康度与安全基线,输出结构化报告。
+# 与 /diagnose-play(单次点播失败诊断)互补:本端点面向"部署后/升级后"的全量体检。
+
+
+async def _probe_zlm_node(host: str, http_port: int, secret: str) -> tuple[bool, float, str]:
+    """探测单个 ZLM 节点,返回 (ok, latency_ms, reason)。"""
+    if not host or http_port <= 0:
+        return False, 0.0, "address/port not configured"
+    try:
+        from app.services.zlm_stream_control import _get_zlm_client
+
+        client = await _get_zlm_client()
+        start = asyncio.get_running_loop().time()
+        resp = await client.post(
+            f"http://{host}:{http_port}/index/api/getMediaList",
+            data={"secret": str(secret or "")},
+            timeout=3.0,
+        )
+        latency = round((asyncio.get_running_loop().time() - start) * 1000, 1)
+        if resp.status_code >= 400:
+            return False, latency, f"HTTP {resp.status_code}"
+        body = resp.json()
+        if body.get("code") in (0, "0"):
+            return True, latency, ""
+        return False, latency, "secret mismatch (check node secret vs ZLM config)"
+    except Exception as e:
+        return False, 0.0, str(e)[:120]
+
+
+@router.get("/deployment-check", summary="Deployment health check (admin)")
+async def deployment_check(
+    current_user: User = Depends(deps.require_roles(["admin"])),
+):
+    """部署体检:信令/数据库/缓存/流媒体节点/对外地址/收流配置/安全基线/后台任务/资源。
+
+    admin 权限(包含安全基线信息);每项 ok/warn/fail + 双语结论与修复指引。
+    """
+    from sqlalchemy import func as _func, select as _select, text as _text
+
+    from app.core.config import settings as _settings
+
+    items: list[dict] = []
+
+    # 1. SIP 信令服务
+    try:
+        from app.sip.server import sip_server as _sip_server
+
+        udp_up = _sip_server.udp_transport is not None
+        tcp_up = _sip_server.tcp_server is not None
+        items.append(
+            _diag_item(
+                "sip_service",
+                udp_up or tcp_up,
+                "SIP 信令服务",
+                "SIP signaling service",
+                f"UDP {'运行' if udp_up else '未启动'} / TCP {'运行' if tcp_up else '未启动'}, 监听端口 {_settings.SIP_PORT}",
+                f"UDP {'running' if udp_up else 'down'} / TCP {'running' if tcp_up else 'down'}, port {_settings.SIP_PORT}",
+                "" if (udp_up or tcp_up) else "SIP 服务未运行:设备无法注册,检查端口占用与监听地址(SIP_IP)。",
+                "" if (udp_up or tcp_up) else "SIP service not running: devices cannot register; check port conflicts and bind address (SIP_IP).",
+            )
+        )
+    except Exception as e:
+        items.append(_diag_item("sip_service", False, "SIP 信令服务", "SIP signaling service", f"检测失败: {e}", f"check failed: {e}"))
+
+    # 2. 数据库
+    try:
+        from app.db.session import AsyncSessionLocal
+
+        start = asyncio.get_running_loop().time()
+        async with AsyncSessionLocal() as session:
+            await session.execute(_text("SELECT 1"))
+        db_latency = round((asyncio.get_running_loop().time() - start) * 1000, 1)
+        items.append(_diag_item("database", True, "数据库连接", "Database connection", f"正常, {db_latency}ms", f"ok, {db_latency}ms"))
+    except Exception as e:
+        items.append(
+            _diag_item(
+                "database",
+                False,
+                "数据库连接",
+                "Database connection",
+                f"失败: {str(e)[:120]}",
+                f"failed: {str(e)[:120]}",
+                "数据库不可达:检查 DATABASE_URL/连接参数与数据库服务状态。",
+                "Database unreachable: check DATABASE_URL/params and the DB service.",
+            )
+        )
+
+    # 3. Redis
+    try:
+        from app.core.redis import redis_client
+
+        if redis_client is None:
+            items.append(_diag_item("redis", False, "Redis 缓存", "Redis cache", "未配置", "not configured", "", "", severity="warn"))
+        else:
+            start = asyncio.get_running_loop().time()
+            await redis_client.ping()
+            r_latency = round((asyncio.get_running_loop().time() - start) * 1000, 1)
+            items.append(_diag_item("redis", True, "Redis 缓存", "Redis cache", f"正常, {r_latency}ms", f"ok, {r_latency}ms"))
+    except Exception as e:
+        items.append(
+            _diag_item(
+                "redis",
+                False,
+                "Redis 缓存",
+                "Redis cache",
+                f"失败: {str(e)[:120]}",
+                f"failed: {str(e)[:120]}",
+                "Redis 不可达会退化为单机模式并影响跨节点协调/心跳节流,建议检查连接配置。",
+                "Unreachable Redis degrades to single-node mode and affects cross-node coordination; check connection config.",
+                severity="warn",
+            )
+        )
+
+    # 4. 设备概况
+    try:
+        from app.models.asset import Asset
+
+        total = int((await db.execute(_select(_func.count()).select_from(Asset))).scalar() or 0)
+        online = int((await db.execute(_select(_func.count()).select_from(Asset).where(Asset.status == 1))).scalar() or 0)
+        detail_zh = f"设备 {total} 台, 在线 {online}, 离线 {total - online}"
+        detail_en = f"{total} device(s), {online} online, {total - online} offline"
+        sev = "ok" if total == 0 or online > 0 else "warn"
+        items.append(
+            _diag_item(
+                "devices",
+                True,
+                "设备概况",
+                "Devices",
+                detail_zh,
+                detail_en,
+                "" if (total == 0 or online > 0) else "全部设备离线:检查平台公网可达性、设备侧 SIP 服务器地址与网络。",
+                "" if (total == 0 or online > 0) else "All devices offline: check platform public reachability and device-side SIP server config.",
+                severity=sev,
+            )
+        )
+    except Exception as e:
+        logger.debug(f"deployment-check devices failed: {e}")
+
+    # 5. 流媒体节点逐个探测
+    nodes_to_check: list[dict] = []
+    try:
+        from app.core.media_nodes_db import list_db_media_nodes
+
+        async with AsyncSessionLocal() as session:
+            for n in await list_db_media_nodes(session):
+                nodes_to_check.append({"id": str(n.id), "host": n.host, "http_port": int(n.http_port or 0), "secret": n.secret, "public_host": n.public_host, "source": "db"})
+    except Exception as e:
+        logger.debug(f"deployment-check db nodes failed: {e}")
+    try:
+        from app.core.media_nodes import get_media_nodes
+
+        for n in get_media_nodes():
+            nid = str(n.get("id") or "")
+            if not any(x["id"] == nid for x in nodes_to_check):
+                nodes_to_check.append({"id": nid, "host": n.get("host"), "http_port": int(n.get("http_port") or 0), "secret": n.get("secret"), "public_host": n.get("public_host"), "source": "env"})
+    except Exception as e:
+        logger.debug(f"deployment-check env nodes failed: {e}")
+    if not nodes_to_check:
+        items.append(
+            _diag_item(
+                "media_nodes",
+                False,
+                "流媒体节点",
+                "Media nodes",
+                "未配置任何流媒体节点",
+                "No media node configured",
+                "至少需要一个 ZLMediaKit 节点:检查 MEDIA_SERVER_* 配置或运维中心节点管理。",
+                "At least one ZLMediaKit node is required: check MEDIA_SERVER_* config or add nodes in Operations.",
+            )
+        )
+    else:
+        node_results = []
+        for n in nodes_to_check:
+            ok, latency, reason = await _probe_zlm_node(n["host"], n["http_port"], n.get("secret"))
+            node_results.append({"id": n["id"], "host": n["host"], "http_port": n["http_port"], "ok": ok, "latency_ms": latency, "reason": reason, "public_host": n.get("public_host") or ""})
+        ok_count = sum(1 for r in node_results if r["ok"])
+        detail_zh = "; ".join(f"{r['host']}:{r['http_port']} {'正常 ' + str(r['latency_ms']) + 'ms' if r['ok'] else '不可达 ' + r['reason']}" for r in node_results)
+        detail_en = "; ".join(f"{r['host']}:{r['http_port']} {'ok ' + str(r['latency_ms']) + 'ms' if r['ok'] else 'unreachable ' + r['reason']}" for r in node_results)
+        items.append(
+            _diag_item(
+                "media_nodes",
+                ok_count > 0,
+                "流媒体节点",
+                "Media nodes",
+                detail_zh,
+                detail_en,
+                "" if ok_count else "所有节点不可达:确认 ZLM 已启动、HTTP 端口可访问、节点 secret 与 ZLM 配置一致。",
+                "" if ok_count else "All nodes unreachable: confirm ZLM is running, HTTP port accessible, and node secrets match.",
+            )
+        )
+
+    # 6. 对外播放地址 + 公网出口对比
+    play_host = ""
+    try:
+        active_pub = next((r["public_host"] for r in node_results if r.get("public_host")), "")
+        play_host = active_pub or str(_settings.STREAM_PUBLIC_HOST or "")
+    except Exception:
+        play_host = str(_settings.STREAM_PUBLIC_HOST or "")
+    if not play_host:
+        items.append(
+            _diag_item(
+                "public_address",
+                False,
+                "对外播放地址",
+                "Public playback address",
+                "未配置 STREAM_PUBLIC_HOST / 节点 public_host",
+                "STREAM_PUBLIC_HOST / node public_host not set",
+                "公网浏览器将无法播放:把对外地址配置为公网 IP/域名;纯内网使用可忽略。",
+                "Public browsers cannot play without it: set it to a public IP/domain; ignore for LAN-only.",
+                severity="warn",
+            )
+        )
+    else:
+        private = _is_private_host(play_host)
+        egress_ip = ""
+        if _settings.AUTO_DETECT_PUBLIC_IP and _settings.PUBLIC_IP_LOOKUP_URL:
+            try:
+                from app.core.http_client import get_http_client
+
+                client = await get_http_client()
+                resp = await client.get(str(_settings.PUBLIC_IP_LOOKUP_URL), timeout=3.0)
+                egress_ip = str(resp.text or "").strip()[:64]
+            except Exception as e:
+                logger.debug(f"deployment-check egress ip failed: {e}")
+        detail_zh = f"对外地址: {play_host}" + (f"; 平台公网出口: {egress_ip}" if egress_ip else "")
+        detail_en = f"play host: {play_host}" + (f"; platform egress IP: {egress_ip}" if egress_ip else "")
+        if private:
+            items.append(
+                _diag_item(
+                    "public_address",
+                    False,
+                    "对外播放地址",
+                    "Public playback address",
+                    detail_zh + "(内网地址)",
+                    detail_en + " (private/LAN)",
+                    "配置的是内网地址,公网浏览器无法播放;改用公网 IP/域名(可开启 AUTO_DETECT_PUBLIC_IP 自动探测出口)。",
+                    "Configured address is LAN-only; switch to a public IP/domain (AUTO_DETECT_PUBLIC_IP can detect egress automatically).",
+                    severity="warn",
+                )
+            )
+        else:
+            items.append(_diag_item("public_address", True, "对外播放地址", "Public playback address", detail_zh, detail_en))
+
+    # 7. 收流配置
+    rtp_mode = "single-port multiplexing" if _settings.FORCE_SINGLE_PORT_MULTIPLEXING else f"port range {_settings.MEDIA_SERVER_RTP_PROXY_PORT_RANGE}"
+    items.append(
+        _diag_item(
+            "rtp_receive",
+            True,
+            "收流配置",
+            "RTP receive config",
+            f"{rtp_mode}; RTP 超时 {_settings.RTP_SERVER_TIMEOUT_SECONDS}s",
+            f"{rtp_mode}; RTP timeout {_settings.RTP_SERVER_TIMEOUT_SECONDS}s",
+            "提示:公网部署需在防火墙放行 RTP 收流端口(单端口模式为 media 端口,range 模式为整个 30000-30999 段)。",
+            "Note: for public deployments, firewall must allow RTP receive ports (single mode: media port; range mode: the whole 30000-30999 range).",
+            severity="warn" if not _settings.FORCE_SINGLE_PORT_MULTIPLEXING else "ok",
+        )
+    )
+
+    # 8. 安全基线(只报状态,不泄露密钥值)
+    sec_ok = bool(_settings.SECRET_KEY)
+    docs_exposed = bool(_settings.ENABLE_OPENAPI_DOCS)
+    sec_detail_zh = f"SECRET_KEY: {'已配置' if sec_ok else '未配置'}; API 文档: {'生产环境暴露(不推荐)' if docs_exposed else '已关闭'}; CORS origins: {len(_settings.BACKEND_CORS_ORIGINS or [])} 条"
+    sec_detail_en = f"SECRET_KEY: {'set' if sec_ok else 'missing'}; API docs: {'exposed (not recommended)' if docs_exposed else 'disabled'}; CORS origins: {len(_settings.BACKEND_CORS_ORIGINS or [])}"
+    sec_hint_zh = "" if sec_ok and not docs_exposed else ("" if sec_ok else "SECRET_KEY 未配置会在生产环境拒绝启动。") + ("ENABLE_OPENAPI_DOCS 在生产环境建议关闭,避免接口枚举。" if docs_exposed else "")
+    items.append(
+        _diag_item(
+            "security_baseline",
+            sec_ok and not docs_exposed,
+            "安全基线",
+            "Security baseline",
+            sec_detail_zh,
+            sec_detail_en,
+            sec_hint_zh,
+            "SECRET_KEY missing refuses boot in production." if not sec_ok else ("ENABLE_OPENAPI_DOCS is recommended off in production (endpoint enumeration)." if docs_exposed else ""),
+            severity=("ok" if sec_ok and not docs_exposed else "warn"),
+        )
+    )
+
+    # 9. 关键后台任务启用状态(接线修复后确认各任务开关)
+    task_flags = {
+        "record_schedule_executor": bool(getattr(_settings, "RECORD_SCHEDULE_EXECUTOR_ENABLED", False)),
+        "record_index_verifier": bool(getattr(_settings, "RECORD_INDEX_VERIFY_ENABLED", False)),
+        "snapshot_refresh": bool(getattr(_settings, "SNAPSHOT_REFRESH_ENABLED", False)),
+        "pull_proxy_monitor": bool(getattr(_settings, "PULL_PROXY_MONITOR_ENABLED", False)),
+        "stream_ghost_reconcile": bool(getattr(_settings, "STREAM_GHOST_RECONCILE_ENABLED", False)),
+    }
+    disabled_tasks = [k for k, v in task_flags.items() if not v]
+    items.append(
+        _diag_item(
+            "background_tasks",
+            True,
+            "后台任务",
+            "Background tasks",
+            "已启用: " + (", ".join(k for k, v in task_flags.items() if v) or "无") + (f"; 已关闭: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
+            "Enabled: " + (", ".join(k for k, v in task_flags.items() if v) or "none") + (f"; disabled: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
+            "录制计划/自动录像等任务通过运维中心插件配置开关(enabled),关闭时对应功能不运行。",
+            "Tasks like record schedules are additionally gated by plugin runtime config (enabled); disabled means the feature will not run.",
+            severity="ok",
+        )
+    )
+
+    # 10. 资源快照
+    try:
+        import psutil
+
+        cpu = psutil.cpu_percent(interval=None)
+        mem = psutil.virtual_memory().percent
+        res_sev = "ok" if cpu < 85 and mem < 85 else "warn"
+        items.append(
+            _diag_item(
+                "resources",
+                True,
+                "资源快照",
+                "Resources",
+                f"CPU {cpu:.0f}% / 内存 {mem:.0f}%",
+                f"CPU {cpu:.0f}% / memory {mem:.0f}%",
+                "" if res_sev == "ok" else "CPU/内存偏高:检查并发流数与节点负载,必要时扩容或分流。",
+                "" if res_sev == "ok" else "CPU/memory high: check concurrent streams and node load; scale out if needed.",
+                severity=res_sev,
+            )
+        )
+    except Exception as e:
+        logger.debug(f"deployment-check resources failed: {e}")
+
+    return _diag_verdict(items)

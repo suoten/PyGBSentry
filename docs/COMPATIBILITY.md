@@ -178,6 +178,21 @@
 | 目录订阅 | 建议启用，以便自动同步设备目录 |
 | 心跳间隔 | 根据网络环境调整，建议 60 秒 |
 
+### 厂商特性开关（兼容性配置）
+
+部分厂商对标准流程的实现有差异，平台提供以下配置开关（`.env` 设置后重启生效）。遇到对应厂商设备功能异常时按表调整：
+
+| 配置项 | 默认 | 适用场景 | 说明 |
+|:---|:---|:---|:---|
+| `BROADCAST_PRE_MESSAGE_ENABLED` | `false` | **大华**摄像头喊话失败时开启 | 标准 GB28181 §9.2.1 要求喊话前先发 Broadcast MESSAGE 等设备确认；大华等严格按标准流程的机型需要此步骤，海康等直连 INVITE 即可。对讲（talk）流程不受影响 |
+| `BROADCAST_PRE_MESSAGE_TIMEOUT_SECONDS` | `5.0` | 配合上一项 | 等待设备确认 MESSAGE 的超时；超时不会阻断喊话，仅记录日志 |
+| `SIP_KEEPALIVE_ADDR_UPDATE_ENABLED` | `false` | **可信内网**且设备 NAT 重映射后不重注册 | 心跳源地址回写设备表，点播首发即命中新地址。默认关闭保持防劫持语义（伪造心跳不能改写设备地址），**公网部署勿开** |
+| `CATALOG_IGNORE_OFF_STATUS` | `false` | 部分 NVR 空闲时把全部通道报为 OFF | 开启后目录里的 OFF 视为"状态未知"，不翻转通道在线状态；通道可达性以注册/心跳为准。适合"在线通道慢慢变少、手动同步又恢复"的 NVR 固件 |
+| `GB28181_VERSION` | `2022` | 协议版本 | 影响 SDP `a=track` 行等 2022 特性；2016 老设备按 SDP 规范忽略未知属性行，一般无需改回 |
+| 设备级 `stream_policy` | 按设备配置 | TCP/UDP 收流模式 | 设备管理中可为单设备指定 UDP / TCP-PASSIVE / TCP-ACTIVE；点播失败自动回退（TCP-ACTIVE→TCP-PASSIVE→UDP） |
+
+> 兼容性反馈：如遇表中未覆盖的厂商特异行为，请提 issue 并附 `doctor.bat` / `./deploy/setup.sh doctor` 输出与设备型号，我们会评估增加对应的兼容开关。
+
 ---
 
 ## 相关文档
