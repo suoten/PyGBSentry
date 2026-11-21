@@ -94,6 +94,22 @@ Extend without forking:
 - **Redis Persistence** — session state survives restarts
 - **Node Failover** — automatic recovery in multi-node deployments
 - **TLS Hot-Reload** — certificate rotation without downtime
+- **Fully Wired Background Tasks** — 22 periodic tasks (recording watchdog, idle-stream reclaim, pull-proxy self-healing, ghost-stream reconciliation…) orchestrated by a unified task manager; self-healing, not human-monitored
+
+### 🩺 Play Self-Diagnosis + Deployment Check
+
+Stop guessing why playback fails — the platform tells you the answer:
+
+- **One-shot play diagnosis** — on playback failure, check the chain gate by gate (device registration / signaling address / reachability / media node / public address / SSRC capacity) with a verdict and fix hint per gate
+- **Deployment check** — one click in Operations: SIP, database, Redis, media nodes (incl. secret match), public address, RTP config, security baseline, background tasks, resources
+- **Recording watchdog** — scheduled recording periodically verifies real ZLM recording state and auto-restarts on interruption; no more silent gaps
+
+### 🔗 Integration-Friendly: Share/Embed + API Contract
+
+- **One-click share/embed** — from the player toolbar, generate an HMAC-signed embed-page URL and iframe snippet (1h–7d validity); third-party pages embed live video while admin UI protection stays intact
+- **Vendor auto-probing** — no per-vendor intercom config: the platform learns each device's support for the standard broadcast flow (Dahua MESSAGE-first / Hikvision direct INVITE) automatically
+- **API contract (additive-only)** — the full `/api/v1` endpoint snapshot runs in CI; removing a published endpoint or method fails the build. Zero surprises on upgrade
+- **Built-in multi-tenancy** — different accounts see different devices, tenant-level data isolation + channel quotas, ready for shared enterprise deployments
 
 ---
 
@@ -495,6 +511,9 @@ After deployment, make sure the following ports are accessible:
 | [Developer Guide](docs/DEVELOPER_EN.md) | Contribute & extend |
 | [Plugin Specification](docs/PLUGIN_SPEC.md) | Build your own plugin |
 | [Streaming Server Config](docs/MEDIA_SERVER.md) | ZLMediaKit tuning guide |
+| [Multi-Tenancy](docs/TENANCY.md) | Tenant model, roles, multi-department scenarios |
+| [API Contract](docs/API_CONTRACT.md) | Compatibility policy, CI enforcement, breaking-change process |
+| [Roadmap](docs/ROADMAP.md) | Product roadmap (based on 456 public issues of a comparable project) |
 
 ---
 
