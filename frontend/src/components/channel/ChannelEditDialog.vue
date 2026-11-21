@@ -73,6 +73,19 @@
           </el-col>
         </el-row>
 
+        <el-row>
+          <el-col :span="12">
+            <!-- FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关):三态——跟随全局/强制录/强制不录 -->
+            <el-form-item :label="t('channel.edit.cloudRecord')">
+              <el-radio-group v-model="form.cloud_record">
+                <el-radio :value="null">{{ t('channel.edit.cloudRecordFollow') }}</el-radio>
+                <el-radio :value="true">{{ t('channel.edit.cloudRecordOn') }}</el-radio>
+                <el-radio :value="false">{{ t('channel.edit.cloudRecordOff') }}</el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
+        </el-row>
+
         <el-divider content-position="left">{{ t('channel.edit.extInfo') }}</el-divider>
 
         <el-form-item :label="t('channel.edit.address')">
@@ -233,6 +246,7 @@ const form = ref<{
   status: number
   has_audio: boolean
   default_stream_type: string
+  cloud_record: boolean | null
   longitude: number | null
   latitude: number | null
   // GB28181 Extended
@@ -253,7 +267,7 @@ const form = ref<{
   resolution: string | null
   business_group_id: string | null
 }>({
-  id: '', gb_id: '', name: '', civil_code: null, status: 0, has_audio: true, default_stream_type: 'main',
+  id: '', gb_id: '', name: '', civil_code: null, status: 0, has_audio: true, default_stream_type: 'main', cloud_record: null,
   longitude: null, latitude: null, address: null, parental: 0, safety_way: 0, register_way: 1, secrecy: 0,
   ip_address: null, port: null, password: null, ptz_type: 0, position_type: 0, room_type: 0, use_type: 0,
   supply_light_type: 0, direction_type: 0, resolution: null, business_group_id: null
@@ -270,6 +284,10 @@ watch(() => props.visible, (val) => {
       status: Number(row.status) === 1 ? 1 : 0,
       has_audio: row.has_audio != null ? !!row.has_audio : true,
       default_stream_type: row.default_stream_type || 'main',
+      // FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关):三态 true/false/null(跟随全局)
+      cloud_record: (row.capabilities && typeof row.capabilities === 'object' && 'cloud_record' in row.capabilities)
+        ? !!(row.capabilities as Record<string, unknown>).cloud_record
+        : null,
       longitude: row.longitude != null ? Number(row.longitude) : null,
       latitude: row.latitude != null ? Number(row.latitude) : null,
       address: row.address || null,
@@ -301,6 +319,7 @@ const save = async () => {
       status: form.value.status,
       has_audio: form.value.has_audio,
       default_stream_type: form.value.default_stream_type,
+      cloud_record: form.value.cloud_record,
       civil_code: (form.value.civil_code || '').trim() || null,
       longitude: form.value.longitude,
       latitude: form.value.latitude,

@@ -8,6 +8,8 @@
 
 ### 新增
 
+- **按通道云端录像开关**（路线图 Phase3，wvp #2143 类需求）：`on_publish` 此前只有全局 `ZLM_DEFAULT_ENABLE_MP4`，无法按通道细化。现在通道编辑对话框新增「云端录像」三态选择（跟随全局 / 强制开启 / 强制关闭），存于通道 `capabilities["cloud_record"]`（免迁移，目录同步合并时保留）；hook 按 GB 流名通道前缀查询——True 强制录（覆盖全局关闭）、False 强制不录（如存储敏感通道）、缺省跟随全局；仅作用 live 流，查询失败跟随全局（fail-open）。行为测试覆盖三态 + 非 GB 流名 + DB 故障回退
+- **飞书机器人原生格式**（路线图 Phase3）：`_send_webhook` 此前只特判钉钉/企微 payload 结构，飞书自定义机器人直发（open.feishu.cn）会因格式不符被拒。补飞书 `msg_type/content` 原生格式分支——`WEBHOOK_ALARM_URL` / `WEBHOOK_DEVICE_STATUS_URL` 填飞书 webhook 地址即可用
 - **API 契约稳定承诺**（路线图 Phase2 收官）：新增 `tests/test_api_contract.py` + 基线 `tests/api_contract_baseline.json`（/api/v1 全部 533 路径/605 端点的 path→method 快照），CI 强制"**只增不减**"——删除已发布端点或移除 HTTP 方法会使 CI 失败（守卫自身带负向单测）；破坏性变更须经弃用周期后用 `scripts/update_api_contract_baseline.py` 刷新基线并在 CHANGELOG 公告。配套 `docs/API_CONTRACT.md` 面向集成者的兼容性口径说明
 - **分享/嵌入一键生成**（路线图 Phase2，解决 wvp #2033/#1846 类 iframe 痛点）：新增 `POST /api/v1/embed/links`（登录用户为通道签发长周期 HMAC 嵌入令牌，默认 24h、上限 `STREAM_EMBED_MAX_TTL_HOURS`=7 天，返回嵌入页 URL + iframe 代码）与 `POST /api/v1/embed/resolve`（嵌入页用令牌按需触发点播、等流就绪后换发 300s 短周期 playToken 的 flv/hls 地址——长周期凭证不进入媒体路径）；新增无框嵌入播放页 `GET /embed/play`（flv.js→hls.js→原生 HLS 降级，CDN 可自托管替换），安全头中间件对该路径豁免 X-Frame-Options（页面无敏感数据，令牌把关）。play_token 引入 scope 隔离（embed/play 互不可用，旧载荷兼容）；前端播放对话框工具栏新增「分享/嵌入」按钮（输入有效时长→生成并自动复制 iframe 代码）
 - **对讲厂商模式自动探测**（路线图 Phase2）：`BROADCAST_PRE_MESSAGE_ENABLED` 开启后不再需要按厂商手工区分——平台对每台设备自动学习其对标准 Broadcast MESSAGE 流程的支持：200 确认→继续前置；4xx/6xx 拒绝→记忆 24h 后续直接 INVITE；超时→记忆 1h 避免每次喊话干等（周期性重探测）。行为测试覆盖三场景。配套 `docs/TENANCY.md` 多租户使用指南（租户模型/角色体系/典型场景/FAQ）

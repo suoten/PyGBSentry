@@ -485,6 +485,18 @@ async def update_channel(
         caps["default_stream_type"] = v
         channel.capabilities = caps
 
+    # FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关):True=强制录 / False=强制不录 /
+    # 省略=清除覆盖,跟随全局 ZLM_DEFAULT_ENABLE_MP4。on_publish hook 按此值优先于全局
+    if "cloud_record" in update_data:
+        caps = channel.capabilities or {}
+        if not isinstance(caps, dict):
+            caps = {}
+        if payload.cloud_record is None:
+            caps.pop("cloud_record", None)
+        else:
+            caps["cloud_record"] = bool(payload.cloud_record)
+        channel.capabilities = caps
+
     if "longitude" in update_data:
         channel.longitude = payload.longitude
     if "latitude" in update_data:

@@ -316,6 +316,10 @@ class ChannelUpdatePayload(BaseModel):
     region_parent_gb_id: str | None = None
     has_audio: bool | None = None
     default_stream_type: str | None = None
+    # FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关,wvp #2143 类需求):
+    # True=强制录 / False=强制不录 / None(省略)=跟随全局 ZLM_DEFAULT_ENABLE_MP4;
+    # 存 capabilities["cloud_record"],目录同步合并时保留
+    cloud_record: bool | None = None
     longitude: float | None = None
     latitude: float | None = None
     address: str | None = None

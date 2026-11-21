@@ -490,6 +490,44 @@ async def on_publish(request: Request):
     # FIX: [2026-07-04] 回放流(playback)和下载流(download)不应开启 MP4 录制，造成存储浪费 [全栈工程师]
     if app_name in ("playback", "download"):
         enable_mp4_default = False
+
+    # FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关,wvp #2143 类需求):
+    # GB 点播流名为 {channel_id}_{ssrc},按通道前缀查 Resource.capabilities["cloud_record"]:
+    #   True  → 强制开启录制(覆盖全局关闭)
+    #   False → 强制关闭(覆盖全局开启,如某些通道存储敏感不需要录像)
+    #   缺省  → 跟随全局 ZLM_DEFAULT_ENABLE_MP4
+    # 仅作用于 live 流(rtp/playback/download 维持原强制规则);查询失败跟随全局。
+    if app_name == "live" and stream_id and "_" in stream_id:
+        try:
+            channel_prefix = stream_id.rsplit("_", 1)[0]
+            if channel_prefix:
+                from sqlalchemy import select as _sel
+
+                from app.models.resource import Resource as _Res
+
+                async with AsyncSessionLocal() as _pub_session:
+                    _res = (
+                        (
+                            await _pub_session.execute(
+                                _sel(_Res.capabilities).where(_Res.gb_id == channel_prefix).limit(1)
+                            )
+                        )
+                        .scalars()
+                        .first()
+                    )
+                _caps = _res if isinstance(_res, dict) else ({} if _res is None else _res)
+                if isinstance(_caps, str):
+                    import json as _json
+
+                    try:
+                        _caps = _json.loads(_caps)
+                    except Exception:
+                        _caps = {}
+                if isinstance(_caps, dict) and "cloud_record" in _caps:
+                    enable_mp4_default = bool(_caps.get("cloud_record"))
+        except Exception as _cr_err:
+            logger.debug(f"[on_publish] per-channel cloud_record lookup failed (follow global): {_cr_err}")
+
     result = {
         "code": 0,
         "msg": "success",

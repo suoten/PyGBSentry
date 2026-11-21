@@ -30,6 +30,12 @@ async def _send_webhook(url: str, payload: dict, max_retries: int = 2):
                 msg = payload.get("text", str(payload))
                 wechat_payload = {"msgtype": "text", "text": {"content": msg}}
                 await client.post(url, json=wechat_payload, timeout=float(settings.NOTIFY_REQUEST_TIMEOUT))
+            elif "open.feishu.cn" in url:
+                # FIX [2026-11-21] (ROADMAP Phase3):飞书自定义机器人原生格式
+                # (webhook 直发必须 msg_type/content 结构,与钉钉/企微不同)
+                msg = payload.get("text", str(payload))
+                feishu_payload = {"msg_type": "text", "content": {"text": msg}}
+                await client.post(url, json=feishu_payload, timeout=float(settings.NOTIFY_REQUEST_TIMEOUT))
             else:
                 await client.post(url, json=payload, timeout=float(settings.NOTIFY_REQUEST_TIMEOUT))
             return
