@@ -8,6 +8,7 @@
 
 ### 新增
 
+- **分享/嵌入一键生成**（路线图 Phase2，解决 wvp #2033/#1846 类 iframe 痛点）：新增 `POST /api/v1/embed/links`（登录用户为通道签发长周期 HMAC 嵌入令牌，默认 24h、上限 `STREAM_EMBED_MAX_TTL_HOURS`=7 天，返回嵌入页 URL + iframe 代码）与 `POST /api/v1/embed/resolve`（嵌入页用令牌按需触发点播、等流就绪后换发 300s 短周期 playToken 的 flv/hls 地址——长周期凭证不进入媒体路径）；新增无框嵌入播放页 `GET /embed/play`（flv.js→hls.js→原生 HLS 降级，CDN 可自托管替换），安全头中间件对该路径豁免 X-Frame-Options（页面无敏感数据，令牌把关）。play_token 引入 scope 隔离（embed/play 互不可用，旧载荷兼容）；前端播放对话框工具栏新增「分享/嵌入」按钮（输入有效时长→生成并自动复制 iframe 代码）
 - **对讲厂商模式自动探测**（路线图 Phase2）：`BROADCAST_PRE_MESSAGE_ENABLED` 开启后不再需要按厂商手工区分——平台对每台设备自动学习其对标准 Broadcast MESSAGE 流程的支持：200 确认→继续前置；4xx/6xx 拒绝→记忆 24h 后续直接 INVITE；超时→记忆 1h 避免每次喊话干等（周期性重探测）。行为测试覆盖三场景。配套 `docs/TENANCY.md` 多租户使用指南（租户模型/角色体系/典型场景/FAQ）
 - **部署体检**（路线图 Phase1）：新增 `GET /api/v1/network-diagnostics/deployment-check`（admin），一键全面检查部署环境——SIP 信令服务、数据库/Redis 连通与延迟、设备概况（总数/在线）、流媒体节点逐个探测（含 secret 匹配失败识别）、对外播放地址（内网地址告警 + 可选公网出口 IP 对比）、收流模式与防火墙提示、安全基线（SECRET_KEY/OpenAPI 文档暴露/CORS，只报状态不泄露密钥）、关键后台任务启用状态、CPU/内存快照；每项 ok/warn/fail + 双语结论与修复指引。前端运维中心新增「部署体检」标签页与报告面板
 - **兼容性文档：厂商特性开关**（`docs/COMPATIBILITY.md`）：整理大华喊话 MESSAGE 前置、可信内网心跳地址回写、NVR 目录 OFF 状态忽略、协议版本、设备级 TCP/UDP 收流策略等兼容开关的适用场景与默认值

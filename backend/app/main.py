@@ -1989,6 +1989,13 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if not settings.ENABLE_SECURITY_HEADERS:
             return response
 
+        # FIX [2026-11-21] (ROADMAP Phase2):分享/嵌入页(/embed/play)允许第三方 iframe
+        # 嵌入 —— 豁免 X-Frame-Options/COOP/CORP/COEP(页面无敏感数据,访问由 HMAC
+        # 嵌入令牌把关);仅保留 nosniff。其余路径维持既有防护。
+        if (request.url.path or "").startswith("/embed/"):
+            response.headers.setdefault("X-Content-Type-Options", "nosniff")
+            return response
+
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Referrer-Policy", "same-origin")
@@ -2555,6 +2562,68 @@ if __name__ == "__main__":
     else:
         _host = "0.0.0.0"
     uvicorn.run("app.main:app", host=_host, port=port, reload=_env == "dev", loop="asyncio", timeout_keep_alive=settings.UVICORN_TIMEOUT_KEEP_ALIVE)
+
+
+# ---------------------------------------------------------------------------
+# 分享/嵌入播放页(ROADMAP Phase2) —— /embed/play?token=...
+# 极简无框播放页:页面 fetch /api/v1/embed/resolve 用嵌入令牌换发带一次性
+# playToken 的直播地址(flv.js 优先,回退 hls.js/原生 HLS)。安全头中间件对该
+# 路径豁免 X-Frame-Options,允许第三方业务页面 iframe 嵌入。
+# ---------------------------------------------------------------------------
+_EMBED_PAGE_TEMPLATE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Live</title>
+<style>html,body{margin:0;height:100%;background:#000;color:#eee;font:13px system-ui}
+#v{width:100%;height:100%;object-fit:contain;background:#000}
+#err{position:fixed;top:8px;left:8px;right:8px;color:#f56c6c;white-space:pre-wrap}</style>
+</head><body><video id="v" autoplay muted playsinline></video><div id="err"></div>
+<script>
+var FLV_JS="__FLV_JS__", HLS_JS="__HLS_JS__";
+var TOKEN=new URLSearchParams(location.search).get("token")||"";
+var v=document.getElementById("v"), err=document.getElementById("err");
+function fail(m){err.textContent=m}
+function loadScript(url){return new Promise(function(res,rej){var s=document.createElement("script");s.src=url;s.onload=res;s.onerror=function(){rej(new Error("load failed: "+url))};document.head.appendChild(s)})}
+(async function(){
+ try{
+  var r=await fetch("/api/v1/embed/resolve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:TOKEN})});
+  if(!r.ok){var b=await r.json().catch(function(){return {}});fail((b&&b.detail)||("HTTP "+r.status));return}
+  var d=await r.json(); var u=d.urls||{};
+  var isHttps=location.protocol==="https:";
+  var flv=isHttps?(u.wss_flv||u.ws_flv):(u.ws_flv||u.flv);
+  var hls=isHttps?(u.https_hls||u.hls):(u.hls);
+  if(flv){
+   try{
+    if(!window.flvjs){await loadScript(FLV_JS)}
+    if(window.flvjs&&flvjs.isSupported()){
+      var p=flvjs.createPlayer({type:"flv",isLive:true,url:flv},{enableStashBuffer:false,liveBufferLatencyChasing:true});
+      p.attachMediaElement(v);p.load();p.play();return;
+    }
+   }catch(e){}
+  }
+  if(hls){
+   if(v.canPlayType("application/vnd.apple.mpegurl")){v.src=hls;v.play();return}
+   try{
+    if(!window.Hls){await loadScript(HLS_JS)}
+    if(window.Hls&&Hls.isSupported()){var h=new Hls({liveDurationInfinity:true});h.loadSource(hls);h.attachMedia(v);return}
+   }catch(e){}
+   v.src=hls;v.play();return;
+  }
+  fail("no playable url in resolve response");
+ }catch(e){fail(String((e&&e.message)||e))}
+})();
+</script></body></html>
+"""
+
+
+@app.get("/embed/play", include_in_schema=False)
+async def embed_play_page():
+    """无框嵌入播放页(令牌鉴权;允许第三方 iframe 嵌入)。"""
+    from fastapi.responses import HTMLResponse
+
+    html = (
+        _EMBED_PAGE_TEMPLATE.replace("__FLV_JS__", str(settings.STREAM_EMBED_FLV_JS_URL or ""))
+        .replace("__HLS_JS__", str(settings.STREAM_EMBED_HLS_JS_URL or ""))
+    )
+    return HTMLResponse(content=html)
 
 
 # ---------------------------------------------------------------------------

@@ -77,6 +77,16 @@
           </div>
           <div class="toolbar-right">
             <span class="playback-note">{{ playbackStatusText }}</span>
+            <!-- FIX [2026-11-21] (ROADMAP Phase2):分享/嵌入一键生成 —— 为通道签发长周期
+                 HMAC 嵌入令牌(不含密钥),第三方页面用 iframe 嵌入无框播放页 -->
+            <el-button
+              v-if="hasDeviceChannel"
+              size="small"
+              text
+              :icon="Share"
+              :title="t('player.embedShare')"
+              @click="generateEmbedLink"
+            />
           </div>
         </div>
         <div v-if="webrtcHint" class="webrtc-hint">{{ webrtcHint }}</div>
@@ -279,7 +289,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { Loading, Warning, VideoCamera, FullScreen, VideoPause, Refresh, Camera } from '@element-plus/icons-vue'
+import { Loading, Warning, VideoCamera, FullScreen, VideoPause, Refresh, Camera, Share } from '@element-plus/icons-vue'
 import JessibucaPlayer from './JessibucaPlayer.vue'
 import H265Player from './H265Player.vue'
 import RtcPlayer from './RtcPlayer.vue'
@@ -329,6 +339,43 @@ const runPlayDiagnosis = async () => {
     diagError.value = msg || t('player.diagFailed')
   } finally {
     diagRunning.value = false
+  }
+}
+
+// ---- 分享/嵌入一键生成(ROADMAP Phase2) ----
+const generateEmbedLink = async () => {
+  const channelId = String(props.channelId || '').trim()
+  if (!channelId) return
+  try {
+    const { value } = await ElMessageBox.prompt(
+      t('player.embedTtlPrompt'),
+      t('player.embedShare'),
+      {
+        inputValue: '24',
+        inputPattern: /^\d+$/,
+        inputErrorMessage: t('player.embedTtlInvalid'),
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+      },
+    )
+    const resp = await api.post('/api/v1/embed/links', {
+      channel_id: channelId,
+      device_id: String(props.deviceId || '').trim() || undefined,
+      ttl_hours: Number(value) || 24,
+    })
+    const d = resp.data || {}
+    const text = `${t('player.embedUrlLabel')}\n${d.embed_url || ''}\n\n${t('player.embedIframeLabel')}\n${d.iframe_code || ''}\n\n${t('player.embedExpiresLabel')}${d.expires_at || ''}`
+    try {
+      await navigator.clipboard.writeText(String(d.iframe_code || d.embed_url || ''))
+      ElMessage.success(t('player.embedCopied'))
+    } catch {
+      /* 剪贴板不可用时仅展示 */
+    }
+    await ElMessageBox.alert(text, t('player.embedShare'), { customStyle: { whiteSpace: 'pre-wrap' } as never }).catch(() => {})
+  } catch (e: unknown) {
+    if ((e as { message?: string })?.message === 'cancel' || (e as string) === 'cancel') return
+    const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(msg || t('player.embedFailed'))
   }
 }
 

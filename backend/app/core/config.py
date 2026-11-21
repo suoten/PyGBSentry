@@ -302,6 +302,16 @@ class Settings(BaseSettings):
     STREAM_GHOST_RECONCILE_INTERVAL_SECONDS: int = 300  # 对账周期(秒),下限 60
     STREAM_GHOST_RECONCILE_GRACE_SECONDS: int = 90  # 幽灵宽限期(秒),容忍 INVITE 建会话与首包到达的竞态,下限 30
 
+    # ---- 分享/嵌入(ROADMAP Phase2) ----
+    # 嵌入令牌最长有效期(小时)。令牌 HMAC 签名且仅绑定通道(不含密钥),
+    # resolve 时换发 300s 短周期点播令牌,避免长周期凭证进入媒体路径
+    STREAM_EMBED_MAX_TTL_HOURS: int = 168
+    # 嵌入页对外基础地址(平台后端,非 ZLM);空=按请求 base_url 推断,反代场景建议显式配置
+    STREAM_EMBED_PUBLIC_BASE_URL: str = ""
+    # 嵌入播放页的外部播放器库 CDN(可自托管替换以适配离线/内网环境)
+    STREAM_EMBED_FLV_JS_URL: str = "https://cdn.jsdelivr.net/npm/flv.js@1.6.2/dist/flv.min.js"
+    STREAM_EMBED_HLS_JS_URL: str = "https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"
+
     ZLM_NONE_READER_DELAY_SECONDS: float = 0
     ZLM_TCP_ACTIVE_CONNECT_RETRIES: int = 6  # TCP-ACTIVE 设备连接重试次数（覆盖设备端口准备时间）
     ZLM_TCP_ACTIVE_CONNECT_DELAY: float = 0.5  # TCP-ACTIVE 重试间隔基数（秒，线性退避）
@@ -480,6 +490,9 @@ class Settings(BaseSettings):
     STREAM_PUBLIC_HOST: str = ""
     STREAM_PUBLIC_HTTP_PORT: int = 8880
     STREAM_PUBLIC_SCHEME: str = "http"
+    # FIX [2026-11-21]: HTTPS 族播放端口(嵌入 resolve 与播放地址 https 变体使用);
+    # 未启用 HTTPS 流媒体时保持 0(对应 URL 为空)
+    STREAM_PUBLIC_HTTPS_PORT: int = 0
     # P0-RTP: ZLM RTP Server 超时秒数，NAT场景下设备推流延迟可能超过ZLM默认15秒
     # 建议生产环境设置为30-60秒，可通过环境变量 RTP_SERVER_TIMEOUT_SECONDS 覆盖
     RTP_SERVER_TIMEOUT_SECONDS: int = int(os.getenv("RTP_SERVER_TIMEOUT_SECONDS", "30") or "30")

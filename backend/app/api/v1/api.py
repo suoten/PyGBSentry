@@ -68,6 +68,7 @@ _ENDPOINT_MODULES = [
     "apps",
     "command",
     "structured",
+    "embed",
     "rtp",
     "roles",
     "proxy_compat",
@@ -231,6 +232,8 @@ if not is_server_edition:
     _mount(apps, prefix="/apps", tags=["apps"])
     _mount(ptz, prefix="/ptz", tags=["ptz"])
     _mount(ssl_cert, prefix="/ssl-cert", tags=["ssl-cert"])
+    # 分享/嵌入(ROADMAP Phase2):/embed/links 登录签发,/embed/resolve 令牌换发播放地址
+    _mount(embed, prefix="/embed", tags=["embed"])
 
 # P2-29 路由暴露验证: 以下 stub 路由有意注册到 OSS 路由表，确认无误。
 # 这些端点为企业版专有功能的占位（全部返回 501 + deprecated 标记），
