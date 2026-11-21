@@ -163,9 +163,10 @@ target/
 
 # =============================================================================
 # 2026-09-04 仓库瘦身：mobile 移动端、测试/联调文件、密钥衍生配置不再入库
+# FIX [2026-11-21]: 移除 backend/tests/ 忽略——CI(open-source-backend-ci.yml)
+# 执行 pytest tests/,该规则导致新测试文件静默无法入库(存量文件系规则前已跟踪)。
 # =============================================================================
 mobile/
-backend/tests/
 deploy/zlm-test/
 backend/.env.centos-production
 backend/.env.production.bak2
@@ -206,7 +207,9 @@ aa.txt
 open-source.zip
 
 # --- 根级 tests/ 目录（自动生成的泛化测试，非项目正式测试） ---
-tests/
+# FIX [2026-11-21]: 原模式 `tests/` 会匹配任意层级(把 backend/tests 整个排除,
+# 新增测试文件无法入库)。锚定为根级 /tests/,backend/tests 属正式测试目录。
+/tests/
 
 # --- 根级 logs/ 目录 ---
 logs/
