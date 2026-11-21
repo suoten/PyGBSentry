@@ -92,6 +92,11 @@ async def list_items(db: AsyncSession = Depends(get_db)):
     return {"items": []}
 ```
 
+> **API 契约提醒**：`/api/v1` 下已发布端点受"只增不减"契约保护——删除端点或变更
+> HTTP 方法会使 CI 失败（`tests/test_api_contract.py`）。新增端点无需额外操作；
+> 有意废弃请先公告弃用周期，再用 `python scripts/update_api_contract_baseline.py`
+> 刷新基线。详见 [API_CONTRACT.md](API_CONTRACT.md)。
+
 ### 扩展 SIP 处理逻辑
 
 如需处理新的 SIP 消息类型或自定义 XML 指令，请按以下步骤操作：

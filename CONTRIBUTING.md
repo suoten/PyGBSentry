@@ -74,6 +74,18 @@ make test-integration
 
 Minimum coverage threshold: 70%
 
+#### API 契约（只增不减）
+
+`tests/test_api_contract.py` 会在 CI 中把当前 OpenAPI schema 与
+`tests/api_contract_baseline.json` 对比：**删除已发布端点或变更 HTTP 方法会直接失败**。
+新增端点不受影响；有意做破坏性变更时（须先公告弃用周期）：
+
+```bash
+python scripts/update_api_contract_baseline.py   # 刷新基线
+```
+
+并在 CHANGELOG 的破坏性变更记录中公告。详见 [API_CONTRACT.md](docs/API_CONTRACT.md)。
+
 ### Security Scanning
 
 ```bash
