@@ -122,10 +122,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { sipLogPage = Math.max(1, sipLogPage - 1); fetchSipLoggerLogs() }" :disabled="sipLogPage <= 1">
+                    <el-button size="small" :disabled="sipLogPage <= 1" @click="() => { sipLogPage = Math.max(1, sipLogPage - 1); fetchSipLoggerLogs() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { sipLogPage = sipLogPage + 1; fetchSipLoggerLogs() }" :disabled="!sipLogHasMore">
+                    <el-button size="small" type="primary" :disabled="!sipLogHasMore" @click="() => { sipLogPage = sipLogPage + 1; fetchSipLoggerLogs() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -211,10 +211,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { nwPage = Math.max(1, nwPage - 1); fetchNetworkWatchdogEvents() }" :disabled="nwPage <= 1">
+                    <el-button size="small" :disabled="nwPage <= 1" @click="() => { nwPage = Math.max(1, nwPage - 1); fetchNetworkWatchdogEvents() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { nwPage = nwPage + 1; fetchNetworkWatchdogEvents() }" :disabled="!nwHasMore">
+                    <el-button size="small" type="primary" :disabled="!nwHasMore" @click="() => { nwPage = nwPage + 1; fetchNetworkWatchdogEvents() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -310,10 +310,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { siPage = Math.max(1, siPage - 1); fetchStreamIdleEvents() }" :disabled="siPage <= 1">
+                    <el-button size="small" :disabled="siPage <= 1" @click="() => { siPage = Math.max(1, siPage - 1); fetchStreamIdleEvents() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { siPage = siPage + 1; fetchStreamIdleEvents() }" :disabled="!siHasMore">
+                    <el-button size="small" type="primary" :disabled="!siHasMore" @click="() => { siPage = siPage + 1; fetchStreamIdleEvents() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -400,10 +400,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { tlPage = Math.max(1, tlPage - 1); fetchTimelapseEvents() }" :disabled="tlPage <= 1">
+                    <el-button size="small" :disabled="tlPage <= 1" @click="() => { tlPage = Math.max(1, tlPage - 1); fetchTimelapseEvents() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { tlPage = tlPage + 1; fetchTimelapseEvents() }" :disabled="!tlHasMore">
+                    <el-button size="small" type="primary" :disabled="!tlHasMore" @click="() => { tlPage = tlPage + 1; fetchTimelapseEvents() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -499,10 +499,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { wpPage = Math.max(1, wpPage - 1); fetchWebhookPusherEvents() }" :disabled="wpPage <= 1">
+                    <el-button size="small" :disabled="wpPage <= 1" @click="() => { wpPage = Math.max(1, wpPage - 1); fetchWebhookPusherEvents() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { wpPage = wpPage + 1; fetchWebhookPusherEvents() }" :disabled="!wpHasMore">
+                    <el-button size="small" type="primary" :disabled="!wpHasMore" @click="() => { wpPage = wpPage + 1; fetchWebhookPusherEvents() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -599,10 +599,10 @@
 
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { s3Page = Math.max(1, s3Page - 1); fetchS3SyncEvents() }" :disabled="s3Page <= 1">
+                    <el-button size="small" :disabled="s3Page <= 1" @click="() => { s3Page = Math.max(1, s3Page - 1); fetchS3SyncEvents() }">
                       {{ t('plugin.panels.prevPage') }}
                     </el-button>
-                    <el-button size="small" type="primary" @click="() => { s3Page = s3Page + 1; fetchS3SyncEvents() }" :disabled="!s3HasMore">
+                    <el-button size="small" type="primary" :disabled="!s3HasMore" @click="() => { s3Page = s3Page + 1; fetchS3SyncEvents() }">
                       {{ t('plugin.panels.nextPage') }}
                     </el-button>
                   </div>
@@ -667,8 +667,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { ptzPage = Math.max(1, ptzPage - 1); fetchPtzTourEvents() }" :disabled="ptzPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { ptzPage = ptzPage + 1; fetchPtzTourEvents() }" :disabled="!ptzHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="ptzPage <= 1" @click="() => { ptzPage = Math.max(1, ptzPage - 1); fetchPtzTourEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!ptzHasMore" @click="() => { ptzPage = ptzPage + 1; fetchPtzTourEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -728,8 +728,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { arPage = Math.max(1, arPage - 1); fetchAutoRecordEvents() }" :disabled="arPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { arPage = arPage + 1; fetchAutoRecordEvents() }" :disabled="!arHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="arPage <= 1" @click="() => { arPage = Math.max(1, arPage - 1); fetchAutoRecordEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!arHasMore" @click="() => { arPage = arPage + 1; fetchAutoRecordEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -826,8 +826,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { rsePage = Math.max(1, rsePage - 1); fetchRecordScheduleExecutorEvents() }" :disabled="rsePage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { rsePage = rsePage + 1; fetchRecordScheduleExecutorEvents() }" :disabled="!rseHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="rsePage <= 1" @click="() => { rsePage = Math.max(1, rsePage - 1); fetchRecordScheduleExecutorEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!rseHasMore" @click="() => { rsePage = rsePage + 1; fetchRecordScheduleExecutorEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -892,8 +892,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { rivPage = Math.max(1, rivPage - 1); fetchRecordIndexVerifierEvents() }" :disabled="rivPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { rivPage = rivPage + 1; fetchRecordIndexVerifierEvents() }" :disabled="!rivHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="rivPage <= 1" @click="() => { rivPage = Math.max(1, rivPage - 1); fetchRecordIndexVerifierEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!rivHasMore" @click="() => { rivPage = rivPage + 1; fetchRecordIndexVerifierEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -951,8 +951,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { snapPage = Math.max(1, snapPage - 1); fetchSnapshotRefreshEvents() }" :disabled="snapPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { snapPage = snapPage + 1; fetchSnapshotRefreshEvents() }" :disabled="!snapHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="snapPage <= 1" @click="() => { snapPage = Math.max(1, snapPage - 1); fetchSnapshotRefreshEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!snapHasMore" @click="() => { snapPage = snapPage + 1; fetchSnapshotRefreshEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1014,8 +1014,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { rtmpPage = Math.max(1, rtmpPage - 1); fetchRtmpPushMonitorEvents() }" :disabled="rtmpPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { rtmpPage = rtmpPage + 1; fetchRtmpPushMonitorEvents() }" :disabled="!rtmpHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="rtmpPage <= 1" @click="() => { rtmpPage = Math.max(1, rtmpPage - 1); fetchRtmpPushMonitorEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!rtmpHasMore" @click="() => { rtmpPage = rtmpPage + 1; fetchRtmpPushMonitorEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1107,8 +1107,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { ppmPage = Math.max(1, ppmPage - 1); fetchPullProxyMonitorEvents() }" :disabled="ppmPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { ppmPage = ppmPage + 1; fetchPullProxyMonitorEvents() }" :disabled="!ppmHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="ppmPage <= 1" @click="() => { ppmPage = Math.max(1, ppmPage - 1); fetchPullProxyMonitorEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!ppmHasMore" @click="() => { ppmPage = ppmPage + 1; fetchPullProxyMonitorEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1170,8 +1170,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { mqttPage = Math.max(1, mqttPage - 1); fetchMqttBridgeEvents() }" :disabled="mqttPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { mqttPage = mqttPage + 1; fetchMqttBridgeEvents() }" :disabled="!mqttHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="mqttPage <= 1" @click="() => { mqttPage = Math.max(1, mqttPage - 1); fetchMqttBridgeEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!mqttHasMore" @click="() => { mqttPage = mqttPage + 1; fetchMqttBridgeEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1242,8 +1242,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { feishuPage = Math.max(1, feishuPage - 1); fetchFeishuAlertEvents() }" :disabled="feishuPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { feishuPage = feishuPage + 1; fetchFeishuAlertEvents() }" :disabled="!feishuHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="feishuPage <= 1" @click="() => { feishuPage = Math.max(1, feishuPage - 1); fetchFeishuAlertEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!feishuHasMore" @click="() => { feishuPage = feishuPage + 1; fetchFeishuAlertEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1314,8 +1314,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { wecomPage = Math.max(1, wecomPage - 1); fetchWecomAlertEvents() }" :disabled="wecomPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { wecomPage = wecomPage + 1; fetchWecomAlertEvents() }" :disabled="!wecomHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="wecomPage <= 1" @click="() => { wecomPage = Math.max(1, wecomPage - 1); fetchWecomAlertEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!wecomHasMore" @click="() => { wecomPage = wecomPage + 1; fetchWecomAlertEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>
@@ -1404,8 +1404,8 @@
                 </el-table>
                 <div class="flex items-center justify-between mt-3">
                   <div class="flex items-center gap-2">
-                    <el-button size="small" @click="() => { smsPage = Math.max(1, smsPage - 1); fetchSmsAlertEvents() }" :disabled="smsPage <= 1">{{ t('plugin.panels.prevPage') }}</el-button>
-                    <el-button size="small" type="primary" @click="() => { smsPage = smsPage + 1; fetchSmsAlertEvents() }" :disabled="!smsHasMore">{{ t('plugin.panels.nextPage') }}</el-button>
+                    <el-button size="small" :disabled="smsPage <= 1" @click="() => { smsPage = Math.max(1, smsPage - 1); fetchSmsAlertEvents() }">{{ t('plugin.panels.prevPage') }}</el-button>
+                    <el-button size="small" type="primary" :disabled="!smsHasMore" @click="() => { smsPage = smsPage + 1; fetchSmsAlertEvents() }">{{ t('plugin.panels.nextPage') }}</el-button>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('plugin.panels.perPage') }}</span>

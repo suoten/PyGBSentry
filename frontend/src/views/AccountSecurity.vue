@@ -20,7 +20,7 @@
       </div>
 
       <div v-if="!me?.totp_enabled" class="mt-4 space-y-3">
-        <el-button type="primary" @click="startSetup" :loading="loading">{{ t('accountSecurity.generateSecret') }}</el-button>
+        <el-button type="primary" :loading="loading" @click="startSetup">{{ t('accountSecurity.generateSecret') }}</el-button>
 
         <div v-if="setup">
           <el-alert type="warning" show-icon :closable="false" :title="t('accountSecurity.setupAlert')" />
@@ -34,7 +34,7 @@
           </div>
           <div class="mt-3 flex items-center gap-2">
             <el-input v-model="code" :placeholder="t('accountSecurity.enterCode6')" style="max-width: 220px" />
-            <el-button type="success" @click="enable" :loading="loading">{{ t('accountSecurity.confirmEnable') }}</el-button>
+            <el-button type="success" :loading="loading" @click="enable">{{ t('accountSecurity.confirmEnable') }}</el-button>
           </div>
         </div>
       </div>
@@ -43,7 +43,7 @@
         <el-alert type="success" show-icon :closable="false" :title="t('accountSecurity.enabledAlert')" />
         <div class="flex items-center gap-2">
           <el-input v-model="code" :placeholder="t('accountSecurity.enterCode6ToDisable')" style="max-width: 260px" />
-          <el-button type="danger" @click="disable" :loading="loading">{{ t('accountSecurity.disable2fa') }}</el-button>
+          <el-button type="danger" :loading="loading" @click="disable">{{ t('accountSecurity.disable2fa') }}</el-button>
         </div>
       </div>
     </TableCard>

@@ -15,19 +15,19 @@
               <el-tag :type="subscription.status === 'active' ? 'success' : 'info'" size="small">{{ subscription.status }}</el-tag>
             </div>
           </div>
-          <el-button type="primary" size="small" @click="fetchData" :loading="loading">{{ t('billingPage.refreshStatus') }}</el-button>
+          <el-button type="primary" size="small" :loading="loading" @click="fetchData">{{ t('billingPage.refreshStatus') }}</el-button>
         </TableCard>
 
         <TableCard>
           <template #header><div class="font-medium text-sm">{{ t('billingPage.planList') }}</div></template>
-          <el-table :data="paginatedPlans" size="small" style="width: 100%" :empty-text="t('billingPage.noPlans')" v-loading="loading" stripe border>
+          <el-table v-loading="loading" :data="paginatedPlans" size="small" style="width: 100%" :empty-text="t('billingPage.noPlans')" stripe border>
             <el-table-column prop="code" :label="t('billingPage.colCode')" width="120" />
             <el-table-column prop="name" :label="t('common.name')" width="130" />
             <el-table-column prop="price_monthly" :label="t('billingPage.colMonthlyFee')" width="100" />
             <el-table-column prop="max_devices" :label="t('billingPage.colDeviceCount')" width="90" />
             <el-table-column prop="plugin_entitlements" :label="t('billingPage.colPluginEntitlements')" min-width="180" show-overflow-tooltip />
           </el-table>
-          <div class="flex justify-end mt-4" v-if="plans.length > 0">
+          <div v-if="plans.length > 0" class="flex justify-end mt-4">
             <el-pagination
               v-model:current-page="planPage"
               v-model:page-size="planPageSize"
@@ -41,7 +41,7 @@
 
       <TableCard class="mb-4">
         <template #header><div class="font-medium text-sm">{{ t('billingPage.pluginOrder') }}</div></template>
-        <el-table :data="paginatedPlugins" size="small" style="width: 100%" :empty-text="t('billingPage.noPlugins')" v-loading="loading" stripe border>
+        <el-table v-loading="loading" :data="paginatedPlugins" size="small" style="width: 100%" :empty-text="t('billingPage.noPlugins')" stripe border>
           <el-table-column prop="id" :label="t('billingPage.colPluginId')" min-width="160" />
           <el-table-column prop="name" :label="t('billingPage.colPluginName')" width="140" />
           <el-table-column prop="price_monthly" :label="t('billingPage.colMonthlyFee')" width="100" />
@@ -70,7 +70,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="flex justify-end mt-4" v-if="plugins.length > 0">
+        <div v-if="plugins.length > 0" class="flex justify-end mt-4">
           <el-pagination
             v-model:current-page="pluginPage"
             v-model:page-size="pluginPageSize"
@@ -84,7 +84,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
         <TableCard>
           <template #header><div class="font-medium text-sm">{{ t('billingPage.orderStatus') }}</div></template>
-          <el-table :data="paginatedOrders" size="small" style="width: 100%" :empty-text="t('billingPage.noOrders')" v-loading="loading" stripe border>
+          <el-table v-loading="loading" :data="paginatedOrders" size="small" style="width: 100%" :empty-text="t('billingPage.noOrders')" stripe border>
             <el-table-column prop="order_no" :label="t('billingPage.colOrderNo')" min-width="220" show-overflow-tooltip />
             <el-table-column prop="plugin_name" :label="t('billingPage.colPlugin')" width="120" />
             <el-table-column prop="amount" :label="t('billingPage.colAmount')" width="100" />
@@ -98,7 +98,7 @@
               <template #default="{ row }">{{ row.paid_at || '-' }}</template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4" v-if="orders.length > 0">
+          <div v-if="orders.length > 0" class="flex justify-end mt-4">
             <el-pagination
               v-model:current-page="orderPage"
               v-model:page-size="orderPageSize"
@@ -111,14 +111,14 @@
 
         <TableCard>
           <template #header><div class="font-medium text-sm">{{ t('billingPage.autoLicense') }}</div></template>
-          <el-table :data="paginatedLicenses" size="small" style="width: 100%" :empty-text="t('billingPage.noLicenses')" v-loading="loading" stripe border>
+          <el-table v-loading="loading" :data="paginatedLicenses" size="small" style="width: 100%" :empty-text="t('billingPage.noLicenses')" stripe border>
             <el-table-column prop="order_no" :label="t('billingPage.colOrderNo')" min-width="220" show-overflow-tooltip />
             <el-table-column prop="plugin_name" :label="t('billingPage.colPlugin')" width="120" />
             <el-table-column :label="t('billingPage.colExpiresAt')" min-width="180">
               <template #default="{ row }">{{ row.expires_at || '-' }}</template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4" v-if="licenses.length > 0">
+          <div v-if="licenses.length > 0" class="flex justify-end mt-4">
             <el-pagination
               v-model:current-page="licensePage"
               v-model:page-size="licensePageSize"

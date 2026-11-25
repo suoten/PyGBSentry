@@ -63,7 +63,7 @@
           <div>
             <div class="font-medium">{{ t('audit.auditLogs') }}</div>
             <div class="text-xs mt-1" style="color: var(--el-text-color-secondary)">{{ t('audit.totalCount', { total }) }}</div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap" v-if="quickStats.length > 0">
+            <div v-if="quickStats.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
               <el-tag
                 v-for="s in quickStats"
                 :key="s.key"
@@ -76,7 +76,7 @@
                 {{ s.label }}
               </el-tag>
           </div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap" v-if="upgradeFailureBuckets.length > 0">
+            <div v-if="upgradeFailureBuckets.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
               <span class="text-xs" style="color: var(--el-text-color-secondary)">
                 {{ t('audit.upgradeFailureProfile', { window: upgradeProfileWindowLabel }) }}
               </span>
@@ -171,7 +171,7 @@
                 {{ b.label }}
               </el-tag>
             </div>
-            <div class="mt-2 flex items-center gap-2 flex-wrap" v-if="activeFilterTags.length > 0">
+            <div v-if="activeFilterTags.length > 0" class="mt-2 flex items-center gap-2 flex-wrap">
               <el-tag
                 v-for="tag in activeFilterTags"
                 :key="tag.key"

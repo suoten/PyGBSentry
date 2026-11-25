@@ -20,7 +20,7 @@
           </el-select>
         </el-form-item>
         <el-form-item>
-          <el-button @click="fetchSchedules" :loading="loading" type="primary">{{ t('record.apply') }}</el-button>
+          <el-button :loading="loading" type="primary" @click="fetchSchedules">{{ t('record.apply') }}</el-button>
         </el-form-item>
       </QueryFormSection>
 
@@ -31,7 +31,7 @@
             <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('record.totalCount', { n: schedules.length }) }}</div>
           </div>
         </template>
-      <el-table :data="paginatedItems" border v-loading="loading" :empty-text="t('record.emptyHint')">
+      <el-table v-loading="loading" :data="paginatedItems" border :empty-text="t('record.emptyHint')">
         <el-table-column :label="t('record.channelCol')" min-width="200">
           <template #default="{ row }">
             {{ channelLabel(row.resource_id) }}
@@ -82,7 +82,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="flex justify-end mt-4 pagination-wrapper" v-if="filteredItems.length > 0">
+      <div v-if="filteredItems.length > 0" class="flex justify-end mt-4 pagination-wrapper">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
@@ -215,7 +215,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitting">{{ t('common.ok') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">{{ t('common.ok') }}</el-button>
       </template>
     </AppDialog>
     </PageContainer>

@@ -56,6 +56,10 @@ def _merge_preset_packets(packets: list[str]) -> str:
     import copy
     import xml.etree.ElementTree as ET
 
+    # FIX (bandit B314): 设备 XML 属网络输入，解析必须走 defusedxml 防 XXE；
+    # defusedxml 不提供 tostring，序列化仍用 stdlib（无注入风险）
+    from defusedxml import ElementTree as SafeET
+
     list_packets = [p for p in packets or [] if p]
     if not list_packets:
         return ""
@@ -67,7 +71,7 @@ def _merge_preset_packets(packets: list[str]) -> str:
     merged_items: list = []
     for pkt in list_packets:
         try:
-            root = ET.fromstring(pkt)
+            root = SafeET.fromstring(pkt)
         except Exception:
             continue
         plist = root.find(".//PresetList")

@@ -140,8 +140,8 @@
         v-if="selectedNode && canAddToSelectedNode && (localFilters.listScope === 'unadded' || localFilters.listScope === 'all')"
         size="small"
         type="primary"
-        @click="emit('batchAddToSelectedNode')"
         :disabled="selectedChannels.length === 0"
+        @click="emit('batchAddToSelectedNode')"
       >
         {{ t('channelToolbar.add') }}
       </el-button>
@@ -149,8 +149,8 @@
         v-if="selectedNode && canAddToSelectedNode && localFilters.listScope === 'on_node'"
         size="small"
         type="warning"
-        @click="emit('batchRemoveFromNode')"
         :disabled="selectedChannels.length === 0"
+        @click="emit('batchRemoveFromNode')"
       >
         {{ t('channelToolbar.remove') }}
       </el-button>

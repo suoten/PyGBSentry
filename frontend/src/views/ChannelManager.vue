@@ -52,9 +52,6 @@
               :default-expanded-keys="expandedTreeKeys"
               :current-node-key="selectedNode?.id"
               :highlight-current="true"
-              @node-click="handleNodeClick"
-              @node-expand="handleNodeExpand"
-              @node-collapse="handleNodeCollapse"
               :tree-class="['channel-tree', { 'tree-contrast': highContrastTree }]"
               :folder-predicate="isChannelTreeFolderNode"
               :show-status-badge="shouldShowStatusBadge"
@@ -63,6 +60,9 @@
               :get-node-stats-tone="getNodeStatsTone"
               :truncate-text="true"
               :enable-context-menu="true"
+              @node-click="handleNodeClick"
+              @node-expand="handleNodeExpand"
+              @node-collapse="handleNodeCollapse"
               @node-contextmenu="openNodeContextMenu"
             />
           </div>
@@ -77,13 +77,13 @@
         @click.stop
       >
         <template v-if="getContextMenuTargetType(contextMenu.node) === 'channel'">
-          <div class="menu-item" v-if="canPlay(contextMenu.node)" @click="playStream(contextMenu.node)">
+          <div v-if="canPlay(contextMenu.node)" class="menu-item" @click="playStream(contextMenu.node)">
             <el-icon class="menu-item-icon"><VideoPlay /></el-icon>
             {{ t('channel.manager.play') }}  <!-- FIXED: i18n -->
           </div>
           <div
-            class="menu-item danger"
             v-if="playingChannelGbId === getChannelGbIdForNode(contextMenu.node)"
+            class="menu-item danger"
             @click="closePlayer"
           >
             <el-icon class="menu-item-icon"><CloseBold /></el-icon>
@@ -244,8 +244,8 @@
               v-if="selectedNode && canAddToSelectedNode && (filters.listScope === 'unadded' || filters.listScope === 'all')"
               size="small"
               type="primary"
-              @click="batchAddToSelectedNode"
               :disabled="selectedChannels.length === 0"
+              @click="batchAddToSelectedNode"
             >
               {{ t('channel.manager.add') }}  <!-- FIXED: i18n -->
             </el-button>
@@ -253,8 +253,8 @@
               v-if="selectedNode && canAddToSelectedNode && filters.listScope === 'on_node'"
               size="small"
               type="warning"
-              @click="batchRemoveFromNode"
               :disabled="selectedChannels.length === 0"
+              @click="batchRemoveFromNode"
             >
               {{ t('channel.manager.remove') }}  <!-- FIXED: i18n -->
             </el-button>
@@ -266,16 +266,16 @@
           <el-table
             v-else
             :key="`${treeMode}-${filters.listScope}-${selectedNode?.id || ''}`"
-            :data="filteredChannels"
             ref="channelTableRef"
             v-loading="loading"
+            :data="filteredChannels"
             style="width: 100%"
             :class="`custom-table density-${tableDensity}`"
               :empty-text="tableEmptyText"
-              @selection-change="handleSelectionChange"
-              @row-contextmenu="onChannelTableRowContextMenu"
               row-key="id"
               class="custom-table density-${tableDensity}"
+              @selection-change="handleSelectionChange"
+              @row-contextmenu="onChannelTableRowContextMenu"
             >
               <el-table-column width="40" align="center">
                 <template #default="{ row }">

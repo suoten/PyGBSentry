@@ -36,16 +36,16 @@
       <el-table
         v-else
         :key="`${treeMode}-${filters.listScope}-${selectedNode?.id || ''}`"
-        :data="filteredChannels"
         ref="channelTableRef"
         v-loading="loading"
+        :data="filteredChannels"
         style="width: 100%"
         :class="`custom-table density-${tableDensity}`"
         :empty-text="tableEmptyText"
-        @selection-change="emit('selectionChange', $event)"
-        @row-contextmenu="emit('channelRowContextMenu', $event)"
         row-key="id"
         class="custom-table density-${tableDensity}"
+        @selection-change="emit('selectionChange', $event)"
+        @row-contextmenu="emit('channelRowContextMenu', $event)"
       >
         <el-table-column width="40" align="center">
           <template #default="{ row }">

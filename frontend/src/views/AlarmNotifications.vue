@@ -37,7 +37,7 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button @click="reload" :loading="loading" type="primary">{{ t('alarmNotif.apply') }}</el-button>
+          <el-button :loading="loading" type="primary" @click="reload">{{ t('alarmNotif.apply') }}</el-button>
         </el-form-item>
       </QueryFormSection>
 
@@ -96,9 +96,9 @@
           </div>
         </template>
       <el-table
+        v-loading="loading"
         class="alarm-notifications-table"
         :data="items"
-        v-loading="loading"
         stripe
         :row-class-name="getNotificationRowClassName"
         @row-click="selectNotification"

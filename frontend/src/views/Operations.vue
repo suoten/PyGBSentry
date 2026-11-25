@@ -4,8 +4,8 @@
       <template #header>
         <PageHeader :title="t('ops.title')" :description="t('ops.description')">  <!-- FIXED: 硬编码中文→t() -->
           <template #actions>
-            <el-button size="small" type="success" plain @click="exportDiagnostics" :loading="exporting">{{ t('ops.exportDiagnostics') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
-            <el-button size="small" type="primary" plain @click="runDiagnose" :loading="diagnoseLoading">{{ t('ops.onlineDiagnose') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
+            <el-button size="small" type="success" plain :loading="exporting" @click="exportDiagnostics">{{ t('ops.exportDiagnostics') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
+            <el-button size="small" type="primary" plain :loading="diagnoseLoading" @click="runDiagnose">{{ t('ops.onlineDiagnose') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
             <el-button size="small" type="danger" plain @click="shutdownService">{{ t('ops.shutdownService') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
           </template>
         </PageHeader>
@@ -19,7 +19,7 @@
                 <span class="font-semibold">{{ t('ops.systemStatus') }}</span>  <!-- FIXED: 硬编码中文→t() -->
               </div>
             </template>
-            <div class="grid grid-cols-2 gap-4" v-loading="loading">
+            <div v-loading="loading" class="grid grid-cols-2 gap-4">
               <div class="ops-status-card text-center p-4">
                 <div class="ops-muted">{{ t('ops.cpuUsage') }}</div>  <!-- FIXED: 硬编码中文→t() -->
                 <div class="text-2xl font-bold ops-kpi-value">{{ status.cpu }}%</div>
@@ -63,9 +63,9 @@
                   <el-button size="small" type="primary" plain @click="openHistoricalLogs">{{ t('ops.historicalLogs') }}</el-button>
                 </div>
                 <div class="flex items-center gap-2">
-                  <el-tag type="success" v-if="wsConnected">{{ t('ops.connected') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
-                  <el-tag type="warning" v-else-if="wsReconnecting">{{ t('ops.reconnecting') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
-                  <el-tag type="danger" v-else>{{ t('ops.disconnected') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
+                  <el-tag v-if="wsConnected" type="success">{{ t('ops.connected') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
+                  <el-tag v-else-if="wsReconnecting" type="warning">{{ t('ops.reconnecting') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
+                  <el-tag v-else type="danger">{{ t('ops.disconnected') }}</el-tag>  <!-- FIXED: 硬编码中文→t() -->
                 </div>
               </div>
             </template>
@@ -105,7 +105,7 @@
         </AppDialog>
 
         <AppDialog v-model="historyLogsVisible" :title="t('ops.historicalLogs')" size="large">  <!-- FIXED: 硬编码中文→t() -->
-          <el-table :data="historyLogFiles" v-loading="historyLogsLoading" border size="small">
+          <el-table v-loading="historyLogsLoading" :data="historyLogFiles" border size="small">
             <el-table-column prop="name" :label="t('ops.fileName')" min-width="200" />  <!-- FIXED: 硬编码中文→t() -->
             <el-table-column :label="t('ops.size')" width="120">  <!-- FIXED: 硬编码中文→t() -->
               <template #default="{ row }">
@@ -131,13 +131,13 @@
 
         <AppDialog v-model="logViewerVisible" :title="`${t('ops.viewLog')}: ${currentLogFile}`" size="large">  <!-- FIXED: 硬编码中文→t() -->
           <div class="flex gap-2 mb-3">
-            <el-input v-model="logSearchKeyword" :placeholder="t('ops.keywordFilter')" clearable @keyup.enter="fetchLogLines" class="ops-input-300" />  <!-- FIXED: 硬编码中文→t() -->
+            <el-input v-model="logSearchKeyword" :placeholder="t('ops.keywordFilter')" clearable class="ops-input-300" @keyup.enter="fetchLogLines" />  <!-- FIXED: 硬编码中文→t() -->
             <el-button type="primary" @click="fetchLogLines">{{ t('common.search') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
             <el-button @click="downloadLog({name: currentLogFile})">{{ t('ops.downloadOriginal') }}</el-button>  <!-- FIXED: 硬编码中文→t() -->
           </div>
           <div
-            class="ops-log-box ops-log-box--dialog font-mono text-xs p-3 overflow-y-auto"
             v-loading="logLinesLoading"
+            class="ops-log-box ops-log-box--dialog font-mono text-xs p-3 overflow-y-auto"
             element-loading-background="rgba(0, 0, 0, 0.6)"
           >
             <div v-if="currentLogLines.length === 0 && !logLinesLoading" class="text-slate-500 text-center mt-4">{{ t('ops.noMatchingLogs') }}</div>  <!-- FIXED: 硬编码中文→t() -->
@@ -167,7 +167,7 @@
             <el-input v-model="traceForm.trace_id" :placeholder="t('ops.traceId')" class="ops-input-260" clearable />
             <el-input v-model="traceForm.event" :placeholder="t('ops.eventType')" class="ops-input-220" clearable />
             <el-input-number v-model="traceForm.limit" :min="1" :max="500" />
-            <el-button type="primary" @click="loadTraceEvents" :loading="traceLoading">{{ t('common.query') }}</el-button>
+            <el-button type="primary" :loading="traceLoading" @click="loadTraceEvents">{{ t('common.query') }}</el-button>
             <el-button @click="clearTrace">{{ t('ops.clearFilter') }}</el-button>
             <el-popover placement="bottom-end" :width="220" trigger="click">
               <template #reference>
@@ -183,7 +183,7 @@
               </div>
             </el-popover>
           </div>
-          <el-table :data="paginatedTraceRows" border size="small" v-loading="traceLoading" :empty-text="t('ops.noEvents')">
+          <el-table v-loading="traceLoading" :data="paginatedTraceRows" border size="small" :empty-text="t('ops.noEvents')">
             <el-table-column prop="created_at" :label="t('common.time')" width="190" />
             <el-table-column prop="event" :label="t('common.event')" width="200" />
             <el-table-column prop="trace_id" :label="t('ops.traceIdLabel')" min-width="240" show-overflow-tooltip />
@@ -196,7 +196,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4 pagination-wrapper" v-if="traceRows.length > 0">
+          <div v-if="traceRows.length > 0" class="flex justify-end mt-4 pagination-wrapper">
             <el-pagination
               v-model:current-page="tracePage"
               v-model:page-size="tracePageSize"
@@ -222,15 +222,15 @@
             <el-button class="ml-2" :loading="testingAllMediaNodes" @click="testAllMediaNodes">{{ t('ops.batchTest') }}</el-button>
             <el-button class="ml-2" @click="showPortPoolStatus">{{ t('ops.portPoolStatus') }}</el-button>
             <el-button class="ml-2" @click="showFfmpegCmds">{{ t('ops.ffmpegCommands') }}</el-button>
-            <el-switch class="ml-4" v-model="mediaAutoRefresh" :active-text="t('ops.autoRefresh')" />
+            <el-switch v-model="mediaAutoRefresh" class="ml-4" :active-text="t('ops.autoRefresh')" />
             <el-tag v-if="mediaAutoRefreshError" class="ml-2" type="warning" effect="plain">
               {{ t('ops.refreshFailed') }}
             </el-tag>
             <span class="ml-2 text-xs" style="color: var(--el-text-color-secondary)">{{ t('ops.interval') }}</span>
-            <el-input-number class="ml-2" v-model="mediaRefreshIntervalSec" :min="3" :max="300" size="small" />
+            <el-input-number v-model="mediaRefreshIntervalSec" class="ml-2" :min="3" :max="300" size="small" />
             <span class="ml-1 text-xs" style="color: var(--el-text-color-secondary)">{{ t('ops.secondsUnit') }}</span>
             <span class="ml-4 text-xs" style="color: var(--el-text-color-secondary)">{{ t('ops.offlineThresholdSeconds') }}</span>
-            <el-input-number class="ml-2" v-model="mediaOfflineSeconds" :min="10" :max="86400" size="small" />
+            <el-input-number v-model="mediaOfflineSeconds" class="ml-2" :min="10" :max="86400" size="small" />
             <el-button class="ml-2" size="small" :loading="savingMediaOfflineSeconds" @click="saveMediaOfflineSeconds">{{ t('common.save') }}</el-button>
           </div>
           <el-table :data="paginatedMediaNodes" border :empty-text="t('ops.noMediaNodes')" fit>
@@ -335,7 +335,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4 pagination-wrapper" v-if="mediaNodes.length > 0">
+          <div v-if="mediaNodes.length > 0" class="flex justify-end mt-4 pagination-wrapper">
             <el-pagination
               v-model:current-page="mediaPage"
               v-model:page-size="mediaPageSize"
@@ -353,7 +353,7 @@
       <el-tab-pane :label="t('ops.cascadeDiag')" name="cascade_diagnosis">
         <el-card shadow="never">
           <div class="flex flex-wrap items-center gap-2 mb-4">
-            <el-button type="primary" @click="loadCascadeDiagnosis" :loading="cascadeLoading">
+            <el-button type="primary" :loading="cascadeLoading" @click="loadCascadeDiagnosis">
               {{ cascadeLoading ? t('ops.diagnosing') : t('ops.oneClickDiagnose') }}
             </el-button>
             <span class="text-xs" style="color:var(--el-text-color-secondary)">{{ t('ops.cascadeDiagnosisDesc') }}</span>
@@ -438,7 +438,8 @@
             <div v-if="(cascadeDiagnosis.diagnostics?.length || 0) > 0" class="mb-4">
               <div class="text-sm font-semibold mb-2">{{ t('ops.diagResult') }}</div>
               <div class="space-y-2">
-                <div v-for="d in cascadeDiagnosis.diagnostics" :key="d.key" class="p-3 rounded" :style="{
+                <div
+v-for="d in cascadeDiagnosis.diagnostics" :key="d.key" class="p-3 rounded" :style="{
                     background: d.level === 'error' ? 'var(--el-color-danger-light-9)' : d.level === 'warn' ? 'var(--el-color-warning-light-9)' : 'var(--el-color-success-light-9)',
                     border: '1px solid ' + (d.level === 'error' ? 'var(--el-color-danger-light-5)' : d.level === 'warn' ? 'var(--el-color-warning-light-5)' : 'var(--el-color-success-light-5)')
                   }">
@@ -519,8 +520,8 @@
                 </div>
               </el-option>
             </el-select>
-            <el-button type="primary" plain bg @click="runStreamDiagnose" :loading="diagLoading" size="default">{{ t('ops.startDiagnose') }}</el-button>
-            <el-button @click="diagResults = []" size="default">{{ t('common.clear') }}</el-button>
+            <el-button type="primary" plain bg :loading="diagLoading" size="default" @click="runStreamDiagnose">{{ t('ops.startDiagnose') }}</el-button>
+            <el-button size="default" @click="diagResults = []">{{ t('common.clear') }}</el-button>
           </div>
 
           <div v-if="diagResults.length > 0" class="space-y-3">
@@ -565,7 +566,7 @@
               <span class="font-semibold">{{ t('ops.dbBackupRestore') }}</span>
               <div class="flex gap-2">
                 <el-button type="primary" :loading="backupLoading" @click="createBackup">{{ t('ops.createBackup') }}</el-button>
-                <el-button @click="loadBackupList" :loading="backupListLoading">{{ t('ops.refreshList') }}</el-button>
+                <el-button :loading="backupListLoading" @click="loadBackupList">{{ t('ops.refreshList') }}</el-button>
               </div>
             </div>
           </template>
@@ -574,7 +575,7 @@
               {{ t('ops.restoreWarn') }}
             </template>
           </el-alert>
-          <el-table :data="backupList" v-loading="backupListLoading" stripe :empty-text="t('ops.noBackups')">
+          <el-table v-loading="backupListLoading" :data="backupList" stripe :empty-text="t('ops.noBackups')">
             <el-table-column prop="filename" :label="t('ops.fileName')" min-width="280" />
             <el-table-column :label="t('common.size')" width="120">
               <template #default="{ row }">{{ formatBytes(row.size_bytes) }}</template>
@@ -604,7 +605,7 @@
           <template #header>
             <div class="flex justify-between items-center">
               <span class="font-semibold">{{ t('ops.rtpManage') }}</span>
-              <el-button @click="loadRtpTasks" :loading="rtpLoading">{{ t('ops.refreshList') }}</el-button>
+              <el-button :loading="rtpLoading" @click="loadRtpTasks">{{ t('ops.refreshList') }}</el-button>
             </div>
           </template>
           <el-alert type="info" :closable="false" class="mb-4" show-icon>
@@ -613,7 +614,7 @@
           <div class="mb-4">
             <el-button type="primary" @click="rtpOpenDialogVisible = true">{{ t('ops.openRtpReceive') }}</el-button>
           </div>
-          <el-table :data="rtpTasks" v-loading="rtpLoading" stripe :empty-text="t('ops.noRtpTasks')">
+          <el-table v-loading="rtpLoading" :data="rtpTasks" stripe :empty-text="t('ops.noRtpTasks')">
             <el-table-column prop="task_id" :label="t('ops.taskId')" min-width="200" show-overflow-tooltip />
             <el-table-column prop="stream_id" :label="t('ops.streamIdLabel')" min-width="180" show-overflow-tooltip />
             <el-table-column prop="app" :label="t('ops.appId')" width="100" />
@@ -649,7 +650,7 @@
             <div class="flex justify-between items-center">
               <span class="font-semibold">{{ t('ops.sslCertManage') }}</span>
               <div class="flex gap-2">
-                <el-button @click="loadSslStatus" :loading="sslLoading">{{ t('ops.refreshStatus') }}</el-button>
+                <el-button :loading="sslLoading" @click="loadSslStatus">{{ t('ops.refreshStatus') }}</el-button>
                 <el-button type="primary" :loading="sslRenewing" @click="renewSslCert">{{ t('ops.renewCert') }}</el-button>
               </div>
             </div>
@@ -669,7 +670,7 @@
                 </div>
               </div>
             </div>
-            <el-descriptions :column="2" border size="small" v-if="sslStatus.enabled">
+            <el-descriptions v-if="sslStatus.enabled" :column="2" border size="small">
               <el-descriptions-item :label="t('ops.domain')">{{ sslStatus.domain || '—' }}</el-descriptions-item>
               <el-descriptions-item :label="t('ops.remainingDays')">
                 <span :style="{ color: (sslStatus.remaining_days ?? 0) < 30 ? 'var(--el-color-danger)' : 'var(--el-color-success)' }">
@@ -722,7 +723,7 @@
     </PageContainer>
 
     <AppDialog v-model="mediaDialogVisible" :title="editingMediaId ? t('ops.editMediaNode') : t('ops.newMediaNode')" size="large">
-      <el-form :model="mediaForm" ref="mediaFormRef" :rules="mediaRules" label-width="120px">
+      <el-form ref="mediaFormRef" :model="mediaForm" :rules="mediaRules" label-width="120px">
         <el-form-item :label="t('common.ip')" prop="ip"><el-input v-model="mediaForm.ip" :placeholder="t('ops.nodeInternalIp')" /></el-form-item>
         <el-form-item :label="t('ops.publicIp')" prop="public_ip"><el-input v-model="mediaForm.public_ip" :placeholder="t('ops.nodePublicIp')" /></el-form-item>
         <el-form-item :label="t('ops.streamIpDomain')" prop="stream_ip"><el-input v-model="mediaForm.stream_ip" :placeholder="t('ops.streamDomain')" /></el-form-item>
@@ -888,7 +889,7 @@
     </AppDialog>
 
     <AppDialog v-model="portPoolDialogVisible" :title="t('ops.portPoolStatus')" size="medium">
-      <el-table :data="portPoolStatus" v-loading="portPoolLoading" border size="small" :empty-text="t('common.noData')">
+      <el-table v-loading="portPoolLoading" :data="portPoolStatus" border size="small" :empty-text="t('common.noData')">
         <el-table-column prop="node_ip" :label="t('ops.nodeId')" width="140" />
         <el-table-column prop="protocol" :label="t('ops.protocol')" width="100" />
         <el-table-column prop="total" :label="t('ops.totalPorts')" width="100" />
@@ -909,7 +910,7 @@
       <div class="mb-3">
         <el-button type="primary" size="small" @click="openFfmpegCmdDialog()">{{ t('ops.addCommand') }}</el-button>
       </div>
-      <el-table :data="ffmpegCmds" v-loading="ffmpegLoading" border size="small" :empty-text="t('ops.noFfmpegCommands')">
+      <el-table v-loading="ffmpegLoading" :data="ffmpegCmds" border size="small" :empty-text="t('ops.noFfmpegCommands')">
         <el-table-column prop="name" :label="t('common.name')" width="160" />
         <el-table-column prop="protocol" :label="t('ops.protocol')" width="100" />
         <el-table-column prop="cmd" :label="t('ops.commandTemplate')" min-width="300" show-overflow-tooltip />

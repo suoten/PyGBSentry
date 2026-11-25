@@ -3,13 +3,13 @@
     :type="isTalking ? 'danger' : 'primary'" 
     :icon="Microphone" 
     circle 
+    class="talk-btn" 
     @mousedown="startTalk" 
-    @mouseup="stopTalk" 
+    @mouseup="stopTalk"
     @mouseleave="stopTalk"
     @touchstart.prevent="startTalk"
     @touchend="stopTalk"
     @touchcancel="stopTalk"
-    class="talk-btn"
   />
   <!-- FIX: [2026-07-03] 双向对讲接收方向音频播放元素 [全栈工程师] -->
   <audio v-if="mode === 'bidirectional'" ref="audioEl" autoplay style="display:none" />

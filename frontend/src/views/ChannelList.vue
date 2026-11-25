@@ -78,7 +78,7 @@
           </el-dropdown>
         </el-form-item>
         <el-form-item>
-          <el-button :icon="RefreshRight" circle @click="loadList" :title="t('channel.list.refreshListTip')" />
+          <el-button :icon="RefreshRight" circle :title="t('channel.list.refreshListTip')" @click="loadList" />
         </el-form-item>
       </el-form>
 
@@ -220,9 +220,9 @@
       </div>
 
       <el-pagination
-        class="mt-3 justify-end"
         v-model:current-page="currentPage"
         v-model:page-size="count"
+        class="mt-3 justify-end"
         :total="total"
         :page-sizes="[15, 25, 35, 50, 100, 500, 1000]"
         layout="total, sizes, prev, pager, next, jumper"

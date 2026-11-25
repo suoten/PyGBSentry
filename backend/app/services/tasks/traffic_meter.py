@@ -75,9 +75,7 @@ async def _accumulate(items: list[dict], interval_seconds: int) -> int:
     from app.models.asset import Asset
     from app.models.resource import Resource
     from app.models.traffic_daily import TrafficDaily
-    from sqlalchemy import or_
 
-    now = datetime.datetime.now(datetime.timezone.utc)
     day = _today_utc()
 
     # 流名 → 采样速率:同通道多路流(如 live+playback 并存)按原始流名分别记账
@@ -101,8 +99,8 @@ async def _accumulate(items: list[dict], interval_seconds: int) -> int:
     async with AsyncSessionLocal() as db:
         # 批量预查通道归属(tenant/resource/asset)
         res_rows = (
-            (await db.execute(select(Resource.id, Resource.gb_id, Resource.tenant_id, Resource.asset_id).where(Resource.gb_id.in_(prefixes)))).all()
-        )
+            await db.execute(select(Resource.id, Resource.gb_id, Resource.tenant_id, Resource.asset_id).where(Resource.gb_id.in_(prefixes)))
+        ).all()
         res_by_gb = {str(gb): (str(rid), str(t or "default"), str(a) if a else None) for rid, gb, t, a in res_rows}
         asset_names: dict[str, str] = {}
         asset_ids = {a for (_rid, _t, a) in res_by_gb.values() if a}
@@ -125,13 +123,15 @@ async def _accumulate(items: list[dict], interval_seconds: int) -> int:
             row = (
                 # 注意:await 的操作数是完整属性链,必须显式括号包住 execute 调用,
                 # 否则 .scalars()/.first() 会被解析进 await 表达式(对 coroutine 取属性)
-                (await db.execute(
-                    select(TrafficDaily).where(
-                        TrafficDaily.tenant_id == tenant,
-                        TrafficDaily.channel_gb_id == channel_key,
-                        TrafficDaily.day == day,
+                (
+                    await db.execute(
+                        select(TrafficDaily).where(
+                            TrafficDaily.tenant_id == tenant,
+                            TrafficDaily.channel_gb_id == channel_key,
+                            TrafficDaily.day == day,
+                        )
                     )
-                ))
+                )
                 .scalars()
                 .first()
             )

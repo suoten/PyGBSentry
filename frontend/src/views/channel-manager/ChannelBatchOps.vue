@@ -2,29 +2,29 @@
   <!-- 通道编辑对话框 -->
   <ChannelEditDialog
     :visible="props.channelEditDialogVisible"
-    @update:visible="(v: boolean) => emit('update:channelEditDialogVisible', v)"
     :channel-data="channelEditData"
+    @update:visible="(v: boolean) => emit('update:channelEditDialogVisible', v)"
     @success="emit('loadChannels')"
   />
 
   <!-- 创建目录对话框 -->
   <CreateDirectoryDialog
     :visible="props.createDirectoryDialogVisible"
-    @update:visible="(v: boolean) => emit('update:createDirectoryDialogVisible', v)"
     :tree-data="treeData"
     :node-label-map="nodeLabelMap"
     :tree-mode="treeMode"
     :business-root-id="businessRootId"
     :init-parent-id="createDirectoryInitParentId"
     :init-region-code="createDirectoryInitRegionCode"
+    @update:visible="(v: boolean) => emit('update:createDirectoryDialogVisible', v)"
     @success="emit('loadTree')"
   />
 
   <RenameDirectoryDialog
     :model-value="props.renameDirectoryDialogVisible"
-    @update:model-value="(v: boolean) => emit('update:renameDirectoryDialogVisible', v)"
     :node-id="renameDirectoryDialogId"
     :node-name="renameDirectoryDialogName"
+    @update:model-value="(v: boolean) => emit('update:renameDirectoryDialogVisible', v)"
     @success="emit('loadTree')"
   />
 
@@ -36,23 +36,23 @@
 
   <BusinessPickerDialog
     :model-value="props.listBusinessFilterDialogVisible"
-    @update:model-value="(v: boolean) => emit('update:listBusinessFilterDialogVisible', v)"
     :title="t('channelBatch.filterBusinessTitle')"
     mode="filter"
+    @update:model-value="(v: boolean) => emit('update:listBusinessFilterDialogVisible', v)"
     @tree-click="emit('businessFilterTreeClick', $event)"
     @confirm="emit('businessFilterConfirm', $event)"
   />
 
   <BusinessPickerDialog
     :model-value="props.batchBusinessDialogVisible"
-    @update:model-value="(v: boolean) => emit('update:batchBusinessDialogVisible', v)"
     :title="t('channelBatch.batchSetBusinessTitle')"
     mode="batch"
+    @update:model-value="(v: boolean) => emit('update:batchBusinessDialogVisible', v)"
     @tree-click="emit('batchBusinessTreeClick', $event)"
     @confirm="emit('batchBusinessConfirm', $event)"
   />
 
-  <AppDialog :model-value="props.civilCodeDialogVisible" @update:model-value="(v: boolean) => emit('update:civilCodeDialogVisible', v)" :title="civilCodeDialogTitle" size="medium">
+  <AppDialog :model-value="props.civilCodeDialogVisible" :title="civilCodeDialogTitle" size="medium" @update:model-value="(v: boolean) => emit('update:civilCodeDialogVisible', v)">
     <el-form :model="civilCodeForm" label-width="100px">
       <el-form-item :label="t('channelBatch.province')">
         <!-- eslint-disable-next-line vue/no-mutating-props -- 既有两步表单设计：父组件直接消费该对象 -->

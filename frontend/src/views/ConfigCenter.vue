@@ -5,7 +5,7 @@
         <PageHeader :title="t('configCenter.title')" :description="t('configCenter.description')">
           <template #actions>
             <el-tooltip :content="t('configCenter.refreshConfig')" placement="top">
-              <el-button @click="loadAllData" circle>
+              <el-button circle @click="loadAllData">
                 <el-icon><Refresh /></el-icon>
               </el-button>
             </el-tooltip>
@@ -128,7 +128,8 @@
                 </div>
                 <p v-if="dbCompatVendorHint" style="color: var(--el-color-warning)">{{ dbCompatVendorHint }}</p>
                 <el-divider />
-                <p v-for="(line, i) in dbCompatChecks" :key="i"
+                <p
+v-for="(line, i) in dbCompatChecks" :key="i"
                   :style="{ color: line.ok ? 'var(--el-text-color-regular)' : 'var(--el-color-danger)' }">
                   {{ line.ok ? '✓' : '✗' }} {{ line.name }}{{ t('configCenter.colon') }}{{ line.detail }}
                 </p>
@@ -181,7 +182,7 @@
                 </template>
               </el-table-column>
             </el-table>
-            <div class="flex justify-end mt-4 pagination-wrapper" v-if="accessSources.length > 0">
+            <div v-if="accessSources.length > 0" class="flex justify-end mt-4 pagination-wrapper">
               <el-pagination
                 v-model:current-page="sourcePage"
                 v-model:page-size="sourcePageSize"
@@ -227,7 +228,7 @@
                   </template>
                 </el-table-column>
               </el-table>
-              <div class="flex justify-end mt-4" v-if="storageNodes.length > 0">
+              <div v-if="storageNodes.length > 0" class="flex justify-end mt-4">
                 <el-button type="primary" :loading="savingStorageNodes" @click="saveStorageNodes">{{ t('configCenter.saveNodeList') }}</el-button>
               </div>
             </div>
@@ -409,7 +410,7 @@
 
     <!-- 接入源弹窗 -->
     <AppDialog v-model="sourceDialogVisible" :title="editingSourceId ? t('configCenter.editSource') : t('configCenter.addSource')" size="large">
-      <el-form :model="sourceForm" ref="sourceFormRef" :rules="sourceRules" label-width="120px">
+      <el-form ref="sourceFormRef" :model="sourceForm" :rules="sourceRules" label-width="120px">
         <el-form-item :label="t('common.name')" prop="name"><el-input v-model="sourceForm.name" :placeholder="t('configCenter.sourceNamePlaceholder')" /></el-form-item>
         <el-form-item :label="t('configCenter.sourceProtocol')" prop="protocol">
           <el-select v-model="sourceForm.protocol" style="width: 220px">

@@ -121,10 +121,10 @@
         style="width: 100%"
         size="small"
         :row-class-name="tableRowClassName"
-        @selection-change="handleSelectionChange"
         :empty-text="t('record.noRecordsInRange')"
         :max-height="400"
         table-layout="auto"
+        @selection-change="handleSelectionChange"
         @row-click="handleRowClick"
         @row-dblclick="handleRowDblClick"
       >

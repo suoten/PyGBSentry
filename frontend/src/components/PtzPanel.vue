@@ -60,8 +60,8 @@
               :key="preset.id"
               size="small"
               :type="currentPreset === preset.id ? 'primary' : 'default'"
-              @click="callPreset(preset.id)"
               class="preset-btn"
+              @click="callPreset(preset.id)"
             >
               {{ preset.name }}
             </el-button>
@@ -80,15 +80,15 @@
           style="width: 80px"
           :placeholder="t('ptz.presetId')"
         />
-        <el-button size="small" type="primary" @click="setPreset" :loading="settingPreset">
+        <el-button size="small" type="primary" :loading="settingPreset" @click="setPreset">
           <el-icon class="mr-1"><Plus /></el-icon>
           {{ t('ptz.set') }}
         </el-button>
-        <el-button size="small" type="success" @click="callPreset(selectedPresetId)" :loading="callingPreset">
+        <el-button size="small" type="success" :loading="callingPreset" @click="callPreset(selectedPresetId)">
           <el-icon class="mr-1"><VideoPlay /></el-icon>
           {{ t('ptz.call') }}
         </el-button>
-        <el-button size="small" type="danger" @click="deletePreset" :loading="deletingPreset">
+        <el-button size="small" type="danger" :loading="deletingPreset" @click="deletePreset">
           <el-icon class="mr-1"><Delete /></el-icon>
           {{ t('ptz.delete') }}
         </el-button>

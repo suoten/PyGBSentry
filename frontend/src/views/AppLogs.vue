@@ -44,7 +44,7 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button @click="reload" :loading="loading" type="primary">{{ t('common.search') }}</el-button>
+          <el-button :loading="loading" type="primary" @click="reload">{{ t('common.search') }}</el-button>
         </el-form-item>
       </QueryFormSection>
 
@@ -55,7 +55,7 @@
             <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('appLogs.totalCount', { n: total }) }}</div>
           </div>
         </template>
-      <el-table :data="items" v-loading="loading" stripe>
+      <el-table v-loading="loading" :data="items" stripe>
         <el-table-column prop="created_at" :label="t('common.time')" width="180" />
         <el-table-column prop="plugin_id" :label="t('appLogs.appLabel')" width="140">
           <template #default="{ row }">

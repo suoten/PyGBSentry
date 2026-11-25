@@ -369,11 +369,7 @@ async def _run_loop():
                                 from app.services.stream_session_service import _release_stream_session_no_db
 
                                 async with AsyncSessionLocal() as _sess:
-                                    _ss = (
-                                        (await _sess.execute(_sel(_SS).where(_SS.app == STREAM_LIVE_APP, _SS.stream == stream)))
-                                        .scalars()
-                                        .first()
-                                    )
+                                    _ss = (await _sess.execute(_sel(_SS).where(_SS.app == STREAM_LIVE_APP, _SS.stream == stream))).scalars().first()
                                 if _ss:
                                     await _release_stream_session_no_db(_ss, reason="record_schedule_off")
                             except Exception as _rel_err:

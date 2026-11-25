@@ -4,12 +4,12 @@
       <template #header>
         <PageHeader :title="t('device.title')" :description="t('device.listDescription')">
           <template #actions>
-            <el-button type="primary" @click="onOpenAddDialog" class="action-btn"><el-icon class="mr-1"><Plus /></el-icon>{{ t('device.addDevice') }}</el-button>
-            <el-button type="warning" plain @click="onOpenIpBlacklistDialog" class="action-btn"><el-icon class="mr-1"><Warning /></el-icon>{{ t('device.ipBlacklist') }}</el-button>
-            <el-button @click="onOpenAccessInfoDialog" class="action-btn"><el-icon class="mr-1"><InfoFilled /></el-icon>{{ t('device.accessInfo.title') }}</el-button>
-            <el-tooltip :content="t('device.refreshList')" placement="top"><el-button @click="refreshDevices" circle class="action-btn refresh-btn"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
-            <el-tooltip :content="autoRefresh ? t('device.stopAutoRefresh') : t('device.startAutoRefresh')" placement="top"><el-button @click="toggleAutoRefresh" :type="autoRefresh ? 'success' : 'default'" plain circle class="action-btn"><el-icon><Timer /></el-icon></el-button></el-tooltip>
-            <el-button type="success" plain @click="onExportCsv" class="action-btn"><el-icon class="mr-1"><Download /></el-icon>{{ t('device.exportLedger') }}</el-button>
+            <el-button type="primary" class="action-btn" @click="onOpenAddDialog"><el-icon class="mr-1"><Plus /></el-icon>{{ t('device.addDevice') }}</el-button>
+            <el-button type="warning" plain class="action-btn" @click="onOpenIpBlacklistDialog"><el-icon class="mr-1"><Warning /></el-icon>{{ t('device.ipBlacklist') }}</el-button>
+            <el-button class="action-btn" @click="onOpenAccessInfoDialog"><el-icon class="mr-1"><InfoFilled /></el-icon>{{ t('device.accessInfo.title') }}</el-button>
+            <el-tooltip :content="t('device.refreshList')" placement="top"><el-button circle class="action-btn refresh-btn" @click="refreshDevices"><el-icon><Refresh /></el-icon></el-button></el-tooltip>
+            <el-tooltip :content="autoRefresh ? t('device.stopAutoRefresh') : t('device.startAutoRefresh')" placement="top"><el-button :type="autoRefresh ? 'success' : 'default'" plain circle class="action-btn" @click="toggleAutoRefresh"><el-icon><Timer /></el-icon></el-button></el-tooltip>
+            <el-button type="success" plain class="action-btn" @click="onExportCsv"><el-icon class="mr-1"><Download /></el-icon>{{ t('device.exportLedger') }}</el-button>
             <el-dropdown class="ml-2" @command="onExportCommand">
               <el-button type="success" plain class="action-btn"><el-icon class="mr-1"><Download /></el-icon>{{ t('device.serverExport') }}<el-icon class="ml-1"><ArrowDown /></el-icon></el-button>
               <template #dropdown>
@@ -20,7 +20,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button type="primary" plain @click="onBatchSnapshot" :loading="batchSnapping" class="action-btn ml-2"><el-icon class="mr-1"><Camera /></el-icon>{{ t('device.batchSnapshot') }}</el-button>
+            <el-button type="primary" plain :loading="batchSnapping" class="action-btn ml-2" @click="onBatchSnapshot"><el-icon class="mr-1"><Camera /></el-icon>{{ t('device.batchSnapshot') }}</el-button>
           </template>
         </PageHeader>
       </template>

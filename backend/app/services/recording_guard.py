@@ -86,9 +86,7 @@ async def recording_channel_prefixes() -> set[str]:
             ids = [r for r in resource_ids if r]
             if not ids:
                 return set()
-            gids = (
-                (await session.execute(select(Resource.gb_id).where(Resource.id.in_(ids)))).scalars().all()
-            )
+            gids = (await session.execute(select(Resource.gb_id).where(Resource.id.in_(ids)))).scalars().all()
         return {str(g).strip() for g in gids if g}
     except Exception as e:
         logger.debug(f"[RecordingGuard] recording prefixes query failed: {e}")

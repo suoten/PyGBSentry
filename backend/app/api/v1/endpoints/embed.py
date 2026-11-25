@@ -72,10 +72,7 @@ async def create_embed_link(
     if not base:
         base = str(request.base_url).rstrip("/")
     embed_url = f"{base}/embed/play?token={token}"
-    iframe_code = (
-        f'<iframe src="{embed_url}" width="640" height="360" '
-        f'frameborder="0" allowfullscreen></iframe>'
-    )
+    iframe_code = f'<iframe src="{embed_url}" width="640" height="360" frameborder="0" allowfullscreen></iframe>'
     return {
         "channel_id": str(resource.gb_id),
         "ttl_hours": ttl_hours,
@@ -99,21 +96,14 @@ async def resolve_embed_link(
     claims = verify_embed_token(token)
     if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired embed token")
-    tenant_id = str(claims.get("tenant") or "default")
+    # 租户隔离预留：当前嵌入令牌仅做通道级校验，租户粒度过滤待后续接入
+    _tenant_id = str(claims.get("tenant") or "default")
     channel_id = str(claims.get("channel") or "")
 
-    resource = (
-        (await db.execute(select(Resource).where(Resource.node_type == "channel", Resource.gb_id == channel_id).limit(1)))
-        .scalars()
-        .first()
-    )
+    resource = (await db.execute(select(Resource).where(Resource.node_type == "channel", Resource.gb_id == channel_id).limit(1))).scalars().first()
     if not resource:
         raise HTTPException(status_code=404, detail="Channel not found")
-    asset = (
-        (await db.execute(select(Asset).where(Asset.id == getattr(resource, "asset_id", None)).limit(1)))
-        .scalars()
-        .first()
-    )
+    asset = (await db.execute(select(Asset).where(Asset.id == getattr(resource, "asset_id", None)).limit(1))).scalars().first()
     if not asset or not getattr(asset, "ip_addr", None):
         raise HTTPException(status_code=503, detail="Device network information missing")
 

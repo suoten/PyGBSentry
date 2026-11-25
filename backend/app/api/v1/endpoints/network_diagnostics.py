@@ -553,7 +553,9 @@ async def media_server_probe(
 # 前端在播放失败界面直接展示,替代让用户翻文档猜配置。
 
 
-def _diag_item(key: str, ok: bool, label_zh: str, label_en: str, detail_zh: str, detail_en: str, hint_zh: str = "", hint_en: str = "", severity: str = "") -> dict:
+def _diag_item(
+    key: str, ok: bool, label_zh: str, label_en: str, detail_zh: str, detail_en: str, hint_zh: str = "", hint_en: str = "", severity: str = ""
+) -> dict:
     """构造统一结构的诊断项;severity 缺省由 ok 推导(ok/fail)。"""
     sev = severity or ("ok" if ok else "fail")
     return {
@@ -596,7 +598,6 @@ async def diagnose_play(
     """
     from sqlalchemy import select
 
-    from app.db.session import AsyncSessionLocal
     from app.models.asset import Asset
     from app.models.resource import Resource
 
@@ -690,7 +691,9 @@ async def diagnose_play(
                 f"TCP 连接 {dev_ip}:{dev_port} {'成功, ' + str(latency) + 'ms' if reachable else '失败: ' + reason}",
                 f"TCP connect {dev_ip}:{dev_port} {'ok, ' + str(latency) + 'ms' if reachable else 'failed: ' + reason}",
                 "" if reachable else "设备信令端口不可达:检查摄像头侧 SIP 端口、防火墙与路由(设备重启后地址变化也常见)。",
-                "" if reachable else "Device signaling port unreachable: check camera SIP port, firewall and routing (address change after reboot is common).",
+                ""
+                if reachable
+                else "Device signaling port unreachable: check camera SIP port, firewall and routing (address change after reboot is common).",
             )
         )
     elif addr_ok:
@@ -710,7 +713,11 @@ async def diagnose_play(
     # 4. 流媒体节点可达
     node_host = node_http_port = node_secret = node_id = None
     try:
-        from app.core.media_nodes_db import get_active_media_node_id, select_best_db_node
+        from app.core.media_nodes_db import (
+            get_active_media_node_id,
+            get_db_media_node_by_id,
+            select_best_db_node,
+        )
 
         active_id = await get_active_media_node_id(db)
         db_node = await get_db_media_node_by_id(db, active_id) if active_id else None
@@ -763,12 +770,13 @@ async def diagnose_play(
             zlm_ok,
             "流媒体服务(ZLM)可达",
             "Media server (ZLM) reachable",
-            f"{node_host or '(空)'}:{node_http_port or '(空)'} [{node_id}] "
-            + (f"正常, {zlm_latency}ms" if zlm_ok else f"不可达: {zlm_reason}"),
+            f"{node_host or '(空)'}:{node_http_port or '(空)'} [{node_id}] " + (f"正常, {zlm_latency}ms" if zlm_ok else f"不可达: {zlm_reason}"),
             f"{node_host or '(empty)'}:{node_http_port or '(empty)'} [{node_id}] "
             + (f"ok, {zlm_latency}ms" if zlm_ok else f"unreachable: {zlm_reason}"),
             "" if zlm_ok else "ZLM 不可达:确认流媒体服务已启动、HTTP 端口(默认 8880)可访问、节点 secret 与 ZLM 配置一致。",
-            "" if zlm_ok else "ZLM unreachable: confirm the media server is running, HTTP port (default 8880) is accessible, and node secret matches ZLM config.",
+            ""
+            if zlm_ok
+            else "ZLM unreachable: confirm the media server is running, HTTP port (default 8880) is accessible, and node secret matches ZLM config.",
         )
     )
 
@@ -820,7 +828,9 @@ async def diagnose_play(
                 f"已分配 {allocated}/10000(实时 {stats.get('live_allocated', 0)} / 回放 {stats.get('playback_allocated', 0)})",
                 f"{allocated}/10000 allocated (live {stats.get('live_allocated', 0)} / playback {stats.get('playback_allocated', 0)})",
                 "" if allocated < 8000 else "SSRC 余量不足(接近耗尽会导致点播 503):重启服务清理泄漏,并升级到包含 SSRC 对账修复的版本。",
-                "" if allocated < 8000 else "SSRC capacity nearly exhausted (exhaustion causes 503 on play): restart the service and upgrade to a build with SSRC reconciliation.",
+                ""
+                if allocated < 8000
+                else "SSRC capacity nearly exhausted (exhaustion causes 503 on play): restart the service and upgrade to a build with SSRC reconciliation.",
                 severity=("ok" if allocated < 8000 else "warn"),
             )
         )
@@ -969,11 +979,15 @@ async def deployment_check(
         )
 
     # 4. 设备概况
+    # FIX: 原实现引用未定义的 db 会话（NameError 被 except 吞掉，设备概况永远失败），
+    #     改为自建会话，与其他诊断项一致
     try:
+        from app.db.session import AsyncSessionLocal
         from app.models.asset import Asset
 
-        total = int((await db.execute(_select(_func.count()).select_from(Asset))).scalar() or 0)
-        online = int((await db.execute(_select(_func.count()).select_from(Asset).where(Asset.status == 1))).scalar() or 0)
+        async with AsyncSessionLocal() as session:
+            total = int((await session.execute(_select(_func.count()).select_from(Asset))).scalar() or 0)
+            online = int((await session.execute(_select(_func.count()).select_from(Asset).where(Asset.status == 1))).scalar() or 0)
         detail_zh = f"设备 {total} 台, 在线 {online}, 离线 {total - online}"
         detail_en = f"{total} device(s), {online} online, {total - online} offline"
         sev = "ok" if total == 0 or online > 0 else "warn"
@@ -1000,7 +1014,16 @@ async def deployment_check(
 
         async with AsyncSessionLocal() as session:
             for n in await list_db_media_nodes(session):
-                nodes_to_check.append({"id": str(n.id), "host": n.host, "http_port": int(n.http_port or 0), "secret": n.secret, "public_host": n.public_host, "source": "db"})
+                nodes_to_check.append(
+                    {
+                        "id": str(n.id),
+                        "host": n.host,
+                        "http_port": int(n.http_port or 0),
+                        "secret": n.secret,
+                        "public_host": n.public_host,
+                        "source": "db",
+                    }
+                )
     except Exception as e:
         logger.debug(f"deployment-check db nodes failed: {e}")
     try:
@@ -1009,7 +1032,16 @@ async def deployment_check(
         for n in get_media_nodes():
             nid = str(n.get("id") or "")
             if not any(x["id"] == nid for x in nodes_to_check):
-                nodes_to_check.append({"id": nid, "host": n.get("host"), "http_port": int(n.get("http_port") or 0), "secret": n.get("secret"), "public_host": n.get("public_host"), "source": "env"})
+                nodes_to_check.append(
+                    {
+                        "id": nid,
+                        "host": n.get("host"),
+                        "http_port": int(n.get("http_port") or 0),
+                        "secret": n.get("secret"),
+                        "public_host": n.get("public_host"),
+                        "source": "env",
+                    }
+                )
     except Exception as e:
         logger.debug(f"deployment-check env nodes failed: {e}")
     if not nodes_to_check:
@@ -1029,10 +1061,24 @@ async def deployment_check(
         node_results = []
         for n in nodes_to_check:
             ok, latency, reason = await _probe_zlm_node(n["host"], n["http_port"], n.get("secret"))
-            node_results.append({"id": n["id"], "host": n["host"], "http_port": n["http_port"], "ok": ok, "latency_ms": latency, "reason": reason, "public_host": n.get("public_host") or ""})
+            node_results.append(
+                {
+                    "id": n["id"],
+                    "host": n["host"],
+                    "http_port": n["http_port"],
+                    "ok": ok,
+                    "latency_ms": latency,
+                    "reason": reason,
+                    "public_host": n.get("public_host") or "",
+                }
+            )
         ok_count = sum(1 for r in node_results if r["ok"])
-        detail_zh = "; ".join(f"{r['host']}:{r['http_port']} {'正常 ' + str(r['latency_ms']) + 'ms' if r['ok'] else '不可达 ' + r['reason']}" for r in node_results)
-        detail_en = "; ".join(f"{r['host']}:{r['http_port']} {'ok ' + str(r['latency_ms']) + 'ms' if r['ok'] else 'unreachable ' + r['reason']}" for r in node_results)
+        detail_zh = "; ".join(
+            f"{r['host']}:{r['http_port']} {'正常 ' + str(r['latency_ms']) + 'ms' if r['ok'] else '不可达 ' + r['reason']}" for r in node_results
+        )
+        detail_en = "; ".join(
+            f"{r['host']}:{r['http_port']} {'ok ' + str(r['latency_ms']) + 'ms' if r['ok'] else 'unreachable ' + r['reason']}" for r in node_results
+        )
         items.append(
             _diag_item(
                 "media_nodes",
@@ -1119,7 +1165,12 @@ async def deployment_check(
     docs_exposed = bool(_settings.ENABLE_OPENAPI_DOCS)
     sec_detail_zh = f"SECRET_KEY: {'已配置' if sec_ok else '未配置'}; API 文档: {'生产环境暴露(不推荐)' if docs_exposed else '已关闭'}; CORS origins: {len(_settings.BACKEND_CORS_ORIGINS or [])} 条"
     sec_detail_en = f"SECRET_KEY: {'set' if sec_ok else 'missing'}; API docs: {'exposed (not recommended)' if docs_exposed else 'disabled'}; CORS origins: {len(_settings.BACKEND_CORS_ORIGINS or [])}"
-    sec_hint_zh = "" if sec_ok and not docs_exposed else ("" if sec_ok else "SECRET_KEY 未配置会在生产环境拒绝启动。") + ("ENABLE_OPENAPI_DOCS 在生产环境建议关闭,避免接口枚举。" if docs_exposed else "")
+    sec_hint_zh = (
+        ""
+        if sec_ok and not docs_exposed
+        else ("" if sec_ok else "SECRET_KEY 未配置会在生产环境拒绝启动。")
+        + ("ENABLE_OPENAPI_DOCS 在生产环境建议关闭,避免接口枚举。" if docs_exposed else "")
+    )
     items.append(
         _diag_item(
             "security_baseline",
@@ -1129,7 +1180,9 @@ async def deployment_check(
             sec_detail_zh,
             sec_detail_en,
             sec_hint_zh,
-            "SECRET_KEY missing refuses boot in production." if not sec_ok else ("ENABLE_OPENAPI_DOCS is recommended off in production (endpoint enumeration)." if docs_exposed else ""),
+            "SECRET_KEY missing refuses boot in production."
+            if not sec_ok
+            else ("ENABLE_OPENAPI_DOCS is recommended off in production (endpoint enumeration)." if docs_exposed else ""),
             severity=("ok" if sec_ok and not docs_exposed else "warn"),
         )
     )
@@ -1149,8 +1202,12 @@ async def deployment_check(
             True,
             "后台任务",
             "Background tasks",
-            "已启用: " + (", ".join(k for k, v in task_flags.items() if v) or "无") + (f"; 已关闭: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
-            "Enabled: " + (", ".join(k for k, v in task_flags.items() if v) or "none") + (f"; disabled: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
+            "已启用: "
+            + (", ".join(k for k, v in task_flags.items() if v) or "无")
+            + (f"; 已关闭: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
+            "Enabled: "
+            + (", ".join(k for k, v in task_flags.items() if v) or "none")
+            + (f"; disabled: {', '.join(disabled_tasks)}" if disabled_tasks else ""),
             "录制计划/自动录像等任务通过运维中心插件配置开关(enabled),关闭时对应功能不运行。",
             "Tasks like record schedules are additionally gated by plugin runtime config (enabled); disabled means the feature will not run.",
             severity="ok",

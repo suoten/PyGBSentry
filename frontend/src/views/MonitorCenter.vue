@@ -12,7 +12,7 @@
 
             <div class="flex gap-2">
 
-              <el-button size="small" @click="showSidebar = !showSidebar" plain>
+              <el-button size="small" plain @click="showSidebar = !showSidebar">
 
                 <el-icon class="mr-1"><Fold v-if="showSidebar" /><Expand v-else /></el-icon>
 
@@ -84,7 +84,7 @@
 
           </div>
 
-          <el-radio-group v-model="treeMode" size="small" @change="fetchTree" class="mb-3">
+          <el-radio-group v-model="treeMode" size="small" class="mb-3" @change="fetchTree">
 
             <el-radio-button value="business">{{ t('monitor.businessGroup') }}</el-radio-button>
 
@@ -128,11 +128,7 @@
 
             :filter-node-method="filterNode"
 
-            @node-click="handleNodeClick"
-
             :draggable="true"
-
-            @node-drag-start="handleDragStart"
 
             :tree-class="['device-tree', { 'tree-contrast': highContrastTree }]"
 
@@ -152,7 +148,11 @@
 
             :show-playing-tag="true"
 
+            @node-click="handleNodeClick"
+
             :is-channel-playing="isChannelPlaying"
+
+            @node-drag-start="handleDragStart"
 
             :highlight-current="true"
 
@@ -182,6 +182,8 @@
 
           v-for="index in maxScreens"
 
+          v-show="index <= layoutCount"
+
           :key="'g-' + index"
 
           class="screen-cell relative flex items-center justify-center overflow-hidden group rounded border"
@@ -191,8 +193,6 @@
           :class="{'ring-1 ring-blue-400/80': activeScreen === index - 1}"
 
           @click="activeScreen = index - 1"
-
-          v-show="index <= layoutCount"
 
         >
 
@@ -212,7 +212,7 @@
 
                :auto-play="true"
 
-               @refreshRequest="() => playInScreen({id: screens[index-1].channelId, deviceId: screens[index-1].deviceId, nodeType: screens[index-1].nodeType, label: screens[index-1].name}, index-1)"
+               @refresh-request="() => playInScreen({id: screens[index-1].channelId, deviceId: screens[index-1].deviceId, nodeType: screens[index-1].nodeType, label: screens[index-1].name}, index-1)"
 
              />
 
@@ -228,13 +228,13 @@
 
              <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
 
-               <el-button size="small" type="primary" circle @click.stop="takeScreenshot(index-1)" :title="t('monitor.screenshot')">
+               <el-button size="small" type="primary" circle :title="t('monitor.screenshot')" @click.stop="takeScreenshot(index-1)">
 
                  <el-icon><Camera /></el-icon>
 
                </el-button>
 
-               <el-button size="small" type="danger" circle @click.stop="stopScreen(index-1)" :title="t('monitor.closeChannel')">
+               <el-button size="small" type="danger" circle :title="t('monitor.closeChannel')" @click.stop="stopScreen(index-1)">
 
                  <el-icon><Close /></el-icon>
 
@@ -262,7 +262,7 @@
 
                   <span>{{ currentTime }}</span>
 
-                   <button @click.stop="stopScreen(index-1)" class="hover:text-red-400 transition-colors flex items-center justify-center" :title="t('monitor.stopPlay')">
+                   <button class="hover:text-red-400 transition-colors flex items-center justify-center" :title="t('monitor.stopPlay')" @click.stop="stopScreen(index-1)">
 
                      <el-icon class="text-base"><VideoPause /></el-icon>
 
@@ -384,7 +384,7 @@
 
                   :auto-play="true"
 
-                  @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                  @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
 
                 />
 
@@ -400,13 +400,13 @@
 
                 <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
 
-                  <el-button size="small" type="primary" circle @click.stop="takeScreenshot(cell.index)" :title="t('monitor.screenshot')">
+                  <el-button size="small" type="primary" circle :title="t('monitor.screenshot')" @click.stop="takeScreenshot(cell.index)">
 
                     <el-icon><Camera /></el-icon>
 
                   </el-button>
 
-                  <el-button size="small" type="danger" circle @click.stop="stopScreen(cell.index)" :title="t('monitor.closeChannel')">
+                  <el-button size="small" type="danger" circle :title="t('monitor.closeChannel')" @click.stop="stopScreen(cell.index)">
 
                     <el-icon><Close /></el-icon>
 
@@ -510,7 +510,7 @@
 
                   :auto-play="true"
 
-                  @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                  @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
 
                 />
 
@@ -526,13 +526,13 @@
 
                 <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
 
-                  <el-button size="small" type="primary" circle @click.stop="takeScreenshot(cell.index)" :title="t('monitor.screenshot')">
+                  <el-button size="small" type="primary" circle :title="t('monitor.screenshot')" @click.stop="takeScreenshot(cell.index)">
 
                     <el-icon><Camera /></el-icon>
 
                   </el-button>
 
-                  <el-button size="small" type="danger" circle @click.stop="stopScreen(cell.index)" :title="t('monitor.closeChannel')">
+                  <el-button size="small" type="danger" circle :title="t('monitor.closeChannel')" @click.stop="stopScreen(cell.index)">
 
                     <el-icon><Close /></el-icon>
 
@@ -626,7 +626,7 @@
 
                   :auto-play="true"
 
-                  @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                  @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
 
                 />
 
@@ -642,13 +642,13 @@
 
                 <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
 
-                  <el-button size="small" type="primary" circle @click.stop="takeScreenshot(cell.index)" :title="t('monitor.screenshot')">
+                  <el-button size="small" type="primary" circle :title="t('monitor.screenshot')" @click.stop="takeScreenshot(cell.index)">
 
                     <el-icon><Camera /></el-icon>
 
                   </el-button>
 
-                  <el-button size="small" type="danger" circle @click.stop="stopScreen(cell.index)" :title="t('monitor.closeChannel')">
+                  <el-button size="small" type="danger" circle :title="t('monitor.closeChannel')" @click.stop="stopScreen(cell.index)">
 
                     <el-icon><Close /></el-icon>
 
@@ -732,9 +732,9 @@
 
            class="px-3 py-2 text-sm font-semibold flex justify-between items-center cursor-move select-none border-b"
 
-           @mousedown.stop.prevent="handlePanelMouseDown"
+           style="background: var(--el-fill-color-light); color: var(--el-text-color-primary); border-color: var(--el-border-color-lighter);"
 
-           style="background: var(--el-fill-color-light); color: var(--el-text-color-primary); border-color: var(--el-border-color-lighter);">
+           @mousedown.stop.prevent="handlePanelMouseDown">
 
         <span>{{ t('monitor.deviceControl') }}：{{ activeScreenData.name }}</span>
 

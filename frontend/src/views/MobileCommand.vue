@@ -103,7 +103,7 @@
           <div id="mc-map" class="w-full h-full"></div>
           
           <!-- Video Popup -->
-          <div id="mc-popup" class="ol-popup mc-popup" v-show="popupVisible">
+          <div v-show="popupVisible" id="mc-popup" class="ol-popup mc-popup">
             <div class="popup-header flex justify-between items-center p-2 rounded-t-lg" style="background: #0b1220; color: rgba(255,255,255,.92); border-bottom: 1px solid rgba(255,255,255,.08);">
               <span class="font-bold truncate max-w-[200px]">{{ popupData.name }}</span>
               <el-icon class="cursor-pointer hover:text-primary" @click="closePopup"><Close /></el-icon>

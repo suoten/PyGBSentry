@@ -61,9 +61,7 @@ async def _check_device_offline():
                 # FIX [2026-11-20 P1] (wvp #1902 同类):优先读 heartbeat_interval(与
                 # server.py 离线判定同源、API 可修改)，keepalive_interval 列全仓无写入点
                 # 仅建表默认值,运维改了心跳周期后本路径原先仍按 60s 判定导致长周期设备误判
-                _ka_interval = int(getattr(device, "heartbeat_interval", 0) or 0) or int(
-                    getattr(device, "keepalive_interval", 0) or 0
-                )
+                _ka_interval = int(getattr(device, "heartbeat_interval", 0) or 0) or int(getattr(device, "keepalive_interval", 0) or 0)
                 if _ka_interval <= 0:
                     _ka_interval = DEFAULT_KEEPALIVE_INTERVAL_SECONDS
                 threshold = _ka_interval * OFFLINE_MISSES_REQUIRED

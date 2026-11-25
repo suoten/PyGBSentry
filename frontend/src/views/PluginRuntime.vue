@@ -81,8 +81,8 @@
               </el-alert>
 
               <el-form
-                ref="runtimeFormRef"
                 v-if="!configError"
+                ref="runtimeFormRef"
                 :model="runtimeConfig"
                 label-width="160px"
                 size="small"

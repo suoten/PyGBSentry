@@ -4,7 +4,7 @@
       <template #header>
         <PageHeader :title="t('legacyGateway.title')" :description="t('legacyGateway.description')">
           <template #actions>
-            <el-button @click="refreshAll" :loading="loading">{{ t('common.refresh') }}</el-button>
+            <el-button :loading="loading" @click="refreshAll">{{ t('common.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -55,7 +55,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="mt-4 flex justify-end" v-if="sources.length > 0">
+        <div v-if="sources.length > 0" class="mt-4 flex justify-end">
           <el-pagination
             v-model:current-page="sourcesPage"
             v-model:page-size="sourcesPageSize"
@@ -82,7 +82,7 @@
         <el-table-column prop="alive_second" :label="t('legacyGateway.colAliveSeconds')" width="110" />
         <el-table-column prop="bytes_speed" :label="t('legacyGateway.colBytesSpeed')" width="120" />
       </el-table>
-      <div class="mt-4 flex justify-end" v-if="proxyStreams.length > 0">
+      <div v-if="proxyStreams.length > 0" class="mt-4 flex justify-end">
         <el-pagination
           v-model:current-page="proxyPage"
           v-model:page-size="proxyPageSize"

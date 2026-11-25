@@ -8,7 +8,7 @@
               <el-icon class="mr-1"><Key /></el-icon>
               {{ t('apiKey.create') }}
             </el-button>
-            <el-button @click="loadKeys" :loading="loading">{{ t('common.refresh') }}</el-button>
+            <el-button :loading="loading" @click="loadKeys">{{ t('common.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -22,7 +22,7 @@
         </template>
 
         <TableSkeleton v-if="loading && keys.length === 0" :rows="6" />
-        <el-table v-else :data="paginatedKeys" border size="small" v-loading="loading" :empty-text="t('apiKey.empty')">
+        <el-table v-else v-loading="loading" :data="paginatedKeys" border size="small" :empty-text="t('apiKey.empty')">
           <template #empty>
             <EmptyStateWithAction :description="t('apiKey.emptyHint')">
               <template #action>
@@ -61,7 +61,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="keys.length > 0">
+        <div v-if="keys.length > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
@@ -98,7 +98,7 @@
         </el-form>
         <template #footer>
           <el-button @click="createVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" @click="createKey" :loading="creating">{{ t('apiKey.createBtn') }}</el-button>
+          <el-button type="primary" :loading="creating" @click="createKey">{{ t('apiKey.createBtn') }}</el-button>
         </template>
       </AppDialog>
 

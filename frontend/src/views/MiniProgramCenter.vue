@@ -1,5 +1,5 @@
 <template>
-  <div class="app-page space-y-4" v-loading="loading">
+  <div v-loading="loading" class="app-page space-y-4">
     <PageContainer>
       <template #header>
         <PageHeader :title="t('miniProgram.title')" :description="t('miniProgram.description')" />

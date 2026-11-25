@@ -122,6 +122,7 @@
     </div>
 
     <el-table
+      v-loading="channelsLoading"
       :data="channels"
       style="width: 100%; margin-top: 12px"
       :empty-text="t('deviceChannelWs.emptyChannels')"
@@ -131,7 +132,6 @@
       :row-class-name="getChannelRowClassName"
       row-key="gb_id"
       fit
-      v-loading="channelsLoading"
     >
       <el-table-column prop="gb_id" :label="t('deviceChannelWs.colChannelGbId')" width="180" show-overflow-tooltip>
         <template #default="scope">
@@ -258,8 +258,8 @@
               size="small"
               type="danger"
               plain
-              @click="closePlayer?.()"
               class="channel-action-btn channel-action-btn--danger"
+              @click="closePlayer?.()"
             >
               <el-icon class="mr-1"><CloseBold /></el-icon>
               {{ t('deviceChannelWs.closePlayback') }}
@@ -274,9 +274,9 @@
                   type="primary"
                   size="small"
                   plain
-                  @click="playStream?.(scope.row)"
                   class="channel-action-btn channel-action-btn--preview"
                   :disabled="!canPlay?.(scope.row)"
+                  @click="playStream?.(scope.row)"
                 >
                   <el-icon class="mr-1"><VideoPlay /></el-icon>
                   {{ t('deviceChannelWs.livePreview') }}
@@ -286,7 +286,7 @@
 
             <el-tooltip :content="t('deviceChannelWs.editChannelFields')" placement="top">
               <span>
-                <el-button size="small" plain @click="openChannelEdit?.(scope.row)" class="channel-action-btn channel-action-btn--edit">
+                <el-button size="small" plain class="channel-action-btn channel-action-btn--edit" @click="openChannelEdit?.(scope.row)">
                   <el-icon class="mr-1"><Edit /></el-icon>{{ t('common.edit') }}
                 </el-button>
               </span>

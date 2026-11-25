@@ -22,9 +22,7 @@ class TrafficDaily(Base):
     """
 
     __tablename__ = "traffic_daily"
-    __table_args__ = (
-        UniqueConstraint("tenant_id", "channel_gb_id", "day", name="uq_traffic_daily_channel_day"),
-    )
+    __table_args__ = (UniqueConstraint("tenant_id", "channel_gb_id", "day", name="uq_traffic_daily_channel_day"),)
 
     id = Column(String(32), primary_key=True, default=generate_uuid)
     tenant_id = Column(String(64), default="default", index=True)

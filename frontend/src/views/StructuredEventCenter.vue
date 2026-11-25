@@ -90,7 +90,7 @@
         <div v-if="!loading && !errorText && !items.length" class="py-8 text-center text-sm" style="color: var(--el-text-color-secondary)">
           {{ t('structuredEvent.noMatchHint') }}
         </div>
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="total > 0">
+        <div v-if="total > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"

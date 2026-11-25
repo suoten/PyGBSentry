@@ -5,7 +5,7 @@
         <PageHeader :title="t('cascade.headerTitle')" :description="t('cascade.headerDesc')">
           <template #actions>
             <el-button type="primary" size="small" @click="openForm()">{{ t('cascade.add') }}</el-button>
-            <el-button size="small" @click="loadList" :loading="loading">{{ t('cascade.refresh') }}</el-button>
+            <el-button size="small" :loading="loading" @click="loadList">{{ t('cascade.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -104,7 +104,7 @@
           <template #default="{ row }">
             <div class="table-action-inline">
               <el-button link type="primary" size="small" @click="openForm(row)">{{ t('cascade.edit') }}</el-button>
-              <el-button link type="primary" size="small" @click="openDiagnosis(row)" :loading="actionLoading[row.id]?.diagnosis">{{ t('cascade.diagnosis') }}</el-button>
+              <el-button link type="primary" size="small" :loading="actionLoading[row.id]?.diagnosis" @click="openDiagnosis(row)">{{ t('cascade.diagnosis') }}</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => handlePlatformMoreCommand(row, cmd)">
                 <el-button link type="primary" size="small">{{ t('cascade.more') }}</el-button>
                 <template #dropdown>
@@ -121,7 +121,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="flex justify-end mt-4 pagination-wrapper" v-if="list.length > 0">
+      <div v-if="list.length > 0" class="flex justify-end mt-4 pagination-wrapper">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
@@ -182,7 +182,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('cascade.cancel') }}</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitting">{{ t('cascade.confirm') }}</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">{{ t('cascade.confirm') }}</el-button>
       </template>
     </AppDialog>
 
@@ -205,7 +205,7 @@
       </el-select>
       <template #footer>
         <el-button @click="catalogVisible = false">{{ t('cascade.cancel') }}</el-button>
-        <el-button type="primary" @click="saveCatalogResources" :loading="catalogSaving">{{ t('cascade.save') }}</el-button>
+        <el-button type="primary" :loading="catalogSaving" @click="saveCatalogResources">{{ t('cascade.save') }}</el-button>
       </template>
     </AppDialog>
 
@@ -221,7 +221,7 @@
           </div>
           <div class="flex items-center gap-2">
             <el-button size="small" @click="copyDiagnosis">{{ t('cascade.copyDiagnosis') }}</el-button>
-            <el-button size="small" @click="refreshDiagnosis" :loading="diagnosisLoading">{{ t('cascade.refresh') }}</el-button>
+            <el-button size="small" :loading="diagnosisLoading" @click="refreshDiagnosis">{{ t('cascade.refresh') }}</el-button>
           </div>
         </div>
 
@@ -249,7 +249,8 @@
         <div v-if="(diagnosisData?.diagnostics || []).length > 0" class="mb-4">
           <div class="text-sm font-semibold mb-2">{{ t('cascade.diagResult') }}</div>
           <div class="space-y-2">
-            <div v-for="d in diagnosisData?.diagnostics" :key="d.key" class="p-3 rounded" :style="{
+            <div
+v-for="d in diagnosisData?.diagnostics" :key="d.key" class="p-3 rounded" :style="{
                 background: d.level === 'error' ? 'var(--el-color-danger-light-9)' : d.level === 'warn' ? 'var(--el-color-warning-light-9)' : 'var(--el-color-success-light-9)',
                 border: '1px solid ' + (d.level === 'error' ? 'var(--el-color-danger-light-5)' : d.level === 'warn' ? 'var(--el-color-warning-light-5)' : 'var(--el-color-success-light-5)')
               }">

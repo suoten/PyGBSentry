@@ -56,7 +56,7 @@
               </el-dropdown-menu>
             </template>
           </el-dropdown>
-          <el-button :icon="RefreshRight" circle @click="loadList" :title="t('channelGroup.refreshList')" />
+          <el-button :icon="RefreshRight" circle :title="t('channelGroup.refreshList')" @click="loadList" />
         </el-form>
 
         <el-table
@@ -92,7 +92,7 @@
           </el-table-column>
         </el-table>
 
-        <div class="mt-4 flex justify-end" v-if="total > 0">
+        <div v-if="total > 0" class="mt-4 flex justify-end">
           <el-pagination
             v-model:current-page="currentPage"
             v-model:page-size="count"

@@ -19,7 +19,7 @@
     />
     <template #footer>
       <el-button @click="visible = false">{{ t('common.cancel') }}</el-button>
-      <el-button type="primary" @click="handleConfirm" :disabled="!selectedNode">{{ t('common.ok') }}</el-button>
+      <el-button type="primary" :disabled="!selectedNode" @click="handleConfirm">{{ t('common.ok') }}</el-button>
     </template>
   </AppDialog>
 </template>

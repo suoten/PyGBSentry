@@ -8,7 +8,7 @@
     <div v-else-if="!hasInfo" class="codec-empty">
       <el-icon class="text-4xl text-slate-300"><DataLine /></el-icon>
       <span class="text-slate-400 mt-2">{{ t('codecInfo.empty') }}</span>
-      <el-button size="small" @click="fetchInfo" class="mt-3">
+      <el-button size="small" class="mt-3" @click="fetchInfo">
         <el-icon class="mr-1"><Refresh /></el-icon>
         {{ t('common.refresh') }}
       </el-button>
@@ -127,7 +127,7 @@
       </div>
 
       <div class="refresh-actions">
-        <el-button size="small" @click="fetchInfo" :loading="loading">
+        <el-button size="small" :loading="loading" @click="fetchInfo">
           <el-icon class="mr-1"><Refresh /></el-icon>
           {{ t('codecInfo.refreshInfo') }}
         </el-button>

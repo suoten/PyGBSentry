@@ -11,7 +11,7 @@
                 <el-option :label="t('slaPage.stateAcknowledged')" value="acknowledged" />
               </el-select>
               <el-input-number v-model="minEscalationLevel" :min="0" :max="10" :placeholder="t('slaPage.minLevel')" />
-              <el-button type="primary" @click="refreshAll" :loading="loading">{{ t('slaPage.refresh') }}</el-button>
+              <el-button type="primary" :loading="loading" @click="refreshAll">{{ t('slaPage.refresh') }}</el-button>
             </div>
           </template>
         </PageHeader>
@@ -41,7 +41,7 @@
     </div>
 
     <TableCard>
-      <el-table :data="paginatedAlarms" v-loading="loading" stripe border style="width: 100%" :empty-text="t('slaPage.noAlarms')">
+      <el-table v-loading="loading" :data="paginatedAlarms" stripe border style="width: 100%" :empty-text="t('slaPage.noAlarms')">
         <el-table-column prop="time" :label="t('slaPage.timeCol')" width="170">
           <template #default="scope">
             {{ formatDate(scope.row.time) }}
@@ -194,8 +194,8 @@
         <div class="flex justify-between items-center">
           <span class="font-semibold">{{ t('slaPage.dashboardPresets') }}</span>
           <div class="flex gap-2">
-            <el-button size="small" @click="loadPresets" :loading="presetsLoading">{{ t('slaPage.refresh') }}</el-button>
-            <el-button size="small" type="primary" :disabled="!presetsWritable" @click="savePresets" :loading="presetsSaving">{{ t('slaPage.savePreset') }}</el-button>
+            <el-button size="small" :loading="presetsLoading" @click="loadPresets">{{ t('slaPage.refresh') }}</el-button>
+            <el-button size="small" type="primary" :disabled="!presetsWritable" :loading="presetsSaving" @click="savePresets">{{ t('slaPage.savePreset') }}</el-button>
           </div>
         </div>
       </template>
@@ -213,7 +213,7 @@
             <pre v-else class="text-xs whitespace-pre-wrap">{{ typeof row.config === 'string' ? row.config : JSON.stringify(row.config, null, 2) }}</pre>
           </template>
         </el-table-column>
-        <el-table-column :label="t('slaPage.actionCol')" width="80" v-if="presetsWritable">
+        <el-table-column v-if="presetsWritable" :label="t('slaPage.actionCol')" width="80">
           <template #default="{ $index }">
             <el-button type="danger" size="small" link @click="presetItems.splice($index, 1)">{{ t('slaPage.delete') }}</el-button>
           </template>

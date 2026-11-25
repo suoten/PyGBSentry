@@ -149,8 +149,8 @@
           </template>
           <template v-else-if="activePlayerType === 'jessibuca'">
             <JessibucaPlayer
-              ref="jessibucaPlayerRef"
               v-if="requestStatus !== 'ready' || hasJessibuca"
+              ref="jessibucaPlayerRef"
               :video-url="jessibucaUrl"
               :candidates="flvCandidates"
               :hls-url="hlsUrl"
@@ -288,8 +288,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
-import { Loading, Warning, VideoCamera, FullScreen, VideoPause, Refresh, Camera, Share } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Loading, Warning, FullScreen, Refresh, Camera, Share } from '@element-plus/icons-vue'
 import JessibucaPlayer from './JessibucaPlayer.vue'
 import H265Player from './H265Player.vue'
 import RtcPlayer from './RtcPlayer.vue'

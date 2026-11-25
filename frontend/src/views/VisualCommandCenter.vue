@@ -9,8 +9,8 @@
           <div class="w-full flex items-center justify-between gap-2">
             <div class="font-medium">{{ t('visualCommand.linkageOverview') }}</div>
             <div class="flex gap-2">
-              <el-button size="small" @click="exportAlarmsCsv" :disabled="!alarms.length">{{ t('visualCommand.exportAlarms') }}</el-button>
-              <el-button size="small" @click="reload" :loading="loading">{{ t('common.refresh') }}</el-button>
+              <el-button size="small" :disabled="!alarms.length" @click="exportAlarmsCsv">{{ t('visualCommand.exportAlarms') }}</el-button>
+              <el-button size="small" :loading="loading" @click="reload">{{ t('common.refresh') }}</el-button>
             </div>
           </div>
         </template>
@@ -54,7 +54,7 @@
       </TableCard>
       <TableCard>
         <template #header><div class="font-medium">{{ t('visualCommand.recentAlarmHandling') }}</div></template>
-        <el-table :data="alarms" v-loading="loading" stripe>
+        <el-table v-loading="loading" :data="alarms" stripe>
           <el-table-column prop="time" :label="t('common.time')" width="180">
             <template #default="{ row }">{{ formatDateTime(row.time) }}</template>
           </el-table-column>
@@ -66,7 +66,7 @@
               <div class="flex flex-wrap gap-1">
                 <el-button size="small" type="primary" @click="focusOnMap(row)">{{ t('visualCommand.locateOnMap') }}</el-button>
                 <el-button size="small" @click="openVisualCommand(row)">{{ t('visualCommand.commandTracking') }}</el-button>
-                <el-button size="small" type="success" @click="ackAlarm(row)" :loading="ackingId===row.id">{{ t('visualCommand.ack') }}</el-button>
+                <el-button size="small" type="success" :loading="ackingId===row.id" @click="ackAlarm(row)">{{ t('visualCommand.ack') }}</el-button>
               </div>
             </template>
           </el-table-column>

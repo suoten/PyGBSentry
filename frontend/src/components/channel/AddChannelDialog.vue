@@ -5,7 +5,7 @@
     size="medium"
     width="720px"
   >
-    <el-form :model="addForm" label-width="120px" :rules="addRules" ref="addFormRef">
+    <el-form ref="addFormRef" :model="addForm" label-width="120px" :rules="addRules">
       <el-form-item :label="t('channel.add.deviceGbId')" prop="deviceId">
         <el-input v-model="addForm.deviceId" :placeholder="t('channel.add.deviceGbIdPlaceholder')" />
       </el-form-item>

@@ -86,10 +86,10 @@
           <TableSkeleton v-if="marketLoading && marketplaceList.length === 0" :rows="5" />
           <el-table
             v-else
+            v-loading="marketLoading"
             class="plugin-marketplace-table"
             :data="paginatedMarketplaceList"
             stripe
-            v-loading="marketLoading"
             :empty-text="marketplaceEmptyText"
           >
             <el-table-column :label="t('plugin.colName')" min-width="160">
@@ -164,7 +164,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4 pagination-wrapper" v-if="marketplaceList.length > 0">
+          <div v-if="marketplaceList.length > 0" class="flex justify-end mt-4 pagination-wrapper">
             <el-pagination
               v-model:current-page="marketPage"
               v-model:page-size="marketPageSize"
@@ -187,7 +187,7 @@
             </div>
           </template>
           <TableSkeleton v-if="installedLoading && installedList.length === 0" :rows="4" />
-          <el-table v-else :data="paginatedInstalledList" stripe v-loading="installedLoading" :empty-text="t('plugin.noInstalled')">
+          <el-table v-else v-loading="installedLoading" :data="paginatedInstalledList" stripe :empty-text="t('plugin.noInstalled')">
             <el-table-column :label="t('plugin.colName')" min-width="140">
               <template #default="{ row }">
                 <span>{{ row.name }}</span>
@@ -231,7 +231,7 @@
               </template>
             </el-table-column>
           </el-table>
-          <div class="flex justify-end mt-4 pagination-wrapper" v-if="installedList.length > 0">
+          <div v-if="installedList.length > 0" class="flex justify-end mt-4 pagination-wrapper">
             <el-pagination
               v-model:current-page="installedPage"
               v-model:page-size="installedPageSize"

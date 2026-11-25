@@ -52,9 +52,9 @@
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
-              <el-button size="small" type="danger" plain @click="handleStop" :disabled="!playUrl">{{ t('streamPlayerDlg.stop') }}</el-button>
-              <el-button size="small" @click="copyPlayUrl" :disabled="!playUrl">{{ t('streamPlayerDlg.copyUrl') }}</el-button>
-              <el-button size="small" @click="openPlayUrl" :disabled="!playUrl">{{ t('streamPlayerDlg.openInNewTab') }}</el-button>
+              <el-button size="small" type="danger" plain :disabled="!playUrl" @click="handleStop">{{ t('streamPlayerDlg.stop') }}</el-button>
+              <el-button size="small" :disabled="!playUrl" @click="copyPlayUrl">{{ t('streamPlayerDlg.copyUrl') }}</el-button>
+              <el-button size="small" :disabled="!playUrl" @click="openPlayUrl">{{ t('streamPlayerDlg.openInNewTab') }}</el-button>
             </div>
           </div>
 

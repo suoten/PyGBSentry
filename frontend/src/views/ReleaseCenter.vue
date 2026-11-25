@@ -74,7 +74,7 @@
                 <el-empty :description="EMPTY_TEXT" />
               </template>
             </el-table>
-            <div class="flex justify-end mt-4 pagination-wrapper" v-if="diffRows.length > 0">
+            <div v-if="diffRows.length > 0" class="flex justify-end mt-4 pagination-wrapper">
               <el-pagination
                 v-model:current-page="page"
                 v-model:page-size="pageSize"

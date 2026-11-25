@@ -1229,7 +1229,7 @@ class PlatformService:
                     return
                 if not p.is_online:
                     return
-                plat_tenant = (getattr(p, "tenant_id", None) or "default")
+                plat_tenant = getattr(p, "tenant_id", None) or "default"
 
                 def _item_field(item, key, default=""):
                     if isinstance(item, dict):
@@ -1272,9 +1272,7 @@ class PlatformService:
 
                 # 虚拟目录映射(与 _push_catalog 全量推送同口径)
                 scope_rows = (
-                    (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id)))
-                    .scalars()
-                    .all()
+                    (await session.execute(select(PlatformCatalogResource).where(PlatformCatalogResource.platform_id == platform_id))).scalars().all()
                 )
                 scope_by_resource = {str(m.resource_id): m for m in scope_rows}
 
@@ -1294,9 +1292,7 @@ class PlatformService:
                     if res_gb_ids:
                         _cond.append(Resource.gb_id.in_(res_gb_ids))
                     _rows = (
-                        (await session.execute(select(Resource).where(_or(*_cond), Resource.tenant_id.in_(["default", plat_tenant]))))
-                        .scalars()
-                        .all()
+                        (await session.execute(select(Resource).where(_or(*_cond), Resource.tenant_id.in_(["default", plat_tenant])))).scalars().all()
                     )
                     for _r in _rows:
                         res_by_id[str(_r.id)] = _r
@@ -1390,7 +1386,7 @@ class PlatformService:
 <DeviceID>{p.client_gb_id}</DeviceID>
 <SumNum>{len(batch)}</SumNum>
 <DeviceList Num="{len(batch)}">
-{''.join(batch)}</DeviceList>
+{"".join(batch)}</DeviceList>
 </Notify>
 """
                     async with self._state_lock:
@@ -1421,8 +1417,7 @@ class PlatformService:
                     if len(batches) > 1:
                         await asyncio.sleep(0.2)
                 logger.info(
-                    f"[PlatformService] Sent incremental catalog NOTIFY to {p.server_gb_id} "
-                    f"with {len(items)} item(s) in {len(batches)} message(s)"
+                    f"[PlatformService] Sent incremental catalog NOTIFY to {p.server_gb_id} with {len(items)} item(s) in {len(batches)} message(s)"
                 )
 
         except Exception as e:
@@ -2624,9 +2619,7 @@ class PlatformService:
         if old_task and not old_task.done():
             old_task.cancel()
         query_info["relay_task"] = asyncio.create_task(self._relay_cascade_preset_after_quiet(local_sn))
-        logger.debug(
-            f"[PlatformService] preset packet accumulated: local_sn={local_sn} +{added} total={len(query_info['items'])}"
-        )
+        logger.debug(f"[PlatformService] preset packet accumulated: local_sn={local_sn} +{added} total={len(query_info['items'])}")
 
     async def _relay_cascade_preset_after_quiet(self, local_sn: int) -> None:
         """静止窗口(2.5s 无新分包)后聚合回传。"""
@@ -2703,9 +2696,7 @@ class PlatformService:
         req.headers["User-Agent"] = settings.PROJECT_NAME
         req.body = relay_body
         await self._send_sip_message(proto, addr, req)
-        logger.info(
-            f"[PlatformService] Forwarded preset response to {server_gb_id}, items={len(items)}, original_sn={original_sn}"
-        )
+        logger.info(f"[PlatformService] Forwarded preset response to {server_gb_id}, items={len(items)}, original_sn={original_sn}")
 
     async def forward_cascade_broadcast(
         self,

@@ -5,7 +5,7 @@
     size="large"
   >
     <div class="ip-blacklist-container">
-      <el-table :data="data" v-loading="loading" style="width: 100%" :scrollbar-always-on="true">
+      <el-table v-loading="loading" :data="data" style="width: 100%" :scrollbar-always-on="true">
         <el-table-column prop="ip" :label="t('deviceIpBlacklist.ipColumn')" min-width="180" show-overflow-tooltip />
         <el-table-column prop="reason" :label="t('deviceIpBlacklist.reasonColumn')" min-width="200" show-overflow-tooltip />
         <el-table-column prop="created_at" :label="t('deviceIpBlacklist.timeColumn')" width="180">

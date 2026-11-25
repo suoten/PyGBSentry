@@ -58,7 +58,7 @@
       <el-button v-for="item in downloadState.records" :key="item.record_id" size="small" type="success" plain @click="downloadByUrl(item.download_url)">{{ t('deviceRecordList.downloadFile') }}</el-button>
     </div>
 
-    <div class="h-64 overflow-y-auto" v-loading="loading">
+    <div v-loading="loading" class="h-64 overflow-y-auto">
       <el-table :data="paginatedRecords" style="width: 100%" size="small" class="record-table" :empty-text="t('deviceRecordList.emptyRecords')">
         <el-table-column prop="startTime" :label="t('deviceRecordList.colStartTime')" width="180">
           <template #default="scope">{{ formatTime(scope.row.startTime) }}</template>
@@ -78,7 +78,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="mt-4 flex justify-end" v-if="records.length > 0">
+      <div v-if="records.length > 0" class="mt-4 flex justify-end">
         <el-pagination v-model:current-page="page" v-model:page-size="pageSize" :page-sizes="[10, 20, 50]" layout="total, sizes, prev, pager, next, jumper" :total="records.length" />
       </div>
     </div>

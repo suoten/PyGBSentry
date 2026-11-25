@@ -3,10 +3,10 @@
     <div class="topbar-left">
       <el-button
         class="collapse-btn"
-        @click="$emit('toggle-collapse')"
         :aria-label="collapsed ? t('topbar.expandSidebar') : t('topbar.collapseSidebar')"
         :aria-expanded="!collapsed"
         aria-controls="app-sidebar"
+        @click="$emit('toggle-collapse')"
       >
         <el-icon :size="18">
           <Fold v-if="!collapsed" />

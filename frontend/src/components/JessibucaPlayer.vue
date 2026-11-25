@@ -23,7 +23,7 @@
         <div class="text-sm font-medium">{{ overlayTitle }}</div>
         <div class="text-xs mt-1 text-white/70 max-w-[200px] truncate" :title="overlayMessage">{{ overlayMessage }}</div>
         
-        <div class="mt-3 flex gap-2" v-if="overlayKind === 'error'">
+        <div v-if="overlayKind === 'error'" class="mt-3 flex gap-2">
           <button
             v-if="showRefreshButton"
             class="px-3 py-1 rounded bg-sky-500 hover:bg-sky-600 text-xs text-white transition-colors"

@@ -103,7 +103,7 @@
               </div>
             </div>
           </div>
-          <el-table v-else :data="filteredReports" stripe v-loading="loading" @selection-change="onSelectionChange">
+          <el-table v-else v-loading="loading" :data="filteredReports" stripe @selection-change="onSelectionChange">
             <el-table-column type="selection" width="48" />
             <el-table-column prop="id" :label="t('reportPage.reportIdLabel')" min-width="220" />
             <el-table-column prop="name" :label="t('reportPage.reportNameLabel')" min-width="220" />
@@ -162,7 +162,7 @@
         <div class="space-y-4">
           <div class="flex flex-wrap justify-between items-center gap-2">
             <span class="text-lg font-semibold" style="color: var(--el-text-color-regular)">{{ t('reportPage.traffic24hTitle') }}</span>
-            <el-button type="primary" size="small" @click="exportCsv('traffic')" :loading="!!exportLoading">{{ t('reportPage.exportTraffic') }}</el-button>
+            <el-button type="primary" size="small" :loading="!!exportLoading" @click="exportCsv('traffic')">{{ t('reportPage.exportTraffic') }}</el-button>
           </div>
           <div v-if="trafficLoading" class="flex justify-center py-8">
             <el-icon class="is-loading" :size="32"><Loading /></el-icon>
@@ -196,7 +196,7 @@
                 <VChart :option="trafficBandwidthOption" autoresize style="height: 260px" />
               </div>
             </div>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4" v-if="trafficQualitySummary">
+            <div v-if="trafficQualitySummary" class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
               <div class="rounded-lg p-3 text-center" style="border: 1px solid var(--el-border-color-lighter); background: var(--el-fill-color-light)">
                 <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('reportPage.activeSessions') }}</div>
                 <div class="text-xl font-bold mt-1">{{ trafficQualitySummary.active_sessions }}</div>
@@ -214,7 +214,7 @@
                 <div class="text-xl font-bold mt-1">{{ trafficQualityTrend.length }}</div>
               </div>
             </div>
-            <div class="grid md:grid-cols-2 gap-3 mt-4" v-if="trafficQualitySummary">
+            <div v-if="trafficQualitySummary" class="grid md:grid-cols-2 gap-3 mt-4">
               <div class="rounded-xl p-3" style="border: 1px solid var(--el-border-color-lighter)">
                 <div class="font-medium mb-2">{{ t('reportPage.healthScoreTrend') }}</div>
                 <VChart :option="trafficQualityTrendOption" autoresize style="height: 260px" />
@@ -224,7 +224,7 @@
                 <VChart :option="trafficQualityLevelOption" autoresize style="height: 260px" />
               </div>
             </div>
-            <div class="rounded-xl p-3 mt-4" style="border: 1px solid var(--el-border-color-lighter)" v-if="trafficRiskSessions.length">
+            <div v-if="trafficRiskSessions.length" class="rounded-xl p-3 mt-4" style="border: 1px solid var(--el-border-color-lighter)">
               <div class="font-medium mb-2">{{ t('reportPage.riskSessionsTop10') }}</div>
               <el-table :data="trafficRiskSessions" size="small" stripe>
                 <el-table-column prop="session_id" label="Session ID" min-width="200" />
@@ -235,7 +235,7 @@
               </el-table>
             </div>
             <!-- 按通道流量账单(ROADMAP Phase3):traffic_meter 采样累计,近 7 天 -->
-            <div class="rounded-xl p-3 mt-4" style="border: 1px solid var(--el-border-color-lighter)" v-loading="trafficByChannelLoading">
+            <div v-loading="trafficByChannelLoading" class="rounded-xl p-3 mt-4" style="border: 1px solid var(--el-border-color-lighter)">
               <div class="font-medium mb-2">{{ t('reportPage.trafficByChannelTitle') }}</div>
               <el-table v-if="trafficByChannel.length" :data="trafficByChannel" size="small" stripe>
                 <el-table-column prop="channel_name" :label="t('reportPage.trafficChannelLabel')" min-width="160" show-overflow-tooltip />
@@ -517,7 +517,7 @@
               </el-table-column>
             </el-table>
           </div>
-          <div class="flex justify-end mt-4 pagination-wrapper" v-if="filteredExtensionReports.length > 0">
+          <div v-if="filteredExtensionReports.length > 0" class="flex justify-end mt-4 pagination-wrapper">
             <el-pagination
               v-model:current-page="extensionReportsPage"
               v-model:page-size="extensionReportsPageSize"

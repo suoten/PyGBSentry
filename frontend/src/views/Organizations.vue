@@ -4,7 +4,7 @@
       <template #header>
         <PageHeader :title="t('org.title')" :description="t('orgPage.description')">
           <template #actions>
-            <el-button type="primary" @click="openCreate(null)" class="add-btn">
+            <el-button type="primary" class="add-btn" @click="openCreate(null)">
               <el-icon class="mr-1"><Plus /></el-icon>
               {{ t('orgPage.addRoot') }}
             </el-button>
@@ -43,15 +43,15 @@
               <span class="node-label">{{ node.label }}</span>
             </span>
             <span class="tree-actions">
-              <el-button link type="primary" size="small" @click.stop="openCreate(data.id)" class="action-link">
+              <el-button link type="primary" size="small" class="action-link" @click.stop="openCreate(data.id)">
                 <el-icon class="mr-1"><Plus /></el-icon>
                 {{ t('orgPage.addChild') }}
               </el-button>
-              <el-button link type="primary" size="small" @click.stop="openEdit(data)" class="action-link">
+              <el-button link type="primary" size="small" class="action-link" @click.stop="openEdit(data)">
                 <el-icon class="mr-1"><Edit /></el-icon>
                 {{ t('common.edit') }}
               </el-button>
-              <el-button link type="danger" size="small" @click.stop="doDelete(data)" class="action-link">
+              <el-button link type="danger" size="small" class="action-link" @click.stop="doDelete(data)">
                 <el-icon class="mr-1"><Delete /></el-icon>
                 {{ t('common.delete') }}
               </el-button>
@@ -98,11 +98,11 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false" class="cancel-btn">
+        <el-button class="cancel-btn" @click="dialogVisible = false">
           <el-icon class="mr-1"><Close /></el-icon>
           {{ t('common.cancel') }}
         </el-button>
-        <el-button type="primary" :loading="saving" @click="submit" class="confirm-btn">
+        <el-button type="primary" :loading="saving" class="confirm-btn" @click="submit">
           <el-icon class="mr-1"><Check /></el-icon>
           {{ editId ? t('common.save') : t('common.confirm') }}
         </el-button>

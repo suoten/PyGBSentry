@@ -30,8 +30,8 @@
       style="background: var(--el-bg-color, rgba(255,255,255,.92)); border: 1px solid var(--el-border-color-lighter)"
     >
       <span class="text-xs font-semibold" style="color: var(--el-text-color-secondary)">{{ t('gis.layerControl') }}</span>
-      <el-checkbox v-model="layerVisible.base" @change="toggleBaseLayer" size="small">{{ t('gis.baseMap') }}</el-checkbox>
-      <el-checkbox v-model="layerVisible.markers" @change="toggleMarkersLayer" size="small">{{ t('gis.monitorPoints') }}</el-checkbox>
+      <el-checkbox v-model="layerVisible.base" size="small" @change="toggleBaseLayer">{{ t('gis.baseMap') }}</el-checkbox>
+      <el-checkbox v-model="layerVisible.markers" size="small" @change="toggleMarkersLayer">{{ t('gis.monitorPoints') }}</el-checkbox>
     </div>
 
     <!-- 测距工具 -->
@@ -76,7 +76,7 @@
       
       <el-form :model="config" size="small" label-position="top">
         <el-form-item :label="t('gis.mapScheme')">
-          <el-select v-model="selectedProfileId" @change="onProfileChange" class="w-full">
+          <el-select v-model="selectedProfileId" class="w-full" @change="onProfileChange">
             <el-option v-for="p in mapProfiles" :key="p.id" :label="`${p.name}${p.is_default ? t('gis.defaultSuffix') : ''}`" :value="(p.id as any)" />
           </el-select>
         </el-form-item>
@@ -122,7 +122,7 @@
     </div>
 
     <!-- Video Popup -->
-    <div id="popup" class="ol-popup" v-show="popupVisible">
+    <div v-show="popupVisible" id="popup" class="ol-popup">
       <div
         class="popup-header flex justify-between items-center px-3 py-2 rounded-t-lg"
         style="background: var(--el-bg-color, rgba(255,255,255,.94)); color: var(--el-text-color-regular); border-bottom: 1px solid var(--el-border-color-lighter)"

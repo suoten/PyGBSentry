@@ -156,9 +156,9 @@
             <AppErrorBoundary>
             <router-view v-slot="{ Component }">
               <keep-alive>
-                <component v-if="route.meta && (route.meta as Record<string, unknown>).keepAlive" :is="Component" />
+                <component :is="Component" v-if="route.meta && (route.meta as Record<string, unknown>).keepAlive" />
               </keep-alive>
-              <component v-if="!(route.meta && (route.meta as Record<string, unknown>).keepAlive)" :is="Component" />
+              <component :is="Component" v-if="!(route.meta && (route.meta as Record<string, unknown>).keepAlive)" />
             </router-view>
             </AppErrorBoundary>
           </el-main>

@@ -24,10 +24,10 @@
           class="share-url-input"
         />
         <div class="url-actions">
-          <el-button type="primary" @click="copyPlayUrl" :icon="DocumentCopy">
+          <el-button type="primary" :icon="DocumentCopy" @click="copyPlayUrl">
             {{ t('player.copyAddress') }}
           </el-button>
-          <el-button @click="openPlayUrl" :icon="TopRight">
+          <el-button :icon="TopRight" @click="openPlayUrl">
             {{ t('player.openInNewTab') }}
           </el-button>
         </div>
@@ -48,7 +48,7 @@
           class="share-url-input"
         />
         <div class="url-actions">
-          <el-button type="primary" @click="copyIframeCode" :icon="DocumentCopy">
+          <el-button type="primary" :icon="DocumentCopy" @click="copyIframeCode">
             {{ t('share.copyCode') }}
           </el-button>
         </div>
@@ -67,7 +67,7 @@
             <el-icon class="text-5xl text-slate-300"><Picture /></el-icon>
             <span class="text-slate-400 text-sm mt-2">{{ t('share.qrGenerate') }}</span>
           </template>
-          <el-button size="small" class="mt-2" @click="generateQR" :loading="qrLoading">
+          <el-button size="small" class="mt-2" :loading="qrLoading" @click="generateQR">
             {{ qrDataUrl ? t('share.regenerate') : t('share.generateQr') }}
           </el-button>
           <el-button v-if="qrDataUrl" size="small" class="mt-1" @click="downloadQR">
@@ -118,7 +118,7 @@
     </div>
 
     <div class="generate-share-btn">
-      <el-button type="primary" size="large" @click="generateShareLink" :icon="MagicStick">
+      <el-button type="primary" size="large" :icon="MagicStick" @click="generateShareLink">
         {{ t('share.generateLink') }}
       </el-button>
     </div>

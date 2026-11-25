@@ -36,9 +36,6 @@
           :default-expanded-keys="expandedTreeKeys"
           :current-node-key="selectedNode?.id"
           :highlight-current="true"
-          @node-click="emit('nodeClick', $event)"
-          @node-expand="emit('nodeExpand', $event)"
-          @node-collapse="emit('nodeCollapse', $event)"
           :tree-class="['channel-tree', { 'tree-contrast': highContrastTree }]"
           :folder-predicate="isChannelTreeFolderNode"
           :show-status-badge="shouldShowStatusBadge"
@@ -47,6 +44,9 @@
           :get-node-stats-tone="getNodeStatsTone"
           :truncate-text="true"
           :enable-context-menu="true"
+          @node-click="emit('nodeClick', $event)"
+          @node-expand="emit('nodeExpand', $event)"
+          @node-collapse="emit('nodeCollapse', $event)"
           @node-contextmenu="emit('nodeContextmenu', $event)"
         />
       </div>
@@ -61,13 +61,13 @@
     @click.stop
   >
     <template v-if="getContextMenuTargetType(contextMenu.node) === 'channel'">
-      <div class="menu-item" v-if="canPlay(contextMenu.node)" @click="emit('playStream', contextMenu.node)">
+      <div v-if="canPlay(contextMenu.node)" class="menu-item" @click="emit('playStream', contextMenu.node)">
         <el-icon class="menu-item-icon"><VideoPlay /></el-icon>
         {{ t('channelTree.play') }}
       </div>
       <div
-        class="menu-item danger"
         v-if="playingChannelGbId === getChannelGbIdForNode(contextMenu.node)"
+        class="menu-item danger"
         @click="emit('closePlayer')"
       >
         <el-icon class="menu-item-icon"><CloseBold /></el-icon>

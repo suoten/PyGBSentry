@@ -30,7 +30,7 @@
         </div>
 
     <!-- 视频联动弹窗 -->
-    <div id="vc-popup" class="ol-popup vc-popup" v-show="popupVisible">
+    <div v-show="popupVisible" id="vc-popup" class="ol-popup vc-popup">
       <div class="popup-header vc-popup-header flex justify-between items-center p-2 rounded-t-lg">
         <span class="font-bold truncate max-w-[240px]">{{ popupData.name }}</span>
         <el-icon class="cursor-pointer hover:text-primary transition-colors" @click="closePopup"><Close /></el-icon>

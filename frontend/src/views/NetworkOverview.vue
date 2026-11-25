@@ -4,7 +4,7 @@
       <template #header>
         <PageHeader :title="t('network.title')" :description="t('network.description')">
           <template #actions>
-            <el-button size="small" @click="refreshAll" :loading="loading">
+            <el-button size="small" :loading="loading" @click="refreshAll">
               <el-icon class="mr-1"><Refresh /></el-icon>
               {{ t('common.refresh') }}
             </el-button>
@@ -72,7 +72,7 @@
           <template #header>
             <span class="font-semibold">{{ t('network.topology') }}</span>
           </template>
-          <el-table :data="topologyNodes" v-loading="loading" stripe size="small" style="max-height: 280px; overflow-y: auto">
+          <el-table v-loading="loading" :data="topologyNodes" stripe size="small" style="max-height: 280px; overflow-y: auto">
             <el-table-column prop="label" :label="t('network.nodeLabel')" min-width="180" />
             <el-table-column prop="type" :label="t('network.nodeType')" width="120">
               <template #default="{ row }">
@@ -96,13 +96,14 @@
         <template #header>
           <span class="font-semibold">{{ t('network.topologyGraph') }}</span>
         </template>
-        <div class="topology-graph-container" v-loading="loading">
+        <div v-loading="loading" class="topology-graph-container">
           <div v-if="topologyNodes.length === 0" class="text-center text-gray-400 py-8">
             {{ t('network.noData') }}
           </div>
           <div v-else class="topology-graph">
             <!-- Platform center node -->
-            <div v-for="node in topologyNodes.slice(0, 50)" :key="node.id"
+            <div
+v-for="node in topologyNodes.slice(0, 50)" :key="node.id"
                  class="topology-node"
                  :class="`topo-${node.type}`">
               <el-icon v-if="node.type === 'platform'" class="topo-icon"><Platform /></el-icon>

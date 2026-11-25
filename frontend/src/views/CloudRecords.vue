@@ -4,9 +4,9 @@
       <template #header>
         <PageHeader :title="t('cloudRecordPage.title')" :description="t('cloudRecordPage.description')">
           <template #actions>
-            <el-button @click="verifySelected" :disabled="!selectedIds.length" :loading="bulkVerifying">{{ t('cloudRecordPage.batchVerify') }}</el-button>
-            <el-button @click="repairSelected" :disabled="!selectedIds.length" :loading="bulkRepairing">{{ t('cloudRecordPage.batchRepair') }}</el-button>
-            <el-button type="danger" plain @click="deleteBadSelected" :disabled="!badSelectedIds.length" :loading="bulkDeleting">{{ t('cloudRecordPage.batchDeleteBad') }}</el-button>
+            <el-button :disabled="!selectedIds.length" :loading="bulkVerifying" @click="verifySelected">{{ t('cloudRecordPage.batchVerify') }}</el-button>
+            <el-button :disabled="!selectedIds.length" :loading="bulkRepairing" @click="repairSelected">{{ t('cloudRecordPage.batchRepair') }}</el-button>
+            <el-button type="danger" plain :disabled="!badSelectedIds.length" :loading="bulkDeleting" @click="deleteBadSelected">{{ t('cloudRecordPage.batchDeleteBad') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -44,13 +44,13 @@
             :current-node-key="selectedNode?.id"
             :highlight-current="true"
             :filter-node-method="filterNode"
-            @node-click="handleNodeClick"
             tree-class="channel-tree"
             :truncate-text="true"
             :show-status-badge="shouldShowStatusBadge"
             :show-node-stats="shouldShowNodeStats"
             :get-node-stats="getNodeStats"
             :get-node-stats-tone="getNodeStatsTone"
+            @node-click="handleNodeClick"
           />
         </div>
       </div>
@@ -79,12 +79,12 @@
               style="width: 320px"
             />
             <el-checkbox v-model="onlyBad" size="small" class="ml-2">{{ t('cloudRecordPage.onlyAbnormal') }}</el-checkbox>
-            <el-button type="primary" size="small" @click="() => { page = 1; search(); }" :loading="loading">{{ t('cloudRecordPage.query') }}</el-button>
+            <el-button type="primary" size="small" :loading="loading" @click="() => { page = 1; search(); }">{{ t('cloudRecordPage.query') }}</el-button>
           </div>
         </div>
 
         <div class="flex-1 overflow-auto p-3">
-          <el-table :data="filteredRows" border size="small" v-loading="loading" :empty-text="t('cloudRecordPage.noRecords')" row-key="id" @selection-change="onSelectionChange" class="h-full">
+          <el-table v-loading="loading" :data="filteredRows" border size="small" :empty-text="t('cloudRecordPage.noRecords')" row-key="id" class="h-full" @selection-change="onSelectionChange">
             <el-table-column type="selection" width="50" />
             <el-table-column prop="start_time" :label="t('cloudRecordPage.startTimeColumn')" width="160">
               <!-- FIX [2026-09-19 UX]: 此前直接显示原始 ISO 串（2026-09-18T15:51:35），改为本地化格式 -->
@@ -161,14 +161,14 @@
       <AppDialog v-model="previewVisible" :title="t('cloudRecordPage.playbackTitle')" size="large">
         <div v-if="previewUrl" class="min-h-[360px]">
           <div class="flex items-center justify-end gap-2 mb-2">
-            <el-button size="small" @click="fetchVodSources" :loading="vodSourcesLoading">{{ t('cloudRecordPage.getPlaySources') }}</el-button>
-            <el-button size="small" @click="fetchVodOptimizedUrl" :loading="vodOptimizedLoading">{{ t('cloudRecordPage.optimizedUrl') }}</el-button>
+            <el-button size="small" :loading="vodSourcesLoading" @click="fetchVodSources">{{ t('cloudRecordPage.getPlaySources') }}</el-button>
+            <el-button size="small" :loading="vodOptimizedLoading" @click="fetchVodOptimizedUrl">{{ t('cloudRecordPage.optimizedUrl') }}</el-button>
             <el-button size="small" @click="copyPreviewUrl">{{ t('cloudRecordPage.copyAddress') }}</el-button>
             <el-button size="small" @click="openPreviewUrl">{{ t('cloudRecordPage.openInNewTab') }}</el-button>
             <el-button v-if="previewRecordId" size="small" type="primary" @click="downloadPreview">{{ t('cloudRecordPage.download') }}</el-button>
           </div>
           <div v-if="vodSources.length" class="mb-2">
-            <el-select v-model="selectedVodSource" :placeholder="t('cloudRecordPage.selectSourcePlaceholder')" size="small" @change="switchVodSource" style="width: 100%">
+            <el-select v-model="selectedVodSource" :placeholder="t('cloudRecordPage.selectSourcePlaceholder')" size="small" style="width: 100%" @change="switchVodSource">
               <el-option v-for="(src, idx) in vodSources" :key="idx" :label="`${src.protocol?.toUpperCase() || t('cloudRecordPage.unknown')} - ${src.type || ''} ${src.health_score ? '(' + src.health_score + t('cloudRecordPage.scoreSuffix') + ')' : ''}`" :value="idx" />
             </el-select>
           </div>

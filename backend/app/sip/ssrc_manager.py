@@ -456,9 +456,7 @@ class SsrcManager:
             from sqlalchemy import select
 
             async with AsyncSessionLocal() as session:
-                rows = (
-                    (await session.execute(select(StreamSession.ssrc).where(StreamSession.ssrc.is_not(None)))).all()
-                )
+                rows = (await session.execute(select(StreamSession.ssrc).where(StreamSession.ssrc.is_not(None)))).all()
             for (s,) in rows:
                 s_str = str(s or "").strip()
                 if _is_valid_ssrc(s_str):

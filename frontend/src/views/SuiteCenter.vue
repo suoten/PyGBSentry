@@ -8,7 +8,7 @@
         <template #header>
           <div class="w-full flex items-center justify-between gap-2">
             <div class="font-medium">{{ t('suiteCenter.capabilityMatrix') }}</div>
-            <el-button size="small" @click="reload" :loading="loading">{{ t('common.refresh') }}</el-button>
+            <el-button size="small" :loading="loading" @click="reload">{{ t('common.refresh') }}</el-button>
           </div>
         </template>
         <div class="space-y-3">
@@ -61,7 +61,7 @@
             </el-select>
             <el-input v-model="keyword" clearable :placeholder="t('suiteCenter.keywordPlaceholder')" style="width: 280px" />
           </div>
-          <el-table :data="pagedRows" v-loading="loading" stripe>
+          <el-table v-loading="loading" :data="pagedRows" stripe>
             <el-table-column prop="name" :label="t('suiteCenter.colCapabilityName')" min-width="180" />
             <el-table-column prop="plugin_id" :label="t('suiteCenter.colPluginId')" min-width="180" />
             <el-table-column prop="platforms" :label="t('common.platform')" width="140">

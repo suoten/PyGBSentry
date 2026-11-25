@@ -564,7 +564,6 @@ def _get_play_suggestion(urls: dict) -> dict:
 import os as _os
 import secrets as _secrets
 
-from fastapi import UploadFile, File  # noqa: E402
 
 _VOD_MP4_ALLOWED_EXT = {".mp4"}
 
@@ -725,7 +724,6 @@ async def play_mp4_vod_channel(
     from app.core.media_nodes_db import get_active_media_node_id, get_db_media_node_by_id, select_best_db_node
     from app.core.play_token import issue_play_token
     from app.models.mp4_vod import Mp4VodChannel
-    from app.sip.server import sip_server as _sip_server
 
     stmt = select(Mp4VodChannel).where(Mp4VodChannel.id == channel_id)
     if not current_user.is_superuser:
@@ -739,7 +737,7 @@ async def play_mp4_vod_channel(
         node = await get_db_media_node_by_id(node_db, active_id) if active_id else None
         if not node:
             node = await select_best_db_node(node_db)
-    node_id = str(node.id) if node else None
+    _node_id = str(node.id) if node else None
     host = (node.host if node else None) or settings.MEDIA_SERVER_HOST
     http_port = int((node.http_port if node else 0) or settings.MEDIA_SERVER_HTTP_PORT)
     secret = str((node.secret if node else "") or settings.MEDIA_SERVER_SECRET or "")
@@ -804,7 +802,13 @@ async def play_mp4_vod_channel(
         "name": row.name,
         "stream": stream_id,
         "app": settings.VOD_MP4_APP,
-        "urls": {"flv": urls.get("flv"), "ws_flv": urls.get("ws_flv"), "wss_flv": urls.get("wss_flv"), "hls": urls.get("hls"), "https_hls": urls.get("https_hls")},
+        "urls": {
+            "flv": urls.get("flv"),
+            "ws_flv": urls.get("ws_flv"),
+            "wss_flv": urls.get("wss_flv"),
+            "hls": urls.get("hls"),
+            "https_hls": urls.get("https_hls"),
+        },
         "hint": "Stream loops the MP4 as live; use stop endpoint or delete to release.",
     }
 
@@ -833,4 +837,3 @@ async def stop_mp4_vod_channel(
         return {"ok": True, "stopped": stream_id}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"stop failed: {str(e)[:120]}")
-

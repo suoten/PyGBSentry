@@ -11,7 +11,7 @@
           <span>{{ t('channelRegion.regionTitle') }}</span>
           <div class="flex gap-1">
             <el-button size="small" type="primary" link @click="showAddRegionDialog">{{ t('channelRegion.add') }}</el-button>
-            <el-button size="small" type="danger" link @click="deleteCurrentRegion" :disabled="!currentRegionId">{{ t('channelRegion.delete') }}</el-button>
+            <el-button size="small" type="danger" link :disabled="!currentRegionId" @click="deleteCurrentRegion">{{ t('channelRegion.delete') }}</el-button>
           </div>
         </div>
         <div v-if="treeLoading" class="flex-1 flex items-center justify-center text-slate-400">{{ t('channelRegion.loading') }}</div>
@@ -30,7 +30,7 @@
 
       <el-dialog v-model="regionDialogVisible" :close-on-click-modal="false" :title="regionDialogMode === 'add' ? t('channelRegion.addRegionTitle') : t('channelRegion.editRegionTitle')" width="440px">
         <el-form :model="regionForm" label-width="80px" size="default">
-          <el-form-item :label="t('channelRegion.regionCode')" v-if="regionDialogMode === 'add'">
+          <el-form-item v-if="regionDialogMode === 'add'" :label="t('channelRegion.regionCode')">
             <el-input v-model="regionForm.code" :placeholder="t('channelRegion.regionCodePlaceholder')" />
           </el-form-item>
           <el-form-item :label="t('channelRegion.regionName')">
@@ -42,7 +42,7 @@
         </el-form>
         <template #footer>
           <el-button @click="regionDialogVisible = false">{{ t('channelRegion.cancel') }}</el-button>
-          <el-button type="primary" @click="submitRegionForm" :loading="regionSubmitting">{{ t('channelRegion.confirm') }}</el-button>
+          <el-button type="primary" :loading="regionSubmitting" @click="submitRegionForm">{{ t('channelRegion.confirm') }}</el-button>
         </template>
       </el-dialog>
 
@@ -86,7 +86,7 @@
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
-            <el-button :icon="RefreshRight" circle @click="loadList" :title="t('channelRegion.refreshList')" />
+            <el-button :icon="RefreshRight" circle :title="t('channelRegion.refreshList')" @click="loadList" />
           </div>
         </el-form>
 
@@ -124,7 +124,7 @@
           </el-table-column>
         </el-table>
 
-        <div class="mt-4 flex justify-end" v-if="total > 0">
+        <div v-if="total > 0" class="mt-4 flex justify-end">
           <el-pagination
             v-model:current-page="currentPage"
             v-model:page-size="count"

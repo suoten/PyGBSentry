@@ -2619,9 +2619,8 @@ async def embed_play_page():
     """无框嵌入播放页(令牌鉴权;允许第三方 iframe 嵌入)。"""
     from fastapi.responses import HTMLResponse
 
-    html = (
-        _EMBED_PAGE_TEMPLATE.replace("__FLV_JS__", str(settings.STREAM_EMBED_FLV_JS_URL or ""))
-        .replace("__HLS_JS__", str(settings.STREAM_EMBED_HLS_JS_URL or ""))
+    html = _EMBED_PAGE_TEMPLATE.replace("__FLV_JS__", str(settings.STREAM_EMBED_FLV_JS_URL or "")).replace(
+        "__HLS_JS__", str(settings.STREAM_EMBED_HLS_JS_URL or "")
     )
     return HTMLResponse(content=html)
 

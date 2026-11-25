@@ -506,15 +506,7 @@ async def on_publish(request: Request):
                 from app.models.resource import Resource as _Res
 
                 async with AsyncSessionLocal() as _pub_session:
-                    _res = (
-                        (
-                            await _pub_session.execute(
-                                _sel(_Res.capabilities).where(_Res.gb_id == channel_prefix).limit(1)
-                            )
-                        )
-                        .scalars()
-                        .first()
-                    )
+                    _res = (await _pub_session.execute(_sel(_Res.capabilities).where(_Res.gb_id == channel_prefix).limit(1))).scalars().first()
                 _caps = _res if isinstance(_res, dict) else ({} if _res is None else _res)
                 if isinstance(_caps, str):
                     import json as _json

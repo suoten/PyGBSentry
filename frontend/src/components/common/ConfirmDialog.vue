@@ -19,7 +19,7 @@
     </div>
 
     <template #footer>
-      <el-button @click="handleCancel" :disabled="loading">
+      <el-button :disabled="loading" @click="handleCancel">
         {{ cancelText }}
       </el-button>
       <el-button

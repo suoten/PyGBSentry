@@ -23,7 +23,7 @@
       <slot />
     </div>
 
-    <template #footer v-if="$slots.footer">
+    <template v-if="$slots.footer" #footer>
       <div class="app-dialog__footer">
         <slot name="footer" />
       </div>

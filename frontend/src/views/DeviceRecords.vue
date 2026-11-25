@@ -75,7 +75,7 @@
             />
           </el-select>
         </div>
-        <el-button @click="reloadDevices" :loading="loadingDevices">{{ t('record.refreshDevices') }}</el-button>
+        <el-button :loading="loadingDevices" @click="reloadDevices">{{ t('record.refreshDevices') }}</el-button>
       </div>
 
       <div class="mt-3">

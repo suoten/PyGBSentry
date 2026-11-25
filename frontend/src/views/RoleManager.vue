@@ -49,7 +49,7 @@
           </el-table-column>
         </el-table>
 
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="roleRows.length > 0">
+        <div v-if="roleRows.length > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="rolesPage"
             v-model:page-size="rolesPageSize"

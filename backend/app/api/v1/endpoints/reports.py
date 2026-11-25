@@ -1088,14 +1088,7 @@ async def report_traffic_by_channel(
     gb_ids = [str(r[0]) for r in rows]
     chan_map: dict[str, tuple[str, str]] = {}
     if gb_ids:
-        res_rows = (
-            (
-                await db.execute(
-                    select(Resource.gb_id, Resource.name, Resource.asset_id).where(Resource.gb_id.in_(gb_ids))
-                )
-            )
-            .all()
-        )
+        res_rows = (await db.execute(select(Resource.gb_id, Resource.name, Resource.asset_id).where(Resource.gb_id.in_(gb_ids)))).all()
         asset_ids = {str(a) for (_gb, _n, a) in res_rows if a}
         asset_names: dict[str, str] = {}
         if asset_ids:
@@ -1142,8 +1135,5 @@ async def report_traffic_daily_summary(
     return {
         "total_bytes": total,
         "total_bytes_text": _format_bytes(total),
-        "by_day": [
-            {"day": str(r[0]), "total_bytes": int(r[1] or 0), "total_bytes_text": _format_bytes(int(r[1] or 0))}
-            for r in rows
-        ],
+        "by_day": [{"day": str(r[0]), "total_bytes": int(r[1] or 0), "total_bytes_text": _format_bytes(int(r[1] or 0))} for r in rows],
     }

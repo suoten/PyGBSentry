@@ -22,12 +22,12 @@
       </TableToolbar>
     </template>
     <TableSkeleton v-if="loading && devices.length === 0" :rows="6" />
-    <el-table v-else :data="devices" style="width: 100%" v-loading="loading" :empty-text="devicesEmptyText" class="devices-table" row-key="gb_id" size="small" header-row-class-name="devices-table-header-row" :row-class-name="getRowClassName" fit @row-dblclick="(row: Record<string, unknown>) => emit('viewDevice', row)" @selection-change="(val: Record<string, unknown>[]) => emit('selectionChange', val)">
+    <el-table v-else v-loading="loading" :data="devices" style="width: 100%" :empty-text="devicesEmptyText" class="devices-table" row-key="gb_id" size="small" header-row-class-name="devices-table-header-row" :row-class-name="getRowClassName" fit @row-dblclick="(row: Record<string, unknown>) => emit('viewDevice', row)" @selection-change="(val: Record<string, unknown>[]) => emit('selectionChange', val)">
       <template #empty>
         <EmptyStateWithAction :description="t('device.table.emptyDesc')">
           <template #action>
-            <el-button type="primary" @click="emit('openAddDialog')" class="empty-action-btn"><el-icon class="mr-1"><Plus /></el-icon>{{ t('device.table.addDevice') }}</el-button>
-            <el-button @click="emit('openAccessInfoDialog')" class="empty-action-btn-secondary"><el-icon class="mr-1"><InfoFilled /></el-icon>{{ t('device.table.accessInfo') }}</el-button>
+            <el-button type="primary" class="empty-action-btn" @click="emit('openAddDialog')"><el-icon class="mr-1"><Plus /></el-icon>{{ t('device.table.addDevice') }}</el-button>
+            <el-button class="empty-action-btn-secondary" @click="emit('openAccessInfoDialog')"><el-icon class="mr-1"><InfoFilled /></el-icon>{{ t('device.table.accessInfo') }}</el-button>
           </template>
         </EmptyStateWithAction>
       </template>
@@ -58,7 +58,7 @@
         </template>
       </el-table-column>
       <el-table-column v-if="isColVisible('ip_addr')" prop="ip_addr" :label="t('device.table.colIp')" width="130" show-overflow-tooltip>
-        <template #default="scope"><div class="ip-cell"><el-tag size="small" type="info" effect="plain" v-if="scope.row.ip_addr" class="font-mono text-[10px]">{{ scope.row.ip_addr }}</el-tag><span v-else class="text-slate-400 text-xs">—</span></div></template>
+        <template #default="scope"><div class="ip-cell"><el-tag v-if="scope.row.ip_addr" size="small" type="info" effect="plain" class="font-mono text-[10px]">{{ scope.row.ip_addr }}</el-tag><span v-else class="text-slate-400 text-xs">—</span></div></template>
       </el-table-column>
       <el-table-column v-if="isColVisible('channel_count')" :label="t('device.table.colChannelCount')" width="100" align="center">
         <template #default="scope"><span class="text-xs font-medium text-slate-600">{{ scope.row.channel_count ?? 0 }}</span></template>
@@ -126,11 +126,11 @@
         <template #default="scope">
           <div class="device-actions table-action-inline">
             <el-tooltip :content="Number(scope.row.status) !== 1 ? t('device.table.refreshOfflineTip') : t('device.table.refreshTip')" placement="top"><span>
-              <el-button size="small" plain @click="emit('syncDeviceChannels', scope.row)" :loading="catalogSyncPolling[String(scope.row.gb_id || '')]" :disabled="Number(scope.row.status) !== 1 || catalogSyncPolling[String(scope.row.gb_id || '')]" class="device-action-btn device-action-btn--refresh"><el-icon class="mr-1"><Refresh /></el-icon>{{ t('device.table.refresh') }}</el-button>
+              <el-button size="small" plain :loading="catalogSyncPolling[String(scope.row.gb_id || '')]" :disabled="Number(scope.row.status) !== 1 || catalogSyncPolling[String(scope.row.gb_id || '')]" class="device-action-btn device-action-btn--refresh" @click="emit('syncDeviceChannels', scope.row)"><el-icon class="mr-1"><Refresh /></el-icon>{{ t('device.table.refresh') }}</el-button>
             </span></el-tooltip>
             <el-divider direction="vertical" />
             <el-tooltip :content="t('device.table.viewChannelsTip')" placement="top"><span>
-              <el-button size="small" plain @click="emit('viewDevice', scope.row)" class="device-action-btn device-action-btn--view"><el-icon class="mr-1"><View /></el-icon>{{ t('device.table.channels') }}</el-button>
+              <el-button size="small" plain class="device-action-btn device-action-btn--view" @click="emit('viewDevice', scope.row)"><el-icon class="mr-1"><View /></el-icon>{{ t('device.table.channels') }}</el-button>
             </span></el-tooltip>
             <el-dropdown trigger="click" popper-class="device-more-dropdown" @command="(cmd: string) => handleDropdownCommand(scope.row, cmd)">
               <el-button size="small" plain class="device-action-btn device-action-btn--more table-action-more">{{ t('device.table.more') }}<el-icon class="ml-1"><MoreFilled /></el-icon></el-button>

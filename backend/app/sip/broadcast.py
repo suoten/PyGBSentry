@@ -185,7 +185,9 @@ class Broadcast:
                     await tx_manager.send_request(req, addr, proto, transport)
                     await asyncio.wait_for(event.wait(), timeout=timeout_seconds)
                 except asyncio.TimeoutError:
-                    logger.info(f"[Broadcast] Pre-MESSAGE no response from {device_id} in {timeout_seconds}s (device may not require it), continuing INVITE")
+                    logger.info(
+                        f"[Broadcast] Pre-MESSAGE no response from {device_id} in {timeout_seconds}s (device may not require it), continuing INVITE"
+                    )
                     # 自动探测:超时设备短周期跳过,避免每次喊话干等超时;1h 后重新探测
                     self._remember_pre_message_skip(device_id, self._PRE_MSG_SKIP_TIMEOUT_TTL_SECONDS)
                     return True

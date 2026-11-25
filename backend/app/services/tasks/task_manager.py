@@ -97,10 +97,10 @@ async def start_all_background_tasks(plugin_manager: Any = None) -> None:
     # ssl_certbot_renewer 为空文件未列入。事件类模块通过 register(pm) 挂接 hook。
     for _task_name in (
         # 设置项开关（config.py）
-        "record_schedule_executor",   # RECORD_SCHEDULE_EXECUTOR_ENABLED（默认开）
-        "record_index_verifier",      # RECORD_INDEX_VERIFY_ENABLED（默认开）
-        "snapshot_refresh",           # SNAPSHOT_REFRESH_ENABLED（默认开）
-        "pull_proxy_monitor",         # PULL_PROXY_MONITOR_ENABLED（默认开）
+        "record_schedule_executor",  # RECORD_SCHEDULE_EXECUTOR_ENABLED（默认开）
+        "record_index_verifier",  # RECORD_INDEX_VERIFY_ENABLED（默认开）
+        "snapshot_refresh",  # SNAPSHOT_REFRESH_ENABLED（默认开）
+        "pull_proxy_monitor",  # PULL_PROXY_MONITOR_ENABLED（默认开）
         "rtmp_push_channel_monitor",  # PUSH_CHANNEL_MONITOR_ENABLED（默认开）
         # 运行时配置开关（SystemSetting.plugin_runtime_config.*，默认开）
         "auto_record",

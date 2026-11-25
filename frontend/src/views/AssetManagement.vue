@@ -4,8 +4,8 @@
       <template #header>
         <PageHeader :title="t('assetPage.title')" :description="t('assetPage.description')">
           <template #actions>
-            <el-button @click="loadLedger" :loading="loadingLedger">{{ t('assetPage.refreshLedger') }}</el-button>
-            <el-button @click="loadMaintenances" :loading="loadingM">{{ t('assetPage.refreshMaintenance') }}</el-button>
+            <el-button :loading="loadingLedger" @click="loadLedger">{{ t('assetPage.refreshLedger') }}</el-button>
+            <el-button :loading="loadingM" @click="loadMaintenances">{{ t('assetPage.refreshMaintenance') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -28,7 +28,7 @@
                 <div class="text-xs" style="color: var(--el-text-color-secondary)">{{ t('assetPage.totalCount', { count: ledger.length }) }}</div>
               </div>
             </template>
-            <el-table :data="paginatedLedger" v-loading="loadingLedger">
+            <el-table v-loading="loadingLedger" :data="paginatedLedger">
               <el-table-column prop="gb_id" :label="t('assetPage.colGbId')" width="160" show-overflow-tooltip />
               <el-table-column prop="name" :label="t('common.name')" min-width="120" />
               <el-table-column prop="manufacturer" :label="t('assetPage.colManufacturer')" width="100" />
@@ -45,7 +45,7 @@
                 </template>
               </el-table-column>
             </el-table>
-            <div class="flex justify-end mt-4 pagination-wrapper" v-if="ledger.length > 0">
+            <div v-if="ledger.length > 0" class="flex justify-end mt-4 pagination-wrapper">
               <el-pagination
                 v-model:current-page="ledgerPage"
                 v-model:page-size="ledgerPageSize"
@@ -78,7 +78,7 @@
                 </div>
               </div>
             </template>
-            <el-table :data="paginatedMaintenances" v-loading="loadingM">
+            <el-table v-loading="loadingM" :data="paginatedMaintenances">
               <el-table-column prop="maintenance_date" :label="t('assetPage.colDate')" width="180">
                 <template #default="{ row }">{{ row.maintenance_date ? new Date(row.maintenance_date).toLocaleString() : '-' }}</template>
               </el-table-column>
@@ -96,7 +96,7 @@
                 </template>
               </el-table-column>
             </el-table>
-            <div class="flex justify-end mt-4 pagination-wrapper" v-if="maintenances.length > 0">
+            <div v-if="maintenances.length > 0" class="flex justify-end mt-4 pagination-wrapper">
               <el-pagination
                 v-model:current-page="maintenancePage"
                 v-model:page-size="maintenancePageSize"

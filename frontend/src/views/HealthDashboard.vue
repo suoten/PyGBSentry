@@ -12,12 +12,12 @@
                 <el-option :label="t('healthPage.every60s')" value="60" />
               </el-select>
               <el-button @click="resetFilters">{{ t('healthPage.resetFilters') }}</el-button>
-              <el-button @click="previewRecommendations" :loading="applying">{{ t('healthPage.smartPreview') }}</el-button>
-              <el-button @click="previewP5Template" :loading="loading">{{ t('healthPage.p5Template') }}</el-button>
-              <el-button @click="previewDailyReport" :loading="loading">{{ t('healthPage.dailyReport') }}</el-button>
+              <el-button :loading="applying" @click="previewRecommendations">{{ t('healthPage.smartPreview') }}</el-button>
+              <el-button :loading="loading" @click="previewP5Template">{{ t('healthPage.p5Template') }}</el-button>
+              <el-button :loading="loading" @click="previewDailyReport">{{ t('healthPage.dailyReport') }}</el-button>
               <el-button @click="downloadDailyReportCsv">{{ t('healthPage.downloadDailyCsv') }}</el-button>
               <el-button @click="exportCurrentCsv">{{ t('healthPage.exportCsv') }}</el-button>
-              <el-button type="primary" @click="fetchData" :loading="loading">
+              <el-button type="primary" :loading="loading" @click="fetchData">
                 <el-icon class="mr-1"><Refresh /></el-icon> {{ t('healthPage.refresh') }}
               </el-button>
             </div>
@@ -45,8 +45,8 @@
         <el-input-number v-model="alertConfig.highRiskThreshold" :min="1" :max="50" :step="1" class="w-full" />
         <el-input-number v-model="alertConfig.holdMinutes" :min="1" :max="120" :step="1" class="w-full" />
         <div class="flex items-center gap-2">
-          <el-button type="warning" @click="applyHighRiskRecommendations" :loading="applying">{{ t('healthPage.applyHighRisk') }}</el-button>
-          <el-button type="success" @click="applySelectedRecommendations" :disabled="selectedRows.length === 0" :loading="applying">{{ t('healthPage.applySelected') }}</el-button>
+          <el-button type="warning" :loading="applying" @click="applyHighRiskRecommendations">{{ t('healthPage.applyHighRisk') }}</el-button>
+          <el-button type="success" :disabled="selectedRows.length === 0" :loading="applying" @click="applySelectedRecommendations">{{ t('healthPage.applySelected') }}</el-button>
         </div>
       </div>
     </TableCard>
@@ -120,7 +120,7 @@
     </div>
 
     <TableCard>
-      <el-table :data="paginatedHealthData" style="width: 100%" v-loading="loading" stripe border row-key="device_id" @selection-change="onSelectionChange" :empty-text="t('healthPage.noHealthData')">
+      <el-table v-loading="loading" :data="paginatedHealthData" style="width: 100%" stripe border row-key="device_id" :empty-text="t('healthPage.noHealthData')" @selection-change="onSelectionChange">
         <el-table-column type="selection" width="44" />
         <el-table-column prop="device_id" :label="t('healthPage.deviceIdCol')" width="180" sortable show-overflow-tooltip />
         <el-table-column prop="device_name" :label="t('common.name')" min-width="140" />
@@ -184,7 +184,7 @@
 
         <el-table-column prop="consecutive_failures" :label="t('healthPage.consecutiveFailuresCol')" width="110" sortable>
           <template #default="scope">
-            <el-badge :value="scope.row.consecutive_failures" :type="scope.row.consecutive_failures > 0 ? 'danger' : 'info'" v-if="scope.row.consecutive_failures > 0" />
+            <el-badge v-if="scope.row.consecutive_failures > 0" :value="scope.row.consecutive_failures" :type="scope.row.consecutive_failures > 0 ? 'danger' : 'info'" />
             <span v-else class="text-xs" style="color: var(--el-text-color-secondary)">0</span>
           </template>
         </el-table-column>

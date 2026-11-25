@@ -4,11 +4,11 @@
       <template #header>
         <PageHeader :title="t('alarm.title')" :description="t('alarm.description')">
           <template #actions>
-              <el-button @click="$router.push('/monitor')" class="action-btn">
+              <el-button class="action-btn" @click="$router.push('/monitor')">
               <el-icon class="mr-1"><VideoCamera /></el-icon>
               {{ t('route.monitor') }}
             </el-button>
-            <el-button type="primary" @click="fetchAlarms" :loading="loading" class="refresh-btn">
+            <el-button type="primary" :loading="loading" class="refresh-btn" @click="fetchAlarms">
               <el-icon class="mr-1"><Refresh /></el-icon>
               {{ t('common.refresh') }}
             </el-button>
@@ -84,7 +84,7 @@
           <el-input-number v-model="filters.min_escalation_level" :min="0" :max="10" class="filter-number" />
         </el-form-item>
         <el-form-item>
-          <el-button @click="fetchAlarms" :loading="loading" type="primary">
+          <el-button :loading="loading" type="primary" @click="fetchAlarms">
             <el-icon class="mr-1"><Search /></el-icon>
             {{ t('alarm.applyFilter') }}
           </el-button>
@@ -111,11 +111,11 @@
           </div>
         </template>
         <TableSkeleton v-if="loading && alarms.length === 0" :rows="6" />
-        <el-table v-else :data="alarms" v-loading="loading" :empty-text="t('alarm.noAlarms')" class="alarms-table" :row-class-name="getAlarmRowClass" fit>
+        <el-table v-else v-loading="loading" :data="alarms" :empty-text="t('alarm.noAlarms')" class="alarms-table" :row-class-name="getAlarmRowClass" fit>
           <template #empty>
             <EmptyStateWithAction :description="t('alarm.noAlarmHint')">
               <template #action>
-                <el-button type="primary" @click="$router.push('/monitor')" class="empty-action-btn">
+                <el-button type="primary" class="empty-action-btn" @click="$router.push('/monitor')">
                   <el-icon class="mr-1"><VideoCamera /></el-icon>
                   {{ t('route.monitor') }}
                 </el-button>
@@ -265,7 +265,7 @@
                   </template>
                 </el-dropdown>
 
-                <el-button size="small" @click="goTvWall(row)" class="tv-wall-btn" plain>
+                <el-button size="small" class="tv-wall-btn" plain @click="goTvWall(row)">
                   <el-icon class="mr-1"><Monitor /></el-icon>
                   {{ t('alarm.tvWall') }}
                 </el-button>

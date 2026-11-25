@@ -10,7 +10,7 @@
           <el-tab-pane v-for="tab in helpDocs" :key="tab.id" :label="tab.tab_name" :name="tab.id">
             <el-collapse v-if="tab.items && tab.items.length > 0" class="mt-2">
               <el-collapse-item v-for="(item, index) in tab.items" :key="index" :title="item.title" :name="String(index)">
-                <div v-html="sanitizeHtml(item.content)" class="text-sm" style="color: var(--el-text-color-regular)"></div>
+                <div class="text-sm" style="color: var(--el-text-color-regular)" v-html="sanitizeHtml(item.content)"></div>
               </el-collapse-item>
             </el-collapse>
             <el-empty v-else :description="t('helpPage.noContent')" />

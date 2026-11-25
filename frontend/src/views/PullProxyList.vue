@@ -14,7 +14,7 @@
             </el-select>
             <el-switch v-model="useProxyCompat" :active-text="t('pullProxy.compatApi')" :inactive-text="t('pullProxy.nativeApi')" class="mr-2" />
             <el-button type="primary" @click="openDialog()">{{ t('pullProxy.addSource') }}</el-button>
-            <el-button @click="loadSources" :loading="loading">{{ t('pullProxy.refresh') }}</el-button>
+            <el-button :loading="loading" @click="loadSources">{{ t('pullProxy.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -97,7 +97,7 @@
             <template #default="{ row }">
               <div class="table-action-inline justify-center">
                 <el-button size="small" plain @click="openDialog(row)">{{ t('pullProxy.actionEdit') }}</el-button>
-                <el-button size="small" type="primary" plain @click="preview(row.id)" :loading="playing[row.id]">{{ t('pullProxy.actionPreview') }}</el-button>
+                <el-button size="small" type="primary" plain :loading="playing[row.id]" @click="preview(row.id)">{{ t('pullProxy.actionPreview') }}</el-button>
                 <el-dropdown trigger="click" @command="(cmd: string) => handleSourceMoreCommand(row, cmd)">
                   <el-button size="small" plain class="table-action-more">{{ t('pullProxy.actionMore') }}</el-button>
                   <template #dropdown>
@@ -114,7 +114,7 @@
             </template>
           </el-table-column>
         </el-table>
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="filteredSources.length > 0">
+        <div v-if="filteredSources.length > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="page"
             v-model:page-size="pageSize"
@@ -129,7 +129,7 @@
       </TableCard>
 
       <AppDialog v-model="dialogVisible" :title="editingId ? t('pullProxy.editTitle') : t('pullProxy.createTitle')" size="medium">
-        <el-form :model="form" ref="formRef" :rules="rules" label-width="110px">
+        <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
           <el-form-item :label="t('pullProxy.formName')" prop="name">
             <el-input v-model="form.name" :placeholder="t('pullProxy.formNamePlaceholder')" />
           </el-form-item>
@@ -186,7 +186,7 @@
         </el-form>
         <template #footer>
           <el-button @click="dialogVisible = false">{{ t('pullProxy.btnCancel') }}</el-button>
-          <el-button type="primary" @click="save" :loading="saving">{{ t('pullProxy.btnSave') }}</el-button>
+          <el-button type="primary" :loading="saving" @click="save">{{ t('pullProxy.btnSave') }}</el-button>
         </template>
       </AppDialog>
 

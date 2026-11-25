@@ -17,7 +17,7 @@
             />
             <span class="cp-esc">ESC</span>
           </div>
-          <div class="cp-list" ref="listRef">
+          <div ref="listRef" class="cp-list">
             <template v-if="filtered.length">
               <div
                 v-for="(item, idx) in filtered"

@@ -40,10 +40,10 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="font-semibold">{{ t('streamOptimization.protocolInfo') }}</div>
-          <el-button size="small" @click="loadProtocolInfo" :loading="protocolLoading">{{ t('streamOptimization.refresh') }}</el-button>
+          <el-button size="small" :loading="protocolLoading" @click="loadProtocolInfo">{{ t('streamOptimization.refresh') }}</el-button>
         </div>
       </template>
-      <el-table :data="protocols" v-loading="protocolLoading" stripe size="small">
+      <el-table v-loading="protocolLoading" :data="protocols" stripe size="small">
         <el-table-column prop="name" :label="t('streamOptimization.protocol')" width="120" />
         <el-table-column prop="description" :label="t('streamOptimization.description')" min-width="260" />
         <el-table-column prop="latency" :label="t('streamOptimization.latency')" width="80" />
@@ -69,7 +69,7 @@
           <div class="font-semibold">{{ t('streamOptimization.healthMonitor') }}</div>
           <div class="flex gap-2">
             <el-input v-model="healthSessionId" :placeholder="t('streamOptimization.inputSessionId')" size="small" style="width: 240px" clearable />
-            <el-button size="small" type="primary" @click="checkHealth" :loading="healthLoading" :disabled="!healthSessionId.trim()">
+            <el-button size="small" type="primary" :loading="healthLoading" :disabled="!healthSessionId.trim()" @click="checkHealth">
               {{ t('streamOptimization.queryHealthStatus') }}
             </el-button>
           </div>
@@ -120,7 +120,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="font-semibold">{{ t('streamOptimization.streamStats') }}</div>
-          <el-button size="small" @click="loadStats" :loading="statsLoading">{{ t('streamOptimization.refresh') }}</el-button>
+          <el-button size="small" :loading="statsLoading" @click="loadStats">{{ t('streamOptimization.refresh') }}</el-button>
         </div>
       </template>
       <div v-if="statsData" class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -148,7 +148,7 @@
       <template #header>
         <div class="flex items-center justify-between">
           <div class="font-semibold">{{ t('streamOptimization.playOptimizationTips') }}</div>
-          <el-button size="small" @click="loadTips" :loading="tipsLoading">{{ t('streamOptimization.refresh') }}</el-button>
+          <el-button size="small" :loading="tipsLoading" @click="loadTips">{{ t('streamOptimization.refresh') }}</el-button>
         </div>
       </template>
       <el-collapse v-if="tips.length" v-model="activeTipCategories">

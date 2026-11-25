@@ -75,12 +75,12 @@
         <div class="control-buttons px-4 pb-3 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <!-- 播放/暂停 -->
-            <button class="control-btn" @click="togglePlay" :title="isPlaying ? t('enhancedPlayer.pause') : t('enhancedPlayer.play')">
+            <button class="control-btn" :title="isPlaying ? t('enhancedPlayer.pause') : t('enhancedPlayer.play')" @click="togglePlay">
               <el-icon class="text-lg"><VideoPause v-if="isPlaying" /><VideoPlay v-else /></el-icon>
             </button>
 
             <!-- 静音 -->
-            <button class="control-btn" @click="toggleMute" :title="isMuted ? t('enhancedPlayer.unmute') : t('enhancedPlayer.mute')">
+            <button class="control-btn" :title="isMuted ? t('enhancedPlayer.unmute') : t('enhancedPlayer.mute')" @click="toggleMute">
               <el-icon class="text-lg">
                 <Mute v-if="isMuted || volumeValue === 0" />
                 <Headset v-else />
@@ -108,7 +108,7 @@
 
           <div class="flex items-center gap-2">
             <!-- 截图 -->
-            <button class="control-btn" @click="screenshot" :title="t('enhancedPlayer.screenshot')">
+            <button class="control-btn" :title="t('enhancedPlayer.screenshot')" @click="screenshot">
               <el-icon class="text-lg"><Camera /></el-icon>
             </button>
 
@@ -131,7 +131,7 @@
             </div>
 
             <!-- 全屏 -->
-            <button class="control-btn" @click="toggleFullscreen" :title="t('enhancedPlayer.fullscreen')">
+            <button class="control-btn" :title="t('enhancedPlayer.fullscreen')" @click="toggleFullscreen">
               <el-icon class="text-lg"><FullScreen /></el-icon>
             </button>
           </div>

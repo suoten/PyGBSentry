@@ -17,7 +17,7 @@
           </div>
         </template>
       <TableSkeleton v-if="loading && orders.length === 0" :rows="5" />
-      <el-table v-else :data="paginatedOrders" v-loading="loading" stripe border style="width: 100%" :empty-text="t('workOrderPage.noOrders')">
+      <el-table v-else v-loading="loading" :data="paginatedOrders" stripe border style="width: 100%" :empty-text="t('workOrderPage.noOrders')">
         <template #empty>
           <EmptyStateWithAction :description="t('workOrderPage.emptyDesc')">
             <template #action>
@@ -53,9 +53,9 @@
         <el-table-column :label="t('common.action')" width="300" fixed="right">
           <template #default="scope">
             <div class="table-action-inline">
-              <el-button size="small" @click="openEdit(scope.row)" :disabled="!canEditOrder(scope.row)">{{ t('common.edit') }}</el-button>
-              <el-button size="small" type="warning" @click="updateStatus(scope.row.id, 'in_progress')" :disabled="!canSwitchStatus(scope.row, 'in_progress')">{{ t('workOrderPage.btnInProgress') }}</el-button>
-              <el-button size="small" type="success" @click="updateStatus(scope.row.id, 'resolved')" :disabled="!canSwitchStatus(scope.row, 'resolved')">{{ t('workOrderPage.btnResolve') }}</el-button>
+              <el-button size="small" :disabled="!canEditOrder(scope.row)" @click="openEdit(scope.row)">{{ t('common.edit') }}</el-button>
+              <el-button size="small" type="warning" :disabled="!canSwitchStatus(scope.row, 'in_progress')" @click="updateStatus(scope.row.id, 'in_progress')">{{ t('workOrderPage.btnInProgress') }}</el-button>
+              <el-button size="small" type="success" :disabled="!canSwitchStatus(scope.row, 'resolved')" @click="updateStatus(scope.row.id, 'resolved')">{{ t('workOrderPage.btnResolve') }}</el-button>
               <el-dropdown trigger="click" @command="(cmd: string) => handleOrderMoreCommand(scope.row, cmd)">
                 <el-button size="small" plain class="table-action-more">{{ t('common.more') }}</el-button>
                 <template #dropdown>
@@ -69,7 +69,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="flex justify-end mt-4 pagination-wrapper" v-if="orders.length > 0">
+      <div v-if="orders.length > 0" class="flex justify-end mt-4 pagination-wrapper">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
@@ -106,7 +106,7 @@
         </el-form>
         <template #footer>
           <el-button @click="createVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" @click="submitCreate" :loading="createSubmitting">{{ t('workOrderPage.btnCreate') }}</el-button>
+          <el-button type="primary" :loading="createSubmitting" @click="submitCreate">{{ t('workOrderPage.btnCreate') }}</el-button>
         </template>
       </AppDialog>
 
@@ -125,7 +125,7 @@
         </el-form>
         <template #footer>
           <el-button @click="editVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" @click="submitEdit" :loading="editSubmitting">{{ t('common.save') }}</el-button>
+          <el-button type="primary" :loading="editSubmitting" @click="submitEdit">{{ t('common.save') }}</el-button>
         </template>
       </AppDialog>
     </PageContainer>

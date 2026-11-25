@@ -8,7 +8,7 @@
             <el-button v-if="activeTab === 'channels'" type="primary" @click="openCreateDialog">{{ t('pushStream.createChannel') }}</el-button>
             <el-button v-if="activeTab === 'channels'" @click="openBatchDialog">{{ t('pushStream.batchCreate') }}</el-button>
             <el-button v-if="activeTab === 'channels'" @click="openImportDialog">{{ t('pushStream.import') }}</el-button>
-            <el-button @click="refreshAll" :loading="loading">{{ t('pushStream.refresh') }}</el-button>
+            <el-button :loading="loading" @click="refreshAll">{{ t('pushStream.refresh') }}</el-button>
           </template>
         </PageHeader>
       </template>
@@ -106,17 +106,17 @@
                 <el-button size="small" type="primary" plain @click="openEditDialog(row)">{{ t('pushStream.actionEdit') }}</el-button>
                 <el-button size="small" @click="showPushUrl(row.id)">{{ t('pushStream.actionPushUrl') }}</el-button>
                 <el-button size="small" @click="rotatePushKey(row.id)">{{ t('pushStream.actionRotateKey') }}</el-button>
-                <el-button size="small" type="success" plain @click="preview(row.id)" :loading="playing[row.id]">{{ t('pushStream.actionPreview') }}</el-button>
+                <el-button size="small" type="success" plain :loading="playing[row.id]" @click="preview(row.id)">{{ t('pushStream.actionPreview') }}</el-button>
                 <el-button v-if="!row.gb_enabled" size="small" type="warning" plain @click="saveToGb(row)">{{ t('pushStream.actionSaveToGb') }}</el-button>
                 <el-button v-if="row.gb_enabled" size="small" type="info" plain @click="removeFromGb(row)">{{ t('pushStream.actionRemoveFromGb') }}</el-button>
-                <el-button v-if="desiredState(row) === 'stopped' && isRunningEffective(row)" size="small" type="warning" plain @click="enforceStop(row)" :loading="desiredUpdating[row.id]">{{ t('pushStream.actionEnforceStop') }}</el-button>
+                <el-button v-if="desiredState(row) === 'stopped' && isRunningEffective(row)" size="small" type="warning" plain :loading="desiredUpdating[row.id]" @click="enforceStop(row)">{{ t('pushStream.actionEnforceStop') }}</el-button>
                 <el-button v-else-if="isRunningEffective(row)" size="small" type="warning" plain @click="stopChannel(row)">{{ t('pushStream.actionStop') }}</el-button>
                 <el-button size="small" type="danger" plain @click="remove(row.id)">{{ t('pushStream.actionDelete') }}</el-button>
               </div>
             </template>
           </el-table-column>
         </el-table>
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="filteredChannels.length > 0">
+        <div v-if="filteredChannels.length > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="channelsPage"
             v-model:page-size="channelsPageSize"
@@ -165,13 +165,13 @@
           <el-table-column prop="bytes_speed" :label="t('pushStream.colBytesSpeed')" width="120" />
           <el-table-column :label="t('pushStream.colAction')" width="140" align="center">
             <template #default="{ row }">
-              <el-button size="small" type="danger" plain @click="stopStream(row)" :loading="stopping[`${row.app}:${row.stream}`]">
+              <el-button size="small" type="danger" plain :loading="stopping[`${row.app}:${row.stream}`]" @click="stopStream(row)">
                 {{ t('pushStream.actionStopStream') }}
               </el-button>
             </template>
           </el-table-column>
         </el-table>
-        <div class="flex justify-end mt-4 pagination-wrapper" v-if="filteredStreams.length > 0">
+        <div v-if="filteredStreams.length > 0" class="flex justify-end mt-4 pagination-wrapper">
           <el-pagination
             v-model:current-page="streamsPage"
             v-model:page-size="streamsPageSize"
@@ -216,7 +216,7 @@
         </el-form>
         <template #footer>
           <el-button @click="dialogVisible = false">{{ t('pushStream.btnCancel') }}</el-button>
-          <el-button type="primary" @click="save" :loading="saving">{{ t('pushStream.btnSave') }}</el-button>
+          <el-button type="primary" :loading="saving" @click="save">{{ t('pushStream.btnSave') }}</el-button>
         </template>
       </AppDialog>
 
@@ -231,7 +231,7 @@
               </el-radio-group>
             </div>
             <div class="flex items-center gap-2">
-              <el-button size="small" type="danger" plain @click="stopPreview" :disabled="!previewStream.url">{{ t('pushStream.btnStop') }}</el-button>
+              <el-button size="small" type="danger" plain :disabled="!previewStream.url" @click="stopPreview">{{ t('pushStream.btnStop') }}</el-button>
               <el-button size="small" @click="copyPreviewUrl">{{ t('pushStream.btnCopyUrl') }}</el-button>
               <el-button size="small" @click="openPreviewUrl">{{ t('pushStream.btnOpenNewTab') }}</el-button>
             </div>
@@ -255,7 +255,7 @@
         </el-form>
         <template #footer>
           <el-button @click="batchVisible = false">{{ t('pushStream.btnCancel') }}</el-button>
-          <el-button type="primary" @click="submitBatch" :loading="batchSubmitting">{{ t('pushStream.btnCreate') }}</el-button>
+          <el-button type="primary" :loading="batchSubmitting" @click="submitBatch">{{ t('pushStream.btnCreate') }}</el-button>
         </template>
       </AppDialog>
 
@@ -275,7 +275,7 @@
         </el-upload>
         <template #footer>
           <el-button @click="importVisible = false">{{ t('pushStream.btnCancel') }}</el-button>
-          <el-button type="primary" @click="submitImport" :loading="importSubmitting">{{ t('pushStream.btnStartImport') }}</el-button>
+          <el-button type="primary" :loading="importSubmitting" @click="submitImport">{{ t('pushStream.btnStartImport') }}</el-button>
         </template>
       </AppDialog>
     </PageContainer>

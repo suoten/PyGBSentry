@@ -171,7 +171,7 @@
               <el-text v-if="capsLockOn" type="warning" size="small">{{ t('login.capsLockOn') }}</el-text>
             </div>
             <el-form-item class="login-form__actions">
-              <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading">
+              <el-button type="primary" class="login-btn" :loading="loading" @click="handleLogin">
                 {{ t('login.loginBtn') }}
               </el-button>
             </el-form-item>

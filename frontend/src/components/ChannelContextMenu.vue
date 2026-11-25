@@ -9,13 +9,13 @@
     @click.stop
   >
     <template v-if="targetType === 'channel'">
-      <div class="menu-item" v-if="canPlay" role="menuitem" tabindex="0" @click="$emit('play')">
+      <div v-if="canPlay" class="menu-item" role="menuitem" tabindex="0" @click="$emit('play')">
         <el-icon class="menu-item-icon"><VideoPlay /></el-icon>
         {{ t('channelContextMenu.play') }}
       </div>
       <div
-        class="menu-item danger"
         v-if="isPlaying"
+        class="menu-item danger"
         role="menuitem"
         tabindex="0"
         @click="$emit('stop')"

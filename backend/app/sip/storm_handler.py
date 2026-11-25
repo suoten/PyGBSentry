@@ -236,11 +236,7 @@ async def _process_batch(batch: list):
                                         "transport": str(item.get("proto") or "UDP"),
                                     }
                                 )
-                        stmt = (
-                            update(Asset)
-                            .where(Asset.id == _arow.id)
-                            .values(**_ka_values)
-                        )
+                        stmt = update(Asset).where(Asset.id == _arow.id).values(**_ka_values)
                         await session.execute(stmt)
                         if _was_offline:
                             await session.execute(update(Resource).where(Resource.asset_id == _arow.id).values(status=1))

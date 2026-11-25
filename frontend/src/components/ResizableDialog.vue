@@ -8,9 +8,9 @@
     :show-close="false"
     class="resizable-dialog"
     :class="{ 'resizable-dialog--maximized': isMaximized, 'resizable-dialog--minimized': isMinimized }"
-    @close="handleClose"
-  
     destroy-on-close
+  
+    @close="handleClose"
   >
     <template #header>
       <div class="resizable-dialog__header">
@@ -31,7 +31,7 @@
     <div v-show="!isMinimized" class="resizable-dialog__body">
       <slot></slot>
     </div>
-    <template #footer v-if="$slots.footer && !isMinimized">
+    <template v-if="$slots.footer && !isMinimized" #footer>
       <slot name="footer"></slot>
     </template>
   </el-dialog>

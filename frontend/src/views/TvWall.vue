@@ -41,11 +41,11 @@
                   <el-switch v-model="alarmAutoWall" size="small" />
                 </div>
               </el-tooltip>
-              <el-button v-if="hasPlayingScreens" type="danger" size="small" @click="stopAll" class="stop-all-btn">
+              <el-button v-if="hasPlayingScreens" type="danger" size="small" class="stop-all-btn" @click="stopAll">
                 <el-icon class="mr-1"><VideoPause /></el-icon>
                 {{ t('tvWall.stopAll') }}
               </el-button>
-              <el-button size="small" @click="settingsDrawerVisible = true" class="settings-btn">
+              <el-button size="small" class="settings-btn" @click="settingsDrawerVisible = true">
                 <el-icon class="mr-1"><Setting /></el-icon>
                 {{ t('tvWall.tvWallSettings') }}
               </el-button>
@@ -81,7 +81,7 @@
               <el-icon><Refresh /></el-icon>
             </el-button>
           </div>
-          <el-radio-group v-model="treeMode" size="small" @change="fetchTree" class="mb-3">
+          <el-radio-group v-model="treeMode" size="small" class="mb-3" @change="fetchTree">
             <el-radio-button value="business">{{ t('tvWall.businessGroup') }}</el-radio-button>
             <el-radio-button value="region">{{ t('tvWall.adminRegion') }}</el-radio-button>
           </el-radio-group>
@@ -103,9 +103,7 @@
             :props-config="defaultProps"
             :default-expand-all="true"
             :filter-node-method="filterNode"
-            @node-click="handleNodeClick"
             :draggable="true"
-            @node-drag-start="handleDragStart"
             :tree-class="['device-tree', { 'tree-contrast': highContrastTree }]"
             :folder-predicate="isTvWallTreeFolderNode"
             folder-icon-class="text-violet-500"
@@ -115,7 +113,9 @@
             :get-node-stats="getNodeStats"
             :get-node-stats-tone="getNodeStatsTone"
             :show-playing-tag="true"
+            @node-click="handleNodeClick"
             :is-channel-playing="isChannelPlaying"
+            @node-drag-start="handleDragStart"
             :highlight-current="true"
           />
         </div>
@@ -131,12 +131,12 @@
         >
           <div
             v-for="index in maxScreens"
+            v-show="index <= layoutCount"
             :key="'g-' + index"
             class="screen-cell relative flex items-center justify-center overflow-hidden rounded-xl"
             :style="{ background: '#0f172a', border: roamMainIndex === index - 1 ? '2px solid #f59e0b' : (activeScreen === index - 1 ? '2px solid #4d8dff' : '1px solid #3a4558') }"
             :class="{ 'ring-1 ring-amber-400/90': roamMainIndex === index - 1, 'ring-1 ring-blue-400/80': activeScreen === index - 1 && roamMainIndex !== index - 1 }"
             @click="activeScreen = index - 1"
-            v-show="index <= layoutCount"
           >
             <div v-if="(screens[index - 1]?.url || screens[index - 1]?.hls) && !screens[index - 1]?.error" class="w-full h-full relative" style="min-height: 100px;">
               <JessibucaPlayer
@@ -145,7 +145,7 @@
                 :codec="screens[index - 1].codec"
                 :has-audio="false"
                 :auto-play="true"
-                @refreshRequest="() => playInScreen({id: screens[index - 1].channelId, deviceId: screens[index - 1].deviceId, nodeType: screens[index - 1].nodeType, label: screens[index - 1].name}, index - 1)"
+                @refresh-request="() => playInScreen({id: screens[index - 1].channelId, deviceId: screens[index - 1].deviceId, nodeType: screens[index - 1].nodeType, label: screens[index - 1].name}, index - 1)"
               />
               <div class="absolute top-3 left-3 bg-gradient-to-r from-black/80 to-transparent px-4 py-2 text-xs text-white rounded-r-lg pointer-events-none z-10 backdrop-blur-sm">
                 <span class="font-semibold">{{ screens[index - 1].name }}</span>
@@ -154,7 +154,7 @@
 
               <!-- Floating Action Bar (Top Right) -->
               <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
-                <el-button size="small" type="danger" circle @click.stop="stopScreen(index - 1)" :title="t('tvWall.closeChannel')">
+                <el-button size="small" type="danger" circle :title="t('tvWall.closeChannel')" @click.stop="stopScreen(index - 1)">
                   <el-icon><Close /></el-icon>
                 </el-button>
               </div>
@@ -225,7 +225,7 @@
                     :codec="screens[cell.index].codec"
                     :has-audio="false"
                     :auto-play="true"
-                    @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                    @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
                   />
                   <div class="absolute top-3 left-3 bg-gradient-to-r from-black/80 to-transparent px-4 py-2 text-xs text-white rounded-r-lg pointer-events-none z-10 backdrop-blur-sm">
                     <span class="font-semibold">{{ screens[cell.index].name }}</span>
@@ -291,7 +291,7 @@
                   :codec="screens[cell.index].codec"
                   :has-audio="false"
                   :auto-play="true"
-                  @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                  @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
                 />
                 <div class="absolute top-3 left-3 bg-gradient-to-r from-black/80 to-transparent px-4 py-2 text-xs text-white rounded-r-lg pointer-events-none z-10 backdrop-blur-sm">
                   <span class="font-semibold">{{ screens[cell.index].name }}</span>
@@ -300,7 +300,7 @@
                 
                 <!-- Floating Action Bar (Top Right) -->
                 <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
-                  <el-button size="small" type="danger" circle @click.stop="stopScreen(cell.index)" :title="t('tvWall.closeChannel')">
+                  <el-button size="small" type="danger" circle :title="t('tvWall.closeChannel')" @click.stop="stopScreen(cell.index)">
                     <el-icon><Close /></el-icon>
                   </el-button>
                 </div>
@@ -364,7 +364,7 @@
                   :codec="screens[cell.index].codec"
                   :has-audio="false"
                   :auto-play="true"
-                  @refreshRequest="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
+                  @refresh-request="() => playInScreen({id: screens[cell.index].channelId, deviceId: screens[cell.index].deviceId, nodeType: screens[cell.index].nodeType, label: screens[cell.index].name}, cell.index)"
                 />
                 <div class="absolute top-3 left-3 bg-gradient-to-r from-black/80 to-transparent px-4 py-2 text-xs text-white rounded-r-lg pointer-events-none z-10 backdrop-blur-sm">
                   <span class="font-semibold">{{ screens[cell.index].name }}</span>
@@ -373,7 +373,7 @@
                 
                 <!-- Floating Action Bar (Top Right) -->
                 <div class="absolute top-3 right-3 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10">
-                  <el-button size="small" type="danger" circle @click.stop="stopScreen(cell.index)" :title="t('tvWall.closeChannel')">
+                  <el-button size="small" type="danger" circle :title="t('tvWall.closeChannel')" @click.stop="stopScreen(cell.index)">
                     <el-icon><Close /></el-icon>
                   </el-button>
                 </div>
@@ -435,8 +435,8 @@
     >
       <div
            class="px-3 py-2 text-sm font-semibold flex justify-between items-center cursor-move select-none border-b"
-           @mousedown.stop.prevent="handlePanelMouseDown"
-           style="background: var(--el-fill-color-light); color: var(--el-text-color-primary); border-color: var(--el-border-color-lighter);">
+           style="background: var(--el-fill-color-light); color: var(--el-text-color-primary); border-color: var(--el-border-color-lighter);"
+           @mousedown.stop.prevent="handlePanelMouseDown">
         <span>{{ t('tvWall.deviceControl') }}{{ activeScreenData.name }}</span>
         <el-icon class="cursor-pointer hover:text-sky-500 transition-colors" @click="activeScreen = -1"><Close /></el-icon>
       </div>
@@ -468,8 +468,8 @@
               v-if="!isSingleScreenMode"
               type="primary"
               size="large"
-              @click="enterSingleScreenMode"
               class="control-btn"
+              @click="enterSingleScreenMode"
             >
               <el-icon class="text-xl"><FullScreen /></el-icon>
             <span>{{ t('tvWall.switchSingle') }}</span>
@@ -478,8 +478,8 @@
               v-else
               type="success"
               size="large"
-              @click="exitSingleScreenMode"
               class="control-btn"
+              @click="exitSingleScreenMode"
             >
               <el-icon class="text-xl"><Grid /></el-icon>
             <span>{{ t('tvWall.restoreLayout') }}</span>
@@ -498,8 +498,8 @@
               :key="layoutOption.value"
               :type="layout === layoutOption.value ? 'primary' : 'default'"
               size="large"
-              @click="layout = layoutOption.value"
               class="layout-btn"
+              @click="layout = layoutOption.value"
             >
               {{ layoutOption.label }}
             </el-button>

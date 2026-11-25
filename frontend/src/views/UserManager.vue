@@ -30,7 +30,7 @@
         </div>
       </template>
       <TableSkeleton v-if="loading && users.length === 0" :rows="5" />
-      <el-table v-else :data="paginatedUsers" style="width: 100%" v-loading="loading" :empty-text="t('user.emptyText')" class="users-table" fit>
+      <el-table v-else v-loading="loading" :data="paginatedUsers" style="width: 100%" :empty-text="t('user.emptyText')" class="users-table" fit>
         <template #empty>
           <EmptyStateWithAction :description="t('user.emptyHint')">
             <template #action>
@@ -94,7 +94,7 @@
           <template #default="scope">
             <div class="role-cell">
               <el-tag :type="scope.row.is_superuser ? 'danger' : getRoleType(scope.row.role)" size="small" effect="dark" class="role-tag">
-                <el-icon class="mr-1" v-if="scope.row.is_superuser"><Star /></el-icon>
+                <el-icon v-if="scope.row.is_superuser" class="mr-1"><Star /></el-icon>
                 {{ scope.row.is_superuser ? t('common.superAdmin') : roleLabel(scope.row.role) }}
               </el-tag>
             </div>
@@ -125,7 +125,7 @@
           </template>
           <template #default="scope">
             <div class="action-buttons">
-              <el-button v-if="scope.row.is_locked" size="small" type="warning" plain @click="unlockUser(scope.row)" :loading="unlocking === String(scope.row.id)">
+              <el-button v-if="scope.row.is_locked" size="small" type="warning" plain :loading="unlocking === String(scope.row.id)" @click="unlockUser(scope.row)">
                 <el-icon><Unlock /></el-icon>
               </el-button>
               <el-button size="small" type="primary" plain @click="openEdit(scope.row)">
@@ -138,7 +138,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="flex justify-end mt-4 pagination-wrapper" v-if="users.length > 0">
+      <div v-if="users.length > 0" class="flex justify-end mt-4 pagination-wrapper">
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"

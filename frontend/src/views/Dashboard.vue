@@ -4,15 +4,15 @@
       <template #header>
         <PageHeader :title="t('dashboard.headerTitle')" :description="t('dashboard.description')">
           <template #actions>
-            <el-button @click="openSystemInfoDialog" class="action-btn system-info-btn">
+            <el-button class="action-btn system-info-btn" @click="openSystemInfoDialog">
               <el-icon class="mr-1"><InfoFilled /></el-icon>
               {{ t('dashboard.platformInfo') }}
             </el-button>
-            <el-button type="primary" @click="$router.push('/monitor')" class="action-btn monitor-btn">
+            <el-button type="primary" class="action-btn monitor-btn" @click="$router.push('/monitor')">
               <el-icon class="mr-1"><Monitor /></el-icon>
               {{ t('dashboard.monitorCenter') }}
             </el-button>
-            <el-button @click="$router.push('/devices')" class="action-btn devices-btn">
+            <el-button class="action-btn devices-btn" @click="$router.push('/devices')">
               <el-icon class="mr-1"><Box /></el-icon>
               {{ t('dashboard.deviceList') }}
             </el-button>
@@ -44,7 +44,7 @@
               <el-icon class="mr-1"><Plus /></el-icon>
               {{ t('dashboard.addFirstDevice', '添加设备') }}
             </el-button>
-            <el-button @click="$router.push('/setup')" v-if="userStore?.isSuperuser || userStore?.role === 'admin' || userStore?.role === 'owner'">
+            <el-button v-if="userStore?.isSuperuser || userStore?.role === 'admin' || userStore?.role === 'owner'" @click="$router.push('/setup')">
               <el-icon class="mr-1"><Setting /></el-icon>
               {{ t('dashboard.setupGuide', '配置向导') }}
             </el-button>
@@ -57,7 +57,7 @@
       <el-tab-pane :label="t('dashboard.overview')" name="overview">
     <!-- 统计卡片 -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <el-card class="stat-card stat-card--primary" v-loading="statsLoading" shadow="never">
+      <el-card v-loading="statsLoading" class="stat-card stat-card--primary" shadow="never">
         <div class="stat-icon">
           <el-icon><Monitor /></el-icon>
         </div>
@@ -67,7 +67,7 @@
           <div class="stat-desc">{{ t('dashboard.gbDeviceCount') }}</div>
         </div>
       </el-card>
-      <el-card class="stat-card stat-card--success" v-loading="statsLoading" shadow="never">
+      <el-card v-loading="statsLoading" class="stat-card stat-card--success" shadow="never">
         <div class="stat-icon">
           <el-icon><CircleCheck /></el-icon>
         </div>
@@ -77,7 +77,7 @@
           <div class="stat-desc">{{ t('dashboard.currentlyOnline') }}</div>
         </div>
       </el-card>
-      <el-card class="stat-card stat-card--warning" v-loading="statsLoading" shadow="never">
+      <el-card v-loading="statsLoading" class="stat-card stat-card--warning" shadow="never">
         <div class="stat-icon">
           <el-icon><TrendCharts /></el-icon>
         </div>
@@ -89,7 +89,7 @@
           </div>
         </div>
       </el-card>
-      <el-card class="stat-card stat-card--danger" v-loading="statsLoading" shadow="never">
+      <el-card v-loading="statsLoading" class="stat-card stat-card--danger" shadow="never">
         <div class="stat-icon">
           <el-icon><Bell /></el-icon>
         </div>
@@ -250,9 +250,9 @@
         </div>
       </template>
       <el-table
+        v-loading="alarmsLoading"
         :data="paginatedAlarms"
         max-height="420"
-        v-loading="alarmsLoading"
         :empty-text="alarmsEmptyText"
         class="alarms-table"
         :row-class-name="getAlarmRowClass"
@@ -455,8 +455,8 @@
           <el-button @click="systemInfoVisible = false">{{ t('common.close') }}</el-button>
           <el-button 
             type="primary" 
-            @click="copyAllSystemInfo"
             class="copy-all-btn"
+            @click="copyAllSystemInfo"
           >
             <el-icon class="mr-1"><DocumentCopy /></el-icon>
             {{ t('dashboard.copyAll') }}

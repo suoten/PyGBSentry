@@ -15,9 +15,9 @@
           :end-placeholder="t('common.endTime')"
           size="small"
         />
-        <el-button type="primary" size="small" @click="fetchAll" :loading="loading">{{ t('common.query') }}</el-button>
+        <el-button type="primary" size="small" :loading="loading" @click="fetchAll">{{ t('common.query') }}</el-button>
         <el-button size="small" @click="resetRange">{{ t('common.reset') }}</el-button>
-        <el-button size="small" type="success" @click="startDeviceDownload" :loading="downloadLoading" :disabled="!windowStart || !windowEnd">
+        <el-button size="small" type="success" :loading="downloadLoading" :disabled="!windowStart || !windowEnd" @click="startDeviceDownload">
           {{ t('record.downloadDeviceRecord') }}
         </el-button>
       </div>
