@@ -26,6 +26,9 @@ jobs:
   build-and-release:
     name: Build & Release
     runs-on: ubuntu-latest
+    env:
+      # secrets 无法直接在 if 中判断，映射到 env（未配置时 ACR 推送步骤自动跳过）
+      ALIYUN_ACR_REGISTRY: ${{ secrets.ALIYUN_ACR_REGISTRY }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,10 +57,12 @@ jobs:
             type=ref,event=tag
             type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
 
-      - name: Build and push versioned Docker image
+      - name: Build and push versioned Docker image (backend)
         uses: docker/build-push-action@v5
         with:
-          context: .
+          # FIX: backend/Dockerfile 的 COPY 路径按 backend/ 目录书写，上下文必须是 ./backend
+          # （原为根目录，COPY requirements.txt 直接失败，release 构建必崩）
+          context: ./backend
           file: backend/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
@@ -66,6 +71,51 @@ jobs:
             APP_VERSION=${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Extract metadata for frontend image
+        id: meta_frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-frontend
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ !contains(github.ref, '-') }}
+
+      - name: Build and push frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: ${{ steps.meta_frontend.outputs.tags }}
+          labels: ${{ steps.meta_frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 国内镜像：配置以下 Repository Secrets 后自动启用阿里云 ACR 推送
+      #   ALIYUN_ACR_REGISTRY（如 registry.cn-hangzhou.aliyuncs.com/<namespace>）
+      #   ALIYUN_ACR_USERNAME / ALIYUN_ACR_PASSWORD
+      - name: Login to Aliyun ACR (CN mirror)
+        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
+      - name: Push backend image to Aliyun ACR
+        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        uses: akhilnarang/retag-action@v2
+        with:
+          src: ${{ steps.meta.outputs.tags }}
+          dst: ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${{ steps.version.outputs.VERSION }},${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:latest
+
+      - name: Push frontend image to Aliyun ACR
+        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        uses: akhilnarang/retag-action@v2
+        with:
+          src: ${{ steps.meta_frontend.outputs.tags }}
+          dst: ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${{ steps.version.outputs.VERSION }},${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:latest
 
       - name: Run Trivy vulnerability scanner on release image
         uses: aquasecurity/trivy-action@master

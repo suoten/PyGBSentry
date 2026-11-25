@@ -47,6 +47,22 @@ bash demo.sh
 
 **PyGBSentry** 基于**最新 GB/T 28181-2022 标准**构建（向下兼容 2016 版设备）。与依赖第三方 C 库或商业 SIP 中间件的方案不同，我们从零实现了**纯 Python 的 SIP/GB28181 协议栈**，让你真正掌控从信令到流媒体的全链路。
 
+## 🐳 免构建：直接拉取 Docker 镜像
+
+发布 tag 后 CI 自动构建推送（`docker compose up -d` 会优先使用本地/拉取的镜像，仅缺失时才本地构建）：
+
+```bash
+docker pull ghcr.io/suoten/pygbsentry:latest            # backend
+docker pull ghcr.io/suoten/pygbsentry-frontend:latest   # frontend（nginx + 静态资源）
+```
+
+国内网络可用 daocloud 代理直接拉取（拉取即缓存）：
+
+```bash
+docker pull ghcr.m.daocloud.io/suoten/pygbsentry:latest
+docker pull ghcr.m.daocloud.io/suoten/pygbsentry-frontend:latest
+```
+
 ---
 
 ## ✨ 为什么选择 PyGBSentry？

@@ -67,6 +67,8 @@ services:
           memory: 128M
 
   backend:
+    # 发布版优先拉取预构建镜像（tag 后由 CI 推送 ghcr.io）；本地开发或拉取失败时用 build 兜底
+    image: ghcr.io/suoten/pygbsentry:latest
     build: ./backend
     restart: always
     environment:
@@ -171,6 +173,7 @@ services:
         max-file: "5"
 
   frontend:
+    image: ghcr.io/suoten/pygbsentry-frontend:latest
     build: ./frontend
     restart: always
     ports:
