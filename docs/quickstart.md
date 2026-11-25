@@ -4,6 +4,22 @@
 
 ---
 
+## 🎬 想先看看效果？零硬件一键体验（推荐）
+
+**没有摄像头也能完整体验平台**——内置 GB28181 设备模拟器会自动注册 2 台模拟
+NVR，点播任意通道即出测试卡画面：
+
+```bash
+git clone https://github.com/suoten/PyGBSentry.git && cd PyGBSentry
+bash demo.sh
+```
+
+完成后浏览器打开 `http://<本机IP>/`，在设备列表点击任意通道播放即可。
+详见 [设备模拟器文档](../tools/device-simulator/README.md)。以下手动部署步骤
+适合需要精细控制配置的场景。
+
+---
+
 ## 📋 前置条件
 
 | 工具 | 最低版本 | 说明 |

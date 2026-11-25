@@ -34,6 +34,17 @@ _开箱即用的国标（GB/T 28181-2022）视频管理平台 —— 纯 Python 
 > **🚀 想要一个秒级启动、纯 Python 原生、对 AI 生态友好的国标视频平台？**
 > 就是它了。**生产环境需要 Go 单二进制部署、插件商城与企业级授权？请了解同一团队的商业版 [GBWatch](#-商业版-gbwatchgo)。**
 
+## ⚡ 5 分钟零硬件体验（无需任何摄像头）
+
+```bash
+git clone https://github.com/suoten/PyGBSentry.git && cd PyGBSentry
+bash demo.sh
+```
+
+内置 **GB28181 设备模拟器**：2 台模拟 NVR 自动注册上线，点播任意通道即出
+测试卡画面——注册、心跳、目录、INVITE 点播、RTP 收流、ZLM 分发全链路，
+**没有摄像头也能完整体验平台**。详细说明见 [tools/device-simulator](tools/device-simulator/README.md)。
+
 **PyGBSentry** 基于**最新 GB/T 28181-2022 标准**构建（向下兼容 2016 版设备）。与依赖第三方 C 库或商业 SIP 中间件的方案不同，我们从零实现了**纯 Python 的 SIP/GB28181 协议栈**，让你真正掌控从信令到流媒体的全链路。
 
 ---
