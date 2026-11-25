@@ -274,3 +274,6 @@ packaging/windows/build/
 packaging/windows/dist/
 packaging/windows/*.spec
 dist_setup/
+
+# WorkBuddy 本地工作区（agent 记忆等，不入库）
+.workbuddy/

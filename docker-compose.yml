@@ -73,6 +73,13 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       APP_EDITION: ${APP_EDITION:-oss}
       POSTGRES_SERVER: db
+      # FIX: config.assemble_db_connection 以 DATABASE_HOST 优先（默认 localhost 恒真），
+      #      不设此项会导致容器内连接 127.0.0.1:5432 而非 db 服务
+      DATABASE_HOST: db
+      # FIX: main.py 启动安全校验直接读 DATABASE_PASSWORD（compose 原先只传 POSTGRES_*）
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env or environment variable}
+      DATABASE_USER: postgres
+      DATABASE_NAME: pygb28181
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env or environment variable}  # FIXED: i18n - replaced hardcoded Chinese with English
       POSTGRES_DB: pygb28181
@@ -106,12 +113,16 @@ services:
       BACKEND_PUBLIC_PORT: ${BACKEND_PUBLIC_PORT:-8000}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-120}  # FIXED-P2: 与 config.py 默认值 120 对齐
       SIP_DEBUG_TRACE_ENABLED: "false"
+      # 未知设备自动注册（S-06 默认关闭防伪造设备）；demo 环境可在 .env 中设 true
+      ENABLE_AUTO_DISCOVERY: ${ENABLE_AUTO_DISCOVERY:-false}
       ENABLE_OPENAPI_DOCS: ${ENABLE_OPENAPI_DOCS:-false}
       TRIAL_DAYS: ${TRIAL_DAYS:-7}
       # FIXED: CORS configuration for cross-origin access
       # FIX: [2026-07-16 P1] 移除默认 localhost，避免生产环境启动即崩溃
       # 同源部署（nginx 反代 /api/）可不设此变量；跨域部署必须显式设置前端域名
-      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-}
+      # FIX: 空字符串会让 pydantic-settings 的 JSON 解析崩溃（全新部署必踩），
+      #      默认值必须是合法 JSON 空数组
+      BACKEND_CORS_ORIGINS: ${BACKEND_CORS_ORIGINS:-[]}
     ports:
       - "8000:8000"           # 后端 API
       - "5060:5060/udp"       # SIP UDP

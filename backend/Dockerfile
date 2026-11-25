@@ -4,6 +4,11 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /app
 
+# 可选镜像源构建参数：默认官方源；国内网络构建时传
+# --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+
 RUN apt-get update && apt-get install -y \
     libgl1 \
     libglib2.0-0 \
