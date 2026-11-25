@@ -1,0 +1,104 @@
+# =============================================================================
+# PyGBSentry 设备模拟器（overlay 配置）
+#
+# 用法：与主 compose 一起启动（无需额外 .env，全部有默认值）：
+#     docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d device-simulator
+#
+# 只启动主平台（不含模拟器）时用原命令即可：
+#     docker compose up -d
+#
+# 前提：BACKEND_PUBLIC_HOST 已设置为宿主机可达 IP（主 compose 本来就要求必填），
+#       模拟器将 RTP 发往该地址（平台在 INVITE SDP 中下发的收流地址）。
+# =============================================================================
+
+services:
+  # ZLMediaKit 流媒体 sidecar：与 backend 共享网络栈（network_mode: service:backend），
+  # 复用主 compose 已映射到 backend 的宿主机端口（8880/554/1935/30000-30999），
+  # ZLM→backend 的 Hook 回调直接走 127.0.0.1:8000，与"内嵌模式"语义一致
+  zlm:
+    image: ${ZLM_IMAGE:-zlmediakit:master}
+    container_name: pygbsentry-zlm
+    restart: unless-stopped
+    network_mode: "service:backend"
+    volumes:
+      # api.secret 与 MEDIA_SERVER_SECRET 对齐；RTC 端口改 18000 避让 backend API
+      - ./deploy/zlm/config.ini:/opt/media/conf/config.ini:ro
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # backend 追加环境：RTC 端口与 ZLM 配置对齐（避免 8000 冲突告警）
+  backend:
+    environment:
+      MEDIA_SERVER_RTC_PORT: 18000
+      # 开源版镜像不含 ZLM 二进制，媒体服务由上方 zlm sidecar 提供
+      MEDIA_SERVER_HOST: 127.0.0.1
+
+  device-simulator:
+    build: ./tools/device-simulator
+    container_name: pygbsentry-device-simulator
+    restart: unless-stopped
+    environment:
+      # 平台 SIP 地址：默认走容器网络直连 backend 服务名；
+      # 若模拟器部署在别的机器/网络，改为平台宿主机 IP
+      PLATFORM_HOST: ${SIM_PLATFORM_HOST:-backend}
+      PLATFORM_PORT: ${SIM_PLATFORM_PORT:-5060}
+      # 以下三项必须与平台 SIP 服务配置一致（管理后台 -> 媒体/SIP 配置）
+      SERVER_ID: ${SIM_SERVER_ID:-34020000002000000001}
+      # SIP 域：默认取平台服务器 ID 前 10 位（如 34020000002000000001 -> 3402000000）
+      SIP_DOMAIN: ${SIM_SIP_DOMAIN:-3402000000}
+      # 与平台 SIP_DEFAULT_PASSWORD（或设备的单独密码）一致
+      DEVICE_PASSWORD: ${SIM_DEVICE_PASSWORD:-12345678}
+      # 模拟规模：设备数 / 每台通道数
+      DEVICE_COUNT: ${SIM_DEVICE_COUNT:-2}
+      CHANNELS_PER_DEVICE: ${SIM_CHANNELS_PER_DEVICE:-2}
+      KEEPALIVE_INTERVAL: ${SIM_KEEPALIVE_INTERVAL:-60}
+      # 测试流参数（ffmpeg testsrc2 生成，30s 循环）
+      MEDIA_FPS: ${SIM_MEDIA_FPS:-25}
+      MEDIA_DURATION: ${SIM_MEDIA_DURATION:-30}
+      MEDIA_SIZE: ${SIM_MEDIA_SIZE:-704x576}
+    extra_hosts:
+      # Linux 宿主机网关（Docker Desktop 自带，无需此项也兼容）
+      - "host.docker.internal:host-gateway"
+    ports:
+      # TCP 媒体被动模式（平台 a=setup:active 时设备监听，平台主动连入）
+      # 每台设备占 10 个端口：42001/42011/...，默认 2 台设备映射 200 个足够
+      - "42001-42200:42001-42200/tcp"
+    volumes:
+      - simulator_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.2'
+          memory: 64M
+    networks:
+      # 与 backend 同网（frontend 网络上有 backend 服务），SIP 直连 backend:5060
+      - frontend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  simulator_data:
+
+# frontend 网络在主 compose 中定义，此处显式声明以便单独读取本文件时语义完整
+networks:
+  frontend:
+    driver: bridge
