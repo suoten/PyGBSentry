@@ -611,7 +611,7 @@ git push origin feature/your-feature
 ## ⭐ 社区与支持
 
 - 问题反馈：[GitHub Issues](https://github.com/suoten/PyGBSentry/issues) ｜ [Gitee Issues](https://gitee.com/suoten/PyGBSentry/issues)
-- **QQ 交流群**：`【群号待填】`（部署疑难、级联对接、厂商兼容问题直接问，作者在线）
+- **QQ 交流群**：`928800460`（部署疑难、级联对接、厂商兼容问题直接问，作者在线）
 - 作者邮箱：[suoten@163.com](mailto:suoten@163.com)
 - 商业支持（部署实施 / 级联对接 / 定制开发）：见 [商业支持](#商业支持与定制服务)
 
