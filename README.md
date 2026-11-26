@@ -604,6 +604,12 @@ git push origin feature/your-feature
 
 ---
 
+## 🙏 致谢
+
+- [ZLMediaKit](https://github.com/ZLMediaKit/ZLMediaKit) —— 本平台的流媒体核心。设备的 RTP 收流、RTSP/RTMP/HLS/FLV/WebRTC 多协议分发、云端录像与 Hook 生态均基于 ZLMediaKit 构建（MIT 协议）。正是这样高质量的开源引擎，让"纯 Python 自研信令 + 成熟流媒体"的组合成为可能。向作者 [夏楚](https://github.com/xia-chu) 及社区致谢。
+
+---
+
 ## 📄 开源协议
 
 本项目采用 [GNU Affero General Public License v3.0](LICENSE) 开源协议。
