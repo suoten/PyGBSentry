@@ -98,9 +98,10 @@ jobs:
           cache-to: type=gha,mode=max
 
       # 国内镜像：配置以下 Repository Secrets 后自动启用阿里云 ACR 推送
-      #   ALIYUN_ACR_REGISTRY（如 registry.cn-hangzhou.aliyuncs.com/<namespace>）
+      #   ALIYUN_ACR_REGISTRY（主机名，如 crpi-xxx.<地域>.personal.cr.aliyuncs.com）
       #   ALIYUN_ACR_USERNAME / ALIYUN_ACR_PASSWORD（ACR 固定密码，非阿里云登录密码）
-      # 原理：docker pull ghcr 镜像 → tag → push（runner 自带 docker CLI）
+      # 方案：直接用 buildx 构建并推送 ACR（复用 gha 缓存，构建秒级）——
+      # 不走"pull ghcr → retag → push"，规避 runner 侧 manifest 兼容性问题
       # 配置步骤见 docs/ALIYUN_ACR_SETUP.md
       - name: Login to Aliyun ACR
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
@@ -111,34 +112,36 @@ jobs:
           username: ${{ secrets.ALIYUN_ACR_USERNAME }}
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
-      - name: Push images to Aliyun ACR (CN mirror)
+      - name: Build and push backend to Aliyun ACR
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
-        env:
-          GHCR_REPO: ${{ github.repository }}
-          ACR: ${{ secrets.ALIYUN_ACR_REGISTRY }}
-        run: |
-          # FIX: ghcr 镜像路径必须全小写——github.repository 含大写时 docker pull 直接失败
-          GHCR_REPO_LC=$(echo "$GHCR_REPO" | tr '[:upper:]' '[:lower:]')
-          # 诊断辅助：每条命令失败时把真实报错写入 ::error:: 注解（可在 check-run annotations 查看）
-          run_step() {
-            name="$1"; shift
-            if OUT=$("$@" 2>&1); then
-              echo "OK: $name"
-            else
-              ERR=$(echo "$OUT" | tr '\r' '\n' | grep -iE "error|denied|unauthorized|failed|cannot|timeout|invalid" | tail -4)
-              [ -z "$ERR" ] && ERR=$(echo "$OUT" | tr '\r' '\n' | grep -v "Waiting\|Pushing\|Retrying\|Preparing\|Layer" | tail -6)
-              echo "::error::[$name] $ERR"
-              exit 1
-            fi
-          }
-          for tag in ${{ steps.version.outputs.VERSION }} latest; do
-            run_step "pull ghcr backend $tag" docker pull ghcr.io/${GHCR_REPO_LC}:${tag}
-            run_step "tag backend $tag" docker tag ghcr.io/${GHCR_REPO_LC}:${tag} ${ACR}/pygbsentry:${tag}
-            run_step "push backend $tag" docker push ${ACR}/pygbsentry:${tag}
-            run_step "pull ghcr frontend $tag" docker pull ghcr.io/${GHCR_REPO_LC}-frontend:${tag}
-            run_step "tag frontend $tag" docker tag ghcr.io/${GHCR_REPO_LC}-frontend:${tag} ${ACR}/pygbsentry-frontend:${tag}
-            run_step "push frontend $tag" docker push ${ACR}/pygbsentry-frontend:${tag}
-          done
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:latest
+          # FIX: 关闭 provenance——OCI 空描述符不被 ACR 支持
+          provenance: false
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push frontend to Aliyun ACR
+        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:latest
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run Trivy vulnerability scanner on release image
         uses: aquasecurity/trivy-action@master
