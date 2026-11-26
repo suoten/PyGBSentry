@@ -118,37 +118,40 @@ jobs:
         env:
           ACR: ${{ secrets.ALIYUN_ACR_REGISTRY }}
           TAG: ${{ steps.version.outputs.VERSION }}
+          ACR_USER: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          ACR_PASS: ${{ secrets.ALIYUN_ACR_PASSWORD }}
         run: |
-          # 已知限制：GitHub Actions 海外 runner 推阿里云国内 Region（张家口等）需跨海
-          # 访问 dockerauth，链路时断时续（context canceled）——重试 3 次尽力而为；
-          # 若需稳定国内源，建议改用 ACR「云上构建规则」（阿里云国内侧构建，零跨境）
-          run_step() {
-            name="$1"; shift
-            if OUT=$("$@" 2>&1); then
-              echo "OK: $name"
-            else
-              ERR=$(echo "$OUT" | tr '\r' '\n' | grep -iE "error|denied|unauthorized|failed|cannot|timeout|invalid" | tail -4)
-              [ -z "$ERR" ] && ERR=$(echo "$OUT" | tr '\r' '\n' | grep -v "Step\|Pulling\|Already\|Download\|Extracting\|Waiting" | tail -8)
-              echo "::error::[$name] $ERR"
-              exit 1
-            fi
+          # 已知限制：GitHub Actions 海外 runner 推阿里云国内 Region（张家口等）需跨境
+          # 访问 dockerauth，链路时断时续——对策：
+          #   1) 每次推送前重新 docker login（授权会话失效自愈）
+          #   2) 5 次指数退避重试（30s/60s/120s/300s）
+          #   3) 全部失败仅告警不阻塞发布（ghcr 为主源）；稳定国内源可改 ACR「云上构建」
+          acr_login() {
+            printf '%s' "$ACR_PASS" | docker login $ACR -u "$ACR_USER" --password-stdin >/dev/null 2>&1
           }
-          retry_push() {
-            name="$1"; shift
-            for attempt in 1 2 3; do
-              if run_step "$name (attempt $attempt)" "$@"; then return 0; fi
-              echo "retry in 30s..."; sleep 30
+          push_with_retry() {
+            image="$1"
+            for attempt in 1 2 3 4 5; do
+              acr_login
+              if OUT=$(docker push "$image" 2>&1); then
+                echo "OK: push $image (attempt $attempt)"
+                return 0
+              fi
+              ERR=$(echo "$OUT" | tr '\r' '\n' | grep -iE "error|denied|unauthorized|context canceled|timeout|failed" | tail -3)
+              echo "::warning::[push $image 第 ${attempt}/5 次] ${ERR:-未知错误}，稍后重试"
+              case $attempt in 1) sleep 30;; 2) sleep 60;; 3) sleep 120;; 4) sleep 300;; esac
             done
-            exit 1
+            echo "::error::[push $image] 5 次重试均失败（跨境链路不稳定），本次国内源跳过——ghcr 主源不受影响"
+            return 1
           }
-          run_step "build backend" docker build -t $ACR/pygbsentry:$TAG --build-arg APP_VERSION=$TAG ./backend
-          retry_push "push backend" docker push $ACR/pygbsentry:$TAG
-          run_step "tag backend latest" docker tag $ACR/pygbsentry:$TAG $ACR/pygbsentry:latest
-          retry_push "push backend latest" docker push $ACR/pygbsentry:latest
-          run_step "build frontend" docker build -t $ACR/pygbsentry-frontend:$TAG ./frontend
-          retry_push "push frontend" docker push $ACR/pygbsentry-frontend:$TAG
-          run_step "tag frontend latest" docker tag $ACR/pygbsentry-frontend:$TAG $ACR/pygbsentry-frontend:latest
-          retry_push "push frontend latest" docker push $ACR/pygbsentry-frontend:latest
+          docker build -t $ACR/pygbsentry:$TAG --build-arg APP_VERSION=$TAG ./backend
+          push_with_retry $ACR/pygbsentry:$TAG
+          docker tag $ACR/pygbsentry:$TAG $ACR/pygbsentry:latest
+          push_with_retry $ACR/pygbsentry:latest
+          docker build -t $ACR/pygbsentry-frontend:$TAG ./frontend
+          push_with_retry $ACR/pygbsentry-frontend:$TAG
+          docker tag $ACR/pygbsentry-frontend:$TAG $ACR/pygbsentry-frontend:latest
+          push_with_retry $ACR/pygbsentry-frontend:latest
 
       - name: Run Trivy vulnerability scanner on release image
         uses: aquasecurity/trivy-action@master
