@@ -143,11 +143,10 @@ jobs:
 
       - name: Build frontend dist
         working-directory: frontend
-        # FIX: build:full 含 vue-tsc 类型检查，会因既有 459 个 TS 严格性错误失败
-        # （与 frontend/Dockerfile 的处理一致，改用 build：lint + vite build）
+        # TS 债务专项已清零（2026-11-26），恢复 build:full（含 vue-tsc 类型检查）
         run: |
           pnpm install --frozen-lockfile
-          pnpm run build
+          pnpm run build:full
 
       - name: Package frontend dist
         run: |

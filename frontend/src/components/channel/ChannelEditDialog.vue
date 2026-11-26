@@ -76,9 +76,10 @@
         <el-row>
           <el-col :span="12">
             <!-- FIX [2026-11-21] (ROADMAP Phase3:按通道云端录像开关):三态——跟随全局/强制录/强制不录 -->
+            <!-- FIX (TS2322): el-radio-group 类型模型不含 null，经 computed 桥接（运行时仍以 null 表示"跟随全局"，与后端 API 对齐） -->
             <el-form-item :label="t('channel.edit.cloudRecord')">
-              <el-radio-group v-model="form.cloud_record">
-                <el-radio :value="null">{{ t('channel.edit.cloudRecordFollow') }}</el-radio>
+              <el-radio-group v-model="cloudRecordUi">
+                <el-radio :value="null as unknown as string">{{ t('channel.edit.cloudRecordFollow') }}</el-radio>
                 <el-radio :value="true">{{ t('channel.edit.cloudRecordOn') }}</el-radio>
                 <el-radio :value="false">{{ t('channel.edit.cloudRecordOff') }}</el-radio>
               </el-radio-group>
@@ -271,6 +272,15 @@ const form = ref<{
   longitude: null, latitude: null, address: null, parental: 0, safety_way: 0, register_way: 1, secrecy: 0,
   ip_address: null, port: null, password: null, ptz_type: 0, position_type: 0, room_type: 0, use_type: 0,
   supply_light_type: 0, direction_type: 0, resolution: null, business_group_id: null
+})
+
+// el-radio-group 类型模型为 string | number | boolean | undefined（不含 null）；
+// 业务上"跟随全局"= null，经 computed 双向桥接做类型适配（运行时语义不变）
+const cloudRecordUi = computed({
+  get: () => form.value.cloud_record as unknown as string | number | boolean | undefined,
+  set: (v: string | number | boolean | undefined) => {
+    form.value.cloud_record = typeof v === 'boolean' ? v : null
+  },
 })
 
 watch(() => props.visible, (val) => {

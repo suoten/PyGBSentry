@@ -19,12 +19,9 @@ COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY . .
-# FIX: [2026-07-10] 原使用 build:full（含 vue-tsc 类型检查），但存在 459 个既有 TS 严格性
-# 错误（技术债）导致 Docker 构建失败。改用 build（含代码规范检查 + vite build），
-# 产物与 build:full 一致（vite build 用 esbuild 转译，不阻断于类型错误）。
-# vue-tsc 类型错误为编译期检查，不影响运行时正确性。待 TS 技术债清理后可恢复 build:full。
-# [全栈工程师]
-RUN pnpm run build
+# TS 债务专项已清零（2026-11-26 vue-tsc 0 错误），恢复 build:full（含 vue-tsc 类型检查）
+# [历史] 原 459 个 TS 严格性错误导致构建失败而临时降级为 build，现已恢复
+RUN pnpm run build:full
 
 # Production Stage
 FROM nginx:stable-alpine AS production-stage
