@@ -98,6 +98,15 @@ jobs:
       #   ALIYUN_ACR_USERNAME / ALIYUN_ACR_PASSWORD（ACR 固定密码，非阿里云登录密码）
       # 原理：docker pull ghcr 镜像 → tag → push（runner 自带 docker CLI）
       # 配置步骤见 docs/ALIYUN_ACR_SETUP.md
+      - name: Login to Aliyun ACR
+        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        # 用 login-action 而非 shell echo：凭据不经 shell 展开，密码含特殊字符也安全
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          username: ${{ secrets.ALIYUN_ACR_USERNAME }}
+          password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+
       - name: Push images to Aliyun ACR (CN mirror)
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
         env:
@@ -106,9 +115,6 @@ jobs:
           # FIX: ghcr 镜像路径必须全小写——github.repository 含大写（如 suoten/PyGBSentry）
           # 时 docker pull 直接失败（该步骤首次真正执行时暴露，此前 secrets 未配置一直被跳过）
           GHCR_REPO_LC=$(echo "$GHCR_REPO" | tr '[:upper:]' '[:lower:]')
-          echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | \
-            docker login ${{ secrets.ALIYUN_ACR_REGISTRY }} \
-              -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin
           for tag in ${{ steps.version.outputs.VERSION }} latest; do
             docker pull ghcr.io/${GHCR_REPO_LC}:${tag}
             docker tag ghcr.io/${GHCR_REPO_LC}:${tag} \
