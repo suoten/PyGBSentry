@@ -14,7 +14,10 @@
 ## 2. 创建命名空间
 
 1. 控制台左侧「**命名空间管理**」→ 创建命名空间（如 `suoten`）
-2. 记下你的 **Registry 地址**，格式：`registry.cn-<地域>.aliyuncs.com`（如杭州是 `registry.cn-hangzhou.aliyuncs.com`）
+2. 记下你的 **Registry 地址**（在实例概览/访问凭证页可见），两种格式都正常：
+   - 新版个人版实例：`crpi-xxxxxx.<地域>.personal.cr.aliyuncs.com`（如 `crpi-xk6rexdt9rmbqr8l.cn-zhangjiakou.personal.cr.aliyuncs.com`）
+   - 旧版经典实例：`registry.cn-<地域>.aliyuncs.com`（如 `registry.cn-hangzhou.aliyuncs.com`）
+   - **Secret 只填主机名部分**（不含命名空间/仓库名，工作流自动拼接）
 3. **建议**：在命名空间设置里开启「自动创建仓库」（push 时自动建 repo）；
    若不开启，请手动创建两个仓库：`pygbsentry`、`pygbsentry-frontend`
 4. 每个仓库建议设为「**公开**」——国内用户拉取免登录（私有则拉取需 `docker login`）
@@ -25,7 +28,7 @@
 
 | Secret 名称 | 值 | 说明 |
 |---|---|---|
-| `ALIYUN_ACR_REGISTRY` | `registry.cn-hangzhou.aliyuncs.com/suoten` | Registry 地址 + `/你的命名空间` |
+| `ALIYUN_ACR_REGISTRY` | `crpi-xxxxxx.cn-zhangjiakou.personal.cr.aliyuncs.com` | Registry 主机名（不含命名空间/仓库名） |
 | `ALIYUN_ACR_USERNAME` | （见下方说明） | ACR 登录用户名 |
 | `ALIYUN_ACR_PASSWORD` | （你设置的固定密码） | ACR 固定密码 |
 
