@@ -100,18 +100,22 @@ jobs:
       # 配置步骤见 docs/ALIYUN_ACR_SETUP.md
       - name: Push images to Aliyun ACR (CN mirror)
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
+        env:
+          GHCR_REPO: ${{ github.repository }}
         run: |
-          # FIX: 补 ACR 登录——之前替换 retag action 时丢失了 login，推送会 403
+          # FIX: ghcr 镜像路径必须全小写——github.repository 含大写（如 suoten/PyGBSentry）
+          # 时 docker pull 直接失败（该步骤首次真正执行时暴露，此前 secrets 未配置一直被跳过）
+          GHCR_REPO_LC=$(echo "$GHCR_REPO" | tr '[:upper:]' '[:lower:]')
           echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | \
             docker login ${{ secrets.ALIYUN_ACR_REGISTRY }} \
               -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin
           for tag in ${{ steps.version.outputs.VERSION }} latest; do
-            docker pull ghcr.io/${{ github.repository }}:${tag}
-            docker tag ghcr.io/${{ github.repository }}:${tag} \
+            docker pull ghcr.io/${GHCR_REPO_LC}:${tag}
+            docker tag ghcr.io/${GHCR_REPO_LC}:${tag} \
               ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${tag}
             docker push ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${tag}
-            docker pull ghcr.io/${{ github.repository }}-frontend:${tag}
-            docker tag ghcr.io/${{ github.repository }}-frontend:${tag} \
+            docker pull ghcr.io/${GHCR_REPO_LC}-frontend:${tag}
+            docker tag ghcr.io/${GHCR_REPO_LC}-frontend:${tag} \
               ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${tag}
             docker push ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${tag}
           done
