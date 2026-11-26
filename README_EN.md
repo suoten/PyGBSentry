@@ -36,12 +36,28 @@ PyGBSentry is a production-grade video surveillance platform built from the grou
 
 ## ⚡ Zero-Hardware Demo (No Camera Needed)
 
+**Prerequisites**: a machine with Docker (Windows: Docker Desktop + Git Bash; Linux native). **No camera, Python, or Node needed** — prebuilt images are published by CI; first start takes ~3-5 minutes.
+
 ```bash
+# 1. Clone
 git clone https://github.com/suoten/PyGBSentry.git && cd PyGBSentry
+
+# 2. One-click start (pulls images, generates config, waits until ready)
 bash demo.sh
+
+# 3. Open http://<your-host>/
+#    Login: admin — initial password is printed by demo.sh, or:
+docker exec pygbsentry-backend-1 cat /app/data/.admin_initial_password
 ```
 
-A **built-in GB28181 device simulator** (pure Python, zero third-party dependencies) brings 2 simulated NVRs online automatically — registration, keepalive, catalog, INVITE, RTP streaming and ZLM distribution all work with **no physical camera at all**. Perfect for sales demos, CI protocol regression testing, and development.
+What you get: **2 simulated NVRs online** (2 channels each), click any channel and a test-card video appears within ~3 seconds (flv/hls in the browser). The Operations Center (deployment check, play diagnostics, traffic stats) is fully usable too.
+
+```bash
+bash demo.sh --stop    # stop (keep data)
+bash demo.sh --down    # remove containers (keep volumes)
+```
+
+A **built-in GB28181 device simulator** (pure Python, zero third-party dependencies) makes this possible — registration, keepalive, catalog, INVITE, RTP streaming and ZLM distribution all work with **no physical camera at all**. Perfect for sales demos, CI protocol regression testing, and development.
 
 | Mode | Command | Use case |
 |------|---------|----------|

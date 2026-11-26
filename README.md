@@ -38,14 +38,44 @@ _开箱即用的国标（GB/T 28181-2022）视频管理平台 —— 纯 Python 
 
 ## ⚡ 5 分钟零硬件体验（无需任何摄像头）
 
+**前置要求**：一台装了 Docker 的电脑（Windows：Docker Desktop + Git Bash；Linux 自带）。**不需要摄像头、Python、Node**——预构建镜像由 CI 发布，首次启动约 3~5 分钟。
+
+### 三步走
+
 ```bash
+# 1. 克隆仓库
 git clone https://github.com/suoten/PyGBSentry.git && cd PyGBSentry
+
+# 2. 一键启动（自动拉取镜像、生成配置、等待就绪）
 bash demo.sh
+
+# 3. 浏览器打开 http://<本机IP>/
+#    账号 admin；初始密码看 demo.sh 完成时的提示，或：
+docker exec pygbsentry-backend-1 cat /app/data/.admin_initial_password
 ```
 
-内置 **GB28181 设备模拟器**：2 台模拟 NVR 自动注册上线，点播任意通道即出
-测试卡画面——注册、心跳、目录、INVITE 点播、RTP 收流、ZLM 分发全链路，
-**没有摄像头也能完整体验平台**。详见下方 [🎬 设备模拟器](#-设备模拟器零硬件体验引擎) 章节。
+### demo.sh 自动完成的事
+
+- 生成 `.env`：随机密钥 + 强口令（满足 prod 安全校验）+ 自动探测本机 IP
+- 启动全栈：backend / frontend / PostgreSQL / Redis / ZLM 流媒体 / 设备模拟器
+- 等待 backend 就绪 → 重启 zlm 重挂网络栈 → 自动把媒体节点 SDP IP 指向
+  backend 容器（绕开 Docker Desktop UDP 回环丢包）→ 清理黑名单
+
+### 完成后你会看到
+
+- **设备列表**：2 台模拟 NVR（`34020000001310000001` / `34020000001310000002`）在线，各 2 通道
+- **点播**：点击任意通道，约 3 秒内出测试卡画面（浏览器直接看 flv/hls）
+- **运维中心**：部署体检、播放诊断、流量统计等页面全部可用
+
+### 停止与清理
+
+```bash
+bash demo.sh --stop    # 停止服务（保留数据）
+bash demo.sh --down    # 删除容器（保留数据卷）
+```
+
+> 点播无画面、设备离线等问题速查 [tools/device-simulator/README.md](tools/device-simulator/README.md)
+> 的故障排查表；想自定义模拟设备数量/通道数等参数见下方 [🎬 设备模拟器](#-设备模拟器零硬件体验引擎) 章节。
 
 **PyGBSentry** 基于**最新 GB/T 28181-2022 标准**构建（向下兼容 2016 版设备）。与依赖第三方 C 库或商业 SIP 中间件的方案不同，我们从零实现了**纯 Python 的 SIP/GB28181 协议栈**，让你真正掌控从信令到流媒体的全链路。
 
