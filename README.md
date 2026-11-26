@@ -67,6 +67,8 @@ docker exec pygbsentry-backend-1 cat /app/data/.admin_initial_password
 - **点播**：点击任意通道，约 3 秒内出测试卡画面（浏览器直接看 flv/hls）
 - **运维中心**：部署体检、播放诊断、流量统计等页面全部可用
 
+📺 **B 站演示视频**：[纯 Python 自研 SIP 栈的国标视频平台演示](https://www.bilibili.com/video/BV1Htac6REn3)
+
 ### 停止与清理
 
 ```bash
