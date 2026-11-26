@@ -1,5 +1,13 @@
 # 阿里云 ACR 国内镜像配置指南（5 分钟，一次配置永久自动）
 
+> ⚠️ **已知限制（2026-11-26 实测）**：GitHub Actions 的 runner 在海外，推送阿里云
+> **国内 Region**（如张家口）需要跨境访问 `dockerauth-*.aliyuncs.com` 做授权，
+> 链路时断时续（`context canceled`）。工作流已做 3 次重试且失败不阻塞发布
+> （ghcr 为主源），但 ACR 同步成功率无法保证。
+> **国内用户的稳定拉取路径是 daocloud 代理**（ghcr.m.daocloud.io，零配置）。
+> 若需完全稳定的专属国内源，建议改用 ACR 仓库的「**云上构建规则**」
+> （仓库绑定 GitHub 源码，阿里云国内侧构建，彻底避开跨境推送）。
+
 > 目标：每次 `git tag v1.x.x` 发布时，CI 自动把 backend / frontend 镜像同步推送到
 > 阿里云 ACR，国内用户直接 `docker pull`，不再依赖 ghcr.io 或 daocloud 代理。
 >
