@@ -112,36 +112,23 @@ jobs:
           username: ${{ secrets.ALIYUN_ACR_USERNAME }}
           password: ${{ secrets.ALIYUN_ACR_PASSWORD }}
 
-      - name: Build and push backend to Aliyun ACR
+      - name: Build and push images to Aliyun ACR (classic docker)
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          file: backend/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${{ steps.version.outputs.VERSION }}
-            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:latest
-          # FIX: 关闭 provenance——OCI 空描述符不被 ACR 支持
-          provenance: false
-          build-args: |
-            APP_VERSION=${{ steps.version.outputs.VERSION }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build and push frontend to Aliyun ACR
-        if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          file: frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${{ steps.version.outputs.VERSION }}
-            ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:latest
-          provenance: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+        env:
+          ACR: ${{ secrets.ALIYUN_ACR_REGISTRY }}
+          TAG: ${{ steps.version.outputs.VERSION }}
+        run: |
+          # FIX: buildx 的 OCI manifest 格式被 ACR 个人版拒绝（insufficient_scope /
+          # unknown manifest class），改用经典 docker build + push——与本地实测成功
+          # 的路径完全一致。代价是不复用 gha 缓存、全量构建，发版时长 +15 分钟左右
+          docker build -t $ACR/pygbsentry:$TAG --build-arg APP_VERSION=$TAG ./backend
+          docker push $ACR/pygbsentry:$TAG
+          docker tag $ACR/pygbsentry:$TAG $ACR/pygbsentry:latest
+          docker push $ACR/pygbsentry:latest
+          docker build -t $ACR/pygbsentry-frontend:$TAG ./frontend
+          docker push $ACR/pygbsentry-frontend:$TAG
+          docker tag $ACR/pygbsentry-frontend:$TAG $ACR/pygbsentry-frontend:latest
+          docker push $ACR/pygbsentry-frontend:latest
 
       - name: Run Trivy vulnerability scanner on release image
         uses: aquasecurity/trivy-action@master
