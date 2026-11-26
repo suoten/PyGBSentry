@@ -279,3 +279,8 @@ dist_setup/
 .workbuddy/
 frontend/.pnpm-store/
 frontend/.pnpm-store/
+
+# 内部运营资料（变现策略/服务报价），不公开
+/docs/promotion/internal-*
+/docs/promotion/service-*
+/docs/promotion/00-*
