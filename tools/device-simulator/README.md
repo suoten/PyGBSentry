@@ -3,8 +3,7 @@
 **没有摄像头也能跑通 GB28181 全链路。** 一条命令拉起 N 台模拟 IPC/NVR，自动完成
 注册、心跳、目录上报；平台点播即出画面（ffmpeg 生成的测试卡视频循环流）。
 
-这也是对 wvp-GB28181-pro 的差异化能力：它的体验从"先买台海康"开始，PyGBSentry
-的体验从 `docker compose up` 开始。
+这改变了国标平台的传统体验路径——从"先买台海康设备"才能开始验证，变为先体验后采购。
 
 ## 能力清单
 
@@ -66,7 +65,7 @@ docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d devic
     overlay 已映射 `42001-42200`。
 - 模拟器接入 `frontend` 网络，与 backend 容器互通。
 
-## 独立运行（不部署平台，用于对接 wvp 等其他平台做兼容测试）
+## 独立运行（不部署平台，用于对接其他国标平台做兼容测试）
 
 ```bash
 cd tools/device-simulator
