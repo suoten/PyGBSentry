@@ -95,11 +95,16 @@ jobs:
 
       # 国内镜像：配置以下 Repository Secrets 后自动启用阿里云 ACR 推送
       #   ALIYUN_ACR_REGISTRY（如 registry.cn-hangzhou.aliyuncs.com/<namespace>）
-      #   ALIYUN_ACR_USERNAME / ALIYUN_ACR_PASSWORD
-      # （retag 原理：docker pull ghcr 镜像 → tag → push，runner 自带 docker CLI）
+      #   ALIYUN_ACR_USERNAME / ALIYUN_ACR_PASSWORD（ACR 固定密码，非阿里云登录密码）
+      # 原理：docker pull ghcr 镜像 → tag → push（runner 自带 docker CLI）
+      # 配置步骤见 docs/ALIYUN_ACR_SETUP.md
       - name: Push images to Aliyun ACR (CN mirror)
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
         run: |
+          # FIX: 补 ACR 登录——之前替换 retag action 时丢失了 login，推送会 403
+          echo "${{ secrets.ALIYUN_ACR_PASSWORD }}" | \
+            docker login ${{ secrets.ALIYUN_ACR_REGISTRY }} \
+              -u "${{ secrets.ALIYUN_ACR_USERNAME }}" --password-stdin
           for tag in ${{ steps.version.outputs.VERSION }} latest; do
             docker pull ghcr.io/${{ github.repository }}:${tag}
             docker tag ghcr.io/${{ github.repository }}:${tag} \

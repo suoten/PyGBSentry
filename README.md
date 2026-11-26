@@ -141,6 +141,9 @@ docker pull ghcr.m.daocloud.io/suoten/pygbsentry:latest
 docker pull ghcr.m.daocloud.io/suoten/pygbsentry-frontend:latest
 ```
 
+> **想要专属国内源？** 配置阿里云 ACR（免费个人版）后，每次发版 CI 自动同步镜像，
+> 一次配置永久生效——步骤见 [docs/ALIYUN_ACR_SETUP.md](docs/ALIYUN_ACR_SETUP.md)。
+
 ---
 
 ## ✨ 为什么选择 PyGBSentry？
@@ -553,6 +556,7 @@ PyGBSentry 与 GBWatch 服务于不同场景：**学习、二次开发、AI 集�
 | [API_CONTRACT.md](docs/API_CONTRACT.md) | 集成开发者 | API 兼容性口径、CI 契约机制、破坏性变更流程 |
 | [ROADMAP.md](docs/ROADMAP.md) | 所有人 | 产品路线图（基于同类平台社区反馈的需求分析） |
 | [QA_TROUBLESHOOT.md](docs/QA_TROUBLESHOOT.md) | 所有人 | 常见问题与排查步骤 |
+| [ALIYUN_ACR_SETUP.md](docs/ALIYUN_ACR_SETUP.md) | 维护者 | 国内镜像源（阿里云 ACR）一次配置永久自动同步 |
 | [设备模拟器](tools/device-simulator/README.md) | 测试/演示 | 零硬件体验引擎：模拟 NVR 注册/点播/收流，环境变量与排查表 |
 
 ---
