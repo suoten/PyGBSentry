@@ -111,19 +111,27 @@ jobs:
         if: ${{ env.ALIYUN_ACR_REGISTRY != '' }}
         env:
           GHCR_REPO: ${{ github.repository }}
+          ACR: ${{ secrets.ALIYUN_ACR_REGISTRY }}
         run: |
-          # FIX: ghcr 镜像路径必须全小写——github.repository 含大写（如 suoten/PyGBSentry）
-          # 时 docker pull 直接失败（该步骤首次真正执行时暴露，此前 secrets 未配置一直被跳过）
+          # FIX: ghcr 镜像路径必须全小写——github.repository 含大写时 docker pull 直接失败
           GHCR_REPO_LC=$(echo "$GHCR_REPO" | tr '[:upper:]' '[:lower:]')
+          # 诊断辅助：每条命令失败时把真实报错写入 ::error:: 注解（可在 check-run annotations 查看）
+          run_step() {
+            name="$1"; shift
+            if OUT=$("$@" 2>&1); then
+              echo "OK: $name"
+            else
+              echo "::error::[$name] $(echo "$OUT" | tail -c 1200)"
+              exit 1
+            fi
+          }
           for tag in ${{ steps.version.outputs.VERSION }} latest; do
-            docker pull ghcr.io/${GHCR_REPO_LC}:${tag}
-            docker tag ghcr.io/${GHCR_REPO_LC}:${tag} \
-              ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${tag}
-            docker push ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry:${tag}
-            docker pull ghcr.io/${GHCR_REPO_LC}-frontend:${tag}
-            docker tag ghcr.io/${GHCR_REPO_LC}-frontend:${tag} \
-              ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${tag}
-            docker push ${{ secrets.ALIYUN_ACR_REGISTRY }}/pygbsentry-frontend:${tag}
+            run_step "pull ghcr backend $tag" docker pull ghcr.io/${GHCR_REPO_LC}:${tag}
+            run_step "tag backend $tag" docker tag ghcr.io/${GHCR_REPO_LC}:${tag} ${ACR}/pygbsentry:${tag}
+            run_step "push backend $tag" docker push ${ACR}/pygbsentry:${tag}
+            run_step "pull ghcr frontend $tag" docker pull ghcr.io/${GHCR_REPO_LC}-frontend:${tag}
+            run_step "tag frontend $tag" docker tag ghcr.io/${GHCR_REPO_LC}-frontend:${tag} ${ACR}/pygbsentry-frontend:${tag}
+            run_step "push frontend $tag" docker push ${ACR}/pygbsentry-frontend:${tag}
           done
 
       - name: Run Trivy vulnerability scanner on release image
