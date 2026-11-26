@@ -1,0 +1,47 @@
+name: 🐛 问题反馈（Bug）
+description: 部署/功能/协议接入遇到的问题
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: deploy_method
+    attributes:
+      label: 部署方式
+      options:
+        - "Docker Compose（demo.sh / 预构建镜像）"
+        - "Windows 一键安装包"
+        - "Windows 便携版 zip"
+        - "一键脚本 install.sh / install.bat"
+        - "源码部署"
+        - "其他"
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: 现象描述
+      description: 期望什么 / 实际看到什么
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 首先 ...
+        2. 然后 ...
+        期望 ... 结果 ...
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 部署体检 / 播放诊断结果
+      description: 运维中心「部署体检」或播放失败界面的「运行播放诊断」截图/输出——这两项能极大加快定位
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志
+      description: backend 容器日志 / zlm 日志的相关片段
+  - type: input
+    id: version
+    attributes:
+      label: 版本 / 环境
+      placeholder: "v1.0.0 / Windows 11 / Docker 27 / Chrome"

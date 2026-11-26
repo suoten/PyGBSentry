@@ -1,0 +1,23 @@
+name: 💡 功能建议
+description: 希望平台支持的功能或改进
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: scenario
+    attributes:
+      label: 使用场景
+      description: 什么业务/项目场景下需要这个功能？解决什么问题？
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 期望方案
+      description: 你期望的交互/行为，能举现有产品的例子更好
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已查阅公开路线图（docs/ROADMAP.md），确认此需求未被覆盖
+          required: true

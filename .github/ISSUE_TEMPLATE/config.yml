@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 QQ 交流群（928800460）
+    url: https://github.com/suoten/PyGBSentry#readme
+    about: 群号见 README「社区与支持」章节；部署疑难、级联对接、厂商兼容问题欢迎加群交流（作者在线）
+  - name: 📚 常见问题排查手册
+    url: https://gitee.com/suoten/PyGBSentry/blob/master/docs/QA_TROUBLESHOOT.md
+    about: 提问前请先对照排查手册与 docs/ 下文档
