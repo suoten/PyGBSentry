@@ -15,6 +15,8 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/suoten/PyGBSentry/actions/workflows/ci.yml"><img src="https://github.com/suoten/PyGBSentry/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/suoten/PyGBSentry/releases"><img src="https://img.shields.io/github/v/release/suoten/PyGBSentry?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/License-AGPL%20v3.0-blue.svg" alt="License: AGPL v3.0">
   <img src="https://img.shields.io/badge/Python-3.10%2B-3776AB.svg" alt="Python 3.10+">
   <img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg" alt="FastAPI 0.115+">
@@ -29,6 +31,25 @@
 > You just found it. **For production deployments with a Go single-binary, plugin marketplace and enterprise licensing, check out the commercial edition [GBWatch](#-commercial-edition-gbwatchgo).**
 
 PyGBSentry is a production-grade video surveillance platform built from the ground up with **Python + FastAPI**. No wrapping legacy C/C++ stacks — a **pure Python SIP signaling engine** that is fully transparent, debuggable, and extensible. From device registration to cascade federation, every byte is yours to inspect and customize.
+
+---
+
+## ⚡ Zero-Hardware Demo (No Camera Needed)
+
+```bash
+git clone https://github.com/suoten/PyGBSentry.git && cd PyGBSentry
+bash demo.sh
+```
+
+A **built-in GB28181 device simulator** (pure Python, zero third-party dependencies) brings 2 simulated NVRs online automatically — registration, keepalive, catalog, INVITE, RTP streaming and ZLM distribution all work with **no physical camera at all**. Perfect for sales demos, CI protocol regression testing, and development.
+
+| Mode | Command | Use case |
+|------|---------|----------|
+| One-click stack | `bash demo.sh` | Fastest start (auto-generates .env, auto-configures SDP IP) |
+| Compose overlay | `docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d` | Custom `.env` parameters |
+| Standalone | `python tools/device-simulator/device_simulator.py` | Testing against other GB28181 platforms |
+
+See [tools/device-simulator/README.md](tools/device-simulator/README.md) for full details and the troubleshooting guide.
 
 ---
 

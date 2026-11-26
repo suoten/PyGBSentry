@@ -11,6 +11,8 @@ _开箱即用的国标（GB/T 28181-2022）视频管理平台 —— 纯 Python 
 </p>
 
 <p align="center">
+  <a href="https://github.com/suoten/PyGBSentry/actions/workflows/ci.yml"><img src="https://github.com/suoten/PyGBSentry/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/suoten/PyGBSentry/releases"><img src="https://img.shields.io/github/v/release/suoten/PyGBSentry?include_prereleases" alt="Release"></a>
   <img src="https://img.shields.io/badge/License-AGPL%20v3.0-blue.svg" alt="License: AGPL v3.0">
   <img src="https://img.shields.io/badge/Python-3.12%2B-3776AB.svg" alt="Python 3.12+">
   <img src="https://img.shields.io/badge/FastAPI-0.115%2B-009688.svg" alt="FastAPI 0.115+">
@@ -43,9 +45,55 @@ bash demo.sh
 
 内置 **GB28181 设备模拟器**：2 台模拟 NVR 自动注册上线，点播任意通道即出
 测试卡画面——注册、心跳、目录、INVITE 点播、RTP 收流、ZLM 分发全链路，
-**没有摄像头也能完整体验平台**。详细说明见 [tools/device-simulator](tools/device-simulator/README.md)。
+**没有摄像头也能完整体验平台**。详见下方 [🎬 设备模拟器](#-设备模拟器零硬件体验引擎) 章节。
 
 **PyGBSentry** 基于**最新 GB/T 28181-2022 标准**构建（向下兼容 2016 版设备）。与依赖第三方 C 库或商业 SIP 中间件的方案不同，我们从零实现了**纯 Python 的 SIP/GB28181 协议栈**，让你真正掌控从信令到流媒体的全链路。
+
+## 🎬 设备模拟器（零硬件体验引擎）
+
+模拟器是仓库自带的 GB28181 终端仿真器（**纯 Python、零第三方依赖**），把"没有摄像头"
+从体验障碍变成平台自身的演示与测试能力——销售演示、CI 协议回归、开发调试三合一。
+
+### 协议能力清单
+
+| 能力 | 实现要点 |
+|------|---------|
+| 注册与注销 | Digest 认证（qop=auth、SHA-256/MD5 自动跟随质询、cnonce 防重放） |
+| 心跳保活 | Keepalive SN 单调递增（毫秒时间戳起步防回退） |
+| 目录与查询 | Catalog / DeviceInfo / DeviceStatus / TimeSync 全响应，SumNum / DeviceList@Num 兼容分包 |
+| 点播交互 | INVITE SDP 协商（y= SSRC 回显、f= 字段、TCP setup 主动/被动翻转） |
+| 媒体推流 | RTP PS 流循环发送（UDP + RFC4571 TCP），SSRC / PT / marker 与 SDP 严格一致 |
+| 挂断与会话 | BYE 响应、ACK 兜底发流、会话状态机完整清理 |
+
+### 三种使用方式
+
+| 方式 | 命令 | 场景 |
+|------|------|------|
+| ① 一键全栈 | `bash demo.sh` | 最快体验（自动生成 .env、自动配置 SDP IP、自动清黑名单） |
+| ② compose overlay | `docker compose -f docker-compose.yml -f docker-compose.simulator.yml up -d` | 需要自定义 `.env` 参数时 |
+| ③ 独立运行 | `python tools/device-simulator/device_simulator.py` | 不部署本平台，对接其他国标平台做兼容性测试 |
+
+### 可调参数（.env，前缀 `SIM_`）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SIM_DEVICE_COUNT` | 2 | 模拟设备数（NVR 台数） |
+| `SIM_CHANNELS_PER_DEVICE` | 2 | 每台设备的通道数 |
+| `SIM_DEVICE_PASSWORD` | 与 `SIP_DEFAULT_PASSWORD` 同步 | 设备接入密码 |
+| `SIM_SERVER_ID` | 34020000002000000001 | 平台服务器 ID |
+| `SIM_SIP_DOMAIN` | 3402000000 | SIP 域（默认取服务器 ID 前 10 位） |
+| `SIM_PLATFORM_HOST` | backend | 平台地址（跨机部署改为宿主机 IP） |
+| `SIM_KEEPALIVE_INTERVAL` | 60 | 心跳间隔（秒） |
+| `SIM_MEDIA_FPS` / `SIM_MEDIA_SIZE` | 25 / 704x576 | 测试卡帧率与分辨率 |
+| `SIM_MEDIA_DURATION` | 30 | 测试卡视频时长（秒，循环播放） |
+
+### 自带协议回归测试
+
+`python tools/device-simulator/local_e2e_test.py` —— 内置假平台独立验算注册/目录/
+点播/收流四阶段，无需启动真实平台即可跑，可直接作为 CI 协议回归用例。
+
+> 完整部署拓扑、Docker Desktop 踩坑记录与故障排查表见
+> [tools/device-simulator/README.md](tools/device-simulator/README.md)。
 
 ## 🐳 免构建：直接拉取 Docker 镜像
 
@@ -473,8 +521,9 @@ PyGBSentry 与 GBWatch 服务于不同场景：**学习、二次开发、AI 集�
 | [COMPATIBILITY.md](docs/COMPATIBILITY.md) | 实施/用户 | 浏览器与设备兼容性矩阵、厂商特性开关 |
 | [TENANCY.md](docs/TENANCY.md) | 实施/用户 | 多租户模型、角色体系、多部门/代理商场景指南 |
 | [API_CONTRACT.md](docs/API_CONTRACT.md) | 集成开发者 | API 兼容性口径、CI 契约机制、破坏性变更流程 |
-| [ROADMAP.md](docs/ROADMAP.md) | 所有人 | 产品路线图（基于同类项目 456 个 issue 的需求分析） |
+| [ROADMAP.md](docs/ROADMAP.md) | 所有人 | 产品路线图（基于同类平台社区反馈的需求分析） |
 | [QA_TROUBLESHOOT.md](docs/QA_TROUBLESHOOT.md) | 所有人 | 常见问题与排查步骤 |
+| [设备模拟器](tools/device-simulator/README.md) | 测试/演示 | 零硬件体验引擎：模拟 NVR 注册/点播/收流，环境变量与排查表 |
 
 ---
 
