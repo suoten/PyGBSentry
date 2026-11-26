@@ -67,6 +67,9 @@ jobs:
           file: backend/Dockerfile
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          # FIX: 关闭 provenance 证明清单——其 OCI 空描述符(vnd.oci.empty.v1+json)
+          # 不被阿里云 ACR 支持，push 时报 unknown manifest class
+          provenance: false
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             APP_VERSION=${{ steps.version.outputs.VERSION }}
@@ -89,6 +92,7 @@ jobs:
           file: frontend/Dockerfile
           push: true
           tags: ${{ steps.meta_frontend.outputs.tags }}
+          provenance: false
           labels: ${{ steps.meta_frontend.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
