@@ -121,7 +121,9 @@ jobs:
             if OUT=$("$@" 2>&1); then
               echo "OK: $name"
             else
-              echo "::error::[$name] $(echo "$OUT" | tail -c 1200)"
+              ERR=$(echo "$OUT" | tr '\r' '\n' | grep -iE "error|denied|unauthorized|failed|cannot|timeout|invalid" | tail -4)
+              [ -z "$ERR" ] && ERR=$(echo "$OUT" | tr '\r' '\n' | grep -v "Waiting\|Pushing\|Retrying\|Preparing\|Layer" | tail -6)
+              echo "::error::[$name] $ERR"
               exit 1
             fi
           }
